@@ -1,4 +1,4 @@
-I got these from my friend Doug ... Thanks Doug! :D
+I got these from my friend Abby ... Thanks Abby! :D
 
 Using Powerline fonts in cygwin:
 DejaVu Sans Mono for Powerline
