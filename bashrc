@@ -4,7 +4,7 @@
 # Update window size.
 shopt -s checkwinsize
 
-# Bash specific functions 
+# Bash specific functions
 [ -f "$HOME/.bash_functions_colors" ] && . "$HOME/.bash_functions_colors"
 [ -f "$HOME/.bash_functions_git" ] && . "$HOME/.bash_functions_git"
 [ -f "$HOME/.bash_functions_calendar" ] && . "$HOME/.bash_functions_calendar"
@@ -123,3 +123,6 @@ fi
 
 # Add RVM to PATH for scripting. Make sure this is the last PATH variable change.
 export PATH="$PATH:$HOME/.rvm/bin"
+
+# for NPM
+export NPM_TOKEN=24741636-a15e-47f1-883b-36bd8fa2de1b
