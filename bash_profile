@@ -32,3 +32,7 @@ function git_cleanup {
   git branch -vv|grep ': gone]'| grep -v '\*\|master\|develop' |awk '{print $1}'|xargs git branch -D
 }
 export -f git_cleanup
+=======
+# vim:: set ft=sh
+#export CLICOLOR=1
+#export LSCOLORS=GxFxCxDxBxegedabagaced

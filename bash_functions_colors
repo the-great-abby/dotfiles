@@ -1,4 +1,13 @@
 # vim: ft=sh
+#export CLICOLOR=1
+#export LSCOLORS=GxFxCxDxegedabagaced
+
+export FORMATTING_UNDERLINE='\e[0;4m'
+export FORMATTING_BOLD='\e[1m'
+export FORMATTING_DIM='\e[2m'
+export FORMATTING_BLINK='\e[5m'
+export FORMATTING_INVERT='\e[7m'
+export FORMATTING_HIDDEN='\e[8m'
 export COLOR_NC='\e[0m' # No Color
 export COLOR_WHITE='\e[1;37m'
 export COLOR_BLACK='\e[0;30m'
@@ -38,22 +47,27 @@ function color_note_section {
   ## notes should be made with white
   # echo -en "\033[97m $1 \e[0m"
   # notes should be made with normal
-  echo -e "\033[39m $1 \e[0m"
+  printf "${COLOR_NC}$1 ${COLOR_NC}\n"
 }
 
 function color_command_section {
   # notes should be made with yellow bold 
-  echo -en "\e[33m\e[1m $1 \e[0m"
+  printf "${COLOR_YELLOW}${FORMATTING_BOLD}$1${COLOR_NC}\n"
 }
 
 function color_heading_section {
   # notes should appear as red
-  echo -en "\e[31m $1 \e[0m"
+  printf "${COLOR_LIGHT_RED}$1${COLOR_NC}\n" 
+}
+
+function color_dividing_section {
+  # notes should appear as red
+  printf "${COLOR_WHITE}-----------------------------------------${COLOR_NC}\n" 
 }
 
 function color_hyperlink_section {
   # notes should appear as blue underline
-  echo -en "\e[34m \e[4m $1 \e[0m"
+  printf "${COLOR_LIGHT_BLUE}${FORMATTING_UNDERLINE}$1${COLOR_NC}\n" 
 }
 
 function color_start {
