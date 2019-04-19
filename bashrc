@@ -156,16 +156,4 @@ export PATH="~/code/weedmaps_code/weedmaps-tools/git:/usr/local/bin:/usr/bin:/bi
 # Bash specific aliases
 [ -f "$HOME/.bash_aliases" ] && . "$HOME/.bash_aliases"
 
-# Install asdf - https://asdf-vm.com/#/core-manage-asdf-vm
-# This will help you manage versions for ruby, nodejs, elixir, golang
-# Don't forget to set global versions
-# Usage: 
-# asdf plugin-add <plugin> # Example: asdf plugin-add nodejs
-# asdf list-all <plugin> # Example: asdf list-all nodejs
-# asdf install nodejs 11.14.0
-# asdf global nodejs 11.14.0
-# 
-# Plugins: https://asdf-vm.com/#/plugins-all
-# More info: https://blog.patricio.me/installing-and-start-using-asdf-on-macos-high-sierra/
-
 # vim:: set ft=sh

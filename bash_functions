@@ -27,6 +27,21 @@ function helpPowerline() {
 
 }
 
+function helpAsdf() {
+
+  echo " Install asdf - https://asdf-vm.com/#/core-manage-asdf-vm"
+  echo " This will help you manage versions for ruby, nodejs, elixir, golang"
+  echo " Don't forget to set global versions"
+  echo " Usage: "
+  echo " asdf plugin-add <plugin> # Example: asdf plugin-add nodejs"
+  echo " asdf list-all <plugin> # Example: asdf list-all nodejs"
+  echo " asdf install nodejs 11.14.0"
+  echo " asdf global nodejs 11.14.0"
+  echo " "
+  echo " Plugins: https://asdf-vm.com/#/plugins-all"
+  echo " More info: https://blog.patricio.me/installing-and-start-using-asdf-on-macos-high-sierra/"
+}
+
 
 function parse_git_branch() {
   git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'

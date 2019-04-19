@@ -6,7 +6,7 @@ fi
 #export LSCOLORS=GxFxCxDxBxegedabagaced
 
 # Path to the bash it configuration
-export BASH_IT="~/.bash_it"
+export BASH_IT="/Users/Abby/.bash_it"
 
 # Lock and Load a custom theme file
 # location /.bash_it/themes/
