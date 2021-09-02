@@ -193,36 +193,43 @@ hi CursorLine   cterm=NONE ctermbg=darkred ctermfg=white guibg=darkred guifg=whi
 hi CursorColumn cterm=NONE ctermbg=darkred ctermfg=white guibg=darkred guifg=white
 nnoremap <Leader>c :set cursorline! cursorcolumn!<CR>
 
-set rtp+=~/.vim/bundle/Vundle.vim
-call vundle#begin()
+let data_dir = has('nvim') ? stdpath('data') . '/site' : '~/.vim'
+if empty(glob(data_dir . '/autoload/plug.vim'))
+  silent execute '!curl -fLo '.data_dir.'/autoload/plug.vim --create-dirs  https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim'
+  autocmd VimEnter * PlugInstall --sync | source $MYVIMRC
+endif
+
+"set rtp+=~/.vim/bundle/Vundle.vim
+"call vundle#begin()
+call plug#begin('~/.vim/plugged')
+
 " Let Vundle Manage Vundle, required
-Plugin 'VundleVim/Vundle.vim'
-Plugin 'powerline/powerline'
-Plugin 'majutsushi/tagbar'
-Plugin 'scrooloose/nerdtree'
-Plugin 'scrooloose/nerdcommenter'
-Plugin 'jistr/vim-nerdtree-tabs'
+Plug 'powerline/powerline'
+Plug 'majutsushi/tagbar'
+Plug 'scrooloose/nerdtree'
+Plug 'scrooloose/nerdcommenter'
+Plug 'jistr/vim-nerdtree-tabs'
 "Plugin 'csapprox' " -- already handled by submodule
-Plugin 'vim-scripts/ChocolateLiquor'
-Plugin 'tpope/vim-fugitive'
-Plugin 'tpope/gem-ctags'
-Plugin 'kien/ctrlp.vim'
-Plugin 'fatih/vim-go'
-Plugin 'saltstack/salt-vim'
+Plug 'vim-scripts/ChocolateLiquor'
+Plug 'tpope/vim-fugitive'
+Plug 'tpope/gem-ctags'
+Plug 'kien/ctrlp.vim'
+Plug 'fatih/vim-go'
+Plug 'saltstack/salt-vim'
 " Plugin 'stephpy/vim-php-cs-fixer'
 " Plugin 'Lokaltog/powerline', {'rtp': 'powerline/bindings/vim/'}
-Plugin 'chase/vim-ansible-yaml'
-Plugin 'avakhov/vim-yaml'
+Plug 'chase/vim-ansible-yaml'
+Plug 'avakhov/vim-yaml'
 " Adding Support for Elixir
 " Plugin 'elixir-editors/vim-elixir'
 " Adding Support for python
 
-Plugin 'sjl/vitality.vim'
+"Plug 'sjl/vitality.vim'
 "Plugin 'desert-warm-256'
 " Add Support for Ruby
 " Add Support for Node
 
-call vundle#end() " required
+call plug#end() " required
 
 if &t_Co >= 256
     "colorscheme vividchalk
