@@ -1,0 +1,21 @@
+section: screens
+  work:
+  mac-home:
+end
+section: aliases
+  work:
+    DP5560-009
+  mac-home:
+    drake-malldard
+    drake-mallard
+    drake-mallard.lan
+    drake-malldard.lan
+end
+section: links
+  mac-home:
+    right     = work
+    left      = work
+  work:
+    right     = mac-home
+    left      = mac-home
+end
