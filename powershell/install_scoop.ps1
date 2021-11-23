@@ -7,3 +7,9 @@ scoop search googlechrome
 scoop install googlechrome
 # "Cat with Wings" ...
 scoop install bat
+# Other items needed
+#scoop search firefox
+#scoop search opera
+#scoop search aws
+#scoop search starship
+#scoop search zlocation

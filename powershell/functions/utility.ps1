@@ -12,6 +12,9 @@ function set_title_windows_terminal {
 }
 function reload_functions_utility {
   . ${HOME}/code/dotfiles/powershell/functions/utility.ps1
+  Write-Output "
+  . `${HOME}/code/dotfiles/powershell/functions/utility.ps1
+  "
 }
 function new_directory ($directory) {
   New-Item -Path $PWD -Name $directory -ItemType "Directory"
