@@ -1,0 +1,106 @@
+
+# Use custom format
+format = """
+[┌───────────────────>](bold green)
+[│](bold green)$directory -> $memory_usage -> $all
+[└─>](bold green) """
+
+# Wait 10 milliseconds for starship to check files under the current directory.
+scan_timeout = 10
+
+# Disable the blank line at the start of the prompt
+add_newline = false
+
+[docker_context]
+format = "via [🐋 $context](blue bold)"
+
+[git_status]
+conflicted = "🏳"
+ahead = "🏎💨"
+behind = "😰"
+diverged = "😵"
+up_to_date = "✓"
+untracked = "🤷‍"
+stashed = "📦"
+modified = "📝"
+staged = '[++\($count\)](green)'
+renamed = "👅"
+deleted = "🗑"
+
+[kubernetes]
+format = 'on [⛵ $context \($namespace\)](dimmed green) '
+disabled = false
+
+[kubernetes.context_aliases]
+"dev.local.cluster.k8s" = "dev"
+".*/openshift-cluster/.*" = "openshift"
+"gke_.*_(?P<cluster>[\\w-]+)" = "gke-$cluster"
+
+[nodejs]
+# format = "via [🤖 $version](bold green) "
+
+[perl]
+
+[php]
+
+
+[hostname]
+ssh_only = false
+format =  "on [$hostname](bold red) "
+trim_at = ".companyname.com"
+disabled = false
+
+[env_var.USERNAME]
+default = "unknown user"
+
+[helm]
+format = "via [⎈ $version](bold white) "
+
+[dotnet]
+symbol = "🥅 "
+style = "green"
+heuristic = false
+
+[memory_usage]
+format = 'via $symbol [${ram_pct}]($style) '
+disabled = false
+threshold = -1
+symbol = "🐏"
+style = "bold dimmed green"
+
+[python]
+
+[ruby]
+
+
+[rust]
+
+[vagrant]
+
+[terraform]
+
+
+[time]
+disabled = false
+format = '🕙[\[ $time \]]($style) '
+time_format = "%T"
+utc_time_offset = "-6"
+
+[aws]
+format = 'on [$symbol($profile )(\($region\) )]($style)'
+style = "bold blue"
+symbol = "🅰 "
+[aws.region_aliases]
+ap-southeast-2 = "AU"
+us-east-1 = "VA"
+us-west-2 = "OR"
+us-canada-1 = "CA"
+
+[battery]
+full_symbol = "🔋 "
+charging_symbol = "⚡️ "
+discharging_symbol = "💀 "
+
+[[battery.display]]
+threshold = 10
+style = "bold red"

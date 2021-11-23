@@ -15,6 +15,10 @@ Starship PS1 Functions Loaded
 function reload_functions_starship {
   . ${HOME}/code/dotfiles/powershell/functions/starship.ps1
   . ${HOME}/code/dotfiles/starship/init.ps1
+  Write-Output "
+  . `${HOME}/code/dotfiles/powershell/functions/starship.ps1
+  . `${HOME}/code/dotfiles/starship/init.ps1
+  "
 }
 
 function set_starship_settings {
