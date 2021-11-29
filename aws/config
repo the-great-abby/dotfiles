@@ -1,0 +1,6 @@
+[profile team_provider]
+sso_start_url = https://d-92671f41c2.awsapps.com/start#/
+sso_region = us-west-2
+sso_account_id = 926927448710
+sso_role_name = administrator_access
+
