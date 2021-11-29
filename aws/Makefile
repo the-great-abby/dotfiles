@@ -15,5 +15,16 @@ aws_version:
 aws_setup_billing:
 	echo "set up billing via cli commands"
 
-aws_setup_amplify:
-	echo "setup amplify"
+#aws_setup_amplify:
+	#echo "setup amplify"
+
+install_aws_amplify_cli:
+	yarn global add @aws-amplify/cli
+	#npm -g i @aws-amplify/cli
+	echo "Run 'amplify configure' from the command line"
+
+install_aws_amplify_cli_gitlab:
+	#yarn global add @aws-amplify/cli
+	npm -g i @aws-amplify/cli
+	echo "Run 'amplify configure' from the command line"
+

@@ -1,0 +1,11 @@
+version: '3.6'
+services:
+  gitlab_test_node:
+    build:
+      context: ./
+      dockerfile: ./local_dev/gitlab_test_node/Dockerfile
+    env_file:
+      - ./local_dev/gitlab_test_node/_envfile
+      - ./local_dev/gitlab_test_node/_aws_envfile
+    volumes:
+      - ./:/code

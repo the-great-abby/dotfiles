@@ -22,3 +22,7 @@ docker_list:
 
 docker_local_image_repository:
 	echo "Setup the local image repository"
+
+get_aws_info_from_sso_login_user:
+	python ./local_dev/_aws/gen_aws_credentials_from_sso.py
+	echo "Please copy and paste this into the shell to apply the environment variables"
