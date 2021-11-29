@@ -1,6 +1,7 @@
 /.stash
 *.swp
 *.DS_Store
+node_modules/*
 vim/.netrwhist
 vim/bundle/*
 fonts/
