@@ -143,7 +143,7 @@ function ln_s_file {
 
 function ultragrep ($pattern) {
   # Get-ChildItem -Recurse *.* | Select-String -Pattern $pattern | Select-Object -Unique Path | bat
-  gci -Recurse | sls -List $pattern | bat
+  gci -Recurse | sls -List $pattern
   # gci -Recurse | Select-ColorString $pattern | bat
 }
 
