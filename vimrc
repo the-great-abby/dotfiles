@@ -82,6 +82,15 @@ nnoremap gr gT
 "Make Y yank act like D
 nnoremap Y y$
 
+ "{{{ Fix Line Endings
+function! LineEndings()
+    update
+    e ++ff=dos
+    setlocal ff=unix
+    :w
+endfunction
+nnoremap <silent><leader>le :call LineEndings()<CR>
+
 "Make Home toggle between soft BOL and hard BOL
 function! HomeKey()
     let pos = getpos('.')
