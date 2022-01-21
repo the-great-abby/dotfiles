@@ -21,6 +21,11 @@ adapt them however you see fit. Honey badger don't care.
 
 ### Installation
 
+#### Windows / Powershell
+
+#### Linux / Mac
+
+No longer valid ...
 1. Run <code>bootstrap.sh</code> to link the files into your home directory.
 
 2. http://www.youtube.com/watch?v=Xqw4wo8vdY8

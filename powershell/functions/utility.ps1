@@ -59,66 +59,6 @@ function now {
   Write-Output "====================================="
 }
 
-function ultragrep {
-  param
-  (
-      [Parameter(Mandatory=$true)] $_search_string
-  )
-  Write-Output "Ultragrep:"
-  #New-Item -Name $_link -ItemType Junction -Value $_source
-  Get-ChildItem -Recurse | Select-String $_search_string | Select Path
-}
-
-function ultragrep_with_line_numbers {
-  param
-  (
-      [Parameter(Mandatory=$true)] $_search_string,
-      [Parameter(Mandatory=$true)] $_output_file_extension
-  )
-  #$searchWords = @('Hello','Client')
-
-  Foreach ($sw in $searchWords)
-  {
-      Get-Childitem -Path "." -Recurse -include $_output_file_extension |
-      #"*.txt","*.csv" |
-      Select-String -Pattern "$sw" |
-      Select Path,LineNumber,@{n='SearchWord';e={$sw}}
-  }
-#  # Pull files from source directory with extension filter
-#  Get-ChildItem $SourceDirectory -Filter $OutputFileExtension |
-#
-#
-#  ForEach-Object {
-#
-#      #Assign variable for total lines in file
-#      $measure = Get-Content $_.FullName | Measure-Object
-#      $TotalLinesInFile = $measure.count
-#
-#
-#      #Assign variable to the line number where $TargetString is found
-#      $LineNumber = Select-String $_ -Pattern $TargetString | Select-Object -ExpandProperty 'LineNumber'
-#      Write-Host "Line where string is found: "$LineNumber
-#
-#      #Store the line number where deletion begins
-#      $BeginDelete = $Linenumber - $LinesToDeleteBefore
-#      Write-Host "Line Begin Delete: "$BeginDelete
-#
-#      #Store the line number where deletion ends
-#      $EndDelete = $LineNumber + $LinesToDeleteAfter
-#      Write-Host "Line End Delete: "$EndDelete
-#
-#      #Assign variable for export file
-#      $OutputFile = $ExportDirectory + $_.Name
-#
-#      #Get file content for update
-#      $FileContent = Get-Content $_.FullName
-#      Write-Host "FileContent: " $FileContent
-#
-#      #Remove unwanted lines by excluding them from the new file
-#      $NewFileContent = $FileContent[0..$BeginDelete] + $FileContent[($EndDelete + $LineToDeleteAfter)..$TotalLinesInFile] | Set-Content $OutputFile
-#  }
-}
-
 function ln_s_directory {
   param
   (
@@ -141,10 +81,15 @@ function ln_s_file {
   New-Item -Path $_link -ItemType SymbolicLink -Target $_source
 }
 
-function ultragrep ($pattern) {
-  # Get-ChildItem -Recurse *.* | Select-String -Pattern $pattern | Select-Object -Unique Path | bat
-  gci -Recurse | sls -List $pattern
-  # gci -Recurse | Select-ColorString $pattern | bat
+function ultragrep {
+  param
+  (
+      [Parameter(Mandatory=$true)] $_search_string
+  )
+  Write-Output "Ultragrep:"
+  #New-Item -Name $_link -ItemType Junction -Value $_source
+  # Get-ChildItem -Recurse | Select-String $_search_string | Select Path
+  rg -n -w $_search_string
 }
 
 function tail ($file) {

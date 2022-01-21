@@ -2,7 +2,7 @@
 $userdata_start_time = Get-Date
 $folder = "c:\dsc\config"
 Push-Location $folder
-.\scripts\Set-MachineKeys.ps1 -readWrite "write" -validationKey 97DB2EDC64A9B5F4670AB3B3F0717B5CC74A8D3D981142E1A1B093C0F73F0AD4CE500EA7FCF755DF74206BDF95A451E23DCE1E0B59F3F13F79D0696A838B4A34 -decryptionKey 8C32984109FB962101971B0A3D24DFBA717D58D923AFA664880C9E760D32E5F5 -validation "SHA1"
+.\scripts\Set-MachineKeys.ps1 -readWrite "write" -validationKey -decryptionKey -validation "SHA1"
 # Uncomment if you are configuring new_relic
 # . .\new_relic.ps1
 #.\new_relic_apm.ps1 -LicenseKey ${new_relic_license_key} -typeOfInstall generic
