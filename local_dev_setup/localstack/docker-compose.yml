@@ -1,0 +1,12 @@
+version: '3.6'
+services:
+  localstack:
+    # image: localstack/localstack
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    ports:
+      - "4566:4566"
+      #- "${PORT_WEB_UI-8080}:${PORT_WEB_UI-8080}"
+    env_file:
+      - ./_envfile

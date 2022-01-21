@@ -7,6 +7,7 @@ scoop search googlechrome
 scoop install googlechrome
 # "Cat with Wings" ...
 scoop install bat
+scoop install ripgrep
 # Other items needed
 #scoop search firefox
 #scoop search opera

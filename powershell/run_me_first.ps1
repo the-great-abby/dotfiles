@@ -33,3 +33,4 @@ Install-Package Invoke-Build
 # install sqlserver  - install-module sqlserver
 #  - to use it import-module sqlserver
 # install awscli (v2) - via scoop
+# scoop install ripgrep # fast rust based console text search

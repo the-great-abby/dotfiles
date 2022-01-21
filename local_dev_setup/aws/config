@@ -1,0 +1,5 @@
+[profile team_provider]
+sso_start_url = # AWS SSO URL
+sso_region = # AWS REGION
+sso_account_id = # AWS ACCOUNT ID
+sso_role_name = # AWS Role

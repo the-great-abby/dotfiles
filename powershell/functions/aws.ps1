@@ -8,7 +8,7 @@ AWS PS1 Functions Loaded
 # ================================================================
 $Env:aws_cli_auto_prompt = "on"
 
-$addAwsPath = "C:\Program Files\Amazon\AWSCLIV2"
+$addAwsPath = "C:Program FilesAmazonAWSCLIV2"
 $env:Path = $env:Path + ';' + $addAwsPath
 # $Env:Path = Join-Path $env:Path $addAwsPath
 function reload_functions_aws {

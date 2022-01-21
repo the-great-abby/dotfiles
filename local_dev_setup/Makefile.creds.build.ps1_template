@@ -1,0 +1,21 @@
+# Execute: invoke-build init -f Makefile.creds.build.ps1
+#
+# Assuming you have sqlcmd installed on your machine (you should if you have SSMS)
+task init {
+  $env:sql_server_db_host          = "<TEAM>.rds.dev.filevinedev.com"
+  $env:sql_server_db_name          = "<DATABASE_NAME>"
+  $env:sql_server_user             = "<USER>"
+  $env:sql_server_password         = "<PASSWORD>"
+
+  # --------------------------------------------------
+  # You should not need to edit beyond this line
+  # --------------------------------------------------
+  $env:sql_server_cmd_input_file  = "./sql_server_cmd_input.sql"
+  $env:sql_server_cmd_output_file = "./sql_server_cmd_output.out"
+  $env:SQLCMDPASSWORD             = $env:sql_server_password
+  Set-Content -Path "./sql_server_cmd_output.out" -Value ""
+}
+
+task db_set_sql_password {
+  $env:SQLCMDPASSWORD = ""
+}
