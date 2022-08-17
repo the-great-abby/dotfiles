@@ -143,7 +143,15 @@ map <C-H> <C-W>h
 vnoremap < <gv
 vnoremap > >gv
 
+" Zettel
 
+" example
+let g:nv_search_paths = ['~/wiki', '~/writing', '~/code', 'docs.md' , './notes.md']
+nmap <Leader>nv :NV<CR>
+" let g:zettel_fzf_command
+
+   " Settings for Vimwiki
+   let g:vimwiki_list = [{'path':'~/wiki/','ext':'.md', 'syntax':'markdown'}, {"path":"~/wiki/"}]
 "
 " NERDTree configuration
 "
@@ -156,6 +164,8 @@ let Tlist_Use_Right_Window = 1
 
 nmap <Leader>nt :NERDTreeTabsToggle<CR>
 nmap <Leader>tt :TbarToggle<CR>
+
+" nmap <Leader>tt :TbarToggle<CR>
 
 
 highlight ExtraWhitespace ctermbg=red guibg=red
@@ -214,6 +224,7 @@ call plug#begin('~/.vim/plugged')
 
 " Let Vundle Manage Vundle, required
 Plug 'powerline/powerline'
+Plug 'jceb/vim-orgmode'
 Plug 'majutsushi/tagbar'
 Plug 'scrooloose/nerdtree'
 Plug 'scrooloose/nerdcommenter'
@@ -222,6 +233,17 @@ Plug 'jistr/vim-nerdtree-tabs'
 Plug 'vim-scripts/ChocolateLiquor'
 Plug 'tpope/vim-fugitive'
 Plug 'tpope/gem-ctags'
+Plug 'tpope/vim-repeat'
+Plug 'yegappan/taglist'
+Plug 'tpope/vim-speeddating'
+Plug 'chrisbra/NrrwRgn'
+Plug 'mattn/calendar-vim'
+Plug 'inkarkat/vim-SyntaxRange'
+Plug 'vimwiki/vimwiki'
+Plug 'junegunn/fzf'
+Plug 'junegunn/fzf.vim'
+Plug 'michal-h21/vim-zettel'
+Plug 'alok/notational-fzf-vim'
 Plug 'kien/ctrlp.vim'
 Plug 'fatih/vim-go'
 Plug 'saltstack/salt-vim'
@@ -229,6 +251,7 @@ Plug 'saltstack/salt-vim'
 " Plugin 'Lokaltog/powerline', {'rtp': 'powerline/bindings/vim/'}
 Plug 'chase/vim-ansible-yaml'
 Plug 'avakhov/vim-yaml'
+Plug 'vim-scripts/utl.vim'
 " Adding Support for Elixir
 " Plugin 'elixir-editors/vim-elixir'
 " Adding Support for python

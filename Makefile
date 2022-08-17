@@ -58,7 +58,8 @@ update_glab:
 	brew update glab
 
 install_oh_my_zsh:
-	sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh")
+	sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh")"
+
 install_zshrc_mac:
 	ln -s ${PWD}/zsh/zshrc_mac ~/.zshrc
 	brew install zsh-syntax-highlighting
@@ -77,6 +78,12 @@ install_rectangle:
 
 install_tmux:
 	brew install tmux
+
+install_pomo:
+	npm install -g pomojs
+
+install_gcalcli:
+	brew install gcalcli
 
 setup_tmux:
 	ln -s ~/code/dotfiles/unix_shell/tmux.conf ~/.tmux.conf
@@ -151,4 +158,40 @@ install_asdf_terraform:
 	asdf plugin-add terraform https://github.com/asdf-community/asdf-hashicorp.git
 	asdf plugin-add vault https://github.com/asdf-community/asdf-hashicorp.git
 	asdf plugin-add waypoint https://github.com/asdf-community/asdf-hashicorp.git
+
+rb_kube_dd_init:
+	echo "hi"
+	make -f kubernetes/Makefile check-docker-running
+	make -f kubernetes/Makefile kube-version
+	make -f kubernetes/Makefile.variables -f kubernetes/Makefile kube-testme
+	make -f kubernetes/Makefile.notes -f kubernetes/Makefile kube-readme
+	make -f kubernetes/Makefile.notes -f kubernetes/Makefile show-docker-kube
+	make -f kubernetes/Makefile kube-start-2-cluster
+
+rb_kube_dd_step1:
+	make -f kubernetes/Makefile kube-sample-deployment
+
+rb_kube_docker_status:
+	make -f kubernetes/Makefile check-docker-running
+
+rb_kube_get_deployments:
+	make -f kubernetes/Makefile kube-get-deployments
+	make -f kubernetes/Makefile kube-get-info
+	make -f kubernetes/Makefile kube-get-rollout-status
+
+rb_notion_init:
+	# ln -s ~/code/research
+	# make -f ~/code/research/notion/Makefile.dotfile init
+	# https://stackoverflow.com/questions/1789594/how-do-i-write-the-cd-command-in-a-makefile
+	cd ~/code/research/notion/; \
+		make -f Makefile.dotfile init
+
+rb_notion_run:
+	# ln -s ~/code/research
+	# Docker commands don't work in a different directory ...
+	# make -f ~/code/research/notion/Makefile.dotfile init
+	# https://stackoverflow.com/questions/1789594/how-do-i-write-the-cd-command-in-a-makefile
+	cd ~/code/research/notion/; \
+		make -f Makefile.dotfile run
+
 
