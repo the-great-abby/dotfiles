@@ -1,0 +1,5 @@
+#!/bin/zsh
+# Script to switch to main branch and pull
+
+git checkout master || git checkout main
+git pull
