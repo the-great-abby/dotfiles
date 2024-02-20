@@ -10,47 +10,51 @@ shopt -s histappend
 HISTSIZE=5000
 HISTFILESIZE=10000
 
-# Bash specific functions 
-export DOTFILES_PATH="${HOME}/code/dotfiles/"
 # Bash specific functions
-[ -f "$HOME/.bash_functions_colors" ] && . "$HOME/.bash_functions_colors"
-[ -f "$HOME/.bash_functions_git" ] && . "$HOME/.bash_functions_git"
-[ -f "$HOME/.bash_functions_calendar" ] && . "$HOME/.bash_functions_calendar"
-# [ -f "$HOME/.bash_functions_weedmaps" ] && . "$HOME/.bash_functions_weedmaps"
-[ -f "$HOME/.bash_functions_filevine" ] && . "$HOME/.bash_functions_filevine"
-[ -f "$HOME/.bash_functions_docker" ] && . "$HOME/.bash_functions_docker"
-[ -f "$HOME/.bash_functions_awscli" ] && . "$HOME/.bash_functions_awscli"
-[ -f "$HOME/.bash_functions_tail" ] && . "$HOME/.bash_functions_tail"
-[ -f "$HOME/.bash_functions" ] && . "$HOME/.bash_functions"
+export DOTFILES_PATH="${HOME}/code/dotfiles/"
+export STARSHIP_CONFIG="${DOTFILES_PATH}/starship/starship.toml"
+
+# Second Brain
+export SECOND_BRAIN="$HOME/code/second brain notes"
+# Bash specific functions
+[ -f "$DOTFILES_PATH/bash/bash_functions_colors" ] && . "$DOTFILES_PATH/bash/bash_functions_colors"
+[ -f "$DOTFILES_PATH/bash/bash_functions_git" ] && . "$DOTFILES_PATH/bash/bash_functions_git"
+[ -f "$DOTFILES_PATH/bash/bash_functions_calendar" ] && . "$DOTFILES_PATH/bash/bash_functions_calendar"
+# [ -f "$DOTFILES_PATH/bash/.bash_functions_weedmaps" ] && . "$DOTFILES_PATH/bash/.bash_functions_weedmaps"
+[ -f "$DOTFILES_PATH/bash/bash_functions_filevine" ] && . "$DOTFILES_PATH/bash/bash_functions_filevine"
+[ -f "$DOTFILES_PATH/bash/bash_functions_docker" ] && . "$DOTFILES_PATH/bash/bash_functions_docker"
+[ -f "$DOTFILES_PATH/bash/bash_functions_awscli" ] && . "$DOTFILES_PATH/bash/bash_functions_awscli"
+[ -f "$DOTFILES_PATH/bash/bash_functions_tail" ] && . "$DOTFILES_PATH/bash/bash_functions_tail"
+[ -f "$DOTFILES_PATH/bash/bash_functions" ] && . "$DOTFILES_PATH/bash/bash_functions"
 
 #export BUILD_RELEASE_LOCAL_DIR='code/weedmaps/build-release/'
 #export BUILD_RELEASE_LOCAL_HELP_DIR="${HOME}/${BUILD_RELEASE_LOCAL_DIR}/command-line-help"
 #[ -f "${BUILD_RELEASE_LOCAL_HELP_DIR}/bash_functions_weedmaps" ] && . "${BUILD_RELEASE_LOCAL_HELP_DIR}/bash_functions_weedmaps"
 #export CLAPTT_GENERALTEMPLATE='code/wm/claptt_general_template/' # change this to point to your local claptt_general_template repo
-export CLAPTT_GENERALTEMPLATE_HELP_DIR="${HOME}/${CLAPTT_GENERALTEMPLATE}/" # You should not have to modify this
+export CLAPTT_GENERALTEMPLATE_HELP_DIR="${DOTFILES_PATH}/bash/${CLAPTT_GENERALTEMPLATE}/" # You should not have to modify this
 # Uncomment the below line in .bashrc to include this file
 [ -f "${CLAPTT_GENERALTEMPLATE_HELP_DIR}/bash_functions_help" ] && . "${CLAPTT_GENERALTEMPLATE_HELP_DIR}/bash_functions_help"
 # Let's add in the additional files/structures (Copy this into your ~/.bashrc file)
-export CLAPTT_ABBY='code/personal_kb/' # change this to point to your local claptt_abby repo
-export CLAPTT_ABBY_HELP_DIR="${HOME}/${CLAPTT_ABBY}/" # You should not have to modify this
+export CLAPTT_ABBY='code/personal_kb/'                              # change this to point to your local claptt_abby repo
+export CLAPTT_ABBY_HELP_DIR="${DOTFILES_PATH}/bash/${CLAPTT_ABBY}/" # You should not have to modify this
 # Uncomment the below line in .bashrc to include this file
 [ -f "${CLAPTT_ABBY_HELP_DIR}/bash_functions_help" ] && . "${CLAPTT_ABBY_HELP_DIR}/bash_functions_help"
 # Let's add in the additional files/structures (Copy this into your ~/.bashrc file)
-export CLAPTT_BNR='code/wm/claptt_build_and_release/' # change this to point to your local claptt_build_and_release repo
-export CLAPTT_BNR_HELP_DIR="${HOME}/${CLAPTT_BNR}/" # You should not have to modify this
+#export CLAPTT_BNR='code/wm/claptt_build_and_release/' # change this to point to your local claptt_build_and_release repo
+#export CLAPTT_BNR_HELP_DIR="${DOTFILES_PATH/bash}/${CLAPTT_BNR}/" # You should not have to modify this
 # Uncomment the below line in .bashrc to include this file
 [ -f "${CLAPTT_BNR_HELP_DIR}/bash_functions_help" ] && . "${CLAPTT_BNR_HELP_DIR}/bash_functions_help"
 
 #export BUILD_RELEASE_LOCAL_DIR='code/weedmaps_code/build-release/' # change this to point to your local build-release repo
-#export BUILD_RELEASE_LOCAL_HELP_DIR="${HOME}/${BUILD_RELEASE_LOCAL_DIR}/command-line-help" # You should not have to modify this
+#export BUILD_RELEASE_LOCAL_HELP_DIR="${DOTFILES_PATH/bash}/${BUILD_RELEASE_LOCAL_DIR}/command-line-help" # You should not have to modify this
 [ -f "${BUILD_RELEASE_LOCAL_HELP_DIR}/bash_functions_weedmaps" ] && . "${BUILD_RELEASE_LOCAL_HELP_DIR}/bash_functions_weedmaps"
-export CLAPTT_BNR='code/weedmaps_code/claptt_build_and_release/' # change this to point to your local claptt_build_and_release repo
-export CLAPTT_BNR_HELP_DIR="${HOME}/${CLAPTT_BNR}/" # You should not have to modify this
+#export CLAPTT_BNR='code/weedmaps_code/claptt_build_and_release/' # change this to point to your local claptt_build_and_release repo
+#export CLAPTT_BNR_HELP_DIR="${DOTFILES_PATH/bash}/${CLAPTT_BNR}/" # You should not have to modify this
 # Uncomment the below line in .bashrc to include this file
-[ -f "${CLAPTT_BNR_HELP_DIR}/bash_functions_help" ] && . "${CLAPTT_BNR_HELP_DIR}/bash_functions_help"
+#[ -f "${CLAPTT_BNR_HELP_DIR}/bash_functions_help" ] && . "${CLAPTT_BNR_HELP_DIR}/bash_functions_help"
 # Let's add in the additional files/structures (Copy this into your ~/.bashrc file)
-export CLAPTT_ABBY='code/claptt_abby/' # change this to point to your local claptt_abby repo
-export CLAPTT_ABBY_HELP_DIR="${HOME}/${CLAPTT_ABBY}/" # You should not have to modify this
+export CLAPTT_ABBY='code/claptt_abby/'                              # change this to point to your local claptt_abby repo
+export CLAPTT_ABBY_HELP_DIR="${DOTFILES_PATH}/bash/${CLAPTT_ABBY}/" # You should not have to modify this
 # Uncomment the below line in .bashrc to include this file
 [ -f "${CLAPTT_ABBY_HELP_DIR}/bash_functions_help" ] && . "${CLAPTT_ABBY_HELP_DIR}/bash_functions_help"
 
@@ -59,16 +63,16 @@ export CLAPTT_ABBY_HELP_DIR="${HOME}/${CLAPTT_ABBY}/" # You should not have to m
 #
 
 if [[ "$TERM" =~ .*-256color ]]; then
-    icon_commit='➦'
-    icon_branch='|>'
-    icon_separator=''
+	icon_commit='➦'
+	icon_branch='|>'
+	icon_separator=''
 else
-    icon_commit='c:'
-    icon_branch='b:'
-    icon_separator=''
+	icon_commit='c:'
+	icon_branch='b:'
+	icon_separator=''
 fi
 
-PROMPT_COMMAND='set_prompt'
+#PROMPT_COMMAND='set_prompt'
 
 # https://www.digitalocean.com/community/tutorials/how-to-use-bash-history-commands-and-expansions-on-a-linux-vps
 
@@ -86,15 +90,15 @@ export PROMPT_COMMAND="history -a; history -c; history -r; $PROMPT_COMMAND"
 #  [ -f "$HOME/.bash_aliases_linux_custom" ] && . "$HOME/.bash_aliases_linux_custom"
 #fi
 if [ $(uname) == 'Linux' ]; then
-  [ -f "$HOME/.bash_aliases_linux" ] && . "$HOME/.bash_aliases_linux"
+	[ -f "$HOME/.bash_aliases_linux" ] && . "$HOME/.bash_aliases_linux"
 fi
 if [ $(uname) == 'CYGWIN_NT-10.0' ]; then
-  [ -f "$HOME/.bash_aliases_cygwin" ] && . "$HOME/.bash_aliases_cygwin"
+	[ -f "$HOME/.bash_aliases_cygwin" ] && . "$HOME/.bash_aliases_cygwin"
 fi
 
 # Mac OS X specific setup.
 if [ $(uname) == 'Darwin' ]; then
-  [ -f "$HOME/.bash_aliases_darwin" ] && . "$HOME/.bash_aliases_darwin"
+	[ -f "$HOME/.bash_aliases_darwin" ] && . "$HOME/.bash_aliases_darwin"
 fi
 
 #
@@ -103,25 +107,25 @@ fi
 
 # Setup SSH agent.
 if [ -n "$SSH_TTY" ]; then
-    SSH_ENV=~/.ssh/environment
+	SSH_ENV=~/.ssh/environment
 
-    function start_agent {
-        echo "Initializing new SSH agent..."
-        /usr/bin/ssh-agent | sed 's/^echo/#echo/' > "${SSH_ENV}"
-        chmod 600 "${SSH_ENV}"
-        . "${SSH_ENV}" > /dev/null
-        ssh-add
-    }
+	function start_agent {
+		echo "Initializing new SSH agent..."
+		/usr/bin/ssh-agent | sed 's/^echo/#echo/' >"${SSH_ENV}"
+		chmod 600 "${SSH_ENV}"
+		. "${SSH_ENV}" >/dev/null
+		ssh-add
+	}
 
-    # Source SSH settings, if applicable.
-    if [ -f "${SSH_ENV}" ]; then
-        . "${SSH_ENV}" > /dev/null
-        ps -ef | grep ${SSH_AGENT_PID} | grep ssh-agent$ > /dev/null || {
-            start_agent
-        }
-    else
-        start_agent
-    fi
+	# Source SSH settings, if applicable.
+	if [ -f "${SSH_ENV}" ]; then
+		. "${SSH_ENV}" >/dev/null
+		ps -ef | grep ${SSH_AGENT_PID} | grep ssh-agent$ >/dev/null || {
+			start_agent
+		}
+	else
+		start_agent
+	fi
 fi
 
 #
@@ -133,7 +137,8 @@ export GIT_PAGER='less -+$LESS -FXR'
 
 # Git auto completion.
 if [ -n "$BASH_VERSION" ]; then
-    . ~/.git-completion.bash
+  echo "git completion should happen here"
+	#. ~/.git-completion.bash
 fi
 
 #
@@ -166,28 +171,29 @@ ASDF_NODEJS=13.2.0
 # Install asdf - https://asdf-vm.com/#/core-manage-asdf-vm
 # This will help you manage versions for ruby, nodejs, elixir, golang
 # Don't forget to set global versions
-# Usage: 
+# Usage:
 # asdf plugin-add <plugin> # Example: asdf plugin-add nodejs
 # asdf list-all <plugin> # Example: asdf list-all nodejs
 # asdf install nodejs 11.14.0
 # asdf global nodejs 11.14.0
-# 
+#
 # Plugins: https://asdf-vm.com/#/plugins-all
 # More info: https://blog.patricio.me/installing-and-start-using-asdf-on-macos-high-sierra/
 
 # vim:: set ft=sh
 
 export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin/:$PATH"
+export PATH="$DOTFILES_PATH/bin:$PATH"
 export MANPATH="/home/linuxbrew/.linuxbrew/share/man:$MANPATH"
 export INFOPATH="/home/linuxbrew/.linuxbrew/share/info:$INFOPATH"
 
 export PATH="/home/abby/.asdf/installs/golang/1.13/go/bin/:$PATH"
 
-. $HOME/.asdf/asdf.sh
+# . $HOME/.asdf/asdf.sh
 # If not running interactively, don't do anything
 case $- in
-  *i*) ;;
-    *) return;;
+*i*) ;;
+*) return ;;
 esac
 
 # Lock and Load a custom theme file.
@@ -196,13 +202,12 @@ esac
 # export BASH_IT_THEME='bobby'
 export BASH_IT_THEME='doubletime_multiline'
 
-
 # Load Bash It
 # source "$BASH_IT"/bash_it.sh
-export DOCKER_HOST=tcp://localhost:2375
+#export DOCKER_HOST=tcp://localhost:2375
 
 # Path to the bash it configuration
-export BASH_IT="/home/abby/.bash_it"
+#export BASH_IT="/home/abby/.bash_it"
 
 # (Advanced): Change this to the name of your remote repo if you
 # cloned bash-it with a remote other than origin such as `bash-it`.
@@ -249,6 +254,7 @@ export SCM_CHECK=true
 # export BASH_IT_RELOAD_LEGACY=1
 
 # Load Bash It
-source "$BASH_IT"/bash_it.sh
+#source "$BASH_IT"/bash_it.sh
 
 complete -C /usr/bin/terraform terraform
+eval "$(starship init bash)"

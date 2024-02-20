@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 
 today=$(date +"%Y-%m-%d")
 tomorrow=$(gdate -d "tomorrow" '+%Y-%m-%d')
@@ -12,8 +12,25 @@ new_note() {
 	touch "$file"
 
 	# Format the file with the daily template
-	#cat <<EOF >"$file"
-	cat <<eos >"$file"
+	#cat <<eos >"$file"
+	cat <<EOF >"$file"
+---
+aliases: 
+tags:
+  - daily_note
+meditation: "0"
+weight: 
+exercise: "0"
+mood: "0"
+morning pills: "0"
+evening pills: "0"
+cleanup: "0"
+dishes: "0"
+pomodoros: "0"
+work_mood: "0"
+creation date: ${today}
+stealth_game_score: "0"
+---
 # $today
 
 [[$yesterday]] - [[$tomorrow]]
@@ -28,12 +45,13 @@ What do I want to achieve today and tomorrow?
 - [ ] Run
 - [ ] Yoga or strength training
 - [ ] Meditation
-- [ ] Answer 1 question from steps
 - [ ] Skin routine
 - [ ] Oral routine
-
+- [ ] Swing Trade Research
+- [ ] Personal Project work
 ## Log
-eos
+EOF
+	#eos
 
 }
 

@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# A bash script that helps me create notes in my second brain
+# based on my "blog" script
+# TODO
+# 1. check if file already exists
+# 2. write this in Go :)
+
+file_today=$(date +"%Y%m%d%H%M%S")
+today=$(date +"%Y-%m-%d")
+day_file="${SECOND_BRAIN}/daily_notes/${today}.md"
+# function to prompt the user for a filename
+get_filename() {
+	read -p "Enter a task: " task_name
+	echo "${task_name}"
+}
+
+new_note() {
+	# file=$1
+	# Create the file in the specified directory
+	touch "$file"
+	# Format the file with the task template
+	cat <<EOF >"$file"
+---
+tags:
+  - task 
+workflow: NOT_PROCESSED
+creation date: $today
+---
+
+ticket_link: 
+
+merge_request_link:
+
+
+# Task Name (what is the problem?)
+
+
+## Task Description (what do we need to do?)
+
+## Task Costs (Why do we need to do it?)
+## Does this fall under a Project or an Area of responsibility?
+### Which one?
+EOF
+}
+# function to create and open a file in the specified directory
+open_file() {
+	nvim '+ normal Gzzo ' "$file"
+
+}
+
+# Prompt the user if no filename is provided
+if [[ $# -eq 0 ]]; then
+	echo "Please provide a task name (no spaces)"
+	task_name=$(get_filename)
+fi
+
+# if more than one argument is given, print error message and stop script
+if [[ $# -gt 1 ]]; then
+	echo "Please provide only one project_name separated by dashes, without .md extension."
+	echo "Example: project my-new-note"
+	exit 1
+fi
+
+# set filename to the argument given to the script
+if [[ $# -eq 1 ]]; then
+	task_name=$1
+fi
+
+file="${SECOND_BRAIN}/tasks/${today}-${task_name}.md"
+new_note
+echo "[[tasks/${today}-${task_name}]]" >>"${day_file}"
+open_file "$file"

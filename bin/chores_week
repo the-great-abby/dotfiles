@@ -1,0 +1,35 @@
+#!/bin/bash
+
+week=$(date +"%Y-%U")
+today=$(date +"%Y-%m-%d")
+printf "Current week is: %i\n" "$(date +"%U")"
+file="${SECOND_BRAIN}/chores/chores_week-${week}.md"
+day_file="${SECOND_BRAIN}/daily_notes/${today}.md"
+
+cd "$SECOND_BRAIN" || exit
+
+new_note() {
+	touch "$file"
+
+	# Format the file with the workout template
+	cat <<EOF >"$file"
+---
+tags:
+  - weekly_chores
+date: ${today}
+week: ${week}
+---
+
+
+EOF
+}
+
+# If the workout note does not exist, create a new one.
+if [ ! -f "$file" ]; then
+	echo "File does not exist, creating new workout."
+	new_note
+	echo "[[chores_week-${today}]]" >>"${day_file}"
+fi
+
+# Open the note at the bottom of the file in insert mode and run NoNeckPain to make it center
+nvim '+ normal Gzzo ' "$file"

@@ -1,0 +1,140 @@
+#!/bin/bash
+
+# A bash script that helps me create notes in my second brain
+# based on my "blog" script
+# TODO
+# 1. check if file already exists
+# 2. write this in Go :)
+
+# function to prompt the user for a filename
+get_filename() {
+	read -p "Enter a project: " project_name
+	echo "$project_name"
+}
+
+today=$(date +"%Y-%m-%d--%H-%M-%S")
+file_today=$(date +"%Y-%m-%d")
+day_file="${SECOND_BRAIN}/daily_notes/${file_today}.md"
+
+new_note() {
+	file="${SECOND_BRAIN}/03-projects/${project_name}.md"
+	#file="$1/$project_name.md"
+	# Create the file in the specified directory
+	touch "$file"
+	cd "$SECOND_BRAIN/03-projects" || exit
+
+	# Format the file with the task template
+	cat <<EOF >"$file"
+---
+tags:
+  - project
+  - ${project_name}
+workflow: NOT_PROCESSED
+creation date: ${today}
+---
+ticket: 
+# Project Name (what is the problem?)
+${project_name}
+
+## Project Description (what do we need to do?)
+
+## Project Costs (Why do we need to do it?)
+### Which one?
+\`\`\`ad-important
+title: NOT_PROCESSED
+collapse: open
+\`\`\`dataview
+LIST
+FROM #task
+WHERE workflow = "NOT_PROCESSED"
+WHERE #${project_name}
+\`\`\`
+\`\`\`ad-important
+title: TODO 
+collapse: open
+\`\`\`dataview
+LIST
+FROM #task
+WHERE workflow = "TODO"
+WHERE #${project_name}
+\`\`\`
+
+* What's on your mind?
+\`\`\`ad-important
+title: IN_PROGRESS 
+collapse: open
+\`\`\`dataview
+LIST
+FROM #task
+WHERE workflow = "IN_PROGRESS"
+WHERE #${project_name}
+\`\`\`
+\`\`\`ad-important
+title: REVIEW 
+collapse: open
+\`\`\`dataview
+LIST
+FROM #task
+WHERE workflow = "REVIEW"
+WHERE #${project_name}
+\`\`\`
+
+\`\`\`ad-important
+title: HOLD 
+collapse: open
+\`\`\`dataview
+LIST
+FROM #task
+WHERE workflow = "HOLD"
+WHERE #${project_name}
+\`\`\`
+* anything going on?
+\`\`\`ad-important
+title: DONE 
+collapse: open
+\`\`\`dataview
+TABLE file.mtime as "Last Modified"
+FROM #task
+WHERE workflow = "DONE"
+WHERE #${project_name}
+SORT file.mday DESC 
+\`\`\`
+
+EOF
+
+}
+# function to create and open a file in the specified directory
+open_file() {
+
+	# If the project note does not exist, create a new one.
+	if [ ! -f "${1}/${project_name}.md" ]; then
+		echo "File does not exist, creating new task."
+		new_note
+		echo "[[${1}/${project_name}]]" >>"${day_file}"
+	fi
+
+	# Open the note at the bottom of the file in insert mode and run NoNeckPain to make it center
+	nvim '+ normal Gzzo ' "${1}/${project_name}.md"
+
+}
+
+# Prompt the user if no filename is provided
+if [[ $# -eq 0 ]]; then
+	echo "Provide a project name with dashes (no spaces)"
+	echo "\n\n"
+	project_name=$(get_filename)
+fi
+
+# if more than one argument is given, print error message and stop script
+if [[ $# -gt 1 ]]; then
+	echo "Please provide only one project_name separated by dashes, without .md extension."
+	echo "Example: project my-new-note"
+	exit 1
+fi
+
+# set filename to the argument given to the script
+if [[ $# -eq 1 ]]; then
+	project_name=$1
+fi
+
+open_file "$SECOND_BRAIN/03-projects"

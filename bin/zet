@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 
 # A bash script that helps me create notes in my second brain
 # based on my "blog" script
