@@ -45,18 +45,16 @@ title: NOT_PROCESSED
 collapse: open
 \`\`\`dataview
 LIST
-FROM #task
+FROM #task AND #${project_name}
 WHERE workflow = "NOT_PROCESSED"
-WHERE #${project_name}
 \`\`\`
 \`\`\`ad-important
 title: TODO 
 collapse: open
 \`\`\`dataview
 LIST
-FROM #task
+FROM #task AND #${project_name}
 WHERE workflow = "TODO"
-WHERE #${project_name}
 \`\`\`
 
 * What's on your mind?
@@ -65,18 +63,16 @@ title: IN_PROGRESS
 collapse: open
 \`\`\`dataview
 LIST
-FROM #task
+FROM #task AND #${project_name}
 WHERE workflow = "IN_PROGRESS"
-WHERE #${project_name}
 \`\`\`
 \`\`\`ad-important
 title: REVIEW 
 collapse: open
 \`\`\`dataview
 LIST
-FROM #task
+FROM #task AND #${project_name}
 WHERE workflow = "REVIEW"
-WHERE #${project_name}
 \`\`\`
 
 \`\`\`ad-important
@@ -84,9 +80,8 @@ title: HOLD
 collapse: open
 \`\`\`dataview
 LIST
-FROM #task
+FROM #task AND #${project_name}
 WHERE workflow = "HOLD"
-WHERE #${project_name}
 \`\`\`
 * anything going on?
 \`\`\`ad-important
@@ -94,9 +89,8 @@ title: DONE
 collapse: open
 \`\`\`dataview
 TABLE file.mtime as "Last Modified"
-FROM #task
+FROM #task AND #${project_name}
 WHERE workflow = "DONE"
-WHERE #${project_name}
 SORT file.mday DESC 
 \`\`\`
 
