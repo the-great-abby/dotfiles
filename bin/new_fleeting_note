@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# A bash script that helps me create notes in my second brain
+# based on my "blog" script
+# TODO
+# 1. check if file already exists
+# 2. write this in Go :)
+
+file_today=$(date +"%Y%m%d%H%M%S")
+today=$(date +"%Y-%m-%d")
+day_file="${SECOND_BRAIN}/daily_notes/${today}.md"
+# function to prompt the user for a filename
+#get_filename() {
+	#read -p "Enter a task: " fleeting_note
+	#echo "${fleeting_note}"
+#}
+
+new_note() {
+	# file=$1
+	# Create the file in the specified directory
+	touch "$file"
+	# Format the file with the task template
+	cat <<EOF >"$file"
+---
+tags:
+  - fleeting_note
+creation date: $today
+---
+EOF
+}
+# function to create and open a file in the specified directory
+open_file() {
+	nvim '+ normal Gzzo ' "$file"
+
+}
+
+# Prompt the user if no filename is provided
+#if [[ $# -eq 0 ]]; then
+#echo "Please provide a task name (no spaces)"
+#fleeting_note=$(get_filename)
+#fi
+
+# if more than one argument is given, print error message and stop script
+#if [[ $# -gt 1 ]]; then
+#	echo "Please provide only one project_name separated by dashes, without .md extension."
+#	echo "Example: project my-new-note"
+#	exit 1
+#fi
+
+# set filename to the argument given to the script
+#if [[ $# -eq 1 ]]; then
+#	fleeting_note=$1
+#fi
+
+file="${SECOND_BRAIN}/0-inbox/${file_today}.md"
+new_note
+echo "[[0-inbox/${file_today}]]" >>"${day_file}"
+open_file "$file"

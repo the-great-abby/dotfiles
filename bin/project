@@ -104,7 +104,7 @@ open_file() {
 	if [ ! -f "${1}/${project_name}.md" ]; then
 		echo "File does not exist, creating new task."
 		new_note
-		echo "[[${1}/${project_name}]]" >>"${day_file}"
+		echo "[[03-projects/${project_name}]]" >>"${day_file}"
 	fi
 
 	# Open the note at the bottom of the file in insert mode and run NoNeckPain to make it center
