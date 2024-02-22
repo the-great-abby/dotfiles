@@ -1,118 +1,116 @@
 # vim: ft=sh
 
 function helpGeneralInfo() {
-  echo "g - quick file grep command"
-  echo "f - quick find command"
-  echo "d - quick dev directory change"
-  echo "helpTailCommands"
-  echo "helpWeedmaps"
-  echo "helpGitCommands"
+	echo "g - quick file grep command"
+	echo "f - quick find command"
+	echo "d - quick dev directory change"
+	echo "helpTailCommands"
+	echo "helpWeedmaps"
+	echo "helpGitCommands"
 }
 
 function _gcw() {
-  cd ~/code/filevine
+	cd ~/code/filevine
 }
 
 function _gcp() {
-  cd ~/code/personal
+	cd ~/code/personal
 }
 
 function helpPowerline() {
-  echo "iTerm2 for Mac"
-  echo "pip install --user git+git://github.com/Lokaltog/powerline --verbose"
-  echo "git clone git@github.com:powerline/fonts.git"
-  echo "brew install python"
-  echo "edit .vimrc"
-  echo "Plugin 'Lokaltog/powerline', {'rtp': 'powerline/bindings/vim/'}"
-  echo "set guifont=Inconsolata\ for\ Powerline:h15"
-  echo "let g:Powerline_symbols = 'fancy'"
-  echo "set encoding=utf-8"
-  echo "set t_Co=256"
-  echo "set fillchars+=stl:\ ,stlnc:\  "
-  echo "  set term=xterm-256color"
-  echo "set termencoding=utf-8"
+	echo "iTerm2 for Mac"
+	echo "pip install --user git+git://github.com/Lokaltog/powerline --verbose"
+	echo "git clone git@github.com:powerline/fonts.git"
+	echo "brew install python"
+	echo "edit .vimrc"
+	echo "Plugin 'Lokaltog/powerline', {'rtp': 'powerline/bindings/vim/'}"
+	echo "set guifont=Inconsolata\ for\ Powerline:h15"
+	echo "let g:Powerline_symbols = 'fancy'"
+	echo "set encoding=utf-8"
+	echo "set t_Co=256"
+	echo "set fillchars+=stl:\ ,stlnc:\  "
+	echo "  set term=xterm-256color"
+	echo "set termencoding=utf-8"
 
 }
 
-
 function parse_git_branch() {
-  git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
+	git branch 2>/dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
 }
 
 function generate_prompt {
-  # Window title.
-  echo -en "\033]0;\u@\h:\w\a"
+	# Window title.
+	echo -en "\033]0;\u@\h:\w\a"
 
-  # Basic prompt.
-  color_start 0 0 0 5 4 0
-  color_block "\u@\h"
-  color_change 5 5 5 1 1 1
-  color_block "\w"
+	# Basic prompt.
+	color_start 0 0 0 5 4 0
+	color_block "\u@\h"
+	color_change 5 5 5 1 1 1
+	color_block "\w"
 
-  # Git info.
-  if $(git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
-      ref=$(git symbolic-ref HEAD 2>/dev/null) || ref="$icon_commit $(git show-ref --head -s --abbrev | head -n1 2>/dev/null)"
-      ref_sha=$(git show-ref --head -s --abbrev | head -n1 2>/dev/null)
-      color_change 0 3 5
-      color_block "(${ref_sha})"
-      color_change 0 5 1
-      color_block "${ref/refs\/heads\//$icon_branch }"
-      color_change 0 3 5
-  fi
+	# Git info.
+	if $(git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
+		ref=$(git symbolic-ref HEAD 2>/dev/null) || ref="$icon_commit $(git show-ref --head -s --abbrev | head -n1 2>/dev/null)"
+		ref_sha=$(git show-ref --head -s --abbrev | head -n1 2>/dev/null)
+		color_change 0 3 5
+		color_block "(${ref_sha})"
+		color_change 0 5 1
+		color_block "${ref/refs\/heads\//$icon_branch }"
+		color_change 0 3 5
+	fi
 
-  # Timestamp
-  printf %s "$(date)"
-  color_change 0 3 5
-  color_end
-  echo "\n\$ "
+	# Timestamp
+	printf %s "$(date)"
+	color_change 0 3 5
+	color_end
+	echo "\n\$ "
 }
 
 function set_prompt {
-  # PS1="$(generate_prompt)"
-  echo ''
+	PS1="$(generate_prompt)"
+	echo ''
 }
 
 # I don't like one letter functions that I should be using ...
 # That's why there are aliases for everything!!!
 # Quick file grep command.
 function g() {
-    OPTS="-nrs"
-    SEARCH="$@"
-    if [[ $SEARCH =~ ^[^A-Z]*$ ]]; then
-        OPTS="${OPTS}i"
-    fi
-    grep "$OPTS" --exclude-dir=.git "$SEARCH" . | less
+	OPTS="-nrs"
+	SEARCH="$@"
+	if [[ $SEARCH =~ ^[^A-Z]*$ ]]; then
+		OPTS="${OPTS}i"
+	fi
+	grep "$OPTS" --exclude-dir=.git "$SEARCH" . | less
 }
 
 # Random one-off
 # WIth comments, because I suck at reading code - Sorry, I don't have cool bash scripting skills ... yet
 # function getSls { [[ -d dir ]] || mkdir $1; cd $1; wget https://raw.githubusercontent.com/roblayton/master-minion-salt-vagrant/master/salt/roots/$1/$2; cd ..; }
 function getSls {
-  # if directory not there, create it
-  [[ -d dir ]] || mkdir $1;
+	# if directory not there, create it
+	[[ -d dir ]] || mkdir $1
 
-  # Change into $1 (first parameter passed in)
-  cd $1;
+	# Change into $1 (first parameter passed in)
+	cd $1
 
-  # copy the code down to my directory
-  # - Well why not copy it down with git? because I can copy it down, but apparently this is what my brain thought was easier at the time ...
-  wget https://raw.githubusercontent.com/roblayton/master-minion-salt-vagrant/master/salt/roots/$1/$2;
-  # Change back into previous directory, so continue on with the next command
-  cd ..;
+	# copy the code down to my directory
+	# - Well why not copy it down with git? because I can copy it down, but apparently this is what my brain thought was easier at the time ...
+	wget https://raw.githubusercontent.com/roblayton/master-minion-salt-vagrant/master/salt/roots/$1/$2
+	# Change back into previous directory, so continue on with the next command
+	cd ..
 }
 
 # Quick find command.
 function f() {
-    SEARCH="$@"
-    find -iname "*$SEARCH*" | less
+	SEARCH="$@"
+	find -iname "*$SEARCH*" | less
 }
 
 # Quick development directory change command.
 function d() {
-    if [ -n "$1" ]; then
-        cd "$HOME/$(whoami).$1"
-    else
-        (cd && ls -d "$(whoami)."*) | sed "s/$(whoami)\.//"
-    fi
+	if [ -n "$1" ]; then
+		cd "$HOME/$(whoami).$1"
+	else
+		(cd && ls -d "$(whoami)."*) | sed "s/$(whoami)\.//"
+	fi
 }
-

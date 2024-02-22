@@ -12,7 +12,6 @@ new_note() {
 	touch "$file"
 
 	# Format the file with the daily template
-	#cat <<eos >"$file"
 	cat <<EOF >"$file"
 ---
 aliases: 
@@ -20,16 +19,10 @@ tags:
   - daily_note
 meditation: "0"
 weight: 
-exercise: "0"
-mood: "0"
 morning pills: "0"
 evening pills: "0"
-cleanup: "0"
-dishes: "0"
 pomodoros: "0"
-work_mood: "0"
 creation date: ${today}
-stealth_game_score: "0"
 ---
 # $today
 
@@ -47,11 +40,9 @@ What do I want to achieve today and tomorrow?
 - [ ] Meditation
 - [ ] Skin routine
 - [ ] Oral routine
-- [ ] Swing Trade Research
 - [ ] Personal Project work
 ## Log
 EOF
-	#eos
 
 }
 

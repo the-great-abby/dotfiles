@@ -11,6 +11,7 @@ scan_timeout = 10
 # Disable the blank line at the start of the prompt
 add_newline = false
 
+command_timeout=10
 [docker_context]
 format = "via [🐋 $context](blue bold)"
 
