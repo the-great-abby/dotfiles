@@ -78,5 +78,5 @@ fi
 
 file="${SECOND_BRAIN}/tasks/${today}-${task_name}.md"
 new_note
-echo "[[tasks/${today}-${task_name}]]" >>"${day_file}"
+echo "- [[tasks/${today}-${task_name}]]" >>"${day_file}"
 open_file "$file"

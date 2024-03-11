@@ -28,7 +28,7 @@ EOF
 if [ ! -f "$file" ]; then
 	echo "File does not exist, creating new workout."
 	new_note
-	echo "[[workout_run-${today}]]" >>"${day_file}"
+	echo "- [[workout_run-${today}]]" >>"${day_file}"
 fi
 
 # Open the note at the bottom of the file in insert mode and run NoNeckPain to make it center
