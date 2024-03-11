@@ -14,6 +14,10 @@ get_filename() {
 	read -p "Enter a task: " task_name
 	echo "${task_name}"
 }
+get_projectname() {
+	read -p "Enter a project: " project_name
+	echo "${project_name}"
+}
 
 new_note() {
 	# file=$1
@@ -24,6 +28,7 @@ new_note() {
 ---
 tags:
   - task 
+  - ${project_name}
 workflow: NOT_PROCESSED
 creation date: $today
 ---
@@ -41,6 +46,7 @@ merge_request_link:
 ## Task Costs (Why do we need to do it?)
 ## Does this fall under a Project or an Area of responsibility?
 ### Which one?
+- [[${project_name}]]
 EOF
 }
 # function to create and open a file in the specified directory
@@ -53,18 +59,21 @@ open_file() {
 if [[ $# -eq 0 ]]; then
 	echo "Please provide a task name (no spaces)"
 	task_name=$(get_filename)
+	echo "Please provide a project name (no spaces)"
+	project_name=$(get_projectname)
 fi
 
 # if more than one argument is given, print error message and stop script
-if [[ $# -gt 1 ]]; then
-	echo "Please provide only one project_name separated by dashes, without .md extension."
-	echo "Example: project my-new-note"
+if [[ $# -gt 2  ]]; then
+	echo "Please provide only one task name and a project_name separated by dashes, without .md extension."
+	echo "Example: project my-new-note project-name"
 	exit 1
 fi
 
 # set filename to the argument given to the script
-if [[ $# -eq 1 ]]; then
+if [[ $# -eq 2 ]]; then
 	task_name=$1
+	project_name=$2
 fi
 
 file="${SECOND_BRAIN}/tasks/${today}-${task_name}.md"

@@ -19,7 +19,8 @@ tags:
 date: ${today}
 week: ${week}
 ---
-
+- [ ] vacuum
+- [ ] process mail
 
 EOF
 }

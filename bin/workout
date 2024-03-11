@@ -21,13 +21,17 @@ workout date: ${today}
 # $today
 
 # Sets
-
-
-1 run
-6 pushups
-9 squats
+- [ ] kettlebell swings [ ] [ ] [ ]
+- [ ] front rack shoulder press [ ] [ ] [ ]
+- [ ] lunges [ ] [ ] [ ]
+- [ ] goblet squat [ ] [ ] [ ]
+- [ ] pushups [ ] [ ] [ ]
 
 EOF
+
+	#1 run
+	#6 pushups
+	#9 squats
 	#1 support-hold
 	#2 iso-pull-hold
 	#4 push-up-hold
