@@ -58,13 +58,14 @@ update_glab:
 	brew update glab
 
 install_oh_my_zsh:
-	sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh")"
+	sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 
 install_zshrc_mac:
 	ln -s ${PWD}/zsh/zshrc_mac ~/.zshrc
 	brew install zsh-syntax-highlighting
 	brew install zsh-autosuggestions
-	git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k
+	#git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k
+	# git clone --depth=1 https://github.com/romkatv/powerlevel10k.git /themes/powerlevel10k
 
 github_ssh_keygen:
 	ssh-keygen -t ed25519 -C "github@augustmalson.com"
@@ -141,6 +142,10 @@ update_ohmyposh_mac:
 	brew update && brew upgrade oh-my-posh
 check_ohmyposh_themes:
 	ls $(brew --prefix oh-my-posh)/themes
+install_nerdfont:
+	brew install --cask font-open-dyslexic-nerd-font
+install_dbeaver:
+	brew install --cask dbeaver-community
 
 install_ripgrep:
 	brew install ripgrep
@@ -151,6 +156,17 @@ install_python:
 	asdf plugin-add python
 	asdf install python ${PYTHON_VERSION}
 	asdf global python ${PYTHON_VERSION}
+RUBY_VERSION = "latest"
+# ASDF_RUBY_OVERWRITE_ARCH = "amd64"
+install_ruby:
+	asdf plugin-add ruby 
+	asdf install ruby ${RUBY_VERSION}
+	asdf global ruby ${RUBY_VERSION}
+ollama_pull_models:
+	ollama pull llama3.2-vision
+	ollama pull nomic-embed-text
+	ollama pull llama3.2:1b
+	# ollama pull marco-o1
 # Override to install amd64, install specific version (can be "latest")
 TF_VERSION = "latest"
 ASDF_HASHICORP_OVERWRITE_ARCH = "amd64"
@@ -167,14 +183,28 @@ install_terraform:
 install_kube_tools:
 	# brew install --cask docker
 	brew install kubernetes-cli
-	brew install minikube
+	brew install --cask openlens
+#	brew install minikube
 	#brew install hyperkit
 	brew install kubernetes-helm
 	brew install skaffold
-	asdf plugin-add minikube https://github.com/alvarobp/asdf-minikube.git
+#	asdf plugin-add minikube https://github.com/alvarobp/asdf-minikube.git
 
+install_google_drive:
+	brew install --cask google-drive
 list_asdf_plugins:
 	asdf plugin list
+
+install_docker:
+	brew install --cask docker
+install_ollama:
+	brew install --cask ollama
+install_neovim:
+	brew install neovim
+install_invoke_build_pwsh:
+	Install-Module InvokeBuild
+install_firefox:
+	brew install --cask firefox
 
 list_asdf_plugins_all:
 	asdf plugin list all
