@@ -156,7 +156,9 @@ export PATH="$HOME/.local/bin:$PATH"
   export NVM_DIR="$HOME/.nvm"
   [ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && . "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
   [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && . "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
-eval "$(rbenv init - zsh)"
+if command -v rbenv 1>/dev/null 2>&1; then
+ eval "$(rbenv init - zsh)"
+fi
 export PATH="$HOME/.gem/ruby/3.0.0/bin/:$PATH"
 
 export PATH="$HOME/bin/:$PATH"
@@ -182,3 +184,7 @@ fi
 
 # Second Brain
 export SECOND_BRAIN="$HOME/code/second brain notes"
+
+### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
+export PATH="/Users/abby/.rd/bin:$PATH"
+### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
