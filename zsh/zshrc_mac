@@ -200,7 +200,7 @@ today=$(date +"%Y-%m-%d")
 function generateLLMNotesSummary() {
         file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
         
-        motivational_speakers=("david goggins" "tony horton" "Dolly Parton" "Darth Vader" "Yoda" "Han Solo")
+        motivational_speakers=("david goggins" "tony horton" "Dolly Parton" "Darth Vader" "Yoda" "Han Solo" "Fred Rogers" "Kermit The Frog" "Spiderman" "Wonder Woman" "One Punch Man")
         workoutfile="$SECOND_BRAIN"'/04-areas/fitness/workout-'"$today".md
         #echo "filename: $file"
         content=""
