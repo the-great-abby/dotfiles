@@ -200,31 +200,41 @@ today=$(date +"%Y-%m-%d")
 function generateLLMNotesSummary() {
         file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
         
+        motivational_speakers=("david goggins" "tony horton" "Dolly Parton" "Darth Vader" "Yoda" "Han Solo")
         workoutfile="$SECOND_BRAIN"'/04-areas/fitness/workout-'"$today".md
-        echo "filename: $file"
+        #echo "filename: $file"
         content=""
         cat $file | while read line
         do
           content="$content\n$line"
-          echo "a line: $line"
+          #echo "a line: $line"
         done
+        content="$content\n\n--------\n\n"
         cat $workoutfile | while read line
         do
           content="$content\n$line"
-          echo "a line: $workoutline"
+          #echo "a line: $workoutline"
         done
 
+        character="${motivational_speakers[$RANDOM % ${#motivational_speakers[@]}]}"
         echo "Chat with the LLM for Greeting"
-        echo "Content goes here: $content"
+        #echo "Content goes here: $content"
         contentvalue=$(
 cat << END
-Hi Good Day to you, can you help summarize my current dairy entry
+Hi, please announce who you are, you are '$character', and Good Day to you, can you help summarize my current dairy entry
+
+
 Content:
 $content
+---
+Can you also summarize the workout information in the motivational tone of $character, I captured in my dairy
 END
+#Total Pushups: XX
+#Total Kettlebell Swings: XX
+#Total Squats: XX
         )
         contentvalue=$(echo "$contentvalue" | tr -d "\n" | tr -d "\"" )
-        echo "content value: $contentvalue"
+        #echo "content value: $contentvalue"
         #htmlEscapeContentValue=$(htmlEscape($contentvalue))
         htmlEscapeContentValue=$contentvalue
         json=$(
@@ -232,7 +242,7 @@ END
 {"msg": "$htmlEscapeContentValue", "collection": "storytelling_with_data"}
 END
         )
-        echo "json: $json"
+        #echo "json: $json"
         response=$(curl -H "Content-Type: application/json" -H "" -X POST -d $json http://localhost:7500/shell_chat)
         echo "${response}"
 }
