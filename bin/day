@@ -1,4 +1,74 @@
 #!/bin/bash
+# - #/Users/abby/.asdf/shims/python
+#print ("hello world")
+
+#local_model="llama3.2"
+#embed_model="nomic-embed-text"
+#ollama_host="http://localhost:11434"
+
+#import os
+#import yaml
+#config = yaml.safe_load(open("config.yaml"))
+
+#import pprint
+#import subprocess
+#from langchain_core.prompts import ChatPromptTemplate
+#from langchain_community.chat_models import ChatOllama
+#from langchain_core.runnables import RunnablePassthrough
+#from langchain_core.prompts import PromptTemplate
+#from langchain.chains import RetrievalQA
+#import ollama
+#from langchain_core.prompts import ChatPromptTemplate
+#from langchain_core.output_parsers import StrOutputParser
+#from langchain_community.embeddings import OllamaEmbeddings
+#
+#QUERY_PROMPT_FOR_SUMMARIZE="""
+#Take the inputs and summarize the document
+#into a summary of information that can be indexed
+#less than 500 characters in text length.
+#
+#Do not add any additional text, just the summary
+#    {context}
+#"""
+#from datetime import date
+
+#today=$(date +"%Y-%m-%d")
+#tomorrow=$(date -v +1d '+%Y-%m-%d')
+#yesterday=$(date -v -1d '+%Y-%m-%d')
+##file="$SECOND_BRAIN"'/periodic-notes/daily-notes/'$(date +"%Y-%m-%d").md
+#file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
+#today = date.today()
+#formatted_date = today.strftime("%Y-%m-%d")  # Format: DD/MM/YYYY
+#second_brain_path="$HOME/Documents/Second Brain"
+#print(formatted_date)
+#today_note_filepath=f"{second_brain_path}/daily-notes/{formatted_date}.md"
+#
+#embeddings = OllamaEmbeddings(base_url=f"{config['ollama_host']}", model=f"{embed_model}", show_progress=True)
+#
+#llm = ChatOllama(base_url=f"{config['ollama_host']}", model=f"{config['local_model']}", temperature=0)
+#from langchain.schema import Document
+#from langchain_core.messages import AIMessage
+#
+#def load_data_file(file_path):
+#    # Load data from a file
+#    loader = UnstructuredFileLoader(file_path, strategy="fast", mode="elements")
+#    data = loader.load()
+#    
+#    return data
+#
+#context="No Data Provided"
+#if os.path.exists(today_note_filepath):
+#	print("File exists")
+#	context=load_data_file(today_note_filepath)
+#messages = [
+#    (
+#        "system",
+#        "You are a helpful assistant that summariezes the user's day. Summarize the day that has been logged so far.",
+#    ),
+#    ("human", "{context}"),
+#]
+#ai_msg = llm.invoke(messages)
+#print(ai_msg.content)
 
 today=$(date +"%Y-%m-%d")
 tomorrow=$(date -v +1d '+%Y-%m-%d')
@@ -30,18 +100,7 @@ creation date: ${today}
 
 ## Intention
 
-What do I want to achieve today and tomorrow?
-
 ## Tracking
-
-- [ ] Calories tracked
-- [ ] Run
-- [ ] Yoga or strength training
-- [ ] Meditation
-- [ ] Skin routine
-- [ ] Oral routine
-- [ ] Personal Project work
-## Log
 EOF
 
 }
