@@ -147,6 +147,14 @@ fpath=(${ASDF_DIR}/completions $fpath)
 autoload -Uz compinit
 compinit
 
+function htmlEscape () {
+    local s
+    s=${1//&/&amp;}
+    s=${s//</&lt;}
+    s=${s//>/&gt;}
+    s=${s//'"'/&quot;}
+    printf -- %s "$s"
+}
 # homebrew
 export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 # npm global
@@ -183,8 +191,43 @@ fi
 ## <<< conda initialize <<<
 
 # Second Brain
-export SECOND_BRAIN="$HOME/code/second brain notes"
+export SECOND_BRAIN="$HOME/Documents/Second Brain"
 
-### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
-export PATH="/Users/abby/.rd/bin:$PATH"
-### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
+today=$(date +"%Y-%m-%d")
+# get a daily journal that should be created
+#today_file=$SECOND_BRAIN + "/daily_notes/" + $today + ".md"
+
+function generateLLMNotesSummary() {
+        file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
+        echo "filename: $file"
+        content=""
+        cat $file | while read line
+        do
+          content="$content\n$line"
+          echo "a line: $line"
+        done
+
+        echo "Chat with the LLM for Greeting"
+        echo "Content goes here: $content"
+        contentvalue=$(
+cat << END
+Hi Good Day to you, can you help summarize my current dairy entry
+Content:
+$content
+END
+        )
+        contentvalue=$(echo "$contentvalue" | tr -d "\n" | tr -d "\"" )
+        echo "content value: $contentvalue"
+        #htmlEscapeContentValue=$(htmlEscape($contentvalue))
+        htmlEscapeContentValue=$contentvalue
+        json=$(
+        cat << END
+{"msg": "$htmlEscapeContentValue", "collection": "storytelling_with_data"}
+END
+        )
+        echo "json: $json"
+        response=$(curl -H "Content-Type: application/json" -H "" -X POST -d $json http://localhost:7500/shell_chat)
+        echo "${response}"
+}
+
+generateLLMNotesSummary
