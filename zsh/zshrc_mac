@@ -200,7 +200,8 @@ today=$(date +"%Y-%m-%d")
 function generateLLMNotesSummary() {
         file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
         
-        motivational_speakers=("david goggins" "tony horton" "Dolly Parton" "Darth Vader" "Yoda" "Han Solo" "Fred Rogers" "Kermit The Frog" "Spiderman" "Wonder Woman" "One Punch Man")
+        motivational_speakers=("david goggins, a fitness guru" "tony horton, a p90x fitness guru" "Dolly Parton" "Anakin Skywalker, aka Darth Vader"  "Kermit The Frog" "Spiderman" "Wonder Woman" "Saitama, aka One Punch Man")
+        # "Yoda" "Han Solo" "Fred Rogers"
         workoutfile="$SECOND_BRAIN"'/04-areas/fitness/workout-'"$today".md
         #echo "filename: $file"
         content=""
@@ -253,6 +254,7 @@ function start_aider() {
   # Read the file into a variable             
   # Requires an OPENAI API Key
   apiKey=$(<$HOME/code/dotfiles/aider.txt) 
-  OLLAMA_API_BASE=http://host.docker.internal:11434 docker run -it --user $(id -u):$(id -g) -e OLLAMA_API_BASE=http://host.docker.internal:11434 --volume $(pwd):/app paulgauthier/aider-full --openai-api-key $apiKey 
+  OLLAMA_API_BASE=http://host.docker.internal:11434 
+  docker run -it --user $(id -u):$(id -g) -e OLLAMA_API_BASE=$OLLAMA_API_BASE --volume $(pwd):/app paulgauthier/aider-full --set-env OLLAMA_API_BASE=$OLLAMA_API_BASE --model ollama/llama3.2
   #--openai-api-key $OPENAI_API_KEY
 }
