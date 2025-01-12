@@ -1,0 +1,2 @@
+model: ollama/llama3:9b
+  num_ctx: 30000

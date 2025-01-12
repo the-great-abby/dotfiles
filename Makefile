@@ -228,6 +228,10 @@ install_asdf_terraform:
 	asdf plugin-add vault https://github.com/asdf-community/asdf-hashicorp.git
 	asdf plugin-add waypoint https://github.com/asdf-community/asdf-hashicorp.git
 
+# Aider Setup
+install_aider_model_settings_file:
+	ln -s ~/code/dotfiles/aider.model.settings.yaml ~/.aider.model.settings.yaml
+
 rb_kube_dd_init:
 	echo "hi"
 	make -f kubernetes/Makefile check-docker-running
