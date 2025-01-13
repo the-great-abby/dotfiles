@@ -10,3 +10,12 @@ if [ -f ~/.zsh/zshalias ]; then
 else
     print "404: ~/.zsh/zshalias not found."
 fi
+
+function htmlEscape () {
+    local s
+    s=${1//&/&amp;}
+    s=${s//</&lt;}
+    s=${s//>/&gt;}
+    s=${s//'"'/&quot;}
+    printf -- %s "$s"
+}
