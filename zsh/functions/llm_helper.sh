@@ -7,6 +7,102 @@ today=$(date +"%Y-%m-%d")
 # get a daily journal that should be created
 #today_file=$SECOND_BRAIN + "/daily_notes/" + $today + ".md"
 
+function ask_llm_self_help_related_question() {
+      echo "0: $0"
+      echo "question: $1"
+      question=$1
+      collection_name="self_help"
+      llm_prompt=$(
+cat << END
+You are a self-help guru. Please use the context available as well as
+your existing knowledge to help respond to the question. Please answer
+the question.
+
+Question:
+--
+$question
+END
+      )
+
+      contentvalue=$(echo "$llm_prompt" | tr -d "\n" | tr -d "\"" )
+      #echo "content value: $contentvalue"
+      #htmlEscapeContentValue=$(htmlEscape($contentvalue))
+      htmlEscapeContentValue=$contentvalue
+      json=$(
+      cat << END
+{"msg": "$htmlEscapeContentValue", "collection": "$collection_name"}
+END
+        )
+       #echo "json: $json"
+      response=$(curl -H "Content-Type: application/json" -H "" -X POST -d $json http://localhost:7500/shell_chat)
+      echo $response
+      #return $response
+}
+function ask_llm_finance_related_question() {
+      echo "0: $0"
+      echo "question: $1"
+      question=$1
+      collection_name="finance"
+      llm_prompt=$(
+cat << END
+You are a finance guru, and I need help with a question.
+
+Please answer the question
+
+Question:
+--
+$question
+END
+      )
+
+      contentvalue=$(echo "$llm_prompt" | tr -d "\n" | tr -d "\"" )
+      #echo "content value: $contentvalue"
+      #htmlEscapeContentValue=$(htmlEscape($contentvalue))
+      htmlEscapeContentValue=$contentvalue
+      json=$(
+      cat << END
+{"msg": "$htmlEscapeContentValue", "collection": "$collection_name"}
+END
+        )
+       #echo "json: $json"
+      response=$(curl -H "Content-Type: application/json" -H "" -X POST -d $json http://localhost:7500/shell_chat)
+      echo $response
+      #return $response
+}
+
+
+function ask_llm_programming_related_question() {
+      echo "0: $0"
+      echo "question: $1"
+      question=$1
+      collection_name="programming_assistance"
+      llm_prompt=$(
+cat << END
+You are a programming superstar ...
+
+Please answer the question
+
+Question:
+--
+$question
+END
+      )
+
+      contentvalue=$(echo "$llm_prompt" | tr -d "\n" | tr -d "\"" )
+      #echo "content value: $contentvalue"
+      #htmlEscapeContentValue=$(htmlEscape($contentvalue))
+      htmlEscapeContentValue=$contentvalue
+      json=$(
+      cat << END
+{"msg": "$htmlEscapeContentValue", "collection": "$collection_name"}
+END
+        )
+       #echo "json: $json"
+      response=$(curl -H "Content-Type: application/json" -H "" -X POST -d $json http://localhost:7500/shell_chat)
+      echo $response
+      #return $response
+}
+
 function ask_llm_question() {
       echo "0: $0"
       echo "question: $1"
