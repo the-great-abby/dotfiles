@@ -34,3 +34,5 @@ fi
 
 
 echo "- [x] 30 Kettlebell Swings" >> "$file"
+echo "  - Weight: " >> "$file"
+echo "  - Difficulty (1-5): " >> "$file"

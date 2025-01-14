@@ -33,7 +33,5 @@ if [ ! -f "$file" ]; then
 fi
 
 
-echo "- [x] 10 Tricep Extensions" >> "$file"
-echo "  - Weight: " >> "$file"
-echo "  - Difficulty (1-5): " >> "$file"
+echo "- [x] 10 Shoulder Presses" >> "$file"
 nvim '+ normal Gzzo ' "$file"

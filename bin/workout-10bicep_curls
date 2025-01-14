@@ -34,4 +34,6 @@ fi
 
 
 echo "- [x] 10 Bicep Curls" >> "$file"
+echo "  - Weight: " >> "$file"
+echo "  - Difficulty (1-5): " >> "$file"
 nvim '+ normal Gzzo ' "$file"
