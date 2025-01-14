@@ -300,6 +300,22 @@ END
         response=$(curl -H "Content-Type: application/json" -H "" -X POST -d $json http://localhost:7500/shell_chat)
         echo "${response}"
 }
+
+function generateCurlRequest () {
+        # using the other functions in zsh
+        # create a curl call
+        # AI!
+}
+function generateLLMReviewOfJournalInThePastWeek() {
+        # collection_name should be self_help
+        # generate a loop of the past 7 days that
+        # will allow us to read in the daily_notes
+        # for the past 7 days using a dynamic date function
+        # use the curl method used in generateLLMNotesSummary
+        #
+        
+}
+
 function generateLLMNotesSummary() {
         collection_name="storytelling_with_data"
         file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
