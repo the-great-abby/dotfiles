@@ -7,10 +7,10 @@ day_file="$SECOND_BRAIN/daily_notes/${today}.md"
 cd "$SECOND_BRAIN" || exit
 
 new_note() {
-	touch "$file"
+  touch "$file"
 
-	# Format the file with the workout template
-	cat <<EOF >"$file"
+  # Format the file with the workout template
+  cat <<EOF >"$file"
 ---
 type: workout
 workout date: ${today}
@@ -27,11 +27,13 @@ EOF
 
 # If the workout note does not exist, create a new one.
 if [ ! -f "$file" ]; then
-	echo "File does not exist, creating new workout."
-	new_note
-	echo "- [[workout-${today}]]" >>"${day_file}"
+  echo "File does not exist, creating new workout."
+  new_note
+  echo "- [[workout-${today}]]" >>"${day_file}"
 fi
 
-
-echo "- [x] 10 Shoulder Presses" >> "$file"
+echo "- [x] 10 Shoulder Presses" >>"$file"
+echo "  - Weight: " >>"$file"
+echo "  - Difficulty (1-5): " >>"$file"
 nvim '+ normal Gzzo ' "$file"
+

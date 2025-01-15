@@ -268,3 +268,11 @@ rb_notion_run:
 		make -f Makefile.dotfile run
 
 
+
+ln_claude_desktop:
+	#ln -s ~/code/dotfiles/desktop.claude.desktop ~/.local/share/applications/claude.desktop
+	# Create directory if needed
+	mkdir -p ~/Library/Application\ Support/Claude/
+
+	# Create/edit config file
+	ln -s ~/code/dotfiles/desktop.claude.desktop ~/Library/Application\ Support/Claude/claude_desktop_config.json

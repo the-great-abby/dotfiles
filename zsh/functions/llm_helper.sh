@@ -141,8 +141,17 @@ END
 }
 
 function pick_a_character() {
-        local motivational_speakers=("david goggins, a fitness guru" "tony horton, a p90x fitness guru" "Dolly Parton" "Darth Vader"  "Kermit The Frog" "Spiderman" "Wonder Woman" )
-        # local motivational_speakers=("david goggins" "tony horton" "Gordan Ramsey" "Darth Vader")
+        #local motivational_speakers=("david goggins, a fitness guru" "tony horton, a p90x fitness guru" "Dolly Parton" "Darth Vader"  "Kermit The Frog" "Spiderman" "Wonder Woman" )
+        local motivational_speakers=( )
+        {
+                motivational_speakers+=("david goggins")
+                motivational_speakers+=("tony horton")
+                motivational_speakers+=("Gordan Ramsey")
+                motivational_speakers+=("Darth Vader")
+        } always {
+                echo "Zig Ziglar"
+        }
+        
         local character="${motivational_speakers[$RANDOM % ${#motivational_speakers[@]}]}"
         return "${character}"
 }
