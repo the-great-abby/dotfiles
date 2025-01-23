@@ -2,8 +2,9 @@
 
 # Second Brain
 export SECOND_BRAIN="$HOME/Documents/Second Brain"
-
+goals_file="$SECOND_BRAIN/04-areas/goals.md"
 today=$(date +"%Y-%m-%d")
+yesterday=$(date -v -1d +"%Y-%m-%d")
 # get a daily journal that should be created
 #today_file=$SECOND_BRAIN + "/daily_notes/" + $today + ".md"
 
@@ -149,7 +150,7 @@ function pick_a_character() {
                 motivational_speakers+=("Gordan Ramsey")
                 motivational_speakers+=("Darth Vader")
         } always {
-                echo "Zig Ziglar"
+                echo "The Joker"
         }
         
         local character="${motivational_speakers[$RANDOM % ${#motivational_speakers[@]}]}"
@@ -168,13 +169,13 @@ function getDailyJournal() {
         return "${content}"
 }
 function generateLLMYesterdaysEveningSummary() {
-        today=$(date +"%Y-%m-%d")
-        yesterday=$(date -v -1d +"%Y-%m-%d")
+        #today=$(date +"%Y-%m-%d")
+        #yesterday=$(date -v -1d +"%Y-%m-%d")
         day_before_yesterday=$(date -v -2d +"%Y-%m-%d")
 
         collection_name="self_help"
-        #file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
-        local date_of_file=$(date +"%Y-%m-%d")
+        file="$SECOND_BRAIN"'/daily_notes/'$yesterday'.md'
+        local date_of_file=$(date -v -1d +"%Y-%m-%d")
         motivational_speakers=("david goggins" "tony horton" "Gordan Ramsey" "Darth Vader")
         
         character="${motivational_speakers[$RANDOM % ${#motivational_speakers[@]}]}"
@@ -188,7 +189,7 @@ function generateLLMYesterdaysEveningSummary() {
           content="$content\n$line"
           #echo "a line: $line"
         done
-        content="$content\n\n--------\n\n"
+        content="$content\n\n"
         workoutcontent=""
         cat $workoutfile | while read line
         do
@@ -201,6 +202,12 @@ function generateLLMYesterdaysEveningSummary() {
           chorecontent="$chorecontent\n$line"
           #echo "a line: $workoutline"
         done
+        goalcontent=""
+        cat $goals_file | while read line
+        do
+          goalcontent="$goalcontent\n$line"
+          #echo "a line: $workoutline"
+        done
 
         echo "Chat with the LLM for Yesterday Evening's Summary"
         #echo "Content goes here: $content"
@@ -210,7 +217,7 @@ Hi My name is Abby, and I need your assistance.
 
 Do me a favor and please announce who you are, you are '$character', and Good Day to you, can you help summarize my current dairy entry and congratulate me to checking items off the todo list for the day.
 
-Please assist me in generating a list of items to move the tasks from today's dairy, to move them to tomorrow's diary, please mark this section as "Next Day"
+Please assist me in generating a list of items to move the tasks from yesterday's dairy, to move them to today's diary, please mark this section as "Next Day"
 
 Please take a moment to go over the intention, What do I want to achieve today and tomorrow, and tasks ...
 
@@ -238,6 +245,16 @@ Can you help summarize my progress as the '$character' and celebrate victories n
 Chore Content:
 --
 $chorecontent
+---
+
+Goals:
+
+Can you help me make sure I am on track to accomplishing my goals. Help me break down bigger tasks
+into something that I can possibly get done today and mark off my list
+
+Goal Content:
+$goalcontent
+--
 END
         )
         contentvalue=$(echo "$contentvalue" | tr -d "\n" | tr -d "\"" )
@@ -283,6 +300,12 @@ function generateLLMEveningSummary() {
           chorecontent="$chorecontent\n$line"
           #echo "a line: $workoutline"
         done
+        goalcontent=""
+        cat $goals_file | while read line
+        do
+          goalcontent="$goalcontent\n$line"
+          #echo "a line: $workoutline"
+        done
 
         echo "Chat with the LLM for Evening Summary"
         #echo "Content goes here: $content"
@@ -320,6 +343,16 @@ Can you help summarize my progress as the '$character' and celebrate victories n
 Chore Content:
 --
 $chorecontent
+---
+
+Goals:
+
+Can you help me make sure I am on track to accomplishing my goals. Help me break down bigger tasks
+into something that I can possibly get done today and mark off my list
+
+Goal Content:
+--
+$goalcontent
 END
         )
         contentvalue=$(echo "$contentvalue" | tr -d "\n" | tr -d "\"" )
