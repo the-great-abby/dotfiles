@@ -229,8 +229,15 @@ install_asdf_terraform:
 	asdf plugin-add waypoint https://github.com/asdf-community/asdf-hashicorp.git
 
 # Aider Setup
+# This doens't actually work the way I think it does
+# in order for this to work as desired
+# you want to dump this file in to the PWD
+# of the codebase
 install_aider_model_settings_file:
 	ln -s ~/code/dotfiles/aider.model.settings.yaml ~/.aider.model.settings.yaml
+install_aider_model_metadata_file:
+	ln -s ~/code/dotfiles/aider.model.metadata.json ~/.aider.model.metadata.json
+
 
 rb_kube_dd_init:
 	echo "hi"

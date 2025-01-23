@@ -345,6 +345,20 @@ function generateCurlRequest () {
         local response=$(curl -H "Content-Type: application/json" -H "" -X POST -d $json http://localhost:7500/shell_chat)
         echo "${response}"
 }
+
+function reviewGoals () {
+        collection_name="self_help"
+
+        file="$SECOND_BRAIN/04-areas/goals.md"
+        local content=""
+        cat $file | while read line
+        do
+          content="$content\n$line"
+          #echo "a line: $line"
+        done
+
+        echo "${content}"
+}
 function generateLLMReviewOfJournalInThePastWeek() {
         # collection_name should be self_help
         # generate a loop of the past 7 days that
@@ -352,7 +366,72 @@ function generateLLMReviewOfJournalInThePastWeek() {
         # for the past 7 days using a dynamic date function
         # use the curl method used in generateLLMNotesSummary
         #
-        
+        local goals=$(reviewGoals)
+        local collection_name="self_help"
+        local day_to_scan=$(date +"%Y-%m-%d")
+        file="$SECOND_BRAIN/daily_notes/${day_to_scan}.md"
+        # "Yoda" "Han Solo" "Fred Rogers"
+        #workoutfile="$SECOND_BRAIN"'/04-areas/fitness/workout-'"$today".md
+        #chorefile="$SECOND_BRAIN"'/chores/chores_day-'"$today".md
+        #echo "Today: $today.md"
+        content=""
+        #cat $goals_content | while read line
+        #do
+        #        goals_content="$goals_content\n$line"
+        #        #echo "a line: $line"
+        #done
+        for i in {0..7}; do
+                day_to_scan=$(date -v "-$(expr $i)d" +"%Y-%m-%d");
+                # file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
+                file="$SECOND_BRAIN/daily_notes/${day_to_scan}.md"
+                cat $file | while read line
+                do
+                        content="$content\n$line"
+                        #echo "a line: $line"
+                done
+        done
+
+        echo $content
+ 
+        local character=$(pick_a_character)
+        echo "Chat with the LLM for Greeting"
+        #echo "Content goes here: $content"
+        contentvalue=$(
+cat << END
+Hi, please announce who you are, you are '$character', and Good Day to you, can you help summarize my the past few dairy entries and help me review the items.
+
+Please be as insulting as necessary to help motivate me.
+
+Please examine my current listed goals and help me align the goals with the diary entries listed below
+--
+$goals
+--
+
+guide:
+--
+[x] - completed
+[-] - missed
+[>] - move to the next day
+
+Diary Entry:
+--
+$content
+
+--
+As a final comment please review the items marked with the highest priority in the goals (as indicated by the lack of indetation on the line)
+
+END
+        )
+        contentvalue=$(echo "$contentvalue" | tr -d "\n" | tr -d "\"" )
+        htmlEscapeContentValue=$contentvalue
+        json=$(
+        cat << END
+{"msg": "$htmlEscapeContentValue", "collection": "$collection_name"}
+END
+        )
+        #echo "json: $json"
+        response=$(generateCurlRequest -json $json)
+        echo "${response}"
 }
 
 function generateLLMNotesSummary() {
