@@ -13,7 +13,6 @@
         "mcp/gitlab"
       ],
       "env": {
-        "GITLAB_PERSONAL_ACCESS_TOKEN": ""
       }
     },
     "sequentialthinking": {
@@ -48,7 +47,7 @@
         "--rm",
         "--mount", "type=bind,src=/Users/abby/code/dotfiles,dst=/projects/code/dotfiles",
         "--mount", "type=bind,src=/Users/abby/code/sre_scripts,dst=/projects/code/sre_scripts",
-        "--mount", "type=bind,src=/Users/abby/code/ai_projects/mcp_server,dst=/projects/code/ai_projects/mcp_server",
+        "--mount", "type=bind,src=/Users/abby/code/ai_projects/test_mcp_server,dst=/projects/code/ai_projects/mcp_server",
         "--mount", "type=bind,src=/Users/abby/code/ai_projects/general_helper,dst=/projects/code/ai_projects/general_helper",
         "mcp/filesystem",
         "/projects"
