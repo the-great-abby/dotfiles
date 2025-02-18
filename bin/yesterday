@@ -5,7 +5,7 @@ today=$(date -v +1d +"%Y-%m-%d")
 tomorrow=$(date -v +2d '+%Y-%m-%d')
 yesterday=$(date '+%Y-%m-%d')
 #file="$SECOND_BRAIN"'/periodic-notes/daily-notes/'$(date +"%Y-%m-%d").md
-file="$SECOND_BRAIN"'/daily_notes/'$(date -v -1d +"%Y-%m-%d").md
+file="$SECOND_BRAIN"'/daily_notes/'$yesterday'.md'
 
 cd "$SECOND_BRAIN" || exit
 

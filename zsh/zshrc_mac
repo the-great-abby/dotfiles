@@ -189,5 +189,21 @@ fi
 #unset __conda_setup
 ## <<< conda initialize <<<
 
-generateLLMNotesSummary
+echo "Please use the following commands:"
+echo "day"
+echo "------------------------------------------"
+echo "getDailyJournal"
+echo "reviewGoals"
+echo "generateLLMNotesSummary"
+echo "generateLLMYesterdaysEveningSummary"
+echo "generateLLMEveningSummary"
+echo "generateLLMReviewOfJournalInThePastWeek"
+echo "------------------------------------------"
+echo "ask_llm_self_help_related_question"
+echo "ask_llm_finance_related_question"
+echo "ask_llm_programming_related_question"
+echo "ask_llm_question"
+echo "=========================================="
+echo ""
+# generateLLMNotesSummary
 

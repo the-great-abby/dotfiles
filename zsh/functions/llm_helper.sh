@@ -176,10 +176,10 @@ function generateLLMYesterdaysEveningSummary() {
         collection_name="self_help"
         file="$SECOND_BRAIN"'/daily_notes/'$yesterday'.md'
         local date_of_file=$(date -v -1d +"%Y-%m-%d")
-        motivational_speakers=("david goggins" "tony horton" "Gordan Ramsey" "Darth Vader")
+        #motivational_speakers=("david goggins" "tony horton" "Gordan Ramsey" "Darth Vader")
         
-        character="${motivational_speakers[$RANDOM % ${#motivational_speakers[@]}]}"
-        #local character=$(pick_a_character)
+        #character="${motivational_speakers[$RANDOM % ${#motivational_speakers[@]}]}"
+        local character=$(pick_a_character)
         workoutfile="$SECOND_BRAIN"'/04-areas/fitness/workout-'"$yesterday".md
         chorefile="$SECOND_BRAIN"'/chores/chores_day-'"$yesterday".md
         #echo "filename: $file"
