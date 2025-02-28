@@ -19,3 +19,10 @@ function htmlEscape () {
     s=${s//'"'/&quot;}
     printf -- %s "$s"
 }
+function removeCurrentDayEntry {
+
+	local today=$(date +"%Y-%m-%d")
+	local file="$SECOND_BRAIN"'/daily_notes/'$(date +"%Y-%m-%d").md
+	ls $file
+	rm $file
+}

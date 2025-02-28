@@ -158,14 +158,19 @@ function pick_a_character() {
 }
 function getDailyJournal() {
         # date
-        echo "Parameter: $-n"  # date
+	local date_of_file=$(date +"%Y-%m-%d")
+        # echo "Parameter: $-n"  # date
         local file="$SECOND_BRAIN"'/daily_notes/'${date_of_file}'.md'
         local content=""
         cat $file | while read line
         do
-          content="$content\n$line"
-          #echo "a line: $line"
+          content=<<EOL
+$content
+$line
+EOL
+          echo "textline: $line"
         done
+	echo "${content}"
         return "${content}"
 }
 function generateLLMYesterdaysEveningSummary() {
