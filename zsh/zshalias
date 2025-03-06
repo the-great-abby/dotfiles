@@ -1,0 +1,4 @@
+alias ecr-login="aws ecr get-login-password --region us-west-2 --profile filevine_platform_services | docker login --username AWS --password-stdin 358974996326.dkr.ecr.us-west-2.amazonaws.com"
+
+alias aws-login="aws sso login --sso-session cli-access"
+

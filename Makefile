@@ -6,6 +6,9 @@ GLIBC_VER=2.31-r0
 
 install_zshrc:
 	ln -s ${PWD}/zsh/zshrc ~/.zshrc
+install_zshrc_alias:
+	mkdir -p ~/.zsh
+	ln -s ${PWD}/zsh/zshalias ~/.zsh/zshalias
 	# New-Item -Path ~/.zshrc -ItemType SymbolicLink -Target ${PWD}/zsh/zshrc
 #install:
 #	yarn

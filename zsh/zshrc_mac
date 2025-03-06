@@ -191,6 +191,7 @@ fi
 
 echo "Please use the following commands:"
 echo "day"
+echo "removeCurrentDayEntry"
 echo "------------------------------------------"
 echo "getDailyJournal"
 echo "reviewGoals"
@@ -207,3 +208,12 @@ echo "=========================================="
 echo ""
 # generateLLMNotesSummary
 
+#alias docker-login-to-ecr='docker login --username=USERNAME'
+#alias docker-login-to-ecr='aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin $(aws sts get-caller-identity --query Account --profile filevine_platform_services --output text).dkr.ecr.us-west-2.amazonaws.com'
+alias docker-login-to-ecr='aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 358974996326.dkr.ecr.us-west-2.amazonaws.com'
+# 358974996326.dkr.ecr.us-west-2.amazonaws.com
+
+alias build-rebels-container='docker build -t rebels_container:latest -f $HOME/code/rebel_container/iac/docker/Dockerfile.rebels   $(for i in `cat $HOME/code/rebel_container/.env`; do out+="--build-arg $i " ; done; echo $out;out="") $HOME/code/rebel_container '
+#alias download-rebels-container='docker build -t $(aws sts get-caller-identity --query Account --profile filevine_platform_services --output text).dkr.ecr.us-west-2.amazonaws.com/rebels_container:latest   $(for i in `cat $HOME/code/rebel_container/.env`; do out+="--build-arg $i " ; done; echo $out;out="") $HOME/code/rebel_container '
+#alias start-rebels-container='docker run --rm -v $HOME/code/dotfiles/unix_shell/tmux.conf:/home/docker/.tmux.conf -v $HOME/.ssh:/home/docker/.ssh -v $HOME/.kube:/home/docker/.kube -v $HOME/.aws:/home/docker/.aws --mount source=rebel_base,target=/home/docker/  -v $HOME/code/:/home/docker/code_reference -it 358974996326.dkr.ecr.us-west-2.amazonaws.com/rebels:latest /usr/bin/zsh '
+alias start-rebels-container='docker run --rm -v $HOME/code/dotfiles/unix_shell/tmux.conf:/home/docker/.tmux.conf -v $HOME/.ssh:/home/docker/.ssh -v $HOME/.kube:/home/docker/.kube -v $HOME/.aws:/home/docker/.aws --mount source=rebel_base,target=/home/docker/  -v $HOME/code/:/home/docker/code_reference -it rebels_container:latest /usr/bin/zsh '
