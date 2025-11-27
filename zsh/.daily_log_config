@@ -1,0 +1,10 @@
+# Daily Log Configuration
+# LM Studio API endpoint
+LM_STUDIO_URL="http://localhost:1234/v1/chat/completions"
+
+# Daily log directory (default: ~/Documents/daily_logs)
+DAILY_LOG_DIR="$HOME/Documents/daily_logs"
+
+# LM Studio model name (optional, can be left empty to use default)
+LM_STUDIO_MODEL=""
+
