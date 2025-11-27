@@ -8,3 +8,9 @@ DAILY_LOG_DIR="$HOME/Documents/daily_logs"
 # LM Studio model name (optional, can be left empty to use default)
 LM_STUDIO_MODEL=""
 
+# Your name (for personalized reminders from Hank)
+NAME="Abby"
+
+# Maximum tokens for Hank's responses (default: 1200, increase if responses get cut off)
+MAX_TOKENS="1200"
+

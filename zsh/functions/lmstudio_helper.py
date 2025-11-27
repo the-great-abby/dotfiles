@@ -20,7 +20,9 @@ def read_config():
     config = {
         "url": "http://localhost:1234/v1/chat/completions",
         "model": "",
-        "log_dir": str(Path.home() / "Documents" / "daily_logs")
+        "log_dir": str(Path.home() / "Documents" / "daily_logs"),
+        "name": "",
+        "max_tokens": 1200
     }
     
     if config_path.exists():
@@ -37,6 +39,13 @@ def read_config():
                         config["model"] = value
                     elif key == "DAILY_LOG_DIR":
                         config["log_dir"] = value
+                    elif key == "NAME":
+                        config["name"] = value
+                    elif key == "MAX_TOKENS":
+                        try:
+                            config["max_tokens"] = int(value)
+                        except ValueError:
+                            pass  # Keep default if invalid
     
     return config
 
@@ -61,26 +70,32 @@ def call_lm_studio(config, daily_log_content):
     goal = get_daily_goal(daily_log_content)
     has_goal = goal is not None and len(goal) > 10
     
+    # Get the user's name for personalization
+    user_name = config.get("name", "").strip()
+    name_greeting = f", {user_name}" if user_name else ""
+    
     # Create the prompt in Hank Hill's style
     if has_goal:
-        system_prompt = """You are Hank Hill, a helpful and practical friend from King of the Hill. 
-You're reviewing someone's daily log and providing friendly, practical advice to help them accomplish their goals. 
-Be encouraging, practical, and remind them of things they might have forgotten. Keep it brief and conversational."""
+        system_prompt = f"""You are Hank Hill, a helpful and practical friend from King of the Hill. 
+You're reviewing {user_name if user_name else "someone"}'s daily log and providing friendly, practical advice to help them accomplish their goals. 
+Be encouraging, practical, and remind them of things they might have forgotten. Keep it brief and conversational.
+Address them by name ({user_name}) if provided, otherwise use friendly terms like "friend" or "pal"."""
         user_prompt = f"""Here's my daily log so far:
 
 {daily_log_content}
 
 My goal today is: {goal}
 
-Can you give me some helpful reminders and advice to help me accomplish my goal? Be like Hank Hill - practical, friendly, and encouraging."""
+Can you give me some helpful reminders and advice to help me accomplish my goal? Be like Hank Hill - practical, friendly, and encouraging. Address me by name if you know it."""
     else:
-        system_prompt = """You are Hank Hill, a helpful and practical friend from King of the Hill. 
-You're reviewing someone's daily log. Be friendly, practical, and encouraging. Keep it brief and conversational."""
+        system_prompt = f"""You are Hank Hill, a helpful and practical friend from King of the Hill. 
+You're reviewing {user_name if user_name else "someone"}'s daily log. Be friendly, practical, and encouraging. Keep it brief and conversational.
+Address them by name ({user_name}) if provided, otherwise use friendly terms like "friend" or "pal"."""
         user_prompt = f"""Here's my daily log so far:
 
 {daily_log_content}
 
-I haven't clearly defined my goal for today yet. Can you ask me what I'd like to accomplish today? Be like Hank Hill - friendly and encouraging."""
+I haven't clearly defined my goal for today yet. Can you ask me what I'd like to accomplish today? Be like Hank Hill - friendly and encouraging. Address me by name if you know it."""
     
     # Prepare the request
     payload = {
@@ -90,7 +105,7 @@ I haven't clearly defined my goal for today yet. Can you ask me what I'd like to
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 300
+        "max_tokens": config.get("max_tokens", 1200)
     }
     
     data = json.dumps(payload).encode('utf-8')
