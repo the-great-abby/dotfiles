@@ -77,6 +77,32 @@ plugins=(git)
 
 source $ZSH/oh-my-zsh.sh
 
+# Daily log reminder - shows every 5 commands
+_daily_log_command_counter() {
+  # Initialize counter if not set
+  (( _daily_log_cmd_count++ ))
+  
+  # Show reminder every 5 commands
+  if (( _daily_log_cmd_count % 5 == 0 )); then
+    local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+    local today=$(date +"%Y-%m-%d")
+    local log_file="${log_dir}/${today}.txt"
+    
+    # Friendly reminder message
+    if [[ -f "$log_file" ]]; then
+      echo ""
+      echo "💭 Friendly reminder: Don't forget to log your thoughts with: addInfoToDailyLog \"your entry\""
+    else
+      echo ""
+      echo "📝 Hey there! Remember to start your daily log: addInfoToDailyLog \"your entry\""
+    fi
+  fi
+}
+
+# Track commands and show reminder
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _daily_log_command_counter
+
 # User configuration
 
 # export MANPATH="/usr/local/man:$MANPATH"
