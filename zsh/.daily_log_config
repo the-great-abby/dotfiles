@@ -5,12 +5,24 @@ LM_STUDIO_URL="http://localhost:1234/v1/chat/completions"
 # Daily log directory (default: ~/Documents/daily_logs)
 DAILY_LOG_DIR="$HOME/Documents/daily_logs"
 
-# LM Studio model name (optional, can be left empty to use default)
-LM_STUDIO_MODEL=""
+# LM Studio model for chat/completions (optional, can be left empty to use "local-model" which uses whatever is loaded)
+# Examples: "google/gemma-3-12b", "openai/gpt-oss-20b", or leave empty to use the currently loaded model
+#LM_STUDIO_CHAT_MODEL=""
+
+# LM Studio model for embeddings (optional, for future use)
+# Examples: "text-embedding-nomic-embed-text-v1.5", "text-embedding-embeddinggemma-300m-qat"
+#LM_STUDIO_EMBEDDING_MODEL=""
+
+LM_STUDIO_CHAT_MODEL="google/gemma-3-1b"
+LM_STUDIO_EMBEDDING_MODEL="nomic-embed-text-v2-moe-GGUF"
 
 # Your name (for personalized reminders from Hank)
 NAME="Abby"
 
 # Maximum tokens for Hank's responses (default: 1200, increase if responses get cut off)
 MAX_TOKENS="1200"
+
+# Request timeout in seconds (default: 60 for local systems, can be increased for slower models)
+# When timeout is reached, the connection is closed and request is cancelled
+LM_STUDIO_TIMEOUT="60"
 

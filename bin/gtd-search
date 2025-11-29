@@ -1,0 +1,545 @@
+#!/bin/bash
+# GTD Search Command - Advanced search and filtering
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+GTD_INBOX_DIR="${GTD_INBOX_DIR:-0-inbox}"
+GTD_PROJECTS_DIR="${GTD_PROJECTS_DIR:-1-projects}"
+GTD_AREAS_DIR="${GTD_AREAS_DIR:-2-areas}"
+GTD_REFERENCE_DIR="${GTD_REFERENCE_DIR:-3-reference}"
+GTD_SOMEDAY_DIR="${GTD_SOMEDAY_DIR:-4-someday-maybe}"
+GTD_WAITING_DIR="${GTD_WAITING_DIR:-5-waiting-for}"
+GTD_ARCHIVE_DIR="${GTD_ARCHIVE_DIR:-6-archive}"
+
+INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR}"
+PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR}"
+AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR}"
+REFERENCE_PATH="${GTD_BASE_DIR}/${GTD_REFERENCE_DIR}"
+SOMEDAY_PATH="${GTD_BASE_DIR}/${GTD_SOMEDAY_DIR}"
+WAITING_PATH="${GTD_BASE_DIR}/${GTD_WAITING_DIR}"
+ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR}"
+TASKS_PATH="${GTD_BASE_DIR}/tasks"
+
+# Search tool (grep by default, can use ripgrep if available)
+SEARCH_TOOL="${GTD_SEARCH_TOOL:-grep}"
+if command -v rg &>/dev/null; then
+  SEARCH_TOOL="rg"
+elif command -v ag &>/dev/null; then
+  SEARCH_TOOL="ag"
+fi
+
+# Extract frontmatter value
+get_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+}
+
+# Search in files
+search_files() {
+  local pattern="$1"
+  local search_paths=("$@")
+  shift
+  
+  case "$SEARCH_TOOL" in
+    rg)
+      rg -l "$pattern" "${search_paths[@]}" 2>/dev/null
+      ;;
+    ag)
+      ag -l "$pattern" "${search_paths[@]}" 2>/dev/null
+      ;;
+    *)
+      grep -rl "$pattern" "${search_paths[@]}" 2>/dev/null
+      ;;
+  esac
+}
+
+# Format file for display
+format_file_result() {
+  local file="$1"
+  local pattern="$2"
+  local show_content="${3:-false}"
+  
+  local filename=$(basename "$file")
+  local dir=$(dirname "$file")
+  local relative_dir="${dir#$GTD_BASE_DIR/}"
+  
+  # Get metadata
+  local type=$(get_frontmatter_value "$file" "type")
+  local status=$(get_frontmatter_value "$file" "status")
+  local created=$(get_frontmatter_value "$file" "created")
+  local context=$(get_frontmatter_value "$file" "context")
+  local energy=$(get_frontmatter_value "$file" "energy")
+  local priority=$(get_frontmatter_value "$file" "priority")
+  local project=$(get_frontmatter_value "$file" "project")
+  
+  echo "  📄 $filename"
+  echo "     Path: $relative_dir"
+  if [[ -n "$type" ]]; then
+    echo "     Type: $type"
+  fi
+  if [[ -n "$status" ]]; then
+    echo "     Status: $status"
+  fi
+  if [[ -n "$created" ]]; then
+    echo "     Created: $created"
+  fi
+  if [[ -n "$context" ]]; then
+    echo "     Context: $context"
+  fi
+  if [[ -n "$energy" ]]; then
+    echo "     Energy: $energy"
+  fi
+  if [[ -n "$priority" ]]; then
+    echo "     Priority: $priority"
+  fi
+  if [[ -n "$project" ]]; then
+    echo "     Project: $project"
+  fi
+  
+  if [[ "$show_content" == "true" ]]; then
+    echo "     Content preview:"
+    head -5 "$file" | tail -3 | sed 's/^/       /'
+  fi
+  echo ""
+}
+
+# Search by keyword
+search_keyword() {
+  local keyword="$1"
+  local scope="${2:-all}"
+  
+  local search_paths=()
+  case "$scope" in
+    all)
+      search_paths=("$INBOX_PATH" "$PROJECTS_PATH" "$AREAS_PATH" "$TASKS_PATH" "$REFERENCE_PATH" "$SOMEDAY_PATH" "$WAITING_PATH")
+      ;;
+    inbox)
+      search_paths=("$INBOX_PATH")
+      ;;
+    tasks)
+      search_paths=("$TASKS_PATH")
+      ;;
+    projects)
+      search_paths=("$PROJECTS_PATH")
+      ;;
+    areas)
+      search_paths=("$AREAS_PATH")
+      ;;
+    reference)
+      search_paths=("$REFERENCE_PATH")
+      ;;
+    someday)
+      search_paths=("$SOMEDAY_PATH")
+      ;;
+    waiting)
+      search_paths=("$WAITING_PATH")
+      ;;
+    *)
+      search_paths=("$GTD_BASE_DIR")
+      ;;
+  esac
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔍 Searching for: \"$keyword\" (scope: $scope)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local results=($(search_files "$keyword" "${search_paths[@]}"))
+  local count=${#results[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No results found."
+    return
+  fi
+  
+  echo "Found $count result(s):"
+  echo ""
+  
+  for file in "${results[@]}"; do
+    format_file_result "$file" "$keyword" true
+  done
+}
+
+# Search by tag
+search_tag() {
+  local tag="$1"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🏷️  Searching by tag: \"$tag\""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local results=()
+  local search_paths=("$INBOX_PATH" "$PROJECTS_PATH" "$TASKS_PATH" "$AREAS_PATH")
+  
+  for path in "${search_paths[@]}"; do
+    if [[ -d "$path" ]]; then
+      while IFS= read -r file; do
+        local tags=$(get_frontmatter_value "$file" "tags")
+        if [[ "$tags" == *"$tag"* ]]; then
+          results+=("$file")
+        fi
+      done < <(find "$path" -type f -name "*.md" 2>/dev/null)
+    fi
+  done
+  
+  local count=${#results[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No results found with tag: $tag"
+    return
+  fi
+  
+  echo "Found $count result(s):"
+  echo ""
+  
+  for file in "${results[@]}"; do
+    format_file_result "$file" "$tag"
+  done
+}
+
+# Search by context
+search_context() {
+  local context="$1"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📍 Searching by context: \"$context\""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local results=()
+  local search_paths=("$TASKS_PATH" "$PROJECTS_PATH")
+  
+  for path in "${search_paths[@]}"; do
+    if [[ -d "$path" ]]; then
+      while IFS= read -r file; do
+        local file_context=$(get_frontmatter_value "$file" "context")
+        if [[ "$file_context" == "$context" ]]; then
+          results+=("$file")
+        fi
+      done < <(find "$path" -type f -name "*.md" 2>/dev/null)
+    fi
+  done
+  
+  local count=${#results[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No results found with context: $context"
+    return
+  fi
+  
+  echo "Found $count result(s):"
+  echo ""
+  
+  for file in "${results[@]}"; do
+    format_file_result "$file" "$context"
+  done
+}
+
+# Search by status
+search_status() {
+  local status="$1"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Searching by status: \"$status\""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local results=()
+  local search_paths=("$INBOX_PATH" "$PROJECTS_PATH" "$TASKS_PATH" "$AREAS_PATH")
+  
+  for path in "${search_paths[@]}"; do
+    if [[ -d "$path" ]]; then
+      while IFS= read -r file; do
+        local file_status=$(get_frontmatter_value "$file" "status")
+        if [[ "$file_status" == "$status" ]]; then
+          results+=("$file")
+        fi
+      done < <(find "$path" -type f -name "*.md" 2>/dev/null)
+    fi
+  done
+  
+  local count=${#results[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No results found with status: $status"
+    return
+  fi
+  
+  echo "Found $count result(s):"
+  echo ""
+  
+  for file in "${results[@]}"; do
+    format_file_result "$file" "$status"
+  done
+}
+
+# Search by date
+search_date() {
+  local date_pattern="$1"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📅 Searching by date: \"$date_pattern\""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local results=()
+  local search_paths=("$INBOX_PATH" "$PROJECTS_PATH" "$TASKS_PATH" "$AREAS_PATH")
+  
+  for path in "${search_paths[@]}"; do
+    if [[ -d "$path" ]]; then
+      while IFS= read -r file; do
+        local created=$(get_frontmatter_value "$file" "created")
+        if [[ "$created" == *"$date_pattern"* ]]; then
+          results+=("$file")
+        fi
+      done < <(find "$path" -type f -name "*.md" 2>/dev/null)
+    fi
+  done
+  
+  local count=${#results[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No results found for date: $date_pattern"
+    return
+  fi
+  
+  echo "Found $count result(s):"
+  echo ""
+  
+  for file in "${results[@]}"; do
+    format_file_result "$file" "$date_pattern"
+  done
+}
+
+# Filter overdue
+filter_overdue() {
+  local today=$(date +"%Y-%m-%d")
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "⏰ Overdue Items"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local results=()
+  local search_paths=("$TASKS_PATH" "$PROJECTS_PATH")
+  
+  for path in "${search_paths[@]}"; do
+    if [[ -d "$path" ]]; then
+      while IFS= read -r file; do
+        local due=$(get_frontmatter_value "$file" "due")
+        if [[ -n "$due" ]]; then
+          local due_date="${due%%T*}"
+          if [[ "$due_date" < "$today" ]]; then
+            local status=$(get_frontmatter_value "$file" "status")
+            if [[ "$status" != "done" && "$status" != "archived" ]]; then
+              results+=("$file")
+            fi
+          fi
+        fi
+      done < <(find "$path" -type f -name "*.md" 2>/dev/null)
+    fi
+  done
+  
+  local count=${#results[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "✓ No overdue items found!"
+    return
+  fi
+  
+  echo "Found $count overdue item(s):"
+  echo ""
+  
+  for file in "${results[@]}"; do
+    local due=$(get_frontmatter_value "$file" "due")
+    format_file_result "$file" "overdue"
+    echo "     Due: $due"
+    echo ""
+  done
+}
+
+# Filter blocked
+filter_blocked() {
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🚫 Blocked Items"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local results=()
+  local search_paths=("$TASKS_PATH" "$PROJECTS_PATH")
+  
+  for path in "${search_paths[@]}"; do
+    if [[ -d "$path" ]]; then
+      while IFS= read -r file; do
+        local blocked_by=$(get_frontmatter_value "$file" "blocked_by")
+        local status=$(get_frontmatter_value "$file" "status")
+        if [[ -n "$blocked_by" && "$status" == "active" ]]; then
+          results+=("$file")
+        fi
+      done < <(find "$path" -type f -name "*.md" 2>/dev/null)
+    fi
+  done
+  
+  local count=${#results[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "✓ No blocked items found!"
+    return
+  fi
+  
+  echo "Found $count blocked item(s):"
+  echo ""
+  
+  for file in "${results[@]}"; do
+    local blocked_by=$(get_frontmatter_value "$file" "blocked_by")
+    format_file_result "$file" "blocked"
+    echo "     Blocked by: $blocked_by"
+    echo ""
+  done
+}
+
+# Filter waiting
+filter_waiting() {
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "⏳ Waiting For Items"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Check waiting-for directory
+  local waiting_items=($(find "$WAITING_PATH" -type f -name "*.md" 2>/dev/null))
+  
+  # Also check tasks/projects with waiting_for field
+  local search_paths=("$TASKS_PATH" "$PROJECTS_PATH")
+  local results=("${waiting_items[@]}")
+  
+  for path in "${search_paths[@]}"; do
+    if [[ -d "$path" ]]; then
+      while IFS= read -r file; do
+        local waiting_for=$(get_frontmatter_value "$file" "waiting_for")
+        if [[ -n "$waiting_for" ]]; then
+          results+=("$file")
+        fi
+      done < <(find "$path" -type f -name "*.md" 2>/dev/null)
+    fi
+  done
+  
+  local count=${#results[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "✓ No waiting-for items found!"
+    return
+  fi
+  
+  echo "Found $count waiting-for item(s):"
+  echo ""
+  
+  for file in "${results[@]}"; do
+    local waiting_for=$(get_frontmatter_value "$file" "waiting_for")
+    format_file_result "$file" "waiting"
+    if [[ -n "$waiting_for" ]]; then
+      echo "     Waiting for: $waiting_for"
+    fi
+    echo ""
+  done
+}
+
+# Main
+main() {
+  case "$1" in
+    --tag=*)
+      search_tag "${1#*=}"
+      ;;
+    --context=*)
+      search_context "${1#*=}"
+      ;;
+    --status=*)
+      search_status "${1#*=}"
+      ;;
+    --date=*)
+      search_date "${1#*=}"
+      ;;
+    --overdue)
+      filter_overdue
+      ;;
+    --blocked)
+      filter_blocked
+      ;;
+    --waiting)
+      filter_waiting
+      ;;
+    --help|-h|"")
+      echo "Usage: gtd-search [options] [keyword]"
+      echo ""
+      echo "Options:"
+      echo "  <keyword>                      Search for keyword in all files"
+      echo "  --tag=<tag>                    Search by tag"
+      echo "  --context=<context>             Search by context"
+      echo "  --status=<status>               Search by status"
+      echo "  --date=<date>                  Search by date (YYYY-MM-DD)"
+      echo "  --overdue                      Find overdue items"
+      echo "  --blocked                      Find blocked items"
+      echo "  --waiting                      Find waiting-for items"
+      echo ""
+      echo "Scopes (for keyword search):"
+      echo "  --scope=all (default)          Search everywhere"
+      echo "  --scope=inbox                  Search inbox only"
+      echo "  --scope=tasks                  Search tasks only"
+      echo "  --scope=projects               Search projects only"
+      echo ""
+      echo "Examples:"
+      echo "  gtd-search \"bug\""
+      echo "  gtd-search --tag=urgent"
+      echo "  gtd-search --context=computer"
+      echo "  gtd-search --status=active"
+      echo "  gtd-search --date=2024-01-01"
+      echo "  gtd-search --overdue"
+      echo "  gtd-search --blocked"
+      echo "  gtd-search --waiting"
+      exit 0
+      ;;
+    *)
+      # Keyword search
+      local keyword="$1"
+      local scope="all"
+      shift
+      
+      # Check for scope option
+      if [[ "$1" == "--scope="* ]]; then
+        scope="${1#*=}"
+      fi
+      
+      if [[ -z "$keyword" ]]; then
+        echo "Usage: gtd-search <keyword> [--scope=<scope>]"
+        exit 1
+      fi
+      
+      search_keyword "$keyword" "$scope"
+      ;;
+  esac
+}
+
+main "$@"
+
+
+

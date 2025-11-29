@@ -1,0 +1,488 @@
+#!/bin/bash
+# GTD Area Command - Areas of responsibility management
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}"
+PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
+TASKS_PATH="${GTD_BASE_DIR}/tasks"
+
+mkdir -p "$AREAS_PATH"
+
+TODAY=$(date +"%Y-%m-%d")
+NOW=$(date +"%H:%M")
+
+# Extract frontmatter value
+get_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+}
+
+# Update frontmatter value
+update_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  
+  if grep -q "^${key}:" "$file" 2>/dev/null; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/^${key}:.*/${key}: ${value}/" "$file"
+    else
+      sed -i "s/^${key}:.*/${key}: ${value}/" "$file"
+    fi
+  else
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "/^---$/a\\
+${key}: ${value}
+" "$file"
+    else
+      sed -i "/^---$/a\\${key}: ${value}" "$file"
+    fi
+  fi
+}
+
+# Create area
+create_area() {
+  local area_name="$*"
+  if [[ -z "$area_name" ]]; then
+    read -p "Area name: " area_name
+  fi
+  
+  area_name=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local area_file="${AREAS_PATH}/${area_name}.md"
+  
+  if [[ -f "$area_file" ]]; then
+    echo "⚠️  Area already exists: $area_name"
+    exit 1
+  fi
+  
+  # Get description
+  read -p "Description: " description
+  
+  # Create area file
+  cat > "$area_file" <<EOF
+---
+type: area
+status: active
+created: ${TODAY}T${NOW}
+area: ${area_name}
+tags: []
+---
+
+# ${area_name}
+
+## Description
+${description}
+
+## Goals
+
+
+## Current Focus
+
+
+## Projects in this Area
+
+
+## Tasks in this Area
+
+
+## Notes
+
+
+EOF
+  
+  echo "✓ Created area: $area_name"
+  echo "  File: $area_file"
+}
+
+# List areas
+list_areas() {
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📂 Areas of Responsibility"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local areas=($(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null))
+  local count=${#areas[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No areas defined yet."
+    echo ""
+    echo "Create one with: gtd-area create <name>"
+    return
+  fi
+  
+  for area_file in "${areas[@]}"; do
+    local area_name=$(basename "$area_file" .md)
+    local status=$(get_frontmatter_value "$area_file" "status")
+    local created=$(get_frontmatter_value "$area_file" "created")
+    local description=$(get_frontmatter_value "$area_file" "description")
+    
+    # Count related projects and tasks
+    local project_count=0
+    local task_count=0
+    
+    # Count projects with this area
+    if [[ -d "$PROJECTS_PATH" ]]; then
+      while IFS= read -r project_dir; do
+        local readme="${project_dir}/README.md"
+        if [[ -f "$readme" ]]; then
+          local project_area=$(get_frontmatter_value "$readme" "area")
+          if [[ "$project_area" == "$area_name" ]]; then
+            ((project_count++))
+          fi
+        fi
+      done < <(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)
+    fi
+    
+    # Count tasks with this area
+    if [[ -d "$TASKS_PATH" ]]; then
+      while IFS= read -r task_file; do
+        local task_area=$(get_frontmatter_value "$task_file" "area")
+        if [[ "$task_area" == "$area_name" ]]; then
+          ((task_count++))
+        fi
+      done < <(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null)
+    fi
+    
+    echo "[$area_name]"
+    echo "  Status: $status | Created: $created"
+    if [[ -n "$description" ]]; then
+      echo "  Description: $description"
+    fi
+    echo "  Projects: $project_count | Tasks: $task_count"
+    echo ""
+  done
+  
+  echo "Total: $count area(s)"
+}
+
+# View area
+view_area() {
+  local area_name="$1"
+  if [[ -z "$area_name" ]]; then
+    echo "Usage: gtd-area view <area-name>"
+    exit 1
+  fi
+  
+  area_name=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local area_file="${AREAS_PATH}/${area_name}.md"
+  
+  if [[ ! -f "$area_file" ]]; then
+    echo "❌ Area not found: $area_name"
+    exit 1
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📂 Area: $area_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Show area file
+  cat "$area_file"
+  echo ""
+  
+  # Show related projects
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📁 Related Projects"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local project_found=false
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r project_dir; do
+      local readme="${project_dir}/README.md"
+      if [[ -f "$readme" ]]; then
+        local project_area=$(get_frontmatter_value "$readme" "area")
+        if [[ "$project_area" == "$area_name" ]]; then
+          project_found=true
+          local project_name=$(basename "$project_dir")
+          local project_status=$(get_frontmatter_value "$readme" "status")
+          echo "  • $project_name (status: $project_status)"
+        fi
+      fi
+    done < <(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)
+  fi
+  
+  if [[ "$project_found" == "false" ]]; then
+    echo "  No projects in this area"
+  fi
+  echo ""
+  
+  # Show related tasks
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📋 Related Tasks"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local task_found=false
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      local task_area=$(get_frontmatter_value "$task_file" "area")
+      if [[ "$task_area" == "$area_name" ]]; then
+        task_found=true
+        local task_name=$(head -20 "$task_file" | grep "^# " | head -1 | sed 's/^# //')
+        local task_status=$(get_frontmatter_value "$task_file" "status")
+        local task_context=$(get_frontmatter_value "$task_file" "context")
+        echo "  • $task_name (status: $task_status, context: $task_context)"
+      fi
+    done < <(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null)
+  fi
+  
+  if [[ "$task_found" == "false" ]]; then
+    echo "  No tasks in this area"
+  fi
+  echo ""
+}
+
+# Add task to area
+add_task_to_area() {
+  local area_name="$1"
+  shift
+  local task_desc="$*"
+  
+  if [[ -z "$area_name" || -z "$task_desc" ]]; then
+    echo "Usage: gtd-area add-task <area-name> <task-description>"
+    exit 1
+  fi
+  
+  area_name=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local area_file="${AREAS_PATH}/${area_name}.md"
+  
+  if [[ ! -f "$area_file" ]]; then
+    echo "❌ Area not found: $area_name"
+    exit 1
+  fi
+  
+  # Use gtd-task to create the task, then assign to area
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  local filename="${timestamp}-task.md"
+  local filepath="${TASKS_PATH}/${filename}"
+  
+  mkdir -p "$TASKS_PATH"
+  
+  read -p "Context (home/office/computer/phone/errands): " context
+  read -p "Energy level (low/medium/high/creative/administrative): " energy
+  
+  cat > "$filepath" <<EOF
+---
+type: task
+status: active
+created: ${TODAY}T${NOW}
+area: ${area_name}
+context: ${context:-computer}
+energy: ${energy:-medium}
+tags: []
+---
+
+# ${task_desc}
+
+## Next Action
+${task_desc}
+
+## Notes
+
+
+EOF
+  
+  echo "✓ Added task to area: $area_name"
+  echo "  Task: $task_desc"
+  echo "  File: $filepath"
+}
+
+# Add project to area
+add_project_to_area() {
+  local area_name="$1"
+  shift
+  local project_name="$*"
+  
+  if [[ -z "$area_name" || -z "$project_name" ]]; then
+    echo "Usage: gtd-area add-project <area-name> <project-name>"
+    exit 1
+  fi
+  
+  area_name=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local area_file="${AREAS_PATH}/${area_name}.md"
+  
+  if [[ ! -f "$area_file" ]]; then
+    echo "❌ Area not found: $area_name"
+    exit 1
+  fi
+  
+  # Create project and assign to area
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  
+  if [[ -d "$project_dir" ]]; then
+    # Project exists, just assign area
+    local readme="${project_dir}/README.md"
+    if [[ -f "$readme" ]]; then
+      update_frontmatter_value "$readme" "area" "$area_name"
+      echo "✓ Assigned existing project to area: $area_name"
+    fi
+  else
+    # Create new project
+    mkdir -p "$project_dir"
+    cat > "${project_dir}/README.md" <<EOF
+---
+type: project
+status: active
+created: ${TODAY}T${NOW}
+project: ${project_name}
+area: ${area_name}
+tags: []
+---
+
+# ${project_name}
+
+## Description
+
+
+## Goals
+
+
+## Next Actions
+
+
+## Tasks
+
+EOF
+    echo "✓ Created project in area: $area_name"
+    echo "  Project: $project_name"
+    echo "  Location: $project_dir"
+  fi
+}
+
+# Review area
+review_area() {
+  local area_name="$1"
+  if [[ -z "$area_name" ]]; then
+    echo "Usage: gtd-area review <area-name>"
+    exit 1
+  fi
+  
+  area_name=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local area_file="${AREAS_PATH}/${area_name}.md"
+  
+  if [[ ! -f "$area_file" ]]; then
+    echo "❌ Area not found: $area_name"
+    exit 1
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📂 Area Review: $area_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Review questions
+  echo "1. How is this area doing overall?"
+  read -p "   " area_status
+  echo ""
+  
+  echo "2. What needs attention in this area?"
+  read -p "   " area_attention
+  echo ""
+  
+  echo "3. What are the current priorities?"
+  read -p "   " area_priorities
+  echo ""
+  
+  echo "4. What's blocking progress?"
+  read -p "   " area_blockers
+  echo ""
+  
+  # Append to area file
+  cat >> "$area_file" <<EOF
+
+## Review - ${TODAY}
+
+### Overall Status
+${area_status}
+
+### Needs Attention
+${area_attention}
+
+### Current Priorities
+${area_priorities}
+
+### Blockers
+${area_blockers}
+
+EOF
+  
+  echo "✓ Review added to area: $area_name"
+}
+
+# Main
+main() {
+  case "$1" in
+    create)
+      shift
+      create_area "$@"
+      ;;
+    list|ls)
+      list_areas
+      ;;
+    view)
+      shift
+      view_area "$1"
+      ;;
+    add-task)
+      shift
+      add_task_to_area "$@"
+      ;;
+    add-project)
+      shift
+      add_project_to_area "$@"
+      ;;
+    review)
+      shift
+      review_area "$1"
+      ;;
+    --help|-h|"")
+      echo "Usage: gtd-area <command> [options]"
+      echo ""
+      echo "Commands:"
+      echo "  create <name>                  Create a new area"
+      echo "  list|ls                        List all areas"
+      echo "  view <name>                    View area details"
+      echo "  add-task <area> <description>  Add task to area"
+      echo "  add-project <area> <name>      Add project to area"
+      echo "  review <name>                  Review area"
+      echo ""
+      echo "Examples:"
+      echo "  gtd-area create \"Health\""
+      echo "  gtd-area list"
+      echo "  gtd-area view health"
+      echo "  gtd-area add-task health \"Exercise daily\""
+      echo "  gtd-area add-project health \"Fitness Program\""
+      echo "  gtd-area review health"
+      exit 0
+      ;;
+    *)
+      echo "Unknown command: $1"
+      echo "Run 'gtd-area --help' for usage"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+
+
+

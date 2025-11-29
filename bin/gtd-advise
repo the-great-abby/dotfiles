@@ -1,0 +1,514 @@
+#!/bin/bash
+# GTD Advise Command - Get advice from multiple AI personas
+
+# Load config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Find persona helper
+PERSONA_HELPER=""
+POSSIBLE_PATHS=(
+  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+  if [[ -f "$path" ]]; then
+    PERSONA_HELPER="$path"
+    break
+  fi
+done
+
+if [[ -z "$PERSONA_HELPER" || ! -f "$PERSONA_HELPER" ]]; then
+  echo "❌ Persona helper not found. Expected at:"
+  for path in "${POSSIBLE_PATHS[@]}"; do
+    echo "   $path"
+  done
+  exit 1
+fi
+
+# Find python
+PYTHON_CMD=""
+if [[ -f "/opt/homebrew/bin/python3" ]]; then
+  PYTHON_CMD="/opt/homebrew/bin/python3"
+elif command -v python3 &>/dev/null; then
+  PYTHON_CMD="python3"
+else
+  echo "❌ python3 not found"
+  exit 1
+fi
+
+# Available personas
+PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza")
+
+# Show persona info
+show_persona_info() {
+  case "$1" in
+    hank) echo "Hank Hill - General productivity, practical reminders" ;;
+    david) echo "David Allen - GTD methodology, organization" ;;
+    cal) echo "Cal Newport - Deep work, focus, eliminating distractions" ;;
+    james) echo "James Clear - Habit formation, systems thinking" ;;
+    marie) echo "Marie Kondo - Organization, decluttering" ;;
+    warren) echo "Warren Buffett - Strategic thinking, prioritization" ;;
+    sheryl) echo "Sheryl Sandberg - Leadership, execution" ;;
+    tim) echo "Tim Ferriss - Optimization, life hacks" ;;
+    george) echo "George Carlin - Satirical critique, dark humor" ;;
+    john) echo "John Oliver - Witty analysis, British humor" ;;
+    jon) echo "Jon Stewart - Satirical insight, calling out BS" ;;
+    bob) echo "Bob Ross - Creativity, calm, finding joy in the process" ;;
+    fred) echo "Fred Rogers - Kindness, self-care, emotional support" ;;
+    louiza) echo "Mistress Louiza - Accountability, execution, tracking, discipline" ;;
+    *) echo "Unknown persona" ;;
+  esac
+}
+
+# List personas
+list_personas() {
+  echo ""
+  echo "Available personas:"
+  echo ""
+  for persona in "${PERSONAS[@]}"; do
+    echo "  $persona - $(show_persona_info "$persona")"
+  done
+  echo ""
+}
+
+# Get daily log content
+get_daily_log_content() {
+  local date_range="${1:-today}"  # today, week, month, all, or specific date
+  local date_cmd="date"
+  if [[ -x "/usr/bin/date" ]]; then
+    date_cmd="/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    date_cmd="/bin/date"
+  fi
+  
+  # Load daily log config
+  local daily_log_config="$HOME/.daily_log_config"
+  if [[ ! -f "$daily_log_config" && -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+    daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+  fi
+  
+  local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+  if [[ -f "$daily_log_config" ]]; then
+    # Try to extract DAILY_LOG_DIR from config
+    local config_dir=$(grep "^DAILY_LOG_DIR=" "$daily_log_config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g")
+    if [[ -n "$config_dir" ]]; then
+      log_dir="$config_dir"
+    fi
+  fi
+  
+  if [[ ! -d "$log_dir" ]]; then
+    echo "Daily log directory not found: $log_dir"
+    return 1
+  fi
+  
+  case "$date_range" in
+    today)
+      local today=$($date_cmd +"%Y-%m-%d")
+      local log_file="${log_dir}/${today}.txt"
+      if [[ -f "$log_file" ]]; then
+        cat "$log_file"
+      else
+        echo "No daily log found for today ($today) at: $log_file"
+        return 1
+      fi
+      ;;
+    week)
+      # Last 7 days
+      local today=$($date_cmd +"%Y-%m-%d")
+      echo "# Weekly Log Summary - Last 7 Days"
+      echo ""
+      for i in {0..6}; do
+        local date=$($date_cmd -v-${i}d +"%Y-%m-%d" 2>/dev/null || $date_cmd -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+        if [[ -z "$date" ]]; then
+          # Fallback calculation
+          local timestamp=$(($($date_cmd +%s) - (i * 86400)))
+          date=$($date_cmd -r $timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+        local log_file="${log_dir}/${date}.txt"
+        if [[ -f "$log_file" ]]; then
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "# Daily Log - $date"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          cat "$log_file"
+          echo ""
+        fi
+      done
+      ;;
+    month)
+      # Last 30 days
+      local today=$($date_cmd +"%Y-%m-%d")
+      echo "# Monthly Log Summary - Last 30 Days"
+      echo ""
+      for i in {0..29}; do
+        local date=$($date_cmd -v-${i}d +"%Y-%m-%d" 2>/dev/null || $date_cmd -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+        if [[ -z "$date" ]]; then
+          local timestamp=$(($($date_cmd +%s) - (i * 86400)))
+          date=$($date_cmd -r $timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+        local log_file="${log_dir}/${date}.txt"
+        if [[ -f "$log_file" ]]; then
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "# Daily Log - $date"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          cat "$log_file"
+          echo ""
+        fi
+      done
+      ;;
+    all)
+      # All logs
+      echo "# All Daily Logs"
+      echo ""
+      local logs=($(find "$log_dir" -type f -name "*.txt" -maxdepth 1 | sort))
+      for log_file in "${logs[@]}"; do
+        local date=$(basename "$log_file" .txt)
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "# Daily Log - $date"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        cat "$log_file"
+        echo ""
+      done
+      ;;
+    *)
+      # Specific date (YYYY-MM-DD format)
+      if [[ "$date_range" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        local log_file="${log_dir}/${date_range}.txt"
+        if [[ -f "$log_file" ]]; then
+          cat "$log_file"
+        else
+          echo "No daily log found for $date_range at: $log_file"
+          return 1
+        fi
+      else
+        echo "Invalid date range: $date_range"
+        echo "Use: today, week, month, all, or YYYY-MM-DD"
+        return 1
+      fi
+      ;;
+  esac
+}
+
+# Get advice from single persona
+advise_single() {
+  local persona="$1"
+  shift
+  local content="$*"
+  local use_daily_log=false
+  local date_range="today"
+  
+  # Check if content indicates daily log review
+  if [[ "$content" == *"daily log"* || "$content" == *"Daily log"* || "$content" == *"review my log"* || "$content" == *"Review my log"* ]]; then
+    use_daily_log=true
+    # Check if content specifies a range
+    if [[ "$content" == *"all my logs"* || "$content" == *"all logs"* ]]; then
+      date_range="all"
+    elif [[ "$content" == *"this week"* || "$content" == *"week"* ]]; then
+      date_range="week"
+    elif [[ "$content" == *"this month"* || "$content" == *"month"* ]]; then
+      date_range="month"
+    fi
+  fi
+  
+  if [[ -z "$content" ]]; then
+    if [[ -t 0 ]]; then
+      echo "Enter your question (press Ctrl+D when done):"
+      content=$(cat)
+    else
+      echo "Usage: gtd-advise <persona> \"your question\""
+      echo "   Or: echo \"your question\" | gtd-advise <persona>"
+      exit 1
+    fi
+  fi
+  
+  # If daily log requested, load it
+  if [[ "$use_daily_log" == "true" ]]; then
+    local log_content=$(get_daily_log_content "$date_range")
+    if [[ $? -eq 0 ]]; then
+      content=$(printf "Review my daily log:\n\n%s\n\n%s" "$log_content" "$content")
+    fi
+  fi
+  
+  $PYTHON_CMD "$PERSONA_HELPER" "$persona" "$content"
+}
+
+# Get advice from all personas
+advise_all() {
+  # Collect all remaining arguments as content (--all already shifted in main)
+  local content="$*"
+  local use_daily_log=false
+  
+  # Check if content indicates daily log review
+  if [[ "$content" == *"daily log"* || "$content" == *"Daily log"* || "$content" == *"review my log"* || "$content" == *"Review my log"* ]]; then
+    use_daily_log=true
+  fi
+  
+  if [[ -z "$content" ]]; then
+    if [[ -t 0 ]]; then
+      echo "Enter your question (press Ctrl+D when done):"
+      content=$(cat)
+    else
+      echo "Usage: gtd-advise --all \"your question\""
+      exit 1
+    fi
+  fi
+  
+  # If daily log requested, load it (default to today)
+  if [[ "$use_daily_log" == "true" ]]; then
+    local date_range="today"
+    # Check if content specifies a range
+    if [[ "$content" == *"all my logs"* || "$content" == *"all logs"* ]]; then
+      date_range="all"
+    elif [[ "$content" == *"this week"* || "$content" == *"week"* ]]; then
+      date_range="week"
+    elif [[ "$content" == *"this month"* || "$content" == *"month"* ]]; then
+      date_range="month"
+    fi
+    local log_content=$(get_daily_log_content "$date_range")
+    if [[ $? -eq 0 ]]; then
+      content=$(printf "Review my daily log:\n\n%s\n\n%s" "$log_content" "$content")
+    fi
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🎭 Getting advice from all personas..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  for persona in "${PERSONAS[@]}"; do
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "💬 $(show_persona_info "$persona")"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    $PYTHON_CMD "$PERSONA_HELPER" "$persona" "$content"
+    echo ""
+  done
+}
+
+# Get advice based on context
+advise_context() {
+  local context="$1"
+  shift
+  local content="$*"
+  
+  if [[ -z "$content" ]]; then
+    if [[ -t 0 ]]; then
+      echo "Enter your question (press Ctrl+D when done):"
+      content=$(cat)
+    else
+      echo "Usage: gtd-advise --context=<context> \"your question\""
+      exit 1
+    fi
+  fi
+  
+  # Map context to persona
+  local persona="hank"
+  case "$context" in
+    project|organization|gtd)
+      persona="david"
+      ;;
+    focus|deep_work|distraction)
+      persona="cal"
+      ;;
+    habit|routine|system)
+      persona="james"
+      ;;
+    organize|clutter|declutter)
+      persona="marie"
+      ;;
+    strategy|priority|long_term)
+      persona="warren"
+      ;;
+    execute|leadership|efficiency)
+      persona="sheryl"
+      ;;
+    optimize|hack|experiment)
+      persona="tim"
+      ;;
+    satirical|critique|humor)
+      persona="george"
+      ;;
+    analysis|research|witty)
+      persona="john"
+      ;;
+    insight|truth|bs)
+      persona="jon"
+      ;;
+  esac
+  
+  echo "Using persona: $persona (matched from context: $context)"
+  advise_single "$persona" "$content"
+}
+
+# Review advice
+advise_review() {
+  local review_type="$1"
+  shift
+  local content="$*"
+  
+  if [[ -z "$content" ]]; then
+    # Try to get review content from recent review files
+    local review_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/weekly-reviews"
+    if [[ -d "$review_dir" ]]; then
+      local latest_review=$(find "$review_dir" -name "*.md" -type f | sort -r | head -1)
+      if [[ -n "$latest_review" && -f "$latest_review" ]]; then
+        content=$(cat "$latest_review")
+        echo "Using latest review: $latest_review"
+      fi
+    fi
+  fi
+  
+  if [[ -z "$content" ]]; then
+    echo "Usage: gtd-advise --review [review-content]"
+    exit 1
+  fi
+  
+  # Get advice from GTD expert
+  echo "Getting GTD review advice from David Allen..."
+  advise_single "david" "$content" "review"
+  
+  echo ""
+  read -p "Get strategic advice from Warren Buffett? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    advise_single "warren" "$content" "review"
+  fi
+}
+
+# Random persona
+advise_random() {
+  local content="$*"
+  
+  if [[ -z "$content" ]]; then
+    if [[ -t 0 ]]; then
+      echo "Enter your question (press Ctrl+D when done):"
+      content=$(cat)
+    else
+      echo "Usage: gtd-advise --random \"your question\""
+      exit 1
+    fi
+  fi
+  
+  local persona_count=${#PERSONAS[@]}
+  local random_index=$((RANDOM % persona_count))
+  local selected_persona="${PERSONAS[$random_index + 1]}"
+  
+  echo "Randomly selected: $selected_persona"
+  advise_single "$selected_persona" "$content"
+}
+
+# Main
+main() {
+  case "$1" in
+    --list|-l)
+      list_personas
+      ;;
+    --all)
+      shift
+      advise_all "$@"
+      ;;
+    -a)
+      shift
+      advise_all "$@"
+      ;;
+    --context=*)
+      local context="${1#*=}"
+      shift
+      advise_context "$context" "$@"
+      ;;
+    --review|-r)
+      shift
+      advise_review "$@"
+      ;;
+    --daily-log|--log)
+      shift
+      local date_range="${1:-today}"
+      # Get daily log(s) and review with all personas
+      local log_content=$(get_daily_log_content "$date_range")
+      if [[ $? -eq 0 ]]; then
+        local range_desc="today's"
+        case "$date_range" in
+          week) range_desc="this week's" ;;
+          month) range_desc="this month's" ;;
+          all) range_desc="all my" ;;
+          *) range_desc="$date_range's" ;;
+        esac
+        local content=$(printf "Review my %s daily log(s) and provide advice:\n\n%s" "$range_desc" "$log_content")
+        advise_all "$content"
+      else
+        echo "❌ Could not load daily log"
+        exit 1
+      fi
+      ;;
+    --random|-R)
+      shift
+      advise_random "$@"
+      ;;
+    --help|-h|"")
+      echo "Usage: gtd-advise [options] <persona> [content]"
+      echo ""
+      echo "Options:"
+      echo "  --list, -l                    List all available personas"
+      echo "  --all, -a                     Get advice from all personas"
+      echo "  --context=<context>           Auto-select persona based on context"
+      echo "  --review, -r                  Get review advice (uses latest review)"
+      echo "  --daily-log [range]           Review daily log(s) with all personas"
+      echo "                                Range: today (default), week, month, all, or YYYY-MM-DD"
+      echo "  --random, -R                  Get advice from random persona"
+      echo "  <persona>                     Get advice from specific persona"
+      echo ""
+      echo "Personas:"
+      echo "  hank, david, cal, james, marie, warren, sheryl, tim"
+      echo "  george, john, jon"
+      echo ""
+      echo "Contexts (for --context):"
+      echo "  project, organization, gtd → David Allen"
+      echo "  focus, deep_work → Cal Newport"
+      echo "  habit, routine → James Clear"
+      echo "  organize, clutter → Marie Kondo"
+      echo "  strategy, priority → Warren Buffett"
+      echo "  execute, leadership → Sheryl Sandberg"
+      echo "  optimize, hack → Tim Ferriss"
+      echo "  satirical, critique → George Carlin"
+      echo "  analysis, witty → John Oliver"
+      echo "  insight, truth → Jon Stewart"
+      echo ""
+      echo "Examples:"
+      echo "  gtd-advise hank \"What should I focus on today?\""
+      echo "  gtd-advise --all \"Help me organize my tasks\""
+      echo "  gtd-advise --all \"Review my daily log\"  # Auto-loads daily log"
+      echo "  gtd-advise --daily-log                    # Review today's log with all personas"
+      echo "  gtd-advise --daily-log week               # Review this week's logs"
+      echo "  gtd-advise --daily-log month              # Review this month's logs"
+      echo "  gtd-advise --daily-log all                # Review all logs"
+      echo "  gtd-advise --context=project \"Review my project plan\""
+      echo "  gtd-advise --review"
+      echo "  gtd-advise --random \"Give me advice\""
+      echo "  echo \"My question\" | gtd-advise david"
+      exit 0
+      ;;
+    *)
+      # Check if it's a persona name
+      local persona="$1"
+      if [[ " ${PERSONAS[@]} " =~ " ${persona} " ]]; then
+        shift
+        advise_single "$persona" "$@"
+      else
+        echo "Unknown option or persona: $1"
+        echo "Run 'gtd-advise --help' for usage"
+        exit 1
+      fi
+      ;;
+  esac
+}
+
+main "$@"
+

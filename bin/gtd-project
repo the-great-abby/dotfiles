@@ -1,0 +1,380 @@
+#!/bin/bash
+# GTD Project Command - Project management
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
+ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
+TASKS_PATH="${GTD_BASE_DIR}/tasks"
+
+mkdir -p "$PROJECTS_PATH" "$ARCHIVE_PATH" "$TASKS_PATH"
+
+TODAY=$(date +"%Y-%m-%d")
+NOW=$(date +"%H:%M")
+
+# Extract frontmatter value
+get_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+}
+
+# Update frontmatter value
+update_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  
+  if grep -q "^${key}:" "$file" 2>/dev/null; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/^${key}:.*/${key}: ${value}/" "$file"
+    else
+      sed -i "s/^${key}:.*/${key}: ${value}/" "$file"
+    fi
+  else
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "/^---$/a\\
+${key}: ${value}
+" "$file"
+    else
+      sed -i "/^---$/a\\${key}: ${value}" "$file"
+    fi
+  fi
+}
+
+# Create project
+create_project() {
+  local project_name="$*"
+  if [[ -z "$project_name" ]]; then
+    read -p "Project name: " project_name
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  
+  if [[ -d "$project_dir" ]]; then
+    echo "⚠️  Project already exists: $project_name"
+    exit 1
+  fi
+  
+  mkdir -p "$project_dir"
+  
+  # Create README
+  cat > "${project_dir}/README.md" <<EOF
+---
+type: project
+status: active
+created: ${TODAY}T${NOW}
+project: ${project_name}
+tags: []
+---
+
+# ${project_name}
+
+## Description
+
+
+## Goals
+
+
+## Next Actions
+
+
+## Tasks
+
+EOF
+  
+  echo "✓ Created project: $project_name"
+  echo "  Location: $project_dir"
+}
+
+# List projects
+list_projects() {
+  local status_filter="${1:-active}"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📁 Projects (status: $status_filter)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local count=0
+  local projects=($(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null))
+  
+  for project_dir in "${projects[@]}"; do
+    local project_name=$(basename "$project_dir")
+    local readme="${project_dir}/README.md"
+    
+    if [[ ! -f "$readme" ]]; then
+      continue
+    fi
+    
+    local status=$(get_frontmatter_value "$readme" "status")
+    
+    if [[ "$status" != "$status_filter" && "$status_filter" != "all" ]]; then
+      continue
+    fi
+    
+    ((count++))
+    local created=$(get_frontmatter_value "$readme" "created")
+    local task_count=$(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
+    
+    echo "[$count] $project_name"
+    echo "     Status: $status | Created: $created | Tasks: $task_count"
+    echo "     Path: $project_dir"
+    echo ""
+  done
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No projects found."
+  else
+    echo "Total: $count project(s)"
+  fi
+}
+
+# View project
+view_project() {
+  local project_name="$1"
+  if [[ -z "$project_name" ]]; then
+    echo "Usage: gtd-project view <project-name>"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  local readme="${project_dir}/README.md"
+  
+  if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
+    echo "❌ Project not found: $project_name"
+    exit 1
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📁 Project: $project_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Show README
+  cat "$readme"
+  echo ""
+  
+  # Show tasks
+  local tasks=($(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null))
+  if [[ ${#tasks[@]} -gt 0 ]]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📋 Tasks in this project:"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    for task in "${tasks[@]}"; do
+      local task_name=$(basename "$task" .md)
+      local status=$(get_frontmatter_value "$task" "status")
+      local next_action=$(get_frontmatter_value "$task" "next_action")
+      
+      echo "  • $task_name"
+      echo "    Status: $status"
+      if [[ -n "$next_action" ]]; then
+        echo "    Next action: $next_action"
+      fi
+      echo ""
+    done
+  fi
+}
+
+# Add task to project
+add_task_to_project() {
+  local project_name="$1"
+  shift
+  local task_desc="$*"
+  
+  if [[ -z "$project_name" || -z "$task_desc" ]]; then
+    echo "Usage: gtd-project add-task <project-name> <task-description>"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  local readme="${project_dir}/README.md"
+  
+  if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
+    echo "❌ Project not found: $project_name"
+    exit 1
+  fi
+  
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  local filename="${timestamp}-task.md"
+  local filepath="${project_dir}/${filename}"
+  
+  # Get task info
+  read -p "Context (home/office/computer/phone/errands): " context
+  read -p "Energy level (low/medium/high/creative/administrative): " energy
+  
+  # Create task
+  cat > "$filepath" <<EOF
+---
+type: task
+status: active
+created: ${TODAY}T${NOW}
+project: ${project_name}
+context: ${context:-computer}
+energy: ${energy:-medium}
+tags: []
+---
+
+# ${task_desc}
+
+## Next Action
+${task_desc}
+
+## Notes
+
+
+EOF
+  
+  echo "✓ Added task to project: $project_name"
+  echo "  Task: $task_desc"
+  echo "  File: $filepath"
+}
+
+# Show project status
+project_status() {
+  local project_name="$1"
+  if [[ -z "$project_name" ]]; then
+    echo "Usage: gtd-project status <project-name>"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  local readme="${project_dir}/README.md"
+  
+  if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
+    echo "❌ Project not found: $project_name"
+    exit 1
+  fi
+  
+  local status=$(get_frontmatter_value "$readme" "status")
+  local tasks=($(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null))
+  local active_tasks=0
+  local done_tasks=0
+  
+  for task in "${tasks[@]}"; do
+    local task_status=$(get_frontmatter_value "$task" "status")
+    if [[ "$task_status" == "active" ]]; then
+      ((active_tasks++))
+    elif [[ "$task_status" == "done" ]]; then
+      ((done_tasks++))
+    fi
+  done
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Project Status: $project_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Status: $status"
+  echo "Total tasks: ${#tasks[@]}"
+  echo "Active tasks: $active_tasks"
+  echo "Completed tasks: $done_tasks"
+  if [[ ${#tasks[@]} -gt 0 ]]; then
+    local completion=$((done_tasks * 100 / ${#tasks[@]}))
+    echo "Completion: ${completion}%"
+  fi
+  echo ""
+}
+
+# Archive project
+archive_project() {
+  local project_name="$1"
+  if [[ -z "$project_name" ]]; then
+    echo "Usage: gtd-project archive <project-name>"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  local readme="${project_dir}/README.md"
+  
+  if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
+    echo "❌ Project not found: $project_name"
+    exit 1
+  fi
+  
+  update_frontmatter_value "$readme" "status" "archived"
+  update_frontmatter_value "$readme" "archived" "$(date +"%Y-%m-%dT%H:%M")"
+  
+  mv "$project_dir" "${ARCHIVE_PATH}/"
+  
+  echo "✓ Project archived: $project_name"
+  echo "  Location: ${ARCHIVE_PATH}/${project_name}"
+}
+
+# Main
+main() {
+  case "$1" in
+    create)
+      shift
+      create_project "$@"
+      ;;
+    list|ls)
+      shift
+      list_projects "${1:-active}"
+      ;;
+    view)
+      shift
+      view_project "$1"
+      ;;
+    add-task)
+      shift
+      add_task_to_project "$@"
+      ;;
+    status)
+      shift
+      project_status "$1"
+      ;;
+    archive)
+      shift
+      archive_project "$1"
+      ;;
+    --help|-h|"")
+      echo "Usage: gtd-project <command> [options]"
+      echo ""
+      echo "Commands:"
+      echo "  create <name>                    Create a new project"
+      echo "  list [status]                    List projects (default: active)"
+      echo "  view <name>                      View project details"
+      echo "  add-task <name> <description>    Add task to project"
+      echo "  status <name>                    Show project status"
+      echo "  archive <name>                   Archive completed project"
+      echo ""
+      echo "Examples:"
+      echo "  gtd-project create \"Website Redesign\""
+      echo "  gtd-project list"
+      echo "  gtd-project view website-redesign"
+      echo "  gtd-project add-task website-redesign \"Design homepage\""
+      echo "  gtd-project status website-redesign"
+      exit 0
+      ;;
+    *)
+      echo "Unknown command: $1"
+      echo "Run 'gtd-project --help' for usage"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+
+
+

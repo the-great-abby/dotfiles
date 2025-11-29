@@ -19,7 +19,8 @@ def read_config():
     
     config = {
         "url": "http://localhost:1234/v1/chat/completions",
-        "model": "",
+        "chat_model": "",
+        "embedding_model": "",
         "log_dir": str(Path.home() / "Documents" / "daily_logs"),
         "name": "",
         "max_tokens": 1200
@@ -35,8 +36,13 @@ def read_config():
                     value = value.strip().strip('"').strip("'")
                     if key == "LM_STUDIO_URL":
                         config["url"] = value
+                    elif key == "LM_STUDIO_CHAT_MODEL":
+                        config["chat_model"] = value
+                    elif key == "LM_STUDIO_EMBEDDING_MODEL":
+                        config["embedding_model"] = value
                     elif key == "LM_STUDIO_MODEL":
-                        config["model"] = value
+                        # Legacy support - map to chat_model
+                        config["chat_model"] = value
                     elif key == "DAILY_LOG_DIR":
                         config["log_dir"] = value
                     elif key == "NAME":
@@ -61,10 +67,37 @@ def get_daily_goal(daily_log_content):
                     return lines[j].strip()
     return None
 
+def check_lm_studio_server(config):
+    """Check if LM Studio server is accessible and if a model is loaded."""
+    import urllib.request
+    
+    # Extract base URL (remove /v1/chat/completions)
+    base_url = config["url"].replace("/v1/chat/completions", "")
+    
+    try:
+        # Check if server is running by checking /v1/models
+        models_url = f"{base_url}/v1/models"
+        req = urllib.request.Request(models_url)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            models_data = json.loads(response.read().decode('utf-8'))
+            if 'data' in models_data and len(models_data['data']) > 0:
+                return True, "Server is running"
+            else:
+                return False, "Server is running but no models are available"
+    except urllib.error.URLError as e:
+        return False, f"Could not connect to LM Studio server at {base_url}. Make sure LM Studio is running and the local server is started."
+    except Exception as e:
+        return False, f"Error checking server: {e}"
+
 def call_lm_studio(config, daily_log_content):
     """Call LM Studio API with the daily log content."""
     import urllib.request
     import urllib.parse
+    
+    # First, check if server is accessible
+    server_ok, server_msg = check_lm_studio_server(config)
+    if not server_ok:
+        return (f"⚠️  {server_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Load a model (click on a model and click 'Load')\n3. Make sure the local server is running (check the 'Server' tab)", 1)
     
     # Check if goal exists
     goal = get_daily_goal(daily_log_content)
@@ -98,8 +131,13 @@ Address them by name ({user_name}) if provided, otherwise use friendly terms lik
 I haven't clearly defined my goal for today yet. Can you ask me what I'd like to accomplish today? Be like Hank Hill - friendly and encouraging. Address me by name if you know it."""
     
     # Prepare the request
+    # Use chat_model from config, or fall back to "local-model" which uses whatever is currently loaded
+    model_name = config.get("chat_model", "").strip()
+    if not model_name:
+        model_name = "local-model"
+    
     payload = {
-        "model": config["model"] if config["model"] else "local-model",
+        "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -118,14 +156,22 @@ I haven't clearly defined my goal for today yet. Can you ask me what I'd like to
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode('utf-8'))
+            # Check for error responses
+            if 'error' in result:
+                error_msg = result['error'].get('message', 'Unknown error')
+                if 'model' in error_msg.lower() and ('load' in error_msg.lower() or 'not found' in error_msg.lower()):
+                    return (f"⚠️  Model not loaded in LM Studio.\n\nError: {error_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Go to the 'Chat' or 'Models' tab\n3. Click on a model and click 'Load' to load it\n4. Wait for the model to finish loading\n5. Try again", 1)
+                return (f"⚠️  LM Studio returned an error: {error_msg}", 1)
             if 'choices' in result and len(result['choices']) > 0:
                 return (result['choices'][0]['message']['content'], 0)
             else:
                 return ("Hmm, I got a response but it's not quite right. Yep.", 1)
     except urllib.error.URLError as e:
-        return (f"Dang it! Couldn't connect to LM Studio: {e}. Make sure it's running on {config['url']}", 1)
+        if "timed out" in str(e).lower() or "timeout" in str(e).lower():
+            return (f"⚠️  Connection to LM Studio timed out.\n\nThis usually means:\n1. No model is loaded in LM Studio (open LM Studio, load a model)\n2. The model is still loading (wait for it to finish)\n3. The server isn't responding (check the 'Server' tab in LM Studio)\n\nServer URL: {config['url']}", 1)
+        return (f"⚠️  Could not connect to LM Studio: {e}\n\nMake sure:\n1. LM Studio is running\n2. The local server is started (check the 'Server' tab)\n3. A model is loaded\n\nServer URL: {config['url']}", 1)
     except Exception as e:
-        return (f"Well, that didn't work out: {e}", 1)
+        return (f"⚠️  Well, that didn't work out: {e}", 1)
 
 def main():
     if len(sys.argv) < 2:

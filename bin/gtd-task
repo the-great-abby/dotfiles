@@ -1,0 +1,392 @@
+#!/bin/bash
+# GTD Task Command - Task management
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+TASKS_PATH="${GTD_BASE_DIR}/tasks"
+PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
+ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
+
+mkdir -p "$TASKS_PATH" "$PROJECTS_PATH" "$ARCHIVE_PATH"
+
+TODAY=$(date +"%Y-%m-%d")
+NOW=$(date +"%H:%M")
+
+# Extract frontmatter value
+get_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+}
+
+# Update frontmatter value
+update_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  
+  if grep -q "^${key}:" "$file" 2>/dev/null; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/^${key}:.*/${key}: ${value}/" "$file"
+    else
+      sed -i "s/^${key}:.*/${key}: ${value}/" "$file"
+    fi
+  else
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "/^---$/a\\
+${key}: ${value}
+" "$file"
+    else
+      sed -i "/^---$/a\\${key}: ${value}" "$file"
+    fi
+  fi
+}
+
+# Add task
+add_task() {
+  local task_desc="$*"
+  if [[ -z "$task_desc" ]]; then
+    read -p "Task description: " task_desc
+  fi
+  
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  local filename="${timestamp}-task.md"
+  local filepath="${TASKS_PATH}/${filename}"
+  
+  # Get additional info
+  echo "Creating task: $task_desc"
+  read -p "Context (home/office/computer/phone/errands): " context
+  read -p "Energy level (low/medium/high/creative/administrative): " energy
+  read -p "Priority (1=urgent&important, 2=not urgent&important, 3=urgent&not important, 4=neither): " priority_choice
+  
+  case "$priority_choice" in
+    1) priority="urgent_important" ;;
+    2) priority="not_urgent_important" ;;
+    3) priority="urgent_not_important" ;;
+    4) priority="not_urgent_not_important" ;;
+    *) priority="not_urgent_important" ;;
+  esac
+  
+  # Create task file
+  cat > "$filepath" <<EOF
+---
+type: task
+status: active
+created: ${TODAY}T${NOW}
+context: ${context:-computer}
+energy: ${energy:-medium}
+priority: ${priority}
+tags: []
+---
+
+# ${task_desc}
+
+## Next Action
+${task_desc}
+
+## Notes
+
+
+EOF
+  
+  echo "✓ Created task: $filepath"
+  echo "  Context: ${context:-computer}"
+  echo "  Energy: ${energy:-medium}"
+  echo "  Priority: $priority"
+}
+
+# List tasks
+list_tasks() {
+  local context_filter=""
+  local energy_filter=""
+  local priority_filter=""
+  local project_filter=""
+  local status_filter="active"
+  
+  # Parse filters
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --context=*)
+        context_filter="${1#*=}"
+        shift
+        ;;
+      --energy=*)
+        energy_filter="${1#*=}"
+        shift
+        ;;
+      --priority=*)
+        priority_filter="${1#*=}"
+        shift
+        ;;
+      --project=*)
+        project_filter="${1#*=}"
+        shift
+        ;;
+      --status=*)
+        status_filter="${1#*=}"
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  
+  local tasks=($(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null))
+  local count=0
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📋 Tasks (status: $status_filter)"
+  if [[ -n "$context_filter" ]]; then
+    echo "   Context: $context_filter"
+  fi
+  if [[ -n "$energy_filter" ]]; then
+    echo "   Energy: $energy_filter"
+  fi
+  if [[ -n "$priority_filter" ]]; then
+    echo "   Priority: $priority_filter"
+  fi
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  for task in "${tasks[@]}"; do
+    local status=$(get_frontmatter_value "$task" "status")
+    local context=$(get_frontmatter_value "$task" "context")
+    local energy=$(get_frontmatter_value "$task" "energy")
+    local priority=$(get_frontmatter_value "$task" "priority")
+    local project=$(get_frontmatter_value "$task" "project")
+    
+    # Apply filters
+    if [[ "$status" != "$status_filter" ]]; then
+      continue
+    fi
+    if [[ -n "$context_filter" && "$context" != "$context_filter" ]]; then
+      continue
+    fi
+    if [[ -n "$energy_filter" && "$energy" != "$energy_filter" ]]; then
+      continue
+    fi
+    if [[ -n "$priority_filter" && "$priority" != "$priority_filter" ]]; then
+      continue
+    fi
+    if [[ -n "$project_filter" && "$project" != "$project_filter" ]]; then
+      continue
+    fi
+    
+    ((count++))
+    local task_name=$(head -20 "$task" | grep "^# " | head -1 | sed 's/^# //')
+    local task_id=$(basename "$task" .md)
+    
+    echo "[$count] $task_name"
+    echo "     ID: $task_id"
+    echo "     Context: $context | Energy: $energy | Priority: $priority"
+    if [[ -n "$project" ]]; then
+      echo "     Project: $project"
+    fi
+    echo ""
+  done
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No tasks found matching filters."
+  else
+    echo "Total: $count task(s)"
+  fi
+}
+
+# Complete task
+complete_task() {
+  local task_id="$1"
+  if [[ -z "$task_id" ]]; then
+    echo "Usage: gtd-task complete <task-id>"
+    echo "   Get task ID from 'gtd-task list'"
+    exit 1
+  fi
+  
+  local task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+  
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    echo "❌ Task not found: $task_id"
+    exit 1
+  fi
+  
+  update_frontmatter_value "$task_file" "status" "done"
+  update_frontmatter_value "$task_file" "completed" "$(date +"%Y-%m-%dT%H:%M")"
+  
+  mv "$task_file" "$ARCHIVE_PATH/"
+  
+  echo "✓ Task completed and archived"
+}
+
+# Update task
+update_task() {
+  local task_id="$1"
+  if [[ -z "$task_id" ]]; then
+    echo "Usage: gtd-task update <task-id>"
+    exit 1
+  fi
+  
+  local task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+  
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    echo "❌ Task not found: $task_id"
+    exit 1
+  fi
+  
+  echo "Updating task: $(basename "$task_file")"
+  echo ""
+  echo "What would you like to update?"
+  echo "1) Context"
+  echo "2) Energy level"
+  echo "3) Priority"
+  echo "4) Status"
+  echo "5) Open in editor"
+  read -p "Choice (1-5): " choice
+  
+  case "$choice" in
+    1)
+      read -p "New context: " new_context
+      update_frontmatter_value "$task_file" "context" "$new_context"
+      echo "✓ Updated context"
+      ;;
+    2)
+      read -p "New energy level: " new_energy
+      update_frontmatter_value "$task_file" "energy" "$new_energy"
+      echo "✓ Updated energy level"
+      ;;
+    3)
+      read -p "New priority (1-4): " priority_choice
+      case "$priority_choice" in
+        1) priority="urgent_important" ;;
+        2) priority="not_urgent_important" ;;
+        3) priority="urgent_not_important" ;;
+        4) priority="not_urgent_not_important" ;;
+        *) echo "Invalid choice"; exit 1 ;;
+      esac
+      update_frontmatter_value "$task_file" "priority" "$priority"
+      echo "✓ Updated priority"
+      ;;
+    4)
+      read -p "New status (active/on-hold/done): " new_status
+      update_frontmatter_value "$task_file" "status" "$new_status"
+      if [[ "$new_status" == "done" ]]; then
+        mv "$task_file" "$ARCHIVE_PATH/"
+        echo "✓ Updated status and archived"
+      else
+        echo "✓ Updated status"
+      fi
+      ;;
+    5)
+      if [[ -n "$EDITOR" ]]; then
+        $EDITOR "$task_file"
+      else
+        echo "EDITOR not set"
+      fi
+      ;;
+    *)
+      echo "Invalid choice"
+      exit 1
+      ;;
+  esac
+}
+
+# Move task to project
+move_task() {
+  local task_id="$1"
+  local project_name="$2"
+  
+  if [[ -z "$task_id" || -z "$project_name" ]]; then
+    echo "Usage: gtd-task move <task-id> <project-name>"
+    exit 1
+  fi
+  
+  local task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+  
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    echo "❌ Task not found: $task_id"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  mkdir -p "$project_dir"
+  
+  update_frontmatter_value "$task_file" "project" "$project_name"
+  
+  # Move to project directory
+  mv "$task_file" "${project_dir}/"
+  
+  echo "✓ Moved task to project: $project_name"
+  echo "  Location: $project_dir"
+}
+
+# Main
+main() {
+  case "$1" in
+    add)
+      shift
+      add_task "$@"
+      ;;
+    list|ls)
+      shift
+      list_tasks "$@"
+      ;;
+    complete|done)
+      shift
+      complete_task "$1"
+      ;;
+    update)
+      shift
+      update_task "$1"
+      ;;
+    move)
+      shift
+      move_task "$1" "$2"
+      ;;
+    --help|-h|"")
+      echo "Usage: gtd-task <command> [options]"
+      echo ""
+      echo "Commands:"
+      echo "  add <description>              Add a new task"
+      echo "  list [filters]                  List tasks"
+      echo "  complete <task-id>             Mark task as complete"
+      echo "  update <task-id>                Update task properties"
+      echo "  move <task-id> <project>        Move task to project"
+      echo ""
+      echo "List filters:"
+      echo "  --context=<context>             Filter by context"
+      echo "  --energy=<level>                Filter by energy level"
+      echo "  --priority=<priority>           Filter by priority"
+      echo "  --project=<project>             Filter by project"
+      echo "  --status=<status>               Filter by status (default: active)"
+      echo ""
+      echo "Examples:"
+      echo "  gtd-task add \"Fix bug\""
+      echo "  gtd-task list --context=computer"
+      echo "  gtd-task list --energy=low"
+      echo "  gtd-task complete 20240101120000-task"
+      exit 0
+      ;;
+    *)
+      echo "Unknown command: $1"
+      echo "Run 'gtd-task --help' for usage"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+
+
+

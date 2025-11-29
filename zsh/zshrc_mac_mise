@@ -77,7 +77,29 @@ plugins=(git)
 
 source $ZSH/oh-my-zsh.sh
 
-# Daily log reminder - shows every 5 commands
+# GTD System Hints - Rotating hints about available commands
+_GTD_HINTS=(
+  "💭 Log your thoughts: addInfoToDailyLog \"your entry\""
+  "📥 Quick capture: gtd-capture \"your note\""
+  "📥 Capture a task: gtd-capture --type=task \"your task\""
+  "📋 Process your inbox: Check ~/Documents/gtd/0-inbox/"
+  "🤖 Get advice: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py hank \"your question\""
+  "🎭 Try different personas: george, john, jon, david, cal, james, marie, warren, sheryl, tim"
+  "📝 Daily log location: ~/Documents/daily_logs/"
+  "📁 GTD inbox: ~/Documents/gtd/0-inbox/"
+  "💡 Capture ideas: gtd-capture --type=idea \"your idea\""
+  "🔗 Save links: gtd-capture --type=link \"https://...\""
+  "📞 Log calls: gtd-capture --type=call \"call notes\""
+  "📧 Capture email actions: gtd-capture --type=email \"email action\""
+  "🎯 Get GTD advice: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py david \"help with organization\""
+  "🧠 Deep work advice: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py cal \"help with focus\""
+  "📊 Habit advice: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py james \"build a habit\""
+  "😄 Satirical take: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py george \"your situation\""
+  "🇬🇧 Witty analysis: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py john \"your question\""
+  "🎤 Sharp insights: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py jon \"review this\""
+)
+
+# Daily log reminder with rotating hints - shows every 5 commands
 _daily_log_command_counter() {
   # Initialize counter if not set
   (( _daily_log_cmd_count++ ))
@@ -85,17 +107,56 @@ _daily_log_command_counter() {
   # Show reminder every 5 commands
   if (( _daily_log_cmd_count % 5 == 0 )); then
     local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
-    local today=$(date +"%Y-%m-%d")
+    # Use date command with fallback
+    local date_cmd="date"
+    if [[ -x "/usr/bin/date" ]]; then
+      date_cmd="/usr/bin/date"
+    elif [[ -x "/bin/date" ]]; then
+      date_cmd="/bin/date"
+    fi
+    local today=$($date_cmd +"%Y-%m-%d")
     local log_file="${log_dir}/${today}.txt"
     
-    # Friendly reminder message
-    if [[ -f "$log_file" ]]; then
-      echo ""
-      echo "💭 Friendly reminder: Don't forget to log your thoughts with: addInfoToDailyLog \"your entry\""
-    else
-      echo ""
-      echo "📝 Hey there! Remember to start your daily log: addInfoToDailyLog \"your entry\""
+    # Get GTD inbox count if it exists
+    # Try to load GTD config for base dir
+    local gtd_config_file="$HOME/.gtd_config"
+    if [[ ! -f "$gtd_config_file" && -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+      gtd_config_file="$HOME/code/personal/dotfiles/zsh/.gtd_config"
     fi
+    local gtd_base_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+    if [[ -f "$gtd_config_file" ]]; then
+      # Try to extract GTD_BASE_DIR from config (simple grep)
+      local config_base_dir=$(grep "^GTD_BASE_DIR=" "$gtd_config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+      if [[ -n "$config_base_dir" ]]; then
+        gtd_base_dir="$config_base_dir"
+      fi
+    fi
+    local gtd_inbox="${gtd_base_dir}/0-inbox"
+    local inbox_count=0
+    if [[ -d "$gtd_inbox" ]]; then
+      inbox_count=$(find "$gtd_inbox" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Show random hint (rotate based on command count)
+    local hint_index=$(( (_daily_log_cmd_count / 5) % ${#_GTD_HINTS[@]} ))
+    echo "💡 ${_GTD_HINTS[$hint_index + 1]}"
+    
+    # Show daily log reminder
+    if [[ -f "$log_file" ]]; then
+      echo "💭 Daily log active - add more: addInfoToDailyLog \"your entry\""
+    else
+      echo "📝 Start your daily log: addInfoToDailyLog \"your entry\""
+    fi
+    
+    # Show inbox reminder if there are items
+    if [[ $inbox_count -gt 0 ]]; then
+      echo "📥 Inbox has $inbox_count item(s) - process them from: $gtd_inbox"
+    fi
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   fi
 }
 
@@ -138,11 +199,15 @@ export PATH="$PATH:/Users/abbymalson/.lmstudio/bin"
 
 
 ### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
-export PATH="/Users/abbymalson/.rd/bin:$PATH"
+export PATH="/Users/abby/.rd/bin:$PATH"
 ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
 
 # mise (version manager) - replaces asdf
 eval "$(mise activate zsh)"
+
+# Ensure system paths are available (mise can sometimes remove them)
+# macOS system binaries are in /usr/bin and /bin
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 # zsh-syntax-highlighting - must be sourced after oh-my-zsh
 if [ -f /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]; then
@@ -185,6 +250,12 @@ export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 export PATH="$HOME/.local/bin:$PATH"
 # User bin directory
 export PATH="$HOME/bin:$PATH"
+# Dotfiles bin directory (GTD commands and other utilities)
+export PATH="$HOME/code/dotfiles/bin:$PATH"
+# Also support personal dotfiles location
+if [[ -d "$HOME/code/personal/dotfiles/bin" ]]; then
+  export PATH="$HOME/code/personal/dotfiles/bin:$PATH"
+fi
 
 # NVM (Node Version Manager)
 export NVM_DIR="$HOME/.nvm"
@@ -256,7 +327,8 @@ if [[ -f "$_daily_log_config_file" ]]; then
     esac
   done < "$_daily_log_config_file"
 fi
-
+# gtd-advise is now a script in ~/bin - removed function to avoid shadowing
+# Use: gtd-advise <persona> "content" or gtd-advise --all "content"
 # Function to add info to daily log
 addInfoToDailyLog() {
   if [[ -z "$1" ]]; then
@@ -271,8 +343,16 @@ addInfoToDailyLog() {
   local lm_url="${LM_STUDIO_URL:-http://localhost:1234/v1/chat/completions}"
   
   local log_entry="$1"
-  local today=$(date +"%Y-%m-%d")
-  local current_time=$(date +"%H:%M")
+  # Use date command (PATH should have /usr/bin after mise activation fix)
+  # Fallback to /bin/date if /usr/bin/date doesn't exist
+  local date_cmd="date"
+  if [[ -x "/usr/bin/date" ]]; then
+    date_cmd="/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    date_cmd="/bin/date"
+  fi
+  local today=$($date_cmd +"%Y-%m-%d")
+  local current_time=$($date_cmd +"%H:%M")
   local log_file="${log_dir}/${today}.txt"
   
   # Find the helper script - try multiple locations
@@ -346,20 +426,109 @@ addInfoToDailyLog() {
       return 1
     fi
     
-    echo ""
-    echo "🤖 Getting advice from Hank..."
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    # Randomly select a persona for variety
+    local personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza")
+    local persona_count=${#personas[@]}
+    local random_index=$((RANDOM % persona_count + 1))
+    local selected_persona="${personas[$random_index]}"
+    
+    # Get persona name for display
+    local persona_name=""
+    case "$selected_persona" in
+      hank) persona_name="Hank Hill" ;;
+      david) persona_name="David Allen" ;;
+      cal) persona_name="Cal Newport" ;;
+      james) persona_name="James Clear" ;;
+      marie) persona_name="Marie Kondo" ;;
+      warren) persona_name="Warren Buffett" ;;
+      sheryl) persona_name="Sheryl Sandberg" ;;
+      tim) persona_name="Tim Ferriss" ;;
+      george) persona_name="George Carlin" ;;
+      john) persona_name="John Oliver" ;;
+      jon) persona_name="Jon Stewart" ;;
+      bob) persona_name="Bob Ross" ;;
+      fred) persona_name="Fred Rogers" ;;
+      louiza) persona_name="Mistress Louiza" ;;
+      *) persona_name="Hank Hill" ;;
+    esac
+    
+    # Use the persona helper instead of the old lmstudio_helper
+    local persona_helper=""
+    local possible_persona_paths=(
+      "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+      "${(%):-%x:h}/functions/gtd_persona_helper.py"
+    )
+    
+    for path in "${possible_persona_paths[@]}"; do
+      if [[ -f "$path" ]]; then
+        persona_helper="$path"
+        break
+      fi
+    done
+    
     local advice_output
-    advice_output=$("$python_cmd" "$helper_script" "$log_file" 2>&1)
-    local exit_code=$?
-    if [[ $exit_code -eq 0 && -n "$advice_output" ]]; then
-      echo "$advice_output"
+    if [[ -n "$persona_helper" && -f "$persona_helper" ]]; then
+      # Use persona helper with the log content
+      # Format: persona, content, context
+      # Read the log file (it should exist since we just wrote to it)
+      local log_content=""
+      if [[ -f "$log_file" ]]; then
+        log_content=$(cat "$log_file" 2>/dev/null)
+      fi
+      
+      # Create prompt with log content
+      if [[ -n "$log_content" ]]; then
+        # Use printf to properly format with newlines
+        local prompt_text=$(printf "Review my daily log and provide advice based on the specific entries you see.
+
+Here is my complete daily log so far:
+
+%s
+
+I just added this new entry: %s
+
+Please review the log entries above and provide specific, actionable advice based on what you see. Reference specific items from the log in your response." "$log_content" "$log_entry")
+      else
+        # Log file doesn't exist or is empty
+        local prompt_text="I just added a new entry to my daily log: ${log_entry}. Please provide advice."
+      fi
+      
+      # Pass the prompt text to the persona helper
+      # The content will be passed as a single argument, preserving newlines
+      advice_output=$("$python_cmd" "$persona_helper" "$selected_persona" "$prompt_text" "daily_log_review" 2>&1)
     else
-      echo "⚠️  Could not connect to LM Studio. Make sure it's running at $lm_url"
-      [[ -n "$advice_output" ]] && echo "Error details: $advice_output" >&2
+      # Fallback to old helper
+      echo ""
+      echo "🤖 Getting advice from $persona_name..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      advice_output=$("$python_cmd" "$helper_script" "$log_file" 2>&1)
     fi
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    local exit_code=$?
+    
+    if [[ -n "$persona_helper" && -f "$persona_helper" ]]; then
+      # Persona helper already formats output, just show it
+      if [[ $exit_code -eq 0 && -n "$advice_output" ]]; then
+        echo "$advice_output"
+      else
+        echo ""
+        echo "⚠️  Could not connect to LM Studio. Make sure it's running at $lm_url"
+        [[ -n "$advice_output" ]] && echo "Error details: $advice_output" >&2
+      fi
+    else
+      # Old helper format
+      if [[ $exit_code -eq 0 && -n "$advice_output" ]]; then
+        echo "$advice_output"
+      else
+        echo "⚠️  Could not connect to LM Studio. Make sure it's running at $lm_url"
+        [[ -n "$advice_output" ]] && echo "Error details: $advice_output" >&2
+      fi
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    fi
   else
     echo "⚠️  Helper script not found. Expected at: $HOME/code/personal/dotfiles/zsh/functions/lmstudio_helper.py"
   fi
 }
+
+# Added by LM Studio CLI (lms)
+export PATH="$PATH:/Users/abby/.lmstudio/bin"
+# End of LM Studio CLI section

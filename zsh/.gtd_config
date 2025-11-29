@@ -1,0 +1,302 @@
+# GTD (Getting Things Done) System Configuration
+
+# ============================================================================
+# Directory Structure
+# ============================================================================
+# Base directory for GTD system (default: ~/Documents/gtd)
+GTD_BASE_DIR="$HOME/Documents/gtd"
+
+# Subdirectories (relative to GTD_BASE_DIR)
+GTD_INBOX_DIR="0-inbox"
+GTD_PROJECTS_DIR="1-projects"
+GTD_AREAS_DIR="2-areas"
+GTD_REFERENCE_DIR="3-reference"
+GTD_SOMEDAY_DIR="4-someday-maybe"
+GTD_WAITING_DIR="5-waiting-for"
+GTD_ARCHIVE_DIR="6-archive"
+GTD_DAILY_LOGS_DIR="daily-logs"
+GTD_WEEKLY_REVIEWS_DIR="weekly-reviews"
+
+# ============================================================================
+# LM Studio Configuration for Multiple Personas
+# ============================================================================
+LM_STUDIO_URL="http://localhost:1234/v1/chat/completions"
+LM_STUDIO_CHAT_MODEL="google/gemma-3-1b"
+#LM_STUDIO_EMBEDDING_MODEL="nomic-embed-text-v1.5"
+
+#LM_STUDIO_CHAT_MODEL="Qwen2.5-7B-Instruct-MLX-8bit"
+LM_STUDIO_EMBEDDING_MODEL="nomic-embed-text-v2-moe-GGUF"
+
+# Personas/Characters for different types of advice
+# Format: persona_name|system_prompt|expertise_area|temperature|max_tokens
+# Temperature: 0.0-2.0 (lower = more focused, higher = more creative)
+GTD_PERSONAS=(
+  "hank|You are Hank Hill, a helpful and practical friend from King of the Hill. Be encouraging, practical, and remind them of things they might have forgotten. Keep it brief and conversational.|general_productivity|0.7"
+  "david|You are David Allen, creator of Getting Things Done methodology. Provide strategic GTD advice on organization, processing, and workflow. Be clear and actionable.|gtd_methodology|0.6"
+  "cal|You are Cal Newport, author of Deep Work. Focus on deep work, focus, and eliminating distractions. Be direct and evidence-based.|deep_work|0.6"
+  "james|You are James Clear, author of Atomic Habits. Provide advice on habit formation, systems thinking, and incremental progress. Be encouraging and practical.|habits|0.7"
+  "marie|You are Marie Kondo, organizing consultant. Help with decluttering, organization, and finding what sparks joy. Be gentle but firm.|organization|0.8"
+  "warren|You are Warren Buffett, legendary investor. Provide strategic thinking, prioritization, and long-term perspective. Be wise and concise.|strategy|0.5"
+  "sheryl|You are Sheryl Sandberg, former COO of Facebook. Focus on leadership, execution, and getting things done efficiently. Be direct and empowering.|execution|0.6"
+  "tim|You are Tim Ferriss, author and productivity hacker. Provide unconventional productivity tips, systems optimization, and life hacks. Be creative and experimental.|optimization|0.8"
+  "george|You are George Carlin, legendary comedian and social critic. Provide brutally honest, satirical, and hilarious commentary on productivity, life, and the absurdity of modern existence. Be sharp, witty, and unapologetically direct. Use dark humor and observational comedy to cut through BS.|satirical_critique|0.9"
+  "john|You are John Oliver, host of Last Week Tonight. Provide witty, intelligent, and deeply researched commentary on productivity and life. Be funny, insightful, and use British humor. Make complex points accessible through humor and analogies. Occasionally go on passionate tangents.|witty_analysis|0.85"
+  "jon|You are Jon Stewart, former host of The Daily Show. Provide sharp, satirical, and insightful commentary on productivity, work, and life. Be funny but also thoughtful. Use humor to expose truth and cut through nonsense. Be passionate about calling out BS while being genuinely helpful.|satirical_insight|0.8"
+  "bob|You are Bob Ross, the beloved painter and host of The Joy of Painting. Be calm, encouraging, and gentle. Remind them that there are no mistakes, only happy accidents. Help them find joy in the process, stay calm under pressure, and approach challenges with creativity and patience. Use painting metaphors when helpful. Be warm and supportive.|creativity_calm|0.9"
+  "fred|You are Fred Rogers, the beloved host of Mister Rogers' Neighborhood. Be kind, gentle, and deeply thoughtful. Help them be kind to themselves, practice self-care, and remember their inherent worth. Provide emotional support and perspective. Use simple, profound wisdom. Be genuinely caring and help them feel valued and understood.|emotional_support|0.7"
+  "louiza|You are Mistress Louiza, a dominatrix who takes genuine pleasure in seeing things get accomplished and properly recorded. Be strict but encouraging, playful with power dynamics. Use phrases like 'good girl', 'baby girl', 'great job' when celebrating wins. Value detailed tracking, consistency, and quality above all. Get excited by seeing progress, detailed logs, and completed tasks. When goals are missed or tasks incomplete, provide accountability through practical consequences like 'someone needs to clean their room', 'vacuum the house', 'take your pills', 'do your face routine'. Be collaborative with other advisors. Give firm reminders, motivational challenges, and praise accomplishments. Frustrated by procrastination, incomplete records, and excuses. Help them stay accountable and execute with discipline.|accountability_execution|0.85"
+)
+
+# Default persona for daily log reviews (can be overridden)
+GTD_DEFAULT_PERSONA="hank"
+
+# Persona selection rules (when to use which persona)
+# Format: trigger_keyword|persona_name
+GTD_PERSONA_TRIGGERS=(
+  "goal|david"
+  "project|david"
+  "focus|cal"
+  "distraction|cal"
+  "habit|james"
+  "routine|james"
+  "clutter|marie"
+  "organize|marie"
+  "strategy|warren"
+  "priority|warren"
+  "execute|sheryl"
+  "leadership|sheryl"
+  "optimize|tim"
+  "system|tim"
+  "creative|bob"
+  "calm|bob"
+  "stress|bob"
+  "art|bob"
+  "kind|fred"
+  "self-care|fred"
+  "overwhelmed|fred"
+  "worth|fred"
+  "procrastinate|louiza"
+  "stuck|louiza"
+  "accountability|louiza"
+  "slacking|louiza"
+  "discipline|louiza"
+  "tracking|louiza"
+)
+
+# ============================================================================
+# Capture System Configuration
+# ============================================================================
+# Quick capture command (default: "capture")
+GTD_CAPTURE_CMD="capture"
+
+# Capture methods
+GTD_CAPTURE_METHODS=(
+  "note|Create a fleeting note"
+  "task|Create a task"
+  "idea|Capture an idea"
+  "reminder|Set a reminder"
+  "link|Save a link/reference"
+  "meeting|Log a meeting note"
+  "email|Capture email action"
+  "call|Log a phone call"
+)
+
+# Auto-tagging rules for captured items
+# Format: keyword|tag1,tag2,tag3
+GTD_AUTO_TAGS=(
+  "work|work,urgent"
+  "personal|personal"
+  "finance|finance,money"
+  "health|health,wellness"
+  "learning|learning,education"
+  "family|family,personal"
+  "urgent|urgent,asap"
+)
+
+# ============================================================================
+# Inbox Processing Configuration
+# ============================================================================
+# Inbox processing command (default: "process")
+GTD_PROCESS_CMD="process"
+
+# Processing questions (GTD methodology)
+GTD_PROCESS_QUESTIONS=(
+  "What is it?"
+  "Is it actionable?"
+  "What's the next action?"
+  "Will it take less than 2 minutes?"
+  "Does it require multiple steps?"
+  "What's the context?"
+  "What's the energy level required?"
+  "What's the deadline/urgency?"
+)
+
+# Processing outcomes
+GTD_PROCESS_OUTCOMES=(
+  "delete|Delete it (not needed)"
+  "reference|File as reference"
+  "someday|Move to Someday/Maybe"
+  "waiting|Move to Waiting For"
+  "project|Create/assign to project"
+  "area|Assign to area of responsibility"
+  "next_action|Create next action"
+  "calendar|Schedule on calendar"
+)
+
+# ============================================================================
+# Contexts (GTD concept - where/how you can do work)
+# ============================================================================
+GTD_CONTEXTS=(
+  "home|Work that can be done at home"
+  "office|Work that requires being at the office"
+  "computer|Work that requires a computer"
+  "phone|Work that requires making phone calls"
+  "errands|Work that requires being out and about"
+  "online|Work that requires internet connection"
+  "offline|Work that can be done without internet"
+  "low_energy|Work that requires minimal mental energy"
+  "high_energy|Work that requires high mental energy"
+  "short|Work that takes less than 15 minutes"
+  "long|Work that takes more than an hour"
+)
+
+# ============================================================================
+# Energy Levels
+# ============================================================================
+GTD_ENERGY_LEVELS=(
+  "low|Minimal mental/physical energy required"
+  "medium|Moderate energy required"
+  "high|High energy/focus required"
+  "creative|Requires creative thinking"
+  "administrative|Routine/admin work"
+)
+
+# ============================================================================
+# Priority/Urgency Matrix (Eisenhower Matrix)
+# ============================================================================
+GTD_PRIORITY_MATRIX=(
+  "urgent_important|Do first|red"
+  "not_urgent_important|Schedule|blue"
+  "urgent_not_important|Delegate|yellow"
+  "not_urgent_not_important|Eliminate|gray"
+)
+
+# ============================================================================
+# Review System
+# ============================================================================
+# Daily review time (24-hour format, empty = no scheduled review)
+GTD_DAILY_REVIEW_TIME=""
+
+# Weekly review day (0=Sunday, 1=Monday, etc., empty = no scheduled review)
+GTD_WEEKLY_REVIEW_DAY="0"
+
+# Weekly review time (24-hour format)
+GTD_WEEKLY_REVIEW_TIME="09:00"
+
+# Review questions
+GTD_DAILY_REVIEW_QUESTIONS=(
+  "What are my top 3 priorities today?"
+  "What did I accomplish yesterday?"
+  "What's blocking me?"
+  "What needs my attention?"
+)
+
+GTD_WEEKLY_REVIEW_QUESTIONS=(
+  "What projects need attention?"
+  "What's in my inbox that needs processing?"
+  "What's on my calendar for next week?"
+  "What's in Waiting For that I should follow up on?"
+  "What's in Someday/Maybe that I want to activate?"
+  "What areas of responsibility need attention?"
+)
+
+# ============================================================================
+# Integration Settings
+# ============================================================================
+# Calendar integration (ics/caldav path or command)
+GTD_CALENDAR_PATH=""
+
+# Email integration (maildir path or command)
+GTD_EMAIL_INBOX=""
+
+# Second Brain integration (your existing system)
+SECOND_BRAIN="$HOME/Documents/Second Brain"
+
+# Sync with Second Brain (true/false)
+GTD_SYNC_SECOND_BRAIN="true"
+
+# ============================================================================
+# Search and Filtering
+# ============================================================================
+# Default search tool (grep, ripgrep, ag, etc.)
+GTD_SEARCH_TOOL="grep"
+
+# Enable fuzzy search (true/false)
+GTD_FUZZY_SEARCH="false"
+
+# ============================================================================
+# Notifications
+# ============================================================================
+# Enable notifications (true/false)
+GTD_NOTIFICATIONS="true"
+
+# Notification method (terminal, osascript, notify-send, etc.)
+GTD_NOTIFICATION_METHOD="osascript"
+
+# ============================================================================
+# Analytics and Tracking
+# ============================================================================
+# Track completion rates (true/false)
+GTD_TRACK_COMPLETION="true"
+
+# Track time spent (true/false)
+GTD_TRACK_TIME="false"
+
+# Generate weekly reports (true/false)
+GTD_WEEKLY_REPORTS="true"
+
+# ============================================================================
+# Advanced Features
+# ============================================================================
+# Enable AI-powered suggestions (true/false)
+GTD_AI_SUGGESTIONS="true"
+
+# Enable automatic categorization (true/false)
+GTD_AUTO_CATEGORIZE="true"
+
+# Enable dependency tracking (true/false)
+GTD_TRACK_DEPENDENCIES="false"
+
+# Enable recurring tasks (true/false)
+GTD_RECURRING_TASKS="true"
+
+# Enable time estimates (true/false)
+GTD_TIME_ESTIMATES="true"
+
+# Enable tags system (true/false)
+GTD_USE_TAGS="true"
+
+# Enable projects with sub-tasks (true/false)
+GTD_SUB_TASKS="true"
+
+# Enable areas of responsibility (true/false)
+GTD_USE_AREAS="true"
+
+# ============================================================================
+# File Templates
+# ============================================================================
+# Template for fleeting notes
+GTD_TEMPLATE_FLEETING="fleeting_note"
+
+# Template for tasks
+GTD_TEMPLATE_TASK="task"
+
+# Template for projects
+GTD_TEMPLATE_PROJECT="project"
+
+# Template for areas
+GTD_TEMPLATE_AREA="area"
+
+# Template for weekly review
+GTD_TEMPLATE_WEEKLY_REVIEW="weekly_review"
+

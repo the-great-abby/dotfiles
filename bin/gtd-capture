@@ -1,0 +1,109 @@
+#!/bin/bash
+# GTD Capture Command - Quick capture to inbox
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+GTD_INBOX_DIR="${GTD_INBOX_DIR:-0-inbox}"
+INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR}"
+
+# Create directories if they don't exist
+mkdir -p "$INBOX_PATH"
+
+# Get current timestamp
+TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+TODAY=$(date +"%Y-%m-%d")
+NOW=$(date +"%H:%M")
+
+# Determine capture type
+CAPTURE_TYPE="note"
+if [[ "$1" == "--type" && -n "$2" ]]; then
+  CAPTURE_TYPE="$2"
+  shift 2
+elif [[ "$1" == "--interactive" ]]; then
+  echo "Capture Type:"
+  echo "1) note - Fleeting note"
+  echo "2) task - Task/action item"
+  echo "3) idea - Idea for later"
+  echo "4) reminder - Reminder"
+  echo "5) link - Link/reference"
+  echo "6) meeting - Meeting note"
+  echo "7) email - Email action"
+  echo "8) call - Phone call"
+  read -p "Select type (1-8): " type_choice
+  case $type_choice in
+    1) CAPTURE_TYPE="note" ;;
+    2) CAPTURE_TYPE="task" ;;
+    3) CAPTURE_TYPE="idea" ;;
+    4) CAPTURE_TYPE="reminder" ;;
+    5) CAPTURE_TYPE="link" ;;
+    6) CAPTURE_TYPE="meeting" ;;
+    7) CAPTURE_TYPE="email" ;;
+    8) CAPTURE_TYPE="call" ;;
+    *) CAPTURE_TYPE="note" ;;
+  esac
+  shift
+fi
+
+# Get content
+if [[ -z "$1" ]]; then
+  if [[ -t 0 ]]; then
+    # Interactive mode
+    echo "Enter your capture (press Ctrl+D when done, or Enter twice):"
+    CONTENT=$(cat)
+  else
+    echo "Usage: gtd-capture [--type=TYPE] [--interactive] \"Your capture text\""
+    exit 1
+  fi
+else
+  CONTENT="$*"
+fi
+
+# Create filename
+FILENAME="${TIMESTAMP}-${CAPTURE_TYPE}.md"
+FILEPATH="${INBOX_PATH}/${FILENAME}"
+
+# Create file with template
+cat > "$FILEPATH" <<EOF
+---
+type: ${CAPTURE_TYPE}
+status: unprocessed
+created: ${TODAY}T${NOW}
+tags: []
+---
+
+# ${CAPTURE_TYPE^}: ${CONTENT}
+
+## Details
+
+
+## Next Steps
+
+
+EOF
+
+echo "✓ Captured to inbox: ${FILEPATH}"
+echo "  Type: ${CAPTURE_TYPE}"
+echo "  Content: ${CONTENT}"
+
+# Optionally open in editor
+if [[ -n "$EDITOR" ]]; then
+  read -p "Open in editor? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    $EDITOR "$FILEPATH"
+  fi
+fi
+
+
+

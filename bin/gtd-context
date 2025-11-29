@@ -1,0 +1,355 @@
+#!/bin/bash
+# GTD Context Command - Context-based task suggestions
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+TASKS_PATH="${GTD_BASE_DIR}/tasks"
+PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
+
+# Extract frontmatter value
+get_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+}
+
+# Get current context (where are you?)
+get_current_context() {
+  # Try to detect context
+  local detected_context=""
+  
+  # Check if we can detect location (simplified - you can enhance this)
+  # For now, we'll ask or use defaults
+  
+  if [[ -n "$GTD_CURRENT_CONTEXT" ]]; then
+    echo "$GTD_CURRENT_CONTEXT"
+    return
+  fi
+  
+  # Default to computer if not set
+  echo "computer"
+}
+
+# Get current energy level
+get_current_energy() {
+  if [[ -n "$GTD_CURRENT_ENERGY" ]]; then
+    echo "$GTD_CURRENT_ENERGY"
+    return
+  fi
+  
+  # Try to guess based on time of day
+  local hour=$(date +"%H")
+  if [[ $hour -ge 6 && $hour -lt 10 ]]; then
+    echo "high"  # Morning - high energy
+  elif [[ $hour -ge 10 && $hour -lt 14 ]]; then
+    echo "medium"  # Midday
+  elif [[ $hour -ge 14 && $hour -lt 18 ]]; then
+    echo "medium"  # Afternoon
+  elif [[ $hour -ge 18 && $hour -lt 22 ]]; then
+    echo "low"  # Evening - lower energy
+  else
+    echo "low"  # Late night - low energy
+  fi
+}
+
+# Score task for current context
+score_task() {
+  local file="$1"
+  local current_context="$2"
+  local current_energy="$3"
+  
+  local score=0
+  local task_context=$(get_frontmatter_value "$file" "context")
+  local task_energy=$(get_frontmatter_value "$file" "energy")
+  local priority=$(get_frontmatter_value "$file" "priority")
+  local status=$(get_frontmatter_value "$file" "status")
+  local due=$(get_frontmatter_value "$file" "due")
+  
+  # Must be active
+  if [[ "$status" != "active" ]]; then
+    echo "0"
+    return
+  fi
+  
+  # Context match (high weight)
+  if [[ "$task_context" == "$current_context" ]]; then
+    score=$((score + 10))
+  fi
+  
+  # Energy match (medium weight)
+  if [[ "$task_energy" == "$current_energy" ]]; then
+    score=$((score + 5))
+  fi
+  
+  # Priority boost
+  case "$priority" in
+    urgent_important)
+      score=$((score + 8))
+      ;;
+    not_urgent_important)
+      score=$((score + 5))
+      ;;
+    urgent_not_important)
+      score=$((score + 3))
+      ;;
+  esac
+  
+  # Due date urgency
+  if [[ -n "$due" ]]; then
+    local today=$(date +"%Y-%m-%d")
+    local due_date="${due%%T*}"
+    if [[ "$due_date" == "$today" ]]; then
+      score=$((score + 10))  # Due today
+    elif [[ "$due_date" < "$today" ]]; then
+      score=$((score + 15))  # Overdue
+    elif [[ "$due_date" < "$(date -v+3d +"%Y-%m-%d" 2>/dev/null || date -d "+3 days" +"%Y-%m-%d")" ]]; then
+      score=$((score + 5))  # Due soon
+    fi
+  fi
+  
+  echo "$score"
+}
+
+# Suggest tasks
+suggest_tasks() {
+  local current_context="${1:-$(get_current_context)}"
+  local current_energy="${2:-$(get_current_energy)}"
+  local limit="${3:-5}"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "💡 Task Suggestions"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Current context: $current_context"
+  echo "Current energy: $current_energy"
+  echo ""
+  
+  # Collect all tasks with scores
+  declare -A task_scores
+  declare -A task_files
+  
+  # Search in tasks directory
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r file; do
+      local score=$(score_task "$file" "$current_context" "$current_energy")
+      if [[ $score -gt 0 ]]; then
+        local task_id=$(basename "$file" .md)
+        task_scores["$task_id"]=$score
+        task_files["$task_id"]="$file"
+      fi
+    done < <(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null)
+  fi
+  
+  # Search in projects
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r file; do
+      local score=$(score_task "$file" "$current_context" "$current_energy")
+      if [[ $score -gt 0 ]]; then
+        local task_id=$(basename "$file" .md)
+        task_scores["$task_id"]=$score
+        task_files["$task_id"]="$file"
+      fi
+    done < <(find "$PROJECTS_PATH" -type f -name "*.md" ! -name "README.md" 2>/dev/null)
+  fi
+  
+  # Sort by score
+  local sorted_tasks=($(
+    for task_id in "${!task_scores[@]}"; do
+      echo "${task_scores[$task_id]} $task_id"
+    done | sort -rn | head -$limit | awk '{print $2}'
+  ))
+  
+  if [[ ${#sorted_tasks[@]} -eq 0 ]]; then
+    echo "No tasks found matching your current context and energy level."
+    echo ""
+    echo "Try:"
+    echo "  - gtd-task list --context=$current_context"
+    echo "  - gtd-task list --energy=$current_energy"
+    return
+  fi
+  
+  echo "Top $limit suggested tasks:"
+  echo ""
+  
+  local rank=1
+  for task_id in "${sorted_tasks[@]}"; do
+    local file="${task_files[$task_id]}"
+    local score="${task_scores[$task_id]}"
+    local task_name=$(head -20 "$file" | grep "^# " | head -1 | sed 's/^# //')
+    local context=$(get_frontmatter_value "$file" "context")
+    local energy=$(get_frontmatter_value "$file" "energy")
+    local priority=$(get_frontmatter_value "$file" "priority")
+    local due=$(get_frontmatter_value "$file" "due")
+    
+    echo "[$rank] $task_name (score: $score)"
+    echo "     Context: $context | Energy: $energy | Priority: $priority"
+    if [[ -n "$due" ]]; then
+      echo "     Due: $due"
+    fi
+    echo "     File: $file"
+    echo ""
+    
+    ((rank++))
+  done
+}
+
+# Set current context
+set_context() {
+  local context="$1"
+  
+  if [[ -z "$context" ]]; then
+    echo "Usage: gtd-context set <context>"
+    echo ""
+    echo "Available contexts:"
+    echo "  home, office, computer, phone, errands, online, offline"
+    exit 1
+  fi
+  
+  # Set in environment (user should add to their shell config)
+  echo "To set context permanently, add to your ~/.zshrc:"
+  echo "  export GTD_CURRENT_CONTEXT=\"$context\""
+  echo ""
+  echo "Or set temporarily:"
+  echo "  export GTD_CURRENT_CONTEXT=\"$context\""
+  
+  export GTD_CURRENT_CONTEXT="$context"
+  echo ""
+  echo "✓ Context set to: $context (for this session)"
+}
+
+# Set current energy
+set_energy() {
+  local energy="$1"
+  
+  if [[ -z "$energy" ]]; then
+    echo "Usage: gtd-context set-energy <level>"
+    echo ""
+    echo "Available energy levels:"
+    echo "  low, medium, high, creative, administrative"
+    exit 1
+  fi
+  
+  echo "To set energy permanently, add to your ~/.zshrc:"
+  echo "  export GTD_CURRENT_ENERGY=\"$energy\""
+  echo ""
+  echo "Or set temporarily:"
+  echo "  export GTD_CURRENT_ENERGY=\"$energy\""
+  
+  export GTD_CURRENT_ENERGY="$energy"
+  echo ""
+  echo "✓ Energy set to: $energy (for this session)"
+}
+
+# Show current context/energy
+show_current() {
+  local context=$(get_current_context)
+  local energy=$(get_current_energy)
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📍 Current Context & Energy"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Context: $context"
+  echo "Energy:  $energy"
+  echo ""
+  echo "To change:"
+  echo "  gtd-context set <context>"
+  echo "  gtd-context set-energy <level>"
+  echo ""
+}
+
+# Main
+main() {
+  case "$1" in
+    suggest|"")
+      shift
+      local context=""
+      local energy=""
+      local limit=5
+      
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --context=*)
+            context="${1#*=}"
+            shift
+            ;;
+          --energy=*)
+            energy="${1#*=}"
+            shift
+            ;;
+          --limit=*)
+            limit="${1#*=}"
+            shift
+            ;;
+          *)
+            shift
+            ;;
+        esac
+      done
+      
+      suggest_tasks "${context:-$(get_current_context)}" "${energy:-$(get_current_energy)}" "$limit"
+      ;;
+    set)
+      shift
+      set_context "$1"
+      ;;
+    set-energy)
+      shift
+      set_energy "$1"
+      ;;
+    show|current)
+      show_current
+      ;;
+    --help|-h)
+      echo "Usage: gtd-context [command] [options]"
+      echo ""
+      echo "Commands:"
+      echo "  suggest [options]           Suggest tasks for current context (default)"
+      echo "  set <context>              Set current context"
+      echo "  set-energy <level>         Set current energy level"
+      echo "  show|current               Show current context and energy"
+      echo ""
+      echo "Options for suggest:"
+      echo "  --context=<context>         Override detected context"
+      echo "  --energy=<level>           Override detected energy"
+      echo "  --limit=<number>           Number of suggestions (default: 5)"
+      echo ""
+      echo "Contexts:"
+      echo "  home, office, computer, phone, errands, online, offline"
+      echo ""
+      echo "Energy levels:"
+      echo "  low, medium, high, creative, administrative"
+      echo ""
+      echo "Examples:"
+      echo "  gtd-context                    # Suggest tasks"
+      echo "  gtd-context suggest --limit=10 # Get 10 suggestions"
+      echo "  gtd-context set home           # Set context to home"
+      echo "  gtd-context set-energy high    # Set energy to high"
+      echo "  gtd-context show               # Show current settings"
+      exit 0
+      ;;
+    *)
+      echo "Unknown command: $1"
+      echo "Run 'gtd-context --help' for usage"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+
+
+
