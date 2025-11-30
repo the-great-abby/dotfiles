@@ -1,0 +1,110 @@
+#!/bin/bash
+# GTD Health Reminder Setup Script
+
+# Get the script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Paths
+PLIST_SOURCE="$DOTFILES_DIR/zsh/com.abby.gtd.health.plist"
+PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.health.plist"
+REMINDER_SCRIPT="$SCRIPT_DIR/gtd-health-reminder"
+
+echo "🍎 GTD Health Reminder Setup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if reminder script exists
+if [[ ! -f "$REMINDER_SCRIPT" ]]; then
+  echo "❌ Error: Reminder script not found at $REMINDER_SCRIPT"
+  exit 1
+fi
+
+# Check if plist source exists
+if [[ ! -f "$PLIST_SOURCE" ]]; then
+  echo "❌ Error: Plist file not found at $PLIST_SOURCE"
+  exit 1
+fi
+
+# Create LaunchAgents directory
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# Load config to get interval
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+fi
+
+HEALTH_INTERVAL="${GTD_HEALTH_REMINDER_INTERVAL:-4}"  # Default 4 hours
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+  HEALTH_INTERVAL="${GTD_HEALTH_REMINDER_INTERVAL:-4}"
+fi
+
+# Convert hours to seconds (for StartInterval)
+INTERVAL_SECONDS=$((HEALTH_INTERVAL * 3600))
+
+# Create temporary plist with correct paths and interval
+TEMP_PLIST=$(mktemp)
+cat > "$TEMP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.abby.gtd.health</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REMINDER_SCRIPT</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>$INTERVAL_SECONDS</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-health-reminder.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-health-reminder.error.log</string>
+</dict>
+</plist>
+EOF
+
+# Copy to destination
+cp "$TEMP_PLIST" "$PLIST_DEST"
+rm "$TEMP_PLIST"
+
+echo "✓ Created plist file: $PLIST_DEST"
+echo ""
+
+# Check if already loaded
+if launchctl list | grep -q "com.abby.gtd.health"; then
+  echo "🔄 Unloading existing launch agent..."
+  launchctl unload "$PLIST_DEST" 2>/dev/null || true
+fi
+
+# Load the launch agent
+echo "🚀 Loading launch agent..."
+if launchctl load "$PLIST_DEST" 2>/dev/null; then
+  echo "✓ Health reminder installed and activated!"
+  echo ""
+  echo "📅 Reminder Schedule:"
+  echo "   Interval: Every ${HEALTH_INTERVAL} hours"
+  echo "   Checks: Daily log for junk food mentions"
+  echo "   Sends: Reminders via Discord and macOS notifications"
+  echo ""
+  echo "💡 To change the interval, edit GTD_HEALTH_REMINDER_INTERVAL in:"
+  echo "   $GTD_CONFIG_FILE"
+  echo ""
+  echo "   Then reload with:"
+  echo "   launchctl unload $PLIST_DEST"
+  echo "   launchctl load $PLIST_DEST"
+  echo ""
+  echo "🧪 Test the reminder:"
+  echo "   gtd-health-reminder --force"
+  echo ""
+else
+  echo "❌ Error: Failed to load launch agent"
+  echo "   Check the plist file for errors"
+  exit 1
+fi
+

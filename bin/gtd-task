@@ -66,6 +66,33 @@ add_task() {
   
   # Get additional info
   echo "Creating task: $task_desc"
+  read -p "Is this a recurring task/habit? (y/n): " is_recurring
+  
+  local recurring=""
+  local frequency=""
+  if [[ "$is_recurring" == "y" || "$is_recurring" == "Y" ]]; then
+    echo ""
+    echo "Recurrence frequency:"
+    echo "  1) Daily"
+    echo "  2) Weekly"
+    echo "  3) Monthly"
+    echo "  4) Custom"
+    read -p "Choose (1-4): " freq_choice
+    case "$freq_choice" in
+      1) frequency="daily" ;;
+      2) frequency="weekly" ;;
+      3) frequency="monthly" ;;
+      4)
+        read -p "Custom frequency (e.g., 'every 3 days', 'weekdays'): " frequency
+        ;;
+      *) frequency="daily" ;;
+    esac
+    recurring="true"
+    echo ""
+    echo "💡 Consider creating this as a habit instead: gtd-habit create \"$task_desc\""
+    echo ""
+  fi
+  
   read -p "Context (home/office/computer/phone/errands): " context
   read -p "Energy level (low/medium/high/creative/administrative): " energy
   read -p "Priority (1=urgent&important, 2=not urgent&important, 3=urgent&not important, 4=neither): " priority_choice
@@ -87,6 +114,8 @@ created: ${TODAY}T${NOW}
 context: ${context:-computer}
 energy: ${energy:-medium}
 priority: ${priority}
+recurring: ${recurring:-false}
+frequency: ${frequency:-}
 tags: []
 ---
 
@@ -224,9 +253,20 @@ complete_task() {
   update_frontmatter_value "$task_file" "status" "done"
   update_frontmatter_value "$task_file" "completed" "$(date +"%Y-%m-%dT%H:%M")"
   
+  # Get task name for notification
+  local task_name=$(get_frontmatter_value "$task_file" "title")
+  if [[ -z "$task_name" ]]; then
+    task_name=$(basename "$task_file" .md)
+  fi
+  
   mv "$task_file" "$ARCHIVE_PATH/"
   
   echo "✓ Task completed and archived"
+  
+  # Send notification if enabled
+  if [[ "${GTD_NOTIFICATIONS:-true}" == "true" ]]; then
+    "$(dirname "$0")/gtd-notify" complete "$task_name" 2>/dev/null || true
+  fi
 }
 
 # Update task

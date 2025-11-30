@@ -294,6 +294,292 @@ project_status() {
   echo ""
 }
 
+# Project Kickoff Checklist
+project_kickoff() {
+  local project_name="$1"
+  if [[ -z "$project_name" ]]; then
+    echo "Usage: gtd-project kickoff <project-name>"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  local readme="${project_dir}/README.md"
+  
+  if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
+    echo "❌ Project not found: $project_name"
+    exit 1
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🚀 Project Kickoff Checklist: $project_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Define goals and success criteria
+  echo "1. Define Goals and Success Criteria"
+  read -p "   What are the main goals? " goals
+  read -p "   How will you measure success? " success_criteria
+  echo ""
+  
+  # Identify stakeholders
+  echo "2. Identify Stakeholders"
+  read -p "   Who are the key stakeholders? " stakeholders
+  echo ""
+  
+  # Set timeline
+  echo "3. Set Timeline and Milestones"
+  read -p "   Target completion date: " target_date
+  read -p "   Key milestones: " milestones
+  echo ""
+  
+  # Create initial tasks
+  echo "4. Create Initial Tasks"
+  read -p "   What are the first 3-5 tasks? " initial_tasks
+  echo ""
+  
+  # Set up tracking
+  echo "5. Set Up Tracking"
+  read -p "   How will you track progress? " tracking_method
+  echo ""
+  
+  # Save checklist results
+  local checklist_file="${project_dir}/kickoff-checklist.md"
+  cat > "$checklist_file" <<EOF
+# Project Kickoff Checklist - ${TODAY}
+
+## Goals and Success Criteria
+**Goals:** ${goals}
+**Success Criteria:** ${success_criteria}
+
+## Stakeholders
+${stakeholders}
+
+## Timeline
+**Target Date:** ${target_date}
+**Milestones:** ${milestones}
+
+## Initial Tasks
+${initial_tasks}
+
+## Tracking Method
+${tracking_method}
+
+## Checklist Status
+- [x] Goals defined
+- [x] Stakeholders identified
+- [x] Timeline set
+- [x] Initial tasks created
+- [x] Tracking set up
+
+---
+Completed: ${TODAY}T${NOW}
+EOF
+
+  # Update project README with goals
+  if [[ -n "$goals" ]]; then
+    # Add goals to README if not already there
+    if ! grep -q "## Goals" "$readme" || grep -A 5 "## Goals" "$readme" | grep -q "^$"; then
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "/^## Goals$/a\\
+${goals}
+" "$readme"
+      else
+        sed -i "/^## Goals$/a\\${goals}" "$readme"
+      fi
+    fi
+  fi
+  
+  echo "✓ Kickoff checklist completed!"
+  echo "  Saved to: $checklist_file"
+  echo ""
+}
+
+# Project Review Checklist
+project_review() {
+  local project_name="$1"
+  if [[ -z "$project_name" ]]; then
+    echo "Usage: gtd-project review <project-name>"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  local readme="${project_dir}/README.md"
+  
+  if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
+    echo "❌ Project not found: $project_name"
+    exit 1
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Project Review Checklist: $project_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Review progress
+  echo "1. Review Progress"
+  read -p "   What progress have you made? " progress
+  read -p "   What percentage complete? " completion_pct
+  echo ""
+  
+  # Identify blockers
+  echo "2. Identify Blockers"
+  read -p "   What's blocking progress? " blockers
+  echo ""
+  
+  # Update timeline
+  echo "3. Update Timeline"
+  read -p "   Is the timeline still realistic? " timeline_status
+  read -p "   Any adjustments needed? " timeline_adjustments
+  echo ""
+  
+  # Adjust scope
+  echo "4. Adjust Scope (if needed)"
+  read -p "   Any scope changes? " scope_changes
+  echo ""
+  
+  # Plan next steps
+  echo "5. Plan Next Steps"
+  read -p "   What are the next 3-5 actions? " next_steps
+  echo ""
+  
+  # Save checklist results
+  local checklist_file="${project_dir}/review-${TODAY}.md"
+  cat > "$checklist_file" <<EOF
+# Project Review Checklist - ${TODAY}
+
+## Progress Review
+**Progress Made:** ${progress}
+**Completion:** ${completion_pct}%
+
+## Blockers
+${blockers}
+
+## Timeline Update
+**Status:** ${timeline_status}
+**Adjustments:** ${timeline_adjustments}
+
+## Scope Changes
+${scope_changes}
+
+## Next Steps
+${next_steps}
+
+## Checklist Status
+- [x] Progress reviewed
+- [x] Blockers identified
+- [x] Timeline updated
+- [x] Scope adjusted (if needed)
+- [x] Next steps planned
+
+---
+Completed: ${TODAY}T${NOW}
+EOF
+
+  echo "✓ Review checklist completed!"
+  echo "  Saved to: $checklist_file"
+  echo ""
+}
+
+# Project Completion Checklist
+project_complete() {
+  local project_name="$1"
+  if [[ -z "$project_name" ]]; then
+    echo "Usage: gtd-project complete <project-name>"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  local readme="${project_dir}/README.md"
+  
+  if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
+    echo "❌ Project not found: $project_name"
+    exit 1
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🎉 Project Completion Checklist: $project_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Document lessons learned
+  echo "1. Document Lessons Learned"
+  read -p "   What went well? " what_went_well
+  read -p "   What could be improved? " improvements
+  read -p "   Key takeaways: " takeaways
+  echo ""
+  
+  # Archive project files
+  echo "2. Archive Project Files"
+  read -p "   Are all files organized? (y/n) " files_organized
+  echo ""
+  
+  # Update Second Brain notes
+  echo "3. Update Second Brain Notes"
+  read -p "   Have you synced with Second Brain? (y/n) " synced_brain
+  echo ""
+  
+  # Share outcomes
+  echo "4. Share Outcomes"
+  read -p "   Who needs to know about completion? " stakeholders
+  read -p "   How will you share? " sharing_method
+  echo ""
+  
+  # Celebrate
+  echo "5. Celebrate Completion"
+  read -p "   How will you celebrate? " celebration
+  echo ""
+  
+  # Save checklist results
+  local checklist_file="${project_dir}/completion-checklist.md"
+  cat > "$checklist_file" <<EOF
+# Project Completion Checklist - ${TODAY}
+
+## Lessons Learned
+**What Went Well:** ${what_went_well}
+**Improvements:** ${improvements}
+**Key Takeaways:** ${takeaways}
+
+## Archive Status
+**Files Organized:** ${files_organized}
+
+## Second Brain Sync
+**Synced:** ${synced_brain}
+
+## Outcomes Shared
+**Stakeholders:** ${stakeholders}
+**Sharing Method:** ${sharing_method}
+
+## Celebration
+${celebration}
+
+## Checklist Status
+- [x] Lessons learned documented
+- [x] Project files archived
+- [x] Second Brain updated
+- [x] Outcomes shared
+- [x] Completion celebrated
+
+---
+Completed: ${TODAY}T${NOW}
+EOF
+
+  echo "✓ Completion checklist saved!"
+  echo "  Saved to: $checklist_file"
+  echo ""
+  
+  read -p "Archive this project now? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    archive_project "$project_name"
+  fi
+}
+
 # Archive project
 archive_project() {
   local project_name="$1"
@@ -343,6 +629,18 @@ main() {
       shift
       project_status "$1"
       ;;
+    kickoff)
+      shift
+      project_kickoff "$1"
+      ;;
+    review)
+      shift
+      project_review "$1"
+      ;;
+    complete)
+      shift
+      project_complete "$1"
+      ;;
     archive)
       shift
       archive_project "$1"
@@ -356,14 +654,20 @@ main() {
       echo "  view <name>                      View project details"
       echo "  add-task <name> <description>    Add task to project"
       echo "  status <name>                    Show project status"
+      echo "  kickoff <name>                   Run project kickoff checklist"
+      echo "  review <name>                    Run project review checklist"
+      echo "  complete <name>                  Run project completion checklist"
       echo "  archive <name>                   Archive completed project"
       echo ""
       echo "Examples:"
       echo "  gtd-project create \"Website Redesign\""
+      echo "  gtd-project kickoff website-redesign"
       echo "  gtd-project list"
       echo "  gtd-project view website-redesign"
       echo "  gtd-project add-task website-redesign \"Design homepage\""
+      echo "  gtd-project review website-redesign"
       echo "  gtd-project status website-redesign"
+      echo "  gtd-project complete website-redesign"
       exit 0
       ;;
     *)

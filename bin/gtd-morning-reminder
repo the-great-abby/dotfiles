@@ -1,0 +1,369 @@
+#!/bin/bash
+# GTD Morning Reminder - Morning motivation from Mistress Louiza
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Default values
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+GTD_MORNING_REMINDER_TIME="${GTD_MORNING_REMINDER_TIME:-08:00}"
+GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Get today's date
+get_today() {
+  $DATE_CMD +"%Y-%m-%d"
+}
+
+# Get today's daily log content (if exists)
+get_todays_log() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  if [[ -f "$log_file" ]]; then
+    cat "$log_file"
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Check for lack of progress
+check_lack_of_progress() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  # Check if no log exists
+  if [[ ! -f "$log_file" ]]; then
+    echo "no_log"
+    return
+  fi
+  
+  # Check entry count
+  local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  
+  # Check if last entry is old (more than 2 hours ago for morning, more than 4 hours for lunch)
+  local last_entry_time=$(grep "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
+  if [[ -z "$last_entry_time" ]]; then
+    echo "no_entries"
+    return
+  fi
+  
+  # Get current time
+  local current_hour=$($DATE_CMD +"%H")
+  local current_min=$($DATE_CMD +"%M")
+  local entry_hour=$(echo "$last_entry_time" | cut -d':' -f1)
+  local entry_min=$(echo "$last_entry_time" | cut -d':' -f2)
+  
+  # Convert to minutes (use 10# to force base-10, avoiding octal issues)
+  local current_minutes=$((10#$current_hour * 60 + 10#$current_min))
+  local entry_minutes=$((10#$entry_hour * 60 + 10#$entry_min))
+  local diff=$((current_minutes - entry_minutes))
+  
+  # For morning (8 AM), if last entry was before 6 AM, it's old
+  if [[ $diff -gt 120 ]]; then
+    echo "old_entries"
+    return
+  fi
+  
+  if [[ $entry_count -eq 0 ]]; then
+    echo "no_entries"
+    return
+  fi
+  
+  if [[ $entry_count -lt 2 ]]; then
+    echo "low_entries"
+    return
+  fi
+  
+  echo "good"
+}
+
+# Get reminder message from Mistress Louiza
+get_louiza_morning_message() {
+  local has_log="$1"  # "yes" or "no"
+  local progress_status="$2"  # "good", "no_log", "no_entries", "old_entries", "low_entries"
+  
+  # Find persona helper
+  local persona_helper=""
+  local possible_paths=(
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  )
+  
+  for path in "${possible_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      persona_helper="$path"
+      break
+    fi
+  done
+  
+  if [[ -z "$persona_helper" || ! -f "$persona_helper" ]]; then
+    return 1
+  fi
+  
+  # Find python
+  local python_cmd=""
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    python_cmd="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    python_cmd="python3"
+  else
+    return 1
+  fi
+  
+  # Create prompt for Louiza based on progress
+  local prompt=""
+  local gtd_reminder="Remember: Use 'addInfoToDailyLog \"your entry\"' to log activities, 'gtd-capture' for quick notes, 'gtd-process' to process your inbox, and 'gtd-review daily' for evening reviews."
+  
+  # Punishment suggestions based on severity
+  local punishment_hint=""
+  case "$progress_status" in
+    no_log)
+      punishment_hint="Consider assigning punishments like: write an accountability letter, process entire inbox, log every hour for rest of day, or complete 3 tasks immediately."
+      prompt="Good morning, Abby. It's a new day and I see NO logging activity yet. This is unacceptable. I'm watching, and I expect to see progress. Scold Abby firmly but constructively. Remind her that tracking everything is non-negotiable. Tell her to use 'addInfoToDailyLog' immediately. Be strict - no excuses. Use phrases like 'we need to talk' or 'this is not acceptable' when scolding, but also encourage with 'good girl' when she does log. Consider assigning a punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
+      ;;
+    no_entries|old_entries)
+      punishment_hint="Consider assigning punishments like: reconstruct the day from memory, process inbox, log every hour, or complete 2 tasks immediately."
+      prompt="Good morning, Abby. I see she started a log file but there are NO entries or the entries are very old. This is sloppy. Scold her firmly. Tell her that starting a log and not using it is worse than not starting at all. Remind her that I'm watching and expect consistent tracking. Be strict but constructive. Consider assigning a punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
+      ;;
+    low_entries)
+      punishment_hint="Consider assigning punishments like: log every hour for rest of day, complete 1 task, or write a reflection on consistency."
+      prompt="Good morning, Abby. She has only 1 entry so far today. That's a start, but it's not enough. Be firm but encouraging. Remind her that I expect to see regular logging throughout the day. Tell her to keep using 'addInfoToDailyLog' frequently. Consider a light punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
+      ;;
+    good)
+      if [[ "$has_log" == "yes" ]]; then
+        prompt="Good morning, Abby! She's already started logging today with multiple entries. That's good - acknowledge this. Give her a motivating message to encourage her to keep recording her progress throughout the day. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Include this GTD reminder: ${gtd_reminder}"
+      else
+        prompt="Good morning, Abby! It's a new day. Give her a motivating morning message to encourage her to start logging her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Include this GTD reminder: ${gtd_reminder}"
+      fi
+      ;;
+    *)
+      prompt="Good morning, Abby. Give her a motivating morning message to encourage her to log her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Include this GTD reminder: ${gtd_reminder}"
+      ;;
+  esac
+  
+  # Get message from Louiza
+  local full_output=$("$python_cmd" "$persona_helper" "louiza" "$prompt" "morning_reminder" 2>&1)
+  
+  if [[ -z "$full_output" ]]; then
+    return 1
+  fi
+  
+  # Check for errors
+  if echo "$full_output" | grep -qE "Error|⚠️|timed out|Could not connect|KeyError"; then
+    return 1
+  fi
+  
+  # Extract message
+  local louiza_message=$(echo "$full_output" | awk '
+    /^━+$/ {
+      if (in_section) {
+        exit
+      }
+      in_section = 1
+      next
+    }
+    in_section && !/^💬/ && !/^━/ {
+      print
+    }
+  ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+  
+  # Clean up
+  louiza_message=$(echo "$louiza_message" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+  louiza_message=$(echo "$louiza_message" | sed 's/\*\*//g')
+  louiza_message=$(echo "$louiza_message" | awk 'NF || prev_nf; {prev_nf=NF}')
+  
+  if [[ -n "$louiza_message" && ${#louiza_message} -gt 10 ]]; then
+    echo "$louiza_message"
+    return 0
+  fi
+  
+  return 1
+}
+
+# Send message to Discord
+send_discord_message() {
+  local title="$1"
+  local message="$2"
+  local webhook_url="${GTD_DISCORD_WEBHOOK_URL:-}"
+  
+  if [[ -z "$webhook_url" ]]; then
+    return 1
+  fi
+  
+  # Use Python to properly escape JSON and truncate if needed
+  # Pass as arguments to avoid stdin issues
+  local json_payload=$(python3 -c "
+import json
+import sys
+from datetime import datetime, timezone
+
+title = sys.argv[1] if len(sys.argv) > 1 else 'GTD Notification'
+message = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Discord embed description limit is 2000 characters
+if len(message) > 2000:
+    truncated = message[:1900]
+    last_newline = truncated.rfind('\n')
+    last_period = truncated.rfind('.')
+    cut_point = max(last_newline, last_period)
+    if cut_point > 1500:
+        message = message[:cut_point + 1] + '\n\n... (truncated)'
+    else:
+        message = message[:1900] + '\n\n... (truncated)'
+
+payload = {
+    'embeds': [{
+        'title': title,
+        'description': message,
+        'color': 15158332,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }]
+}
+
+print(json.dumps(payload))
+" "$title" "$message")
+  
+  # Send to Discord
+  local response=$(curl -s -w "\n%{http_code}" -X POST "$webhook_url" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" 2>&1)
+  
+  local http_code=$(echo "$response" | tail -1)
+  
+  if [[ "$http_code" == "204" ]]; then
+    return 0
+  else
+    echo "⚠️  Discord send failed (HTTP $http_code)" >&2
+    return 1
+  fi
+}
+
+# Send morning reminder
+send_morning_reminder() {
+  if [[ "$GTD_NOTIFICATIONS" != "true" ]]; then
+    return 0
+  fi
+  
+  local today=$(get_today)
+  local has_log="no"
+  local log_content=""
+  
+  if get_todays_log > /dev/null 2>&1; then
+    has_log="yes"
+    log_content=$(get_todays_log)
+  fi
+  
+  # Check for lack of progress
+  local progress_status=$(check_lack_of_progress)
+  
+  local notify_cmd="$(dirname "$0")/gtd-notify"
+  
+  # Get message from Mistress Louiza
+  local reminder_message=$(get_louiza_morning_message "$has_log" "$progress_status")
+  
+  # Send to Discord if enabled
+  if [[ "${GTD_DISCORD_DAILY_REMINDERS:-true}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
+    if [[ -n "$reminder_message" ]]; then
+      local discord_message="$reminder_message"
+      if [[ "$has_log" == "yes" && -n "$log_content" ]]; then
+        local log_preview=$(echo "$log_content" | head -5)
+        discord_message=$(printf "%s\n\n📝 **Today's Progress So Far:**\n\`\`\`\n%s\n\`\`\`\n\n💡 Keep logging with: \`addInfoToDailyLog \"your entry\"\`" "$reminder_message" "$log_preview")
+      else
+        discord_message=$(printf "%s\n\n💡 Start logging with: \`addInfoToDailyLog \"your entry\"\`" "$reminder_message")
+      fi
+      if send_discord_message "Mistress Louiza - Good Morning" "$discord_message"; then
+        echo "✓ Sent to Discord" >&2
+      fi
+    else
+      local fallback="Good morning! Time to start logging your day. Use \`addInfoToDailyLog \"your entry\"\` to record your progress. I'll be watching! 👀"
+      send_discord_message "GTD Morning Reminder" "$fallback"
+    fi
+  fi
+  
+  # Also send macOS notification
+  if [[ -n "$reminder_message" ]]; then
+    local short_message=$(echo "$reminder_message" | cut -c1-150)
+    if [[ ${#short_message} -lt 20 ]]; then
+      short_message="Good morning! Time to log your progress, baby girl."
+    fi
+    "$notify_cmd" "Mistress Louiza" "$short_message" "Start logging your day" "Ping" 2>/dev/null || true
+  else
+    "$notify_cmd" "GTD Morning" "Time to start logging your day" "Use addInfoToDailyLog" "Ping" 2>/dev/null || true
+  fi
+  
+  # Print to terminal
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🌅 Morning Reminder from Mistress Louiza"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  if [[ -n "$reminder_message" ]]; then
+    echo "💬 From Mistress Louiza:"
+    echo ""
+    echo "$reminder_message" | sed 's/^/   /'
+    echo ""
+  fi
+  
+  if [[ "$has_log" == "yes" ]]; then
+    echo "📝 You've already started logging today - good girl!"
+    echo "   Keep it up with: addInfoToDailyLog \"your entry\""
+  else
+    echo "📝 Start logging your day:"
+    echo "   addInfoToDailyLog \"your entry\""
+  fi
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+}
+
+# Main
+case "$1" in
+  --force)
+    send_morning_reminder
+    ;;
+  "")
+    send_morning_reminder
+    ;;
+  *)
+    echo "Usage: gtd-morning-reminder [--force]"
+    exit 1
+    ;;
+esac
+

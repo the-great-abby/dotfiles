@@ -1,0 +1,366 @@
+#!/bin/bash
+# GTD Weekly Review Reminder - Check and send reminder for weekly review
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+# Check multiple possible locations
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+GTD_WEEKLY_REVIEW_DAY="${GTD_WEEKLY_REVIEW_DAY:-0}"  # 0=Sunday
+GTD_WEEKLY_REVIEW_TIME="${GTD_WEEKLY_REVIEW_TIME:-09:00}"
+GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
+
+# Get current day of week (0=Sunday, 1=Monday, etc.)
+get_day_of_week() {
+  date +"%w"
+}
+
+# Get current time in HH:MM format
+get_current_time() {
+  date +"%H:%M"
+}
+
+# Check if it's time for weekly review
+check_weekly_review_time() {
+  local current_day=$(get_day_of_week)
+  local current_time=$(get_current_time)
+  
+  # Check if it's the review day
+  if [[ "$current_day" == "$GTD_WEEKLY_REVIEW_DAY" ]]; then
+    # Check if it's around the review time (within 1 hour)
+    local review_hour=$(echo "$GTD_WEEKLY_REVIEW_TIME" | cut -d':' -f1)
+    local review_min=$(echo "$GTD_WEEKLY_REVIEW_TIME" | cut -d':' -f2)
+    local current_hour=$(echo "$current_time" | cut -d':' -f1)
+    local current_min=$(echo "$current_time" | cut -d':' -f2)
+    
+    # Convert to minutes for comparison
+    local review_minutes=$((review_hour * 60 + review_min))
+    local current_minutes=$((current_hour * 60 + current_min))
+    
+    # Check if we're within 1 hour of review time
+    local diff=$((current_minutes - review_minutes))
+    if [[ $diff -ge 0 && $diff -le 60 ]]; then
+      return 0  # It's time!
+    fi
+  fi
+  
+  return 1  # Not time yet
+}
+
+# Check if weekly review was already done this week
+weekly_review_done() {
+  local weekly_reviews_dir="${GTD_BASE_DIR}/weekly-reviews"
+  local this_week=$(date +"%Y-W%V")  # e.g., 2025-W48
+  
+  # Check if there's a review file for this week
+  if find "$weekly_reviews_dir" -name "*${this_week}*" -o -name "*week-*" -newermt "$(date -v-7d +"%Y-%m-%d")" 2>/dev/null | grep -q .; then
+    return 0  # Review found
+  fi
+  
+  return 1  # No review found
+}
+
+# Get GTD system stats for reminder
+get_gtd_stats() {
+  local stats=""
+  
+  # Inbox count
+  local inbox_path="${GTD_BASE_DIR}/0-inbox"
+  local inbox_count=0
+  if [[ -d "$inbox_path" ]]; then
+    inbox_count=$(find "$inbox_path" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  # Active tasks
+  local tasks_path="${GTD_BASE_DIR}/tasks"
+  local active_tasks=0
+  if [[ -d "$tasks_path" ]]; then
+    active_tasks=$(find "$tasks_path" -type f -name "*.md" 2>/dev/null | while read f; do
+      grep -q "^status: active" "$f" 2>/dev/null && echo "$f"
+    done | wc -l | tr -d ' ')
+  fi
+  
+  # Active projects
+  local projects_path="${GTD_BASE_DIR}/1-projects"
+  local active_projects=0
+  if [[ -d "$projects_path" ]]; then
+    active_projects=$(find "$projects_path" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  # Waiting for items
+  local waiting_path="${GTD_BASE_DIR}/5-waiting-for"
+  local waiting_count=0
+  if [[ -d "$waiting_path" ]]; then
+    waiting_count=$(find "$waiting_path" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  stats="Inbox: $inbox_count | Tasks: $active_tasks | Projects: $active_projects | Waiting: $waiting_count"
+  echo "$stats"
+}
+
+# Get reminder message from Mistress Louiza
+get_louiza_reminder() {
+  local stats="$1"
+  
+  # Find persona helper
+  local persona_helper=""
+  local possible_paths=(
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  )
+  
+  for path in "${possible_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      persona_helper="$path"
+      break
+    fi
+  done
+  
+  if [[ -z "$persona_helper" || ! -f "$persona_helper" ]]; then
+    return 1  # Persona helper not found
+  fi
+  
+  # Find python
+  local python_cmd=""
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    python_cmd="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    python_cmd="python3"
+  else
+    return 1  # Python not found
+  fi
+  
+  # Create prompt for Louiza - ask for full message (will be sent to Discord)
+  local prompt="It's time for your weekly GTD review. Current status: $stats. Give me a firm but encouraging reminder to do my weekly review. Use your characteristic style with phrases like 'good girl' or 'baby girl' when appropriate. Be direct about what needs to be reviewed. You can be detailed - this will be sent as a full message, not truncated. Include specific areas to review: inbox items, active projects, waiting-for items, areas of responsibility, and someday/maybe list."
+  
+  # Get advice from Louiza
+  # The persona helper outputs: header, separator, message, separator
+  # Format: "\n💬 Advice from Mistress Louiza:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n<message>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  local full_output=$("$python_cmd" "$persona_helper" "louiza" "$prompt" "weekly_review" 2>&1)
+  
+  if [[ -z "$full_output" ]]; then
+    return 1
+  fi
+  
+  # Check for errors
+  if echo "$full_output" | grep -qE "Error|⚠️|timed out|Could not connect|KeyError"; then
+    return 1
+  fi
+  
+  # Extract full message between separators
+  # Find lines between the separator lines (━━━━━━━━)
+  # Use awk to get all content between first two separator lines
+  local louiza_message=$(echo "$full_output" | awk '
+    /^━+$/ {
+      if (in_section) {
+        exit
+      }
+      in_section = 1
+      next
+    }
+    in_section && !/^💬/ && !/^━/ {
+      print
+    }
+  ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+  
+  # Clean up the message - remove stage directions but preserve newlines for Discord
+  # Remove stage directions in parentheses/brackets
+  louiza_message=$(echo "$louiza_message" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+  
+  # Clean up markdown formatting (keep it simple for Discord)
+  louiza_message=$(echo "$louiza_message" | sed 's/\*\*//g')
+  
+  # Remove excessive blank lines but preserve paragraph breaks
+  louiza_message=$(echo "$louiza_message" | awk 'NF || prev_nf; {prev_nf=NF}')
+  
+  if [[ -n "$louiza_message" && ${#louiza_message} -gt 10 ]]; then
+    echo "$louiza_message"
+    return 0
+  fi
+  
+  return 1  # Failed to get message
+}
+
+# Send message to Discord
+send_discord_message() {
+  local title="$1"
+  local message="$2"
+  local webhook_url="${GTD_DISCORD_WEBHOOK_URL:-}"
+  
+  if [[ -z "$webhook_url" ]]; then
+    return 1
+  fi
+  
+  # Use Python to properly escape JSON
+  # Pass title and message via stdin to avoid shell escaping issues
+  local json_payload=$(python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime, timezone
+
+# Read title and message from stdin (separated by newline)
+lines = sys.stdin.read().strip().split('\n', 1)
+title = lines[0] if len(lines) > 0 else "GTD Notification"
+message = lines[1] if len(lines) > 1 else ""
+
+payload = {
+    "embeds": [{
+        "title": title,
+        "description": message,
+        "color": 15158332,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }]
+}
+
+print(json.dumps(payload))
+PYTHON_EOF
+<<EOF
+$title
+$message
+EOF
+)
+  
+  # Send to Discord
+  curl -s -X POST "$webhook_url" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" > /dev/null 2>&1
+  
+  return $?
+}
+
+# Send weekly review reminder
+send_weekly_reminder() {
+  if [[ "$GTD_NOTIFICATIONS" != "true" ]]; then
+    return 0
+  fi
+  
+  local stats=$(get_gtd_stats)
+  local notify_cmd="$(dirname "$0")/gtd-notify"
+  
+  # Try to get message from Mistress Louiza
+  local reminder_message=$(get_louiza_reminder "$stats")
+  
+  # Send to Discord if enabled and webhook is configured
+  if [[ "${GTD_DISCORD_WEEKLY_REMINDERS:-false}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
+    if [[ -n "$reminder_message" ]]; then
+      # Send full message to Discord (preserve newlines)
+      # Format: message + stats + reminder
+      local full_discord_message=$(printf "%s\n\n📊 **Current Status:**\n%s\n\n💡 Run \`gtd-review weekly\` to start your review" "$reminder_message" "$stats")
+      send_discord_message "Mistress Louiza - Weekly Review Reminder" "$full_discord_message"
+    else
+      # Fallback message
+      local fallback_message=$(printf "Time for your weekly GTD review!\n\n📊 **Current Status:**\n%s\n\n💡 Run \`gtd-review weekly\` to start your review" "$stats")
+      send_discord_message "GTD Weekly Review" "$fallback_message"
+    fi
+  fi
+  
+  # Also send macOS notification (short version)
+  if [[ -n "$reminder_message" ]]; then
+    # Use Louiza's message - create a short version for macOS notification
+    local short_message=$(echo "$reminder_message" | cut -c1-150)
+    if [[ ${#short_message} -lt 20 ]]; then
+      short_message="Time for your weekly review, baby girl. Let's see what needs attention."
+    fi
+    "$notify_cmd" "Mistress Louiza" "$short_message" "$stats" "Submarine" 2>/dev/null || true
+  else
+    # Fallback to generic message
+    "$notify_cmd" "GTD Weekly Review" "Time for your weekly review" "$stats" "Submarine" 2>/dev/null || true
+  fi
+  
+  # Also print to terminal
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📅 Weekly Review Reminder from Mistress Louiza"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  if [[ -n "$reminder_message" ]]; then
+    echo "💬 From Mistress Louiza:"
+    echo ""
+    echo "$reminder_message" | sed 's/^/   /'
+    echo ""
+  else
+    echo "It's time for your weekly GTD review!"
+    echo ""
+  fi
+  
+  echo "📊 Current Status:"
+  echo "   $stats"
+  echo ""
+  echo "💡 Run 'gtd-review weekly' to start your review"
+  echo ""
+  echo "Key areas to review:"
+  echo "  • Process inbox items"
+  echo "  • Review active projects"
+  echo "  • Check waiting-for items"
+  echo "  • Review areas of responsibility"
+  echo "  • Check someday/maybe list"
+  echo "  • Update next actions"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+}
+
+# Main function
+main() {
+  # Check if review was already done this week
+  if weekly_review_done; then
+    if [[ "$1" != "--force" ]]; then
+      return 0  # Already done, no reminder needed
+    fi
+  fi
+  
+  # Check if it's time for review (or if --force is used)
+  if [[ "$1" == "--force" ]] || check_weekly_review_time; then
+    send_weekly_reminder
+    return 0
+  fi
+  
+  return 1  # Not time yet
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-weekly-reminder [--force]
+
+Checks if it's time for weekly review and sends a reminder notification.
+
+Options:
+  --force    Send reminder regardless of day/time (useful for testing)
+
+This script is typically run automatically via launchd (macOS scheduler).
+See WEEKLY_REMINDER_SETUP.md for setup instructions.
+
+EOF
+}
+
+# Handle command line arguments
+case "$1" in
+  --help|-h)
+    show_usage
+    exit 0
+    ;;
+  --force)
+    main --force
+    ;;
+  "")
+    main
+    ;;
+  *)
+    show_usage
+    exit 1
+    ;;
+esac
+

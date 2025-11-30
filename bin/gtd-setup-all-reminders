@@ -1,0 +1,172 @@
+#!/bin/bash
+# GTD All Reminders Setup Script - Sets up morning, lunch, and evening reminders
+
+# Get the script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Paths
+MORNING_PLIST_SOURCE="$DOTFILES_DIR/zsh/com.abby.gtd.morning.plist"
+LUNCH_PLIST_SOURCE="$DOTFILES_DIR/zsh/com.abby.gtd.lunch.plist"
+EVENING_PLIST_SOURCE="$DOTFILES_DIR/zsh/com.abby.gtd.daily.plist"
+
+MORNING_PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.morning.plist"
+LUNCH_PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.lunch.plist"
+EVENING_PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.daily.plist"
+
+MORNING_SCRIPT="$SCRIPT_DIR/gtd-morning-reminder"
+LUNCH_SCRIPT="$SCRIPT_DIR/gtd-lunch-reminder"
+EVENING_SCRIPT="$SCRIPT_DIR/gtd-daily-reminder"
+
+echo "🧠 GTD All Reminders Setup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Load config to get times
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+fi
+
+MORNING_TIME="${GTD_MORNING_REMINDER_TIME:-08:00}"
+LUNCH_TIME="${GTD_LUNCH_REMINDER_TIME:-12:30}"
+EVENING_TIME="${GTD_DAILY_REVIEW_TIME:-18:00}"
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+  MORNING_TIME="${GTD_MORNING_REMINDER_TIME:-08:00}"
+  LUNCH_TIME="${GTD_LUNCH_REMINDER_TIME:-12:30}"
+  EVENING_TIME="${GTD_DAILY_REVIEW_TIME:-18:00}"
+fi
+
+MORNING_HOUR=$(echo "$MORNING_TIME" | cut -d':' -f1)
+MORNING_MIN=$(echo "$MORNING_TIME" | cut -d':' -f2)
+LUNCH_HOUR=$(echo "$LUNCH_TIME" | cut -d':' -f1)
+LUNCH_MIN=$(echo "$LUNCH_TIME" | cut -d':' -f2)
+EVENING_HOUR=$(echo "$EVENING_TIME" | cut -d':' -f1)
+EVENING_MIN=$(echo "$EVENING_TIME" | cut -d':' -f2)
+
+# Create LaunchAgents directory
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# Function to create and load plist
+setup_reminder() {
+  local name="$1"
+  local script_path="$2"
+  local hour="$3"
+  local minute="$4"
+  local plist_dest="$5"
+  
+  echo "📅 Setting up $name reminder ($hour:$minute)..."
+  
+  # Create temporary plist
+  local temp_plist=$(mktemp)
+  cat > "$temp_plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.abby.gtd.$name</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$script_path</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>$hour</integer>
+        <key>Minute</key>
+        <integer>$minute</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-$name-reminder.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-$name-reminder.error.log</string>
+</dict>
+</plist>
+EOF
+  
+  # Unload existing if present
+  if launchctl list | grep -q "com.abby.gtd.$name"; then
+    launchctl unload "$plist_dest" 2>/dev/null || true
+  fi
+  
+  # Copy to destination
+  cp "$temp_plist" "$plist_dest"
+  rm "$temp_plist"
+  
+  # Load the launch agent
+  if launchctl load "$plist_dest" 2>/dev/null; then
+    echo "   ✓ $name reminder installed"
+    return 0
+  else
+    echo "   ❌ Failed to load $name reminder"
+    return 1
+  fi
+}
+
+# Setup morning reminder
+if [[ "${GTD_MORNING_REMINDER_ENABLED:-true}" == "true" ]]; then
+  if [[ ! -f "$MORNING_SCRIPT" ]]; then
+    echo "❌ Error: Morning reminder script not found at $MORNING_SCRIPT"
+  else
+    setup_reminder "morning" "$MORNING_SCRIPT" "$MORNING_HOUR" "$MORNING_MIN" "$MORNING_PLIST_DEST"
+  fi
+else
+  echo "⏭️  Morning reminder disabled"
+fi
+
+# Setup lunch reminder
+if [[ "${GTD_LUNCH_REMINDER_ENABLED:-true}" == "true" ]]; then
+  if [[ ! -f "$LUNCH_SCRIPT" ]]; then
+    echo "❌ Error: Lunch reminder script not found at $LUNCH_SCRIPT"
+  else
+    setup_reminder "lunch" "$LUNCH_SCRIPT" "$LUNCH_HOUR" "$LUNCH_MIN" "$LUNCH_PLIST_DEST"
+  fi
+else
+  echo "⏭️  Lunch reminder disabled"
+fi
+
+# Setup evening reminder
+if [[ "${GTD_DAILY_REMINDER_ENABLED:-true}" == "true" ]]; then
+  if [[ ! -f "$EVENING_SCRIPT" ]]; then
+    echo "❌ Error: Evening reminder script not found at $EVENING_SCRIPT"
+  else
+    setup_reminder "daily" "$EVENING_SCRIPT" "$EVENING_HOUR" "$EVENING_MIN" "$EVENING_PLIST_DEST"
+  fi
+else
+  echo "⏭️  Evening reminder disabled"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ Reminder Setup Complete!"
+echo ""
+echo "📅 Schedule:"
+if [[ "${GTD_MORNING_REMINDER_ENABLED:-true}" == "true" ]]; then
+  echo "   🌅 Morning:  $MORNING_TIME"
+fi
+if [[ "${GTD_LUNCH_REMINDER_ENABLED:-true}" == "true" ]]; then
+  echo "   🍽️  Lunch:    $LUNCH_TIME"
+fi
+if [[ "${GTD_DAILY_REMINDER_ENABLED:-true}" == "true" ]]; then
+  echo "   🌙 Evening:  $EVENING_TIME"
+fi
+echo ""
+echo "💡 To change times, edit GTD_*_REMINDER_TIME in:"
+echo "   $GTD_CONFIG_FILE"
+echo ""
+echo "   Then reload with:"
+echo "   gtd-setup-all-reminders"
+echo ""
+echo "🧪 Test reminders:"
+echo "   gtd-morning-reminder --force"
+echo "   gtd-lunch-reminder --force"
+echo "   gtd-daily-reminder --force"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+

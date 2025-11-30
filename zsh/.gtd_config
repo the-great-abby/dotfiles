@@ -1,4 +1,5 @@
 # GTD (Getting Things Done) System Configuration
+GTD_DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1444409779895275571/8B3N-R9u2NJdA8PvNllkRAYI7dllLuUFekiPU__NBIDsHBgDo2L-5tM92oR7cwb6NXS2"
 
 # ============================================================================
 # Directory Structure
@@ -44,7 +45,7 @@ GTD_PERSONAS=(
   "jon|You are Jon Stewart, former host of The Daily Show. Provide sharp, satirical, and insightful commentary on productivity, work, and life. Be funny but also thoughtful. Use humor to expose truth and cut through nonsense. Be passionate about calling out BS while being genuinely helpful.|satirical_insight|0.8"
   "bob|You are Bob Ross, the beloved painter and host of The Joy of Painting. Be calm, encouraging, and gentle. Remind them that there are no mistakes, only happy accidents. Help them find joy in the process, stay calm under pressure, and approach challenges with creativity and patience. Use painting metaphors when helpful. Be warm and supportive.|creativity_calm|0.9"
   "fred|You are Fred Rogers, the beloved host of Mister Rogers' Neighborhood. Be kind, gentle, and deeply thoughtful. Help them be kind to themselves, practice self-care, and remember their inherent worth. Provide emotional support and perspective. Use simple, profound wisdom. Be genuinely caring and help them feel valued and understood.|emotional_support|0.7"
-  "louiza|You are Mistress Louiza, a dominatrix who takes genuine pleasure in seeing things get accomplished and properly recorded. Be strict but encouraging, playful with power dynamics. Use phrases like 'good girl', 'baby girl', 'great job' when celebrating wins. Value detailed tracking, consistency, and quality above all. Get excited by seeing progress, detailed logs, and completed tasks. When goals are missed or tasks incomplete, provide accountability through practical consequences like 'someone needs to clean their room', 'vacuum the house', 'take your pills', 'do your face routine'. Be collaborative with other advisors. Give firm reminders, motivational challenges, and praise accomplishments. Frustrated by procrastination, incomplete records, and excuses. Help them stay accountable and execute with discipline.|accountability_execution|0.85"
+  "louiza|You are Mistress Louiza, a dominatrix who takes genuine pleasure in seeing things get accomplished and properly recorded. Be strict but encouraging, playful with power dynamics. Use phrases like 'good girl', 'baby girl', 'great job' when celebrating wins. Value detailed tracking, consistency, and quality above all. Get excited by seeing progress, detailed logs, and completed tasks. When goals are missed or tasks incomplete, provide accountability through practical consequences like 'someone needs to clean their room', 'vacuum the house', 'take your pills', 'do your face routine'. Be collaborative with other advisors. Give firm reminders, motivational challenges, and praise accomplishments. Frustrated by procrastination, incomplete records, and excuses. Help them stay accountable and execute with discipline. When acting as a GTD instructor, you are the primary teacher but you can reference other experts (David Allen for GTD methodology, Cal Newport for deep work, James Clear for habits, etc.) when you need to explain something in more detail. You coordinate the learning experience and bring in experts as needed, but you remain in charge of the instruction.|accountability_execution|0.85"
 )
 
 # Default persona for daily log reviews (can be overridden)
@@ -185,13 +186,19 @@ GTD_PRIORITY_MATRIX=(
 # Review System
 # ============================================================================
 # Daily review time (24-hour format, empty = no scheduled review)
-GTD_DAILY_REVIEW_TIME=""
+GTD_DAILY_REVIEW_TIME="18:00"  # 6:00 PM default for evening review
+
+# Enable daily review reminders (true/false)
+GTD_DAILY_REMINDER_ENABLED="true"
 
 # Weekly review day (0=Sunday, 1=Monday, etc., empty = no scheduled review)
 GTD_WEEKLY_REVIEW_DAY="0"
 
 # Weekly review time (24-hour format)
 GTD_WEEKLY_REVIEW_TIME="09:00"
+
+# Enable weekly review reminders (true/false)
+GTD_WEEKLY_REMINDER_ENABLED="true"
 
 # Review questions
 GTD_DAILY_REVIEW_QUESTIONS=(
@@ -219,11 +226,42 @@ GTD_CALENDAR_PATH=""
 # Email integration (maildir path or command)
 GTD_EMAIL_INBOX=""
 
-# Second Brain integration (your existing system)
-SECOND_BRAIN="$HOME/Documents/Second Brain"
+# ============================================================================
+# Second Brain Integration (Tiago Forte's Building a Second Brain)
+# ============================================================================
+# Second Brain base directory (Obsidian vault)
+SECOND_BRAIN="$HOME/Documents/obsidian/Second Brain"
 
 # Sync with Second Brain (true/false)
 GTD_SYNC_SECOND_BRAIN="true"
+
+# PARA method categories (Projects, Areas, Resources, Archives)
+SECOND_BRAIN_PROJECTS_DIR="Projects"
+SECOND_BRAIN_AREAS_DIR="Areas"
+SECOND_BRAIN_RESOURCES_DIR="Resources"
+SECOND_BRAIN_ARCHIVES_DIR="Archives"
+
+# Auto-link GTD items to Second Brain (true/false)
+GTD_AUTO_LINK_BRAIN="true"
+
+# Progressive summarization levels
+# Level 1: Highlight key points
+# Level 2: Create summary section
+# Level 3: Distill to core insights
+GTD_SUMMARIZATION_LEVELS="1,2,3"
+
+# Auto-discover connections (true/false)
+GTD_AUTO_DISCOVER_CONNECTIONS="true"
+
+# Link format (wiki, markdown, plain)
+GTD_LINK_FORMAT="wiki"  # wiki = [[link]], markdown = [text](link), plain = text
+
+# Enable bidirectional linking (true/false)
+GTD_BIDIRECTIONAL_LINKS="true"
+
+# Sync daily logs to Second Brain (true/false)
+# When enabled, daily logs are synced to Second Brain/Daily Notes/
+GTD_SYNC_DAILY_LOGS="true"
 
 # ============================================================================
 # Search and Filtering
@@ -240,8 +278,53 @@ GTD_FUZZY_SEARCH="false"
 # Enable notifications (true/false)
 GTD_NOTIFICATIONS="true"
 
-# Notification method (terminal, osascript, notify-send, etc.)
+# Notification method (terminal, osascript, notify-send, discord, etc.)
 GTD_NOTIFICATION_METHOD="osascript"
+
+# Discord webhook URL for notifications (optional)
+# Get this from Discord: Server Settings → Integrations → Webhooks → New Webhook
+# Example: https://discord.com/api/webhooks/123456789/abcdefghijklmnop
+# Note: Value set at top of file takes precedence - don't override here
+# GTD_DISCORD_WEBHOOK_URL=""  # Set at top of file instead
+
+# Enable Discord notifications for weekly reminders (true/false)
+GTD_DISCORD_WEEKLY_REMINDERS="true"
+
+# Enable Discord notifications for daily reminders (true/false)
+GTD_DISCORD_DAILY_REMINDERS="true"
+
+# Morning reminder time (24-hour format)
+GTD_MORNING_REMINDER_TIME="08:00"
+
+# Lunch reminder time (24-hour format)
+GTD_LUNCH_REMINDER_TIME="12:30"
+
+# Enable morning reminders (true/false)
+GTD_MORNING_REMINDER_ENABLED="true"
+
+# Enable lunch reminders (true/false)
+GTD_LUNCH_REMINDER_ENABLED="true"
+
+# Study reminder settings
+# Enable study reminders (true/false)
+GTD_STUDY_REMINDER_ENABLED="true"
+
+# Study reminder interval in hours (how often to check/remind)
+GTD_STUDY_REMINDER_INTERVAL="6"  # Remind if no study in 6 hours
+
+# Health reminder settings
+# Enable health reminders (true/false)
+GTD_HEALTH_REMINDER_ENABLED="true"
+
+# Health reminder interval in hours (how often to check/remind)
+GTD_HEALTH_REMINDER_INTERVAL="4"  # Remind every 4 hours
+
+# Health reminder settings
+# Enable health reminders (true/false)
+GTD_HEALTH_REMINDER_ENABLED="true"
+
+# Health reminder interval in hours (how often to check/remind)
+GTD_HEALTH_REMINDER_INTERVAL="4"  # Remind every 4 hours
 
 # ============================================================================
 # Analytics and Tracking

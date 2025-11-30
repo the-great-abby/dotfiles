@@ -1,0 +1,248 @@
+#!/bin/bash
+# GTD Second Brain Sync - Sync between GTD and Second Brain systems
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/Second Brain}"
+GTD_PROJECTS_DIR="${GTD_PROJECTS_DIR:-1-projects}"
+GTD_AREAS_DIR="${GTD_AREAS_DIR:-2-areas}"
+
+# Sync GTD projects to Second Brain Projects
+sync_projects() {
+  echo "🔄 Syncing GTD Projects to Second Brain..."
+  
+  local gtd_projects="$GTD_BASE_DIR/$GTD_PROJECTS_DIR"
+  local brain_projects="$SECOND_BRAIN/Projects"
+  
+  mkdir -p "$brain_projects"
+  
+  find "$gtd_projects" -type f -name "*.md" 2>/dev/null | while read -r project_file; do
+    local project_name=$(basename "$project_file" .md)
+    local brain_note="$brain_projects/${project_name}.md"
+    
+    # Check if already linked
+    if grep -q "## Second Brain" "$project_file" 2>/dev/null; then
+      continue
+    fi
+    
+    # Create or update brain note
+    if [[ ! -f "$brain_note" ]]; then
+      cat > "$brain_note" <<EOF
+# $project_name
+
+Created: $(date +"%Y-%m-%d %H:%M")
+
+## GTD Project
+- [[GTD Project: $project_name]] → $project_file
+
+## Notes
+
+## Links
+
+## Tags
+#project #gtd
+
+## Summary
+
+EOF
+      echo "✓ Created brain note: $brain_note"
+    fi
+    
+    # Add link in GTD project
+    if [[ "$GTD_BIDIRECTIONAL_LINKS" == "true" ]]; then
+      if ! grep -q "## Second Brain" "$project_file" 2>/dev/null; then
+        echo "" >> "$project_file"
+        echo "## Second Brain" >> "$project_file"
+        echo "- [[$project_name]] → $brain_note" >> "$project_file"
+        echo "✓ Linked GTD project to brain note"
+      fi
+    fi
+  done
+  
+  echo "✓ Project sync complete"
+}
+
+# Sync GTD areas to Second Brain Areas
+sync_areas() {
+  echo "🔄 Syncing GTD Areas to Second Brain..."
+  
+  local gtd_areas="$GTD_BASE_DIR/$GTD_AREAS_DIR"
+  local brain_areas="$SECOND_BRAIN/Areas"
+  
+  mkdir -p "$brain_areas"
+  
+  find "$gtd_areas" -type f -name "*.md" 2>/dev/null | while read -r area_file; do
+    local area_name=$(basename "$area_file" .md)
+    local brain_note="$brain_areas/${area_name}.md"
+    
+    # Check if already linked
+    if grep -q "## Second Brain" "$area_file" 2>/dev/null; then
+      continue
+    fi
+    
+    # Create or update brain note
+    if [[ ! -f "$brain_note" ]]; then
+      cat > "$brain_note" <<EOF
+# $area_name
+
+Created: $(date +"%Y-%m-%d %H:%M")
+
+## GTD Area
+- [[GTD Area: $area_name]] → $area_file
+
+## Notes
+
+## Links
+
+## Tags
+#area #gtd
+
+## Summary
+
+EOF
+      echo "✓ Created brain note: $brain_note"
+    fi
+    
+    # Add link in GTD area
+    if [[ "$GTD_BIDIRECTIONAL_LINKS" == "true" ]]; then
+      if ! grep -q "## Second Brain" "$area_file" 2>/dev/null; then
+        echo "" >> "$area_file"
+        echo "## Second Brain" >> "$area_file"
+        echo "- [[$area_name]] → $brain_note" >> "$area_file"
+        echo "✓ Linked GTD area to brain note"
+      fi
+    fi
+  done
+  
+  echo "✓ Area sync complete"
+}
+
+# Auto-link reference items to Resources
+sync_references() {
+  echo "🔄 Syncing GTD References to Second Brain Resources..."
+  
+  local gtd_refs="$GTD_BASE_DIR/3-reference"
+  local brain_resources="$SECOND_BRAIN/Resources"
+  
+  mkdir -p "$brain_resources"
+  
+  find "$gtd_refs" -type f -name "*.md" 2>/dev/null | while read -r ref_file; do
+    local ref_name=$(basename "$ref_file" .md)
+    local brain_note="$brain_resources/${ref_name}.md"
+    
+    # Only sync if not already linked
+    if grep -q "## Second Brain" "$ref_file" 2>/dev/null; then
+      continue
+    fi
+    
+    # Create brain note if it doesn't exist
+    if [[ ! -f "$brain_note" ]]; then
+      # Copy content or create link
+      if [[ -f "$ref_file" ]]; then
+        cp "$ref_file" "$brain_note"
+        echo "✓ Copied reference to Resources: $brain_note"
+      fi
+    fi
+    
+    # Add link in GTD reference
+    if [[ "$GTD_BIDIRECTIONAL_LINKS" == "true" ]]; then
+      if ! grep -q "## Second Brain" "$ref_file" 2>/dev/null; then
+        echo "" >> "$ref_file"
+        echo "## Second Brain" >> "$ref_file"
+        echo "- [[$ref_name]] → $brain_note" >> "$ref_file"
+        echo "✓ Linked GTD reference to brain note"
+      fi
+    fi
+  done
+  
+  echo "✓ Reference sync complete"
+}
+
+# Sync daily logs
+sync_daily_logs() {
+  echo "🔄 Syncing Daily Logs to Second Brain..."
+  
+  # Check if daily log sync command exists
+  local sync_cmd="$(dirname "$0")/gtd-brain-sync-daily-logs"
+  if [[ -f "$sync_cmd" && -x "$sync_cmd" ]]; then
+    "$sync_cmd" all 2>/dev/null || echo "⚠️  Daily log sync failed (optional)"
+  else
+    echo "⚠️  Daily log sync not available (gtd-brain-sync-daily-logs not found)"
+  fi
+}
+
+# Main sync function
+main_sync() {
+  echo "🧠 GTD ↔ Second Brain Sync"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  sync_projects
+  echo ""
+  sync_areas
+  echo ""
+  sync_references
+  echo ""
+  
+  # Optional: sync daily logs
+  if [[ "${GTD_SYNC_DAILY_LOGS:-false}" == "true" ]]; then
+    echo ""
+    sync_daily_logs
+  fi
+  
+  echo ""
+  echo "✓ Sync complete!"
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-brain-sync [command]
+
+Commands:
+  (no args)    Full sync (projects, areas, references, daily logs if enabled)
+  projects     Sync only projects
+  areas        Sync only areas
+  references   Sync only references
+  daily-logs   Sync daily logs to Second Brain
+
+This command creates bidirectional links between GTD items and Second Brain notes,
+following the PARA method (Projects, Areas, Resources, Archives).
+
+EOF
+}
+
+# Main command handler
+case "${1:-}" in
+  projects)
+    sync_projects
+    ;;
+  areas)
+    sync_areas
+    ;;
+  references)
+    sync_references
+    ;;
+  daily-logs)
+    sync_daily_logs
+    ;;
+  "")
+    main_sync
+    ;;
+  *)
+    show_usage
+    exit 1
+    ;;
+esac
+

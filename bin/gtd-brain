@@ -1,0 +1,467 @@
+#!/bin/bash
+# GTD Second Brain Command - Link, connect, and build knowledge
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/Second Brain}"
+GTD_REFERENCE_DIR="${GTD_REFERENCE_DIR:-3-reference}"
+
+# Create directories if they don't exist
+mkdir -p "$SECOND_BRAIN"/{Projects,Areas,Resources,Archives}
+mkdir -p "$GTD_BASE_DIR/$GTD_REFERENCE_DIR"
+
+# Helper function to find notes
+find_note() {
+  local search_term="$1"
+  find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) -exec grep -l "$search_term" {} \; 2>/dev/null | head -10
+}
+
+# Helper function to create a link in a note
+add_link_to_note() {
+  local note_path="$1"
+  local link_text="$2"
+  local link_target="$3"
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "Note not found: $note_path"
+    return 1
+  fi
+  
+  # Add link at the end of the file
+  echo "" >> "$note_path"
+  echo "- [[$link_text]] → $link_target" >> "$note_path"
+  echo "✓ Added link to $note_path"
+}
+
+# Create a new Second Brain note
+create_note() {
+  local title="$1"
+  local para_category="${2:-Resources}"  # Projects, Areas, Resources, Archives
+  local timestamp=$(date +"%Y-%m-%d %H:%M")
+  
+  # Sanitize title for filename
+  local filename=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local note_path="$SECOND_BRAIN/$para_category/${filename}.md"
+  
+  # Create note with template
+  cat > "$note_path" <<EOF
+# $title
+
+Created: $timestamp
+
+## Notes
+
+## Links
+- Related to: 
+
+## Tags
+# 
+
+## Summary
+
+EOF
+  
+  echo "✓ Created note: $note_path"
+  echo "$note_path"
+}
+
+# Link GTD item to Second Brain note
+link_gtd_to_brain() {
+  local gtd_item="$1"
+  local brain_note="$2"
+  
+  if [[ ! -f "$brain_note" ]]; then
+    echo "❌ Brain note not found: $brain_note"
+    return 1
+  fi
+  
+  # Add link in brain note
+  add_link_to_note "$brain_note" "GTD: $gtd_item" "$gtd_item"
+  
+  # Create backlink in GTD item if it's a file
+  if [[ -f "$gtd_item" ]]; then
+    echo "" >> "$gtd_item"
+    echo "## Second Brain" >> "$gtd_item"
+    echo "- [[$brain_note]]" >> "$gtd_item"
+    echo "✓ Created bidirectional link"
+  fi
+}
+
+# Progressive summarization
+summarize_note() {
+  local note_path="$1"
+  local level="${2:-1}"  # 1=highlight, 2=summarize, 3=distill
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  case "$level" in
+    1)
+      echo "📝 Level 1: Highlight key points in $note_path"
+      echo "   Open the file and highlight important sentences"
+      ;;
+    2)
+      echo "📝 Level 2: Create summary section"
+      if ! grep -q "## Summary" "$note_path"; then
+        echo "" >> "$note_path"
+        echo "## Summary" >> "$note_path"
+        echo "" >> "$note_path"
+      fi
+      echo "✓ Added summary section. Add your summary there."
+      ;;
+    3)
+      echo "📝 Level 3: Distill to core insights"
+      if ! grep -q "## Core Insights" "$note_path"; then
+        echo "" >> "$note_path"
+        echo "## Core Insights" >> "$note_path"
+        echo "" >> "$note_path"
+      fi
+      echo "✓ Added core insights section. Add your distilled insights there."
+      ;;
+  esac
+}
+
+# Discover connections
+discover_connections() {
+  local note_path="$1"
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  echo "🔍 Discovering connections for: $note_path"
+  echo ""
+  
+  # Extract key terms
+  local key_terms=$(grep -oE '#[a-zA-Z0-9_-]+|\[\[[^\]]+\]\]' "$note_path" | head -10)
+  
+  if [[ -z "$key_terms" ]]; then
+    echo "No tags or links found. Try adding #tags or [[links]] to discover connections."
+    return 0
+  fi
+  
+  echo "Found tags/links:"
+  echo "$key_terms" | while read -r term; do
+    echo "  - $term"
+  done
+  echo ""
+  
+  echo "Searching for related notes..."
+  # Search for notes with similar tags/links
+  local search_terms=$(echo "$key_terms" | sed 's/#//g' | sed 's/\[\[//g' | sed 's/\]\]//g' | tr '\n' ' ')
+  for term in $search_terms; do
+    if [[ ${#term} -gt 3 ]]; then
+      local matches=$(find_note "$term" | grep -v "$note_path")
+      if [[ -n "$matches" ]]; then
+        echo ""
+        echo "Related notes for '$term':"
+        echo "$matches" | while read -r match; do
+          echo "  → $match"
+        done
+      fi
+    fi
+  done
+}
+
+# Move note between PARA categories
+move_note() {
+  local note_path="$1"
+  local new_category="$2"  # Projects, Areas, Resources, Archives
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  local filename=$(basename "$note_path")
+  local new_path="$SECOND_BRAIN/$new_category/$filename"
+  
+  if [[ "$note_path" == "$new_path" ]]; then
+    echo "Note is already in $new_category"
+    return 0
+  fi
+  
+  mv "$note_path" "$new_path"
+  echo "✓ Moved $filename to $new_category"
+  echo "$new_path"
+}
+
+# Archive note with strategy
+archive_note() {
+  local note_path="$1"
+  local reason="${2:-}"
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  # Ask for reason if not provided
+  if [[ -z "$reason" ]]; then
+    echo ""
+    echo "Why are you archiving this note?"
+    echo "  1) Project completed"
+    echo "  2) No longer relevant"
+    echo "  3) Superseded by another note"
+    echo "  4) Moving to reference material"
+    echo "  5) Other"
+    read -p "Choose (1-5): " choice
+    
+    case "$choice" in
+      1) reason="Project completed" ;;
+      2) reason="No longer relevant" ;;
+      3) reason="Superseded by another note" ;;
+      4) reason="Moving to reference material" ;;
+      5) read -p "Reason: " reason ;;
+      *) reason="Archived" ;;
+    esac
+  fi
+  
+  local today=$(date +"%Y-%m-%d")
+  local timestamp=$(date +"%Y-%m-%d %H:%M")
+  
+  # Add archive metadata
+  if ! grep -q "## Archive Info" "$note_path"; then
+    cat >> "$note_path" <<EOF
+
+## Archive Info
+Archived: ${timestamp}
+Reason: ${reason}
+
+EOF
+  fi
+  
+  # Move to Archives
+  move_note "$note_path" "Archives"
+  
+  echo "✓ Note archived: $(basename "$note_path")"
+  echo "  Reason: ${reason}"
+}
+
+# Archive review (find notes to archive)
+archive_review() {
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 Archive Review"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Find old notes (not updated in 6+ months)
+  echo "📅 Notes not updated in 6+ months:"
+  local old_notes=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/MOCs/*" ! -path "*/Packets/*" ! -path "*/Connections/*" ! -path "*/.obsidian/*" ! -path "*/Express/*" ! -path "*/Archives/*" -mtime +180 2>/dev/null | head -10)
+  
+  if [[ -n "$old_notes" ]]; then
+    echo "$old_notes" | while read -r note; do
+      local name=$(basename "$note" .md)
+      local last_modified=$(stat -f "%Sm" -t "%Y-%m-%d" "$note" 2>/dev/null || stat -c "%y" "$note" 2>/dev/null | cut -d' ' -f1)
+      echo -e "  ${YELLOW}•${NC} ${name} (last modified: ${last_modified})"
+    done
+  else
+    echo "  None found"
+  fi
+  echo ""
+  
+  # Find notes with no links
+  echo "🔗 Notes with no links (potential orphans):"
+  local unlinked=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/MOCs/*" ! -path "*/Packets/*" ! -path "*/Connections/*" ! -path "*/.obsidian/*" ! -path "*/Express/*" ! -path "*/Archives/*" ! -exec grep -l "\[\[" {} \; 2>/dev/null | head -10)
+  
+  if [[ -n "$unlinked" ]]; then
+    echo "$unlinked" | while read -r note; do
+      local name=$(basename "$note" .md)
+      echo -e "  ${YELLOW}•${NC} ${name}"
+    done
+  else
+    echo "  None found"
+  fi
+  echo ""
+  
+  echo "💡 Review these notes and archive if no longer needed."
+  echo "   Use: gtd-brain archive <note-path>"
+  echo ""
+}
+
+# Search Second Brain
+search_brain() {
+  local query="$1"
+  local category="${2:-}"  # Optional: Projects, Areas, Resources, Archives
+  
+  local search_dir="$SECOND_BRAIN"
+  if [[ -n "$category" ]]; then
+    search_dir="$SECOND_BRAIN/$category"
+  fi
+  
+  echo "🔍 Searching for: $query"
+  echo ""
+  
+  # Search in file names
+  local name_matches=$(find "$search_dir" -type f \( -name "*.md" -o -name "*.txt" \) -iname "*$query*" 2>/dev/null)
+  if [[ -n "$name_matches" ]]; then
+    echo "Matches in filenames:"
+    echo "$name_matches" | while read -r match; do
+      echo "  → $match"
+    done
+    echo ""
+  fi
+  
+  # Search in content
+  local content_matches=$(find "$search_dir" -type f \( -name "*.md" -o -name "*.txt" \) -exec grep -l "$query" {} \; 2>/dev/null)
+  if [[ -n "$content_matches" ]]; then
+    echo "Matches in content:"
+    echo "$content_matches" | while read -r match; do
+      echo "  → $match"
+    done
+  fi
+}
+
+# List notes by category
+list_notes() {
+  local category="${1:-all}"  # Projects, Areas, Resources, Archives, all
+  
+  if [[ "$category" == "all" ]]; then
+    echo "📚 All Second Brain Notes:"
+    echo ""
+    for cat in Projects Areas Resources Archives; do
+      local count=$(find "$SECOND_BRAIN/$cat" -type f \( -name "*.md" -o -name "*.txt" \) 2>/dev/null | wc -l | tr -d ' ')
+      if [[ $count -gt 0 ]]; then
+        echo "$cat: $count notes"
+      fi
+    done
+  else
+    echo "📚 Notes in $category:"
+    find "$SECOND_BRAIN/$category" -type f \( -name "*.md" -o -name "*.txt" \) 2>/dev/null | while read -r note; do
+      local title=$(head -1 "$note" | sed 's/# //')
+      echo "  → $title ($(basename "$note"))"
+    done
+  fi
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-brain <command> [options]
+
+Commands:
+  create <title> [category]     Create a new Second Brain note
+                                Categories: Projects, Areas, Resources, Archives (default: Resources)
+  
+  link <gtd-item> <brain-note> Link a GTD item to a Second Brain note
+  
+  summarize <note> [level]       Progressive summarization
+                                Levels: 1=highlight, 2=summarize, 3=distill
+  
+  discover <note>               Discover connections for a note
+  
+  move <note> <category>        Move note between PARA categories
+  
+  archive <note> [reason]        Archive a note (move to Archives)
+  archive-review                 Review notes for archiving
+  
+  search <query> [category]      Search Second Brain notes
+  
+  list [category]                List notes (all, Projects, Areas, Resources, Archives)
+  
+  find <term>                    Find notes containing a term
+
+Examples:
+  gtd-brain create "Project Planning Tips" Projects
+  gtd-brain link ~/Documents/gtd/1-projects/myproject.md ~/Documents/Second\ Brain/Projects/project-planning.md
+  gtd-brain summarize ~/Documents/Second\ Brain/Resources/note.md 2
+  gtd-brain discover ~/Documents/Second\ Brain/Resources/note.md
+  gtd-brain search "productivity"
+  gtd-brain list Projects
+
+EOF
+}
+
+# Main command handler
+case "$1" in
+  create)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Title required"
+      show_usage
+      exit 1
+    fi
+    create_note "$2" "${3:-Resources}"
+    ;;
+  link)
+    if [[ -z "$2" || -z "$3" ]]; then
+      echo "❌ Error: Both GTD item and brain note required"
+      show_usage
+      exit 1
+    fi
+    link_gtd_to_brain "$2" "$3"
+    ;;
+  summarize)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Note path required"
+      show_usage
+      exit 1
+    fi
+    summarize_note "$2" "${3:-1}"
+    ;;
+  discover)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Note path required"
+      show_usage
+      exit 1
+    fi
+    discover_connections "$2"
+    ;;
+  move)
+    if [[ -z "$2" || -z "$3" ]]; then
+      echo "❌ Error: Note path and category required"
+      show_usage
+      exit 1
+    fi
+    move_note "$2" "$3"
+    ;;
+  archive)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Note path required"
+      show_usage
+      exit 1
+    fi
+    archive_note "$2" "$3"
+    ;;
+  archive-review)
+    archive_review
+    ;;
+  search)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Search query required"
+      show_usage
+      exit 1
+    fi
+    search_brain "$2" "$3"
+    ;;
+  list)
+    list_notes "${2:-all}"
+    ;;
+  find)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Search term required"
+      show_usage
+      exit 1
+    fi
+    find_note "$2"
+    ;;
+  *)
+    show_usage
+    exit 1
+    ;;
+esac
+

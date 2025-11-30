@@ -1,0 +1,339 @@
+#!/bin/bash
+# GTD Daily Log Sync - Sync daily logs between computers
+# Works with cloud storage (iCloud, Dropbox, etc.) or Second Brain directory
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+SYNC_METHOD="${DAILY_LOG_SYNC_METHOD:-second-brain}"  # second-brain, cloud, git
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Sync to Second Brain directory (so Obsidian sync handles it)
+sync_to_second_brain() {
+  local sync_dir="${SECOND_BRAIN}/Daily Logs"
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}Syncing Daily Logs to Second Brain${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Create sync directory
+  mkdir -p "$sync_dir"
+  
+  if [[ ! -d "$DAILY_LOG_DIR" ]]; then
+    echo "❌ Daily log directory not found: $DAILY_LOG_DIR"
+    return 1
+  fi
+  
+  local synced=0
+  local updated=0
+  local skipped=0
+  
+  # Copy all daily logs
+  find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | while read -r log_file; do
+    local filename=$(basename "$log_file")
+    local sync_file="${sync_dir}/${filename}"
+    
+    # Check if file exists and is newer
+    if [[ -f "$sync_file" ]]; then
+      # Compare modification times
+      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
+      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
+      
+      if [[ $log_mtime -gt $sync_mtime ]]; then
+        # Local is newer, copy to sync
+        cp "$log_file" "$sync_file"
+        echo "✓ Updated: $filename"
+        ((updated++))
+      elif [[ $sync_mtime -gt $log_mtime ]]; then
+        # Sync is newer, copy to local
+        cp "$sync_file" "$log_file"
+        echo "✓ Pulled: $filename (newer in Second Brain)"
+        ((updated++))
+      else
+        # Same, skip
+        ((skipped++))
+      fi
+    else
+      # New file, copy to sync
+      cp "$log_file" "$sync_file"
+      echo "✓ Synced: $filename"
+      ((synced++))
+    fi
+  done
+  
+  # Also check for files in sync that aren't in local
+  find "$sync_dir" -type f -name "*.txt" -maxdepth 1 | while read -r sync_file; do
+    local filename=$(basename "$sync_file")
+    local log_file="${DAILY_LOG_DIR}/${filename}"
+    
+    if [[ ! -f "$log_file" ]]; then
+      # File exists in sync but not local, pull it
+      cp "$sync_file" "$log_file"
+      echo "✓ Pulled: $filename (from Second Brain)"
+      ((synced++))
+    fi
+  done
+  
+  echo ""
+  echo "📊 Sync Summary:"
+  echo "  Synced: ${synced}"
+  echo "  Updated: ${updated}"
+  echo "  Skipped: ${skipped}"
+  echo ""
+  echo "✓ Daily logs synced to: ${sync_dir}"
+  echo ""
+  echo "💡 Since this is in your Obsidian vault, it will sync automatically!"
+  echo ""
+}
+
+# Sync from Second Brain (pull)
+sync_from_second_brain() {
+  local sync_dir="${SECOND_BRAIN}/Daily Logs"
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}Pulling Daily Logs from Second Brain${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  if [[ ! -d "$sync_dir" ]]; then
+    echo "❌ Sync directory not found: $sync_dir"
+    echo "   Run 'gtd-daily-log-sync push' first to create it."
+    return 1
+  fi
+  
+  mkdir -p "$DAILY_LOG_DIR"
+  
+  local pulled=0
+  local updated=0
+  
+  # Copy all files from sync to local
+  find "$sync_dir" -type f -name "*.txt" -maxdepth 1 | while read -r sync_file; do
+    local filename=$(basename "$sync_file")
+    local log_file="${DAILY_LOG_DIR}/${filename}"
+    
+    if [[ ! -f "$log_file" ]]; then
+      # New file, copy it
+      cp "$sync_file" "$log_file"
+      echo "✓ Pulled: $filename"
+      ((pulled++))
+    else
+      # File exists, check which is newer
+      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
+      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
+      
+      if [[ $sync_mtime -gt $log_mtime ]]; then
+        # Sync is newer, update local
+        cp "$sync_file" "$log_file"
+        echo "✓ Updated: $filename"
+        ((updated++))
+      fi
+    fi
+  done
+  
+  echo ""
+  echo "📊 Pull Summary:"
+  echo "  Pulled: ${pulled}"
+  echo "  Updated: ${updated}"
+  echo ""
+  echo "✓ Daily logs pulled from: ${sync_dir}"
+  echo ""
+}
+
+# Two-way sync (merge)
+sync_both_ways() {
+  local sync_dir="${SECOND_BRAIN}/Daily Logs"
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}Two-Way Sync: Daily Logs ↔ Second Brain${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  mkdir -p "$sync_dir"
+  mkdir -p "$DAILY_LOG_DIR"
+  
+  # Sync local → Second Brain
+  find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | while read -r log_file; do
+    local filename=$(basename "$log_file")
+    local sync_file="${sync_dir}/${filename}"
+    
+    if [[ ! -f "$sync_file" ]]; then
+      cp "$log_file" "$sync_file"
+      echo "✓ Synced: $filename → Second Brain"
+    else
+      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
+      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
+      
+      if [[ $log_mtime -gt $sync_mtime ]]; then
+        cp "$log_file" "$sync_file"
+        echo "✓ Updated: $filename → Second Brain"
+      fi
+    fi
+  done
+  
+  # Sync Second Brain → local
+  find "$sync_dir" -type f -name "*.txt" -maxdepth 1 | while read -r sync_file; do
+    local filename=$(basename "$sync_file")
+    local log_file="${DAILY_LOG_DIR}/${filename}"
+    
+    if [[ ! -f "$log_file" ]]; then
+      cp "$sync_file" "$log_file"
+      echo "✓ Pulled: $filename ← Second Brain"
+    else
+      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
+      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
+      
+      if [[ $sync_mtime -gt $log_mtime ]]; then
+        cp "$sync_file" "$log_file"
+        echo "✓ Updated: $filename ← Second Brain"
+      fi
+    fi
+  done
+  
+  echo ""
+  echo "✓ Two-way sync complete!"
+  echo ""
+  echo "💡 Your daily logs are now in: ${sync_dir}"
+  echo "   This will sync automatically with Obsidian!"
+  echo ""
+}
+
+# Show status
+show_status() {
+  local sync_dir="${SECOND_BRAIN}/Daily Logs"
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}Daily Log Sync Status${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  echo "📁 Local daily logs:"
+  if [[ -d "$DAILY_LOG_DIR" ]]; then
+    local local_count=$(find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | wc -l | tr -d ' ')
+    echo "   Location: $DAILY_LOG_DIR"
+    echo "   Count: ${local_count} log(s)"
+  else
+    echo "   ❌ Directory not found"
+  fi
+  
+  echo ""
+  echo "☁️  Synced daily logs:"
+  if [[ -d "$sync_dir" ]]; then
+    local sync_count=$(find "$sync_dir" -type f -name "*.txt" -maxdepth 1 | wc -l | tr -d ' ')
+    echo "   Location: $sync_dir"
+    echo "   Count: ${sync_count} log(s)"
+  else
+    echo "   ❌ Not synced yet (run 'gtd-daily-log-sync push')"
+  fi
+  
+  echo ""
+  echo "🔄 Sync method: Second Brain (Obsidian sync)"
+  echo ""
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-daily-log-sync <command>
+
+Commands:
+  push          Sync local daily logs to Second Brain (for syncing to other computers)
+  pull          Pull daily logs from Second Brain (when switching computers)
+  sync          Two-way sync (merge both directions)
+  status        Show sync status
+  help          Show this help
+
+Examples:
+  gtd-daily-log-sync push    # Before switching computers (push to cloud)
+  gtd-daily-log-sync pull    # After switching computers (pull from cloud)
+  gtd-daily-log-sync sync    # Two-way sync (recommended)
+  gtd-daily-log-sync status  # Check sync status
+
+How it works:
+  Daily logs are synced to: ~/Documents/obsidian/Second Brain/Daily Logs/
+  Since this is in your Obsidian vault, it syncs automatically via Obsidian sync.
+  
+  When you switch computers:
+  1. On old computer: gtd-daily-log-sync push (or sync)
+  2. Wait for Obsidian to sync
+  3. On new computer: gtd-daily-log-sync pull (or sync)
+
+Configuration:
+  Set DAILY_LOG_SYNC_METHOD in .daily_log_config (default: second-brain)
+
+EOF
+}
+
+# Main command handler
+case "${1:-}" in
+  push)
+    sync_to_second_brain
+    ;;
+  pull)
+    sync_from_second_brain
+    ;;
+  sync)
+    sync_both_ways
+    ;;
+  status)
+    show_status
+    ;;
+  help|--help|-h)
+    show_usage
+    ;;
+  "")
+    # Default: two-way sync
+    sync_both_ways
+    ;;
+  *)
+    echo "❌ Unknown command: $1"
+    echo ""
+    show_usage
+    exit 1
+    ;;
+esac
+

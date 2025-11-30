@@ -1,0 +1,253 @@
+#!/bin/bash
+# GTD Notification Helper - Send macOS notifications
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+# Check multiple possible locations
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
+GTD_NOTIFICATION_METHOD="${GTD_NOTIFICATION_METHOD:-osascript}"
+
+# Send macOS notification using osascript
+notify_osascript() {
+  local title="$1"
+  local message="$2"
+  local subtitle="${3:-}"
+  local sound="${4:-default}"
+  
+  # Escape special characters for AppleScript
+  title=$(echo "$title" | sed "s/'/''/g")
+  message=$(echo "$message" | sed "s/'/''/g")
+  if [[ -n "$subtitle" ]]; then
+    subtitle=$(echo "$subtitle" | sed "s/'/''/g")
+  fi
+  
+  # Build AppleScript command
+  local script="display notification \"$message\""
+  
+  if [[ -n "$subtitle" ]]; then
+    script="$script with title \"$title\" subtitle \"$subtitle\""
+  else
+    script="$script with title \"$title\""
+  fi
+  
+  if [[ "$sound" != "none" ]]; then
+    script="$script sound name \"$sound\""
+  fi
+  
+  osascript -e "$script" 2>/dev/null
+}
+
+# Send notification using terminal output (fallback)
+notify_terminal() {
+  local title="$1"
+  local message="$2"
+  local subtitle="${3:-}"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔔 $title"
+  if [[ -n "$subtitle" ]]; then
+    echo "   $subtitle"
+  fi
+  echo "   $message"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+}
+
+# Send notification to Discord webhook
+notify_discord() {
+  local title="$1"
+  local message="$2"
+  local subtitle="${3:-}"
+  local webhook_url="${GTD_DISCORD_WEBHOOK_URL:-}"
+  
+  if [[ -z "$webhook_url" ]]; then
+    echo "⚠️  Discord webhook URL not configured. Set GTD_DISCORD_WEBHOOK_URL in .gtd_config" >&2
+    return 1
+  fi
+  
+  # Build Discord embed or simple message
+  # Discord messages can be up to 2000 characters
+  # For longer messages, we'll use an embed
+  
+  local full_message="$message"
+  if [[ -n "$subtitle" ]]; then
+    full_message="$subtitle\n\n$message"
+  fi
+  
+  # Use Python to properly escape JSON
+  local json_payload=$(python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime, timezone
+
+title = sys.argv[1]
+message = sys.argv[2]
+
+# Use embed for better formatting
+payload = {
+    "embeds": [{
+        "title": title,
+        "description": message,
+        "color": 15158332,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }]
+}
+
+print(json.dumps(payload))
+PYTHON_EOF
+"$title" "$full_message")
+  
+  # Send to Discord
+  local response=$(curl -s -X POST "$webhook_url" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" 2>&1)
+  
+  if [[ $? -eq 0 && -z "$response" ]]; then
+    return 0
+  else
+    echo "⚠️  Failed to send Discord notification: $response" >&2
+    return 1
+  fi
+}
+
+# Main notification function
+send_notification() {
+  if [[ "$GTD_NOTIFICATIONS" != "true" ]]; then
+    return 0
+  fi
+  
+  local title="${1:-GTD}"
+  local message="${2:-}"
+  local subtitle="${3:-}"
+  local sound="${4:-default}"
+  
+  case "$GTD_NOTIFICATION_METHOD" in
+    osascript)
+      notify_osascript "$title" "$message" "$subtitle" "$sound"
+      ;;
+    terminal)
+      notify_terminal "$title" "$message" "$subtitle"
+      ;;
+    discord)
+      notify_discord "$title" "$message" "$subtitle"
+      ;;
+    *)
+      # Default to osascript on macOS, terminal otherwise
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        notify_osascript "$title" "$message" "$subtitle" "$sound"
+      else
+        notify_terminal "$title" "$message" "$subtitle"
+      fi
+      ;;
+  esac
+}
+
+# Convenience functions for common notifications
+notify_inbox_count() {
+  local count="$1"
+  if [[ $count -gt 0 ]]; then
+    send_notification "GTD Inbox" "You have $count item(s) in your inbox" "Time to process" "Glass"
+  fi
+}
+
+notify_task_complete() {
+  local task_name="$1"
+  send_notification "Task Complete" "$task_name" "Great job!" "Ping"
+}
+
+notify_review_due() {
+  local review_type="$1"  # daily, weekly, monthly
+  send_notification "GTD Review Due" "Time for your $review_type review" "Stay organized" "Submarine"
+}
+
+notify_deadline_approaching() {
+  local task_name="$1"
+  local time_remaining="$2"
+  send_notification "Deadline Approaching" "$task_name" "Due in $time_remaining" "Basso"
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-notify <title> <message> [subtitle] [sound]
+
+Or use convenience functions:
+  gtd-notify inbox <count>        - Notify about inbox items
+  gtd-notify complete <task>      - Notify task completion
+  gtd-notify review <type>         - Notify review due (daily/weekly/monthly)
+  gtd-notify deadline <task> <time> - Notify approaching deadline
+
+Examples:
+  gtd-notify "GTD" "Inbox processing complete" "All items processed"
+  gtd-notify inbox 5
+  gtd-notify complete "Finish project proposal"
+  gtd-notify review weekly
+  gtd-notify deadline "Submit report" "2 hours"
+
+Sound options: default, Glass, Ping, Submarine, Basso, Blow, Bottle, Frog, Funk, 
+               Hero, Morse, Pop, Purr, Sosumi, Tink, none
+
+EOF
+}
+
+# Main command handler
+case "$1" in
+  inbox)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Count required"
+      show_usage
+      exit 1
+    fi
+    notify_inbox_count "$2"
+    ;;
+  complete)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Task name required"
+      show_usage
+      exit 1
+    fi
+    notify_task_complete "$2"
+    ;;
+  review)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Review type required (daily/weekly/monthly)"
+      show_usage
+      exit 1
+    fi
+    notify_review_due "$2"
+    ;;
+  deadline)
+    if [[ -z "$2" || -z "$3" ]]; then
+      echo "❌ Error: Task name and time required"
+      show_usage
+      exit 1
+    fi
+    notify_deadline_approaching "$2" "$3"
+    ;;
+  "")
+    show_usage
+    exit 1
+    ;;
+  *)
+    # Direct notification
+    if [[ -z "$2" ]]; then
+      show_usage
+      exit 1
+    fi
+    send_notification "$1" "$2" "${3:-}" "${4:-default}"
+    ;;
+esac
+

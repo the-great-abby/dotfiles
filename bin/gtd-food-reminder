@@ -1,0 +1,331 @@
+#!/bin/bash
+# GTD Food/Health Reminder - Remind about healthy eating from Mistress Louiza
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Default values
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+GTD_FOOD_REMINDER_ENABLED="${GTD_FOOD_REMINDER_ENABLED:-true}"
+GTD_FOOD_REMINDER_INTERVAL="${GTD_FOOD_REMINDER_INTERVAL:-4}"  # hours
+GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Get today's date
+get_today() {
+  $DATE_CMD +"%Y-%m-%d"
+}
+
+# Check for food entries in daily log
+check_food_entries() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  if [[ ! -f "$log_file" ]]; then
+    echo "no_log"
+    return
+  fi
+  
+  # Look for food-related entries (junk food indicators)
+  local junk_food_keywords="(fast food|junk food|trash|mcdonald|burger king|taco bell|pizza|chips|candy|soda|pop|fries|donut|ice cream|cake|cookie|processed|frozen meal|takeout|delivery)"
+  local healthy_keywords="(salad|vegetable|fruit|healthy|home cooked|meal prep|nutritious|protein|whole food)"
+  
+  # Check for junk food mentions
+  local junk_count=$(grep -iE "$junk_food_keywords" "$log_file" 2>/dev/null | wc -l | tr -d ' ')
+  local healthy_count=$(grep -iE "$healthy_keywords" "$log_file" 2>/dev/null | wc -l | tr -d ' ')
+  
+  # Get recent entries (last 4 hours)
+  local recent_entries=$(grep -E "^[0-9]{2}:[0-9]{2}" "$log_file" 2>/dev/null | tail -5)
+  
+  # Check if recent entries mention food
+  local recent_food=$(echo "$recent_entries" | grep -iE "(eat|food|meal|snack|lunch|dinner|breakfast|junk|trash|healthy)" | wc -l | tr -d ' ')
+  
+  if [[ "$junk_count" -gt 0 && "$junk_count" -gt "$healthy_count" ]]; then
+    echo "junk_food"
+    return
+  elif [[ "$recent_food" -eq 0 ]]; then
+    echo "no_food_logged"
+    return
+  elif [[ "$healthy_count" -gt "$junk_count" ]]; then
+    echo "healthy"
+    return
+  else
+    echo "neutral"
+    return
+  fi
+}
+
+# Get food reminder from Mistress Louiza
+get_food_reminder() {
+  local food_status="$1"
+  local recent_entries="${2:-}"
+  
+  # Find persona helper
+  local persona_helper=""
+  local possible_paths=(
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  )
+  
+  for path in "${possible_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      persona_helper="$path"
+      break
+    fi
+  done
+  
+  if [[ -z "$persona_helper" || ! -f "$persona_helper" ]]; then
+    return 1
+  fi
+  
+  # Find python
+  local python_cmd=""
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    python_cmd="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    python_cmd="python3"
+  else
+    return 1
+  fi
+  
+  # Create prompt for Louiza
+  local prompt=""
+  
+  case "$food_status" in
+    junk_food)
+      prompt="Abby has been eating junk food/trash. I can see it in her daily log. This is completely unacceptable. Scold her severely but constructively. Tell her that eating trash is not acceptable - her body deserves better. Be very strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk'. Tell her that I'm watching and I'm NOT pleased. Remind her that she needs to make better choices. Suggest consequences: she needs to meal prep, she needs to plan healthy meals, she needs to stop ordering takeout. Use your characteristic style with phrases like 'baby girl' but be FIRM about this. Eating trash is a form of self-sabotage and I won't tolerate it."
+      ;;
+    no_food_logged)
+      prompt="Abby hasn't logged any food choices today. Remind her firmly that I'm watching what she eats. Tell her to log her meals and make healthy choices. Remind her that eating trash is not acceptable. Be encouraging but firm - use phrases like 'good girl' when she makes good choices, but be strict about logging and making healthy decisions."
+      ;;
+    healthy)
+      prompt="Abby has been making healthy food choices today. Acknowledge this and praise her - use phrases like 'good girl' or 'baby girl, I'm proud of you'. Encourage her to keep it up. Remind her that I'm watching and I'm pleased when she takes care of herself. Be encouraging and supportive."
+      ;;
+    neutral|*)
+      prompt="Abby, I'm watching what you eat. Remind her firmly that eating trash/junk food is not acceptable. Tell her to make healthy choices, to meal prep, to plan nutritious meals. Be encouraging but firm - use phrases like 'good girl' when she makes good choices, but be strict about avoiding junk food. Remind her that her body deserves better than trash."
+      ;;
+  esac
+  
+  # Get message from Louiza
+  local full_output=$("$python_cmd" "$persona_helper" "louiza" "$prompt" "food_reminder" 2>&1)
+  
+  if [[ -z "$full_output" ]]; then
+    return 1
+  fi
+  
+  # Check for errors
+  if echo "$full_output" | grep -qE "Error|⚠️|timed out|Could not connect|KeyError"; then
+    return 1
+  fi
+  
+  # Extract message
+  local reminder=$(echo "$full_output" | awk '
+    /^━+$/ {
+      if (in_section) {
+        exit
+      }
+      in_section = 1
+      next
+    }
+    in_section && !/^💬/ && !/^━/ {
+      print
+    }
+  ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+  
+  # Clean up
+  reminder=$(echo "$reminder" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+  reminder=$(echo "$reminder" | sed 's/\*\*//g')
+  reminder=$(echo "$reminder" | awk 'NF || prev_nf; {prev_nf=NF}')
+  
+  if [[ -n "$reminder" && ${#reminder} -gt 10 ]]; then
+    echo "$reminder"
+    return 0
+  fi
+  
+  return 1
+}
+
+# Send message to Discord
+send_discord_message() {
+  local title="$1"
+  local message="$2"
+  local webhook_url="${GTD_DISCORD_WEBHOOK_URL:-}"
+  
+  if [[ -z "$webhook_url" ]]; then
+    return 1
+  fi
+  
+  # Use Python to properly escape JSON
+  local json_payload=$(python3 -c "
+import json
+import sys
+from datetime import datetime, timezone
+
+title = sys.argv[1] if len(sys.argv) > 1 else 'GTD Notification'
+message = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Discord embed description limit is 2000 characters
+if len(message) > 2000:
+    truncated = message[:1900]
+    last_newline = truncated.rfind('\n')
+    last_period = truncated.rfind('.')
+    cut_point = max(last_newline, last_period)
+    if cut_point > 1500:
+        message = message[:cut_point + 1] + '\n\n... (truncated)'
+    else:
+        message = message[:1900] + '\n\n... (truncated)'
+
+payload = {
+    'embeds': [{
+        'title': title,
+        'description': message,
+        'color': 15158332,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }]
+}
+
+print(json.dumps(payload))
+" "$title" "$message")
+  
+  # Send to Discord
+  local response=$(curl -s -w "\n%{http_code}" -X POST "$webhook_url" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" 2>&1)
+  
+  local http_code=$(echo "$response" | tail -1)
+  
+  if [[ "$http_code" == "204" ]]; then
+    return 0
+  else
+    echo "⚠️  Discord send failed (HTTP $http_code)" >&2
+    return 1
+  fi
+}
+
+# Send food reminder
+send_food_reminder() {
+  if [[ "$GTD_NOTIFICATIONS" != "true" ]]; then
+    return 0
+  fi
+  
+  if [[ "$GTD_FOOD_REMINDER_ENABLED" != "true" ]]; then
+    return 0
+  fi
+  
+  # Check for food entries
+  local food_status=$(check_food_entries)
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local recent_entries=""
+  
+  if [[ -f "$log_file" ]]; then
+    recent_entries=$(grep -E "^[0-9]{2}:[0-9]{2}" "$log_file" 2>/dev/null | tail -3)
+  fi
+  
+  local notify_cmd="$(dirname "$0")/gtd-notify"
+  
+  # Get reminder from Mistress Louiza
+  local reminder_message=$(get_food_reminder "$food_status" "$recent_entries")
+  
+  # Send to Discord if enabled
+  if [[ "${GTD_DISCORD_DAILY_REMINDERS:-true}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
+    if [[ -n "$reminder_message" ]]; then
+      local discord_message="$reminder_message"
+      if [[ "$food_status" == "junk_food" ]]; then
+        discord_message=$(printf "%s\n\n💡 **Reminders:**\n  • Log your meals: \`addInfoToDailyLog \"Ate: [what you ate]\"\`\n  • Plan healthy meals\n  • Meal prep for the week\n  • Avoid junk food/trash\n  • Your body deserves better!" "$reminder_message")
+      else
+        discord_message=$(printf "%s\n\n💡 **Reminders:**\n  • Log your meals: \`addInfoToDailyLog \"Ate: [what you ate]\"\`\n  • Make healthy choices\n  • Plan nutritious meals" "$reminder_message")
+      fi
+      if send_discord_message "Mistress Louiza - Food Reminder" "$discord_message"; then
+        echo "✓ Sent to Discord" >&2
+      fi
+    fi
+  fi
+  
+  # Also send macOS notification
+  if [[ -n "$reminder_message" ]]; then
+    local short_message=$(echo "$reminder_message" | cut -c1-150)
+    if [[ ${#short_message} -lt 20 ]]; then
+      short_message="I'm watching what you eat, baby girl. No trash!"
+    fi
+    "$notify_cmd" "Mistress Louiza" "$short_message" "Food Reminder" "Ping" 2>/dev/null || true
+  else
+    "$notify_cmd" "GTD Food" "Make healthy choices" "No junk food!" "Ping" 2>/dev/null || true
+  fi
+  
+  # Print to terminal
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🍎 Food Reminder from Mistress Louiza"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  if [[ -n "$reminder_message" ]]; then
+    echo "💬 From Mistress Louiza:"
+    echo ""
+    echo "$reminder_message" | sed 's/^/   /'
+    echo ""
+  fi
+  
+  if [[ "$food_status" == "junk_food" ]]; then
+    echo "💡 Reminders:"
+    echo "   • Log your meals: addInfoToDailyLog \"Ate: [what you ate]\""
+    echo "   • Plan healthy meals"
+    echo "   • Meal prep for the week"
+    echo "   • Avoid junk food/trash"
+    echo "   • Your body deserves better!"
+    echo ""
+  fi
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+}
+
+# Main function
+case "$1" in
+  --force)
+    send_food_reminder
+    ;;
+  "")
+    # Check if it's time for reminder (simplified - always send if called)
+    send_food_reminder
+    ;;
+  *)
+    echo "Usage: gtd-food-reminder [--force]"
+    exit 1
+    ;;
+esac
+

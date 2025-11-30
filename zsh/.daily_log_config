@@ -26,3 +26,9 @@ MAX_TOKENS="1200"
 # When timeout is reached, the connection is closed and request is cancelled
 LM_STUDIO_TIMEOUT="60"
 
+# Daily log sync method (second-brain, cloud, git)
+# second-brain: Sync to Second Brain directory (uses Obsidian sync automatically)
+# cloud: Use cloud storage path (set DAILY_LOG_CLOUD_PATH)
+# git: Use git repository (set DAILY_LOG_GIT_PATH)
+DAILY_LOG_SYNC_METHOD="second-brain"
+

@@ -1,0 +1,60 @@
+#!/bin/bash
+# GTD System Welcome Message - Show on first use or when requested
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+echo ""
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}🧠 Welcome to Your GTD System${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "${BOLD}Quick Start:${NC}"
+echo ""
+echo -e "  ${GREEN}gtd-help${NC}          - Interactive help menu"
+echo -e "  ${GREEN}gtd-tips${NC}          - Random tip about the system"
+echo -e "  ${GREEN}gtd-capture${NC}      - Quick capture to inbox"
+echo -e "  ${GREEN}addInfoToDailyLog${NC} - Log entry + get advice"
+echo ""
+echo -e "${BOLD}Core Commands:${NC}"
+echo ""
+echo -e "  ${GREEN}gtd-process${NC}      - Process inbox items"
+echo -e "  ${GREEN}gtd-task${NC}          - Manage tasks"
+echo -e "  ${GREEN}gtd-project${NC}       - Manage projects"
+echo -e "  ${GREEN}gtd-review${NC}       - Daily/weekly reviews"
+echo ""
+echo -e "${BOLD}Get Help:${NC}"
+echo ""
+echo -e "  ${GREEN}gtd-help${NC}          - Full interactive help"
+echo -e "  ${GREEN}gtd-help 1${NC}        - Quick start guide"
+echo -e "  ${GREEN}gtd-help 6${NC}        - Command discovery"
+echo ""
+echo -e "${BOLD}Learn GTD:${NC}"
+echo ""
+echo -e "  ${GREEN}gtd-learn${NC}         - Learn with Mistress Louiza"
+echo -e "  ${GREEN}gtd-learn capture${NC} - Learn about capturing"
+echo -e "  ${GREEN}gtd-learn review${NC}  - Learn about reviews"
+echo ""
+echo -e "${BOLD}Learn Kubernetes/CKA:${NC}"
+echo ""
+echo -e "  ${GREEN}gtd-learn-kubernetes${NC}     - Learn K8s for CKA"
+echo -e "  ${GREEN}gtd-study-plan cka${NC}       - Create CKA study plan"
+echo ""
+echo -e "${BOLD}Accountability:${NC}"
+echo ""
+echo -e "  ${YELLOW}👑 Mistress Louiza${NC} monitors your progress"
+echo -e "  ${YELLOW}📅 Reminders${NC} at 8 AM, 12:30 PM, and 6 PM"
+echo -e "  ${YELLOW}💬 Get advice${NC} with 'gtd-advise <persona>'"
+echo -e "  ${YELLOW}🎓 Learn GTD${NC} with 'gtd-learn' (Mistress Louiza teaches!)"
+echo ""
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "${BOLD}New to GTD?${NC} Start with: ${GREEN}gtd-learn${NC}"
+echo -e "${BOLD}Need a tip?${NC} Run: ${GREEN}gtd-tips${NC}"
+echo -e "${BOLD}Stuck?${NC} Run: ${GREEN}gtd-help${NC}"
+echo ""
+

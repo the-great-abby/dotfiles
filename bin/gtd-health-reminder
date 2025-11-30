@@ -1,0 +1,590 @@
+#!/bin/bash
+# GTD Health Reminder - Remind about healthy eating from Mistress Louiza
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Default values
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+GTD_HEALTH_REMINDER_ENABLED="${GTD_HEALTH_REMINDER_ENABLED:-true}"
+GTD_HEALTH_REMINDER_INTERVAL="${GTD_HEALTH_REMINDER_INTERVAL:-4}"  # hours
+GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Get today's date
+get_today() {
+  $DATE_CMD +"%Y-%m-%d"
+}
+
+# Check for junk food mentions in daily log
+check_junk_food_mentions() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  if [[ ! -f "$log_file" ]]; then
+    return 1
+  fi
+  
+  # Look for junk food keywords (case insensitive)
+  local junk_keywords="junk food|trash|fast food|mcdonald|burger king|taco bell|pizza|chips|candy|soda|pop|fries|donut|ice cream|chocolate|sweets|snacks|processed|takeout|delivery"
+  
+  if grep -qiE "$junk_keywords" "$log_file" 2>/dev/null; then
+    return 0  # Found junk food mentions
+  fi
+  
+  return 1  # No junk food mentions
+}
+
+# Check for workout/exercise mentions in daily log
+check_workout_activity() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  if [[ ! -f "$log_file" ]]; then
+    return 1
+  fi
+  
+  # Look for workout keywords (case insensitive)
+  local workout_keywords="workout|exercise|kettlebell|kettlebells|walk|walked|walking|run|ran|running|jog|jogged|jogging|weight|lifting|weights|gym|fitness|training|cardio|strength|squat|deadlift|press|swing|snatch|clean|row|bike|cycling|yoga|stretch|stretching|active|movement"
+  
+  if grep -qiE "$workout_keywords" "$log_file" 2>/dev/null; then
+    return 0  # Found workout mentions
+  fi
+  
+  return 1  # No workout mentions
+}
+
+# Check for pill/medication mentions in daily log
+check_pill_activity() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  if [[ ! -f "$log_file" ]]; then
+    return 1
+  fi
+  
+  # Look for pill/medication keywords (case insensitive)
+  local pill_keywords="pill|pills|medication|medicine|meds|took.*pill|took.*med|took.*medicine|took.*medication|vitamin|vitamins|supplement|supplements|prescription|rx|dose|dosing"
+  
+  if grep -qiE "$pill_keywords" "$log_file" 2>/dev/null; then
+    return 0  # Found pill mentions
+  fi
+  
+  return 1  # No pill mentions
+}
+
+# Get time since last pill
+get_time_since_pill() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local last_pill_time_str=""
+  
+  # Check daily log for pill keywords
+  if [[ -f "$log_file" ]]; then
+    last_pill_time_str=$(grep -iE "pill|pills|medication|medicine|meds|took.*pill|took.*med|vitamin|supplement" "$log_file" | tail -1 | grep -oE "^[0-9]{2}:[0-9]{2}")
+  fi
+  
+  # If no log entry today, check previous days
+  if [[ -z "$last_pill_time_str" ]]; then
+    local yesterday=$(get_date_by_offset -1)
+    local yesterday_log_file="${DAILY_LOG_DIR}/${yesterday}.txt"
+    if [[ -f "$yesterday_log_file" ]]; then
+      last_pill_time_str=$(grep -iE "pill|pills|medication|medicine|meds|took.*pill|took.*med|vitamin|supplement" "$yesterday_log_file" | tail -1 | grep -oE "^[0-9]{2}:[0-9]{2}")
+      if [[ -n "$last_pill_time_str" ]]; then
+        echo "yesterday_activity"
+        return
+      fi
+    fi
+  fi
+  
+  if [[ -z "$last_pill_time_str" ]]; then
+    echo "no_recent_activity"
+    return
+  fi
+  
+  local last_entry_hour=$(echo "$last_pill_time_str" | cut -d':' -f1)
+  local last_entry_min=$(echo "$last_pill_time_str" | cut -d':' -f2)
+  local last_entry_minutes=$((10#$last_entry_hour * 60 + 10#$last_entry_min))
+  
+  local current_time=$(get_current_time)
+  local current_hour=$(echo "$current_time" | cut -d':' -f1)
+  local current_min=$(echo "$current_time" | cut -d':' -f2)
+  local current_minutes=$((10#$current_hour * 60 + 10#$current_min))
+  
+  local time_diff=$((current_minutes - last_entry_minutes))
+  
+  if [[ "$time_diff" -lt 1440 ]]; then  # Within 24 hours
+    echo "recent_activity"
+  elif [[ "$time_diff" -lt 2880 ]]; then  # Within 48 hours
+    echo "some_time_ago"
+  else
+    echo "long_time_ago"
+  fi
+}
+
+# Get time since last workout
+get_time_since_workout() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local last_workout_time_str=""
+  
+  # Check daily log for workout keywords
+  if [[ -f "$log_file" ]]; then
+    last_workout_time_str=$(grep -iE "workout|exercise|kettlebell|walk|run|weight|lifting|gym|fitness|training" "$log_file" | tail -1 | grep -oE "^[0-9]{2}:[0-9]{2}")
+  fi
+  
+  # If no log entry today, check previous days
+  if [[ -z "$last_workout_time_str" ]]; then
+    local yesterday=$(get_date_by_offset -1)
+    local yesterday_log_file="${DAILY_LOG_DIR}/${yesterday}.txt"
+    if [[ -f "$yesterday_log_file" ]]; then
+      last_workout_time_str=$(grep -iE "workout|exercise|kettlebell|walk|run|weight|lifting|gym|fitness|training" "$yesterday_log_file" | tail -1 | grep -oE "^[0-9]{2}:[0-9]{2}")
+      if [[ -n "$last_workout_time_str" ]]; then
+        echo "yesterday_activity"
+        return
+      fi
+    fi
+  fi
+  
+  if [[ -z "$last_workout_time_str" ]]; then
+    echo "no_recent_activity"
+    return
+  fi
+  
+  local last_entry_hour=$(echo "$last_workout_time_str" | cut -d':' -f1)
+  local last_entry_min=$(echo "$last_workout_time_str" | cut -d':' -f2)
+  local last_entry_minutes=$((10#$last_entry_hour * 60 + 10#$last_entry_min))
+  
+  local current_time=$(get_current_time)
+  local current_hour=$(echo "$current_time" | cut -d':' -f1)
+  local current_min=$(echo "$current_time" | cut -d':' -f2)
+  local current_minutes=$((10#$current_hour * 60 + 10#$current_min))
+  
+  local time_diff=$((current_minutes - last_entry_minutes))
+  
+  if [[ "$time_diff" -lt 1440 ]]; then  # Within 24 hours
+    echo "recent_activity"
+  elif [[ "$time_diff" -lt 2880 ]]; then  # Within 48 hours
+    echo "some_time_ago"
+  else
+    echo "long_time_ago"
+  fi
+}
+
+# Helper functions
+get_date_by_offset() {
+  local offset="$1"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    $DATE_CMD -v${offset}d +"%Y-%m-%d" 2>/dev/null || $DATE_CMD +"%Y-%m-%d"
+  else
+    $DATE_CMD -d "${offset} days" +"%Y-%m-%d" 2>/dev/null || $DATE_CMD +"%Y-%m-%d"
+  fi
+}
+
+get_current_time() {
+  $DATE_CMD +"%H:%M"
+}
+
+# Get health reminder from Mistress Louiza
+get_health_reminder() {
+  local has_junk_food="$1"  # "yes" or "no"
+  local has_workout="$2"  # "yes" or "no"
+  local workout_status="$3"  # "recent_activity", "some_time_ago", "long_time_ago", "no_recent_activity", "yesterday_activity"
+  local has_pills="$4"  # "yes" or "no"
+  local pill_status="$5"  # "recent_activity", "some_time_ago", "long_time_ago", "no_recent_activity", "yesterday_activity"
+  local time_of_day="${6:-}"  # morning, lunch, afternoon, evening
+  
+  # Find persona helper
+  local persona_helper=""
+  local possible_paths=(
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  )
+  
+  for path in "${possible_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      persona_helper="$path"
+      break
+    fi
+  done
+  
+  if [[ -z "$persona_helper" || ! -f "$persona_helper" ]]; then
+    return 1
+  fi
+  
+  # Find python
+  local python_cmd=""
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    python_cmd="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    python_cmd="python3"
+  else
+    return 1
+  fi
+  
+  # Create prompt for Louiza
+  local prompt=""
+  
+  # Build comprehensive health prompt including workouts
+  local workout_context=""
+  if [[ "$has_workout" == "yes" ]]; then
+    case "$workout_status" in
+      recent_activity)
+        workout_context="Abby has worked out recently (within 24 hours). Praise her for this! Tell her she's doing well and to keep it up. Use phrases like 'good girl' and 'I'm proud of you'."
+        ;;
+      some_time_ago)
+        workout_context="Abby worked out recently but it's been a day or two. Encourage her to get another workout in soon. Remind her that consistency is key."
+        ;;
+      yesterday_activity)
+        workout_context="Abby worked out yesterday. Encourage her to get another workout in today. Remind her that daily movement is important."
+        ;;
+      long_time_ago|no_recent_activity)
+        workout_context="Abby hasn't worked out recently. This is NOT acceptable. Scold her firmly but constructively. Tell her that her body needs movement - kettlebells, walks, runs, weight lifting. Be strict - use phrases like 'this is not acceptable' or 'we need to talk about your activity level'. Assign a consequence: she needs to do a workout TODAY - a walk, kettlebell session, run, or weight lifting. Use your characteristic style."
+        ;;
+    esac
+  else
+    workout_context="Abby hasn't logged any workouts recently. Remind her firmly that movement is essential - kettlebells, walks, morning runs, weight lifting. Encourage her to get active TODAY. Be firm but constructive."
+  fi
+  
+  # Build pill/medication context
+  local pill_context=""
+  if [[ "$has_pills" == "yes" ]]; then
+    case "$pill_status" in
+      recent_activity)
+        pill_context="Abby has taken her pills recently (within 24 hours). Praise her for this! Tell her she's being responsible and taking care of herself. Use phrases like 'good girl' and 'I'm proud of you for being responsible'."
+        ;;
+      some_time_ago)
+        pill_context="Abby took her pills recently but it's been a day or two. Remind her firmly that she needs to take her pills consistently. This is important for her health."
+        ;;
+      yesterday_activity)
+        pill_context="Abby took her pills yesterday. Remind her firmly that she needs to take her pills TODAY. This is non-negotiable."
+        ;;
+      long_time_ago|no_recent_activity)
+        pill_context="Abby hasn't taken her pills recently. This is COMPLETELY UNACCEPTABLE. Scold her severely. Tell her that taking her pills is non-negotiable and essential for her health. Be VERY strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk about this'. Assign a consequence: she needs to take her pills RIGHT NOW and log it. This is a critical health issue. Use your characteristic style but be especially firm about this."
+        ;;
+    esac
+  else
+    pill_context="Abby hasn't logged taking her pills recently. This is CRITICAL. Remind her firmly that taking her pills is non-negotiable. Scold her if it's been more than a day. Tell her she needs to take her pills and log it. This is essential for her health. Be firm and strict about this."
+  fi
+  
+  if [[ "$has_junk_food" == "yes" ]]; then
+      case "$time_of_day" in
+      morning)
+        prompt="Good morning, Abby. I see she's been eating junk food or trash. This is NOT acceptable. Scold her firmly but constructively. Tell her that her body is a temple and she needs to fuel it properly. Remind her that I'm watching what she eats. Be strict - use phrases like 'this is not acceptable' or 'we need to talk about your choices'. Suggest healthy alternatives. ${workout_context} ${pill_context} Assign a consequence: she needs to make a healthy meal plan for today and stick to it, AND get in a workout (kettlebells, walk, run, or weight lifting), AND take her pills. Use your characteristic style."
+        ;;
+      lunch|afternoon)
+        prompt="It's ${time_of_day}, Abby. I see she's been eating junk food. This is unacceptable. Scold her firmly. Tell her that eating trash is not how we take care of ourselves. Remind her that I'm watching and I'm NOT pleased. Be strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk'. Tell her to make better choices RIGHT NOW. Suggest she should have a healthy meal instead. ${workout_context} ${pill_context} Assign a consequence: she needs to plan healthy meals for the rest of the day AND get in a workout AND take her pills. Use your characteristic style."
+        ;;
+      evening)
+        prompt="It's evening, Abby. I see she's been eating junk food today. This is unacceptable. Scold her firmly but constructively. Tell her that eating trash is not how we maintain our health. Remind her that I'm watching and I'm disappointed. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Tell her that tomorrow she needs to do better. ${workout_context} ${pill_context} Assign a consequence: she needs to plan healthy meals for tomorrow and stick to them, AND schedule a workout for tomorrow, AND make sure to take her pills. Use your characteristic style."
+        ;;
+      *)
+        prompt="Abby has been eating junk food or trash. This is unacceptable. Scold her firmly but constructively. Tell her that her body deserves better than trash. Remind her that I'm watching what she eats. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Suggest healthy alternatives. ${workout_context} ${pill_context} Assign a consequence: she needs to make a healthy meal plan AND get in a workout AND take her pills. Use your characteristic style."
+        ;;
+    esac
+  else
+    case "$time_of_day" in
+      morning)
+        prompt="Good morning, Abby. Give her a firm but encouraging reminder about eating healthy today. Remind her that I'm watching and I'll be proud when she makes good food choices. ${workout_context} Also remind her about the importance of movement - kettlebells, morning runs, walks, weight lifting. ${pill_context} Use your characteristic style with phrases like 'good girl' when she does well. Be encouraging but firm about the importance of fueling her body properly AND moving it AND taking her pills. Give specific workout advice if she hasn't worked out recently - suggest kettlebells for strength, walks for recovery, morning runs for cardio, or weight lifting for building muscle."
+        ;;
+      lunch|afternoon)
+        prompt="It's ${time_of_day}, Abby. Give her a firm reminder to make healthy food choices. Remind her that I'm watching and I want to see her making good decisions about what she puts in her body. ${workout_context} Also remind her about getting movement in - if she hasn't worked out today, encourage her to do so. Suggest kettlebells, a walk, a run, or weight lifting. ${pill_context} Use your characteristic style. Be encouraging but firm."
+        ;;
+      evening)
+        prompt="It's evening, Abby. Acknowledge if she's been eating well today, or remind her firmly about making better choices tomorrow. ${workout_context} If she hasn't worked out today, remind her that tomorrow she needs to get movement in - kettlebells, a walk, a run, or weight lifting. ${pill_context} Use your characteristic style. Be encouraging when she does well, firm when she needs to improve. Give specific workout advice based on her activity level."
+        ;;
+      *)
+        prompt="Give Abby a firm but encouraging reminder about eating healthy. Remind her that I'm watching what she eats and I want to see her making good choices. ${workout_context} Also remind her about the importance of movement - kettlebells, walks, runs, weight lifting. ${pill_context} Use your characteristic style. Give specific workout advice if she hasn't worked out recently."
+        ;;
+    esac
+  fi
+  
+  # Get message from Louiza
+  local full_output=$("$python_cmd" "$persona_helper" "louiza" "$prompt" "health_reminder" 2>&1)
+  
+  if [[ -z "$full_output" ]]; then
+    return 1
+  fi
+  
+  # Check for errors
+  if echo "$full_output" | grep -qE "Error|⚠️|timed out|Could not connect|KeyError"; then
+    return 1
+  fi
+  
+  # Extract message
+  local reminder=$(echo "$full_output" | awk '
+    /^━+$/ {
+      if (in_section) {
+        exit
+      }
+      in_section = 1
+      next
+    }
+    in_section && !/^💬/ && !/^━/ {
+      print
+    }
+  ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+  
+  # Clean up
+  reminder=$(echo "$reminder" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+  reminder=$(echo "$reminder" | sed 's/\*\*//g')
+  reminder=$(echo "$reminder" | awk 'NF || prev_nf; {prev_nf=NF}')
+  
+  if [[ -n "$reminder" && ${#reminder} -gt 10 ]]; then
+    echo "$reminder"
+    return 0
+  fi
+  
+  return 1
+}
+
+# Send message to Discord
+send_discord_message() {
+  local title="$1"
+  local message="$2"
+  local webhook_url="${GTD_DISCORD_WEBHOOK_URL:-}"
+  
+  if [[ -z "$webhook_url" ]]; then
+    return 1
+  fi
+  
+  # Use Python to properly escape JSON
+  local json_payload=$(python3 -c "
+import json
+import sys
+from datetime import datetime, timezone
+
+title = sys.argv[1] if len(sys.argv) > 1 else 'GTD Notification'
+message = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Discord embed description limit is 2000 characters
+if len(message) > 2000:
+    truncated = message[:1900]
+    last_newline = truncated.rfind('\n')
+    last_period = truncated.rfind('.')
+    cut_point = max(last_newline, last_period)
+    if cut_point > 1500:
+        message = message[:cut_point + 1] + '\n\n... (truncated)'
+    else:
+        message = message[:1900] + '\n\n... (truncated)'
+
+payload = {
+    'embeds': [{
+        'title': title,
+        'description': message,
+        'color': 15158332,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }]
+}
+
+print(json.dumps(payload))
+" "$title" "$message")
+  
+  # Send to Discord
+  local response=$(curl -s -w "\n%{http_code}" -X POST "$webhook_url" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" 2>&1)
+  
+  local http_code=$(echo "$response" | tail -1)
+  
+  if [[ "$http_code" == "204" ]]; then
+    return 0
+  else
+    echo "⚠️  Discord send failed (HTTP $http_code)" >&2
+    return 1
+  fi
+}
+
+# Send health reminder
+send_health_reminder() {
+  if [[ "$GTD_NOTIFICATIONS" != "true" ]]; then
+    return 0
+  fi
+  
+  if [[ "$GTD_HEALTH_REMINDER_ENABLED" != "true" ]]; then
+    return 0
+  fi
+  
+  # Determine time of day
+  local current_hour=$($DATE_CMD +"%H")
+  local time_of_day=""
+  
+  if [[ $current_hour -ge 5 && $current_hour -lt 12 ]]; then
+    time_of_day="morning"
+  elif [[ $current_hour -ge 12 && $current_hour -lt 15 ]]; then
+    time_of_day="lunch"
+  elif [[ $current_hour -ge 15 && $current_hour -lt 18 ]]; then
+    time_of_day="afternoon"
+  else
+    time_of_day="evening"
+  fi
+  
+  # Check for junk food mentions
+  local has_junk_food="no"
+  if check_junk_food_mentions; then
+    has_junk_food="yes"
+  fi
+  
+  # Check for workout activity
+  local has_workout="no"
+  local workout_status="no_recent_activity"
+  if check_workout_activity; then
+    has_workout="yes"
+    workout_status=$(get_time_since_workout)
+  else
+    workout_status=$(get_time_since_workout)
+  fi
+  
+  # Check for pill/medication activity
+  local has_pills="no"
+  local pill_status="no_recent_activity"
+  if check_pill_activity; then
+    has_pills="yes"
+    pill_status=$(get_time_since_pill)
+  else
+    pill_status=$(get_time_since_pill)
+  fi
+  
+  local notify_cmd="$(dirname "$0")/gtd-notify"
+  
+  # Get reminder from Mistress Louiza
+  local reminder_message=$(get_health_reminder "$has_junk_food" "$has_workout" "$workout_status" "$has_pills" "$pill_status" "$time_of_day")
+  
+  # Send to Discord if enabled
+  if [[ "${GTD_DISCORD_DAILY_REMINDERS:-true}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
+    if [[ -n "$reminder_message" ]]; then
+      local discord_message="$reminder_message"
+      if [[ "$has_junk_food" == "yes" ]]; then
+        discord_message=$(printf "%s\n\n💡 **Healthy Alternatives:**\n• Plan healthy meals\n• Choose whole foods\n• Drink water\n• Prepare meals ahead\n• Log healthy choices with 'addInfoToDailyLog'" "$reminder_message")
+      fi
+      
+      # Add workout suggestions if needed
+      if [[ "$workout_status" == "long_time_ago" || "$workout_status" == "no_recent_activity" ]]; then
+        discord_message=$(printf "%s\n\n💪 **Workout Options:**\n• Kettlebells (swings, snatches, Turkish get-ups)\n• Morning run (20-30 min)\n• Walk (30+ min)\n• Weight lifting (compound movements)\n• Log workouts: addInfoToDailyLog \"Did kettlebell workout\"" "$discord_message")
+      elif [[ "$has_workout" == "yes" && "$workout_status" == "recent_activity" ]]; then
+        discord_message=$(printf "%s\n\n✅ **Great job on working out!** Keep it up, baby girl!" "$discord_message")
+      fi
+      
+      # Add pill reminders if needed
+      if [[ "$pill_status" == "long_time_ago" || "$pill_status" == "no_recent_activity" ]]; then
+        discord_message=$(printf "%s\n\n💊 **CRITICAL: Take Your Pills!**\n• This is non-negotiable\n• Essential for your health\n• Log it: addInfoToDailyLog \"Took pills\"" "$discord_message")
+      elif [[ "$has_pills" == "yes" && "$pill_status" == "recent_activity" ]]; then
+        discord_message=$(printf "%s\n\n✅ **Good job taking your pills!** Being responsible, baby girl!" "$discord_message")
+      fi
+      if send_discord_message "Mistress Louiza - Health Reminder" "$discord_message"; then
+        echo "✓ Sent to Discord" >&2
+      fi
+    fi
+  fi
+  
+  # Also send macOS notification
+  if [[ -n "$reminder_message" ]]; then
+    local short_message=$(echo "$reminder_message" | cut -c1-150)
+    if [[ ${#short_message} -lt 20 ]]; then
+      short_message="Make healthy food choices, baby girl. I'm watching."
+    fi
+    "$notify_cmd" "Mistress Louiza" "$short_message" "Health Reminder" "Ping" 2>/dev/null || true
+  else
+    "$notify_cmd" "GTD Health" "Make healthy food choices" "No junk food!" "Ping" 2>/dev/null || true
+  fi
+  
+  # Print to terminal
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🍎 Health Reminder from Mistress Louiza"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  if [[ -n "$reminder_message" ]]; then
+    echo "💬 From Mistress Louiza:"
+    echo ""
+    echo "$reminder_message" | sed 's/^/   /'
+    echo ""
+  fi
+  
+  if [[ "$has_junk_food" == "yes" ]]; then
+    echo "💡 Healthy Alternatives:"
+    echo "   • Plan healthy meals"
+    echo "   • Choose whole foods"
+    echo "   • Drink water"
+    echo "   • Prepare meals ahead"
+    echo "   • Log healthy choices: addInfoToDailyLog \"Ate healthy meal\""
+    echo ""
+  fi
+  
+  if [[ "$workout_status" == "long_time_ago" || "$workout_status" == "no_recent_activity" ]]; then
+    echo "💪 Workout Options:"
+    echo "   • Kettlebells (swings, snatches, Turkish get-ups)"
+    echo "   • Morning run (20-30 min)"
+    echo "   • Walk (30+ min)"
+    echo "   • Weight lifting (compound movements)"
+    echo "   • Log workouts: addInfoToDailyLog \"Did kettlebell workout\""
+    echo ""
+  elif [[ "$has_workout" == "yes" && "$workout_status" == "recent_activity" ]]; then
+    echo "✅ Great job on working out! Keep it up, baby girl!"
+    echo ""
+  fi
+  
+  if [[ "$pill_status" == "long_time_ago" || "$pill_status" == "no_recent_activity" ]]; then
+    echo "💊 CRITICAL: Take Your Pills!"
+    echo "   • This is non-negotiable"
+    echo "   • Essential for your health"
+    echo "   • Log it: addInfoToDailyLog \"Took pills\""
+    echo ""
+  elif [[ "$has_pills" == "yes" && "$pill_status" == "recent_activity" ]]; then
+    echo "✅ Good job taking your pills! Being responsible, baby girl!"
+    echo ""
+  fi
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+}
+
+# Main function
+case "$1" in
+  --force)
+    send_health_reminder
+    ;;
+  "")
+    # Check if it's time for reminder (simplified - always send if called)
+    send_health_reminder
+    ;;
+  *)
+    echo "Usage: gtd-health-reminder [--force]"
+    exit 1
+    ;;
+esac
+

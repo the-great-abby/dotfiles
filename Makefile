@@ -1,5 +1,84 @@
 GLIBC_VER=2.31-r0
 
+# GTD System Commands
+.PHONY: gtd-wizard gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status
+
+# GTD Interactive Wizard
+gtd-wizard:
+	@$(HOME)/code/dotfiles/bin/gtd-wizard
+
+# Quick capture
+gtd-capture:
+	@echo "📥 Quick Capture"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@read -p "What do you want to capture? " item && \
+		gtd-capture "$$item" || echo "❌ Capture failed"
+
+# Process inbox
+gtd-process:
+	@gtd-process
+
+# Review
+gtd-review:
+	@echo "📋 GTD Review"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "1) Daily review"
+	@echo "2) Weekly review"
+	@echo "3) Monthly review"
+	@echo "4) Quarterly review"
+	@echo "5) Yearly review"
+	@echo ""
+	@read -p "Choose (1-5): " choice && \
+		if [ "$$choice" = "1" ]; then \
+			gtd-review daily; \
+		elif [ "$$choice" = "2" ]; then \
+			gtd-review weekly; \
+		elif [ "$$choice" = "3" ]; then \
+			gtd-review monthly; \
+		elif [ "$$choice" = "4" ]; then \
+			gtd-review quarterly; \
+		elif [ "$$choice" = "5" ]; then \
+			gtd-review yearly; \
+		else \
+			echo "Invalid choice"; \
+		fi
+
+# Sync with Second Brain
+gtd-sync:
+	@gtd-brain-sync
+
+# Get advice
+gtd-advise:
+	@echo "🤖 Get Advice"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@read -p "What do you need advice about? " question && \
+		gtd-advise --random "$$question" || echo "❌ Advice failed"
+
+# Learn GTD
+gtd-learn:
+	@gtd-learn
+
+# System status
+gtd-status:
+	@echo "📊 GTD System Status"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "Inbox items:"
+	@ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | xargs echo "  "
+	@echo ""
+	@echo "Active projects:"
+	@ls -1 ~/Documents/gtd/1-projects/*/README.md 2>/dev/null | wc -l | xargs echo "  "
+	@echo ""
+	@echo "Active tasks:"
+	@find ~/Documents/gtd/tasks -name "*.md" -type f 2>/dev/null | wc -l | xargs echo "  "
+	@echo ""
+	@echo "Today's log entries:"
+	@date +"%Y-%m-%d" | xargs -I {} cat ~/Documents/daily_logs/{}.txt 2>/dev/null | grep -c "^[0-9][0-9]:[0-9][0-9]" || echo "  0"
+	@echo ""
+
 .PHONY: setup wizard
 setup wizard:
 	@echo "╔════════════════════════════════════════════════════════════╗"

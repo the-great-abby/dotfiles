@@ -428,6 +428,207 @@ EOF
   echo "✓ Review added to area: $area_name"
 }
 
+# Review all areas systematically
+review_all_areas() {
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🎯 Comprehensive Area Review"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local areas=($(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null | sort))
+  local area_count=${#areas[@]}
+  
+  if [[ $area_count -eq 0 ]]; then
+    echo "No areas defined yet."
+    echo ""
+    echo "Would you like to create starter areas?"
+    read -p "  (y/n): " create_areas
+    if [[ "$create_areas" == "y" || "$create_areas" == "Y" ]]; then
+      if command -v gtd-area-starter &>/dev/null; then
+        gtd-area-starter
+      else
+        echo "Run: gtd-area create \"Area Name\""
+      fi
+    fi
+    return 0
+  fi
+  
+  echo "Reviewing ${area_count} area(s) of responsibility..."
+  echo ""
+  echo "For each area, consider:"
+  echo "  ✓ Is it still relevant?"
+  echo "  ✓ Does it need regular attention?"
+  echo "  ✓ Are standards being met?"
+  echo "  ✓ Should it be archived or merged?"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local areas_to_archive=()
+  local areas_to_merge=()
+  local areas_needing_attention=()
+  
+  for area_file in "${areas[@]}"; do
+    local area_name=$(basename "$area_file" .md | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+    local area_slug=$(basename "$area_file" .md)
+    local status=$(grep "^status:" "$area_file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
+    local last_review=$(grep "^## Review -" "$area_file" 2>/dev/null | tail -1 | sed 's/^## Review - //' || echo "Never")
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📂 ${area_name}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Status: ${status}"
+    echo "Last reviewed: ${last_review}"
+    echo ""
+    
+    # Show related projects and tasks
+    local project_count=0
+    local task_count=0
+    
+    if [[ -d "$PROJECTS_PATH" ]]; then
+      project_count=$(find "$PROJECTS_PATH" -type f -name "README.md" -exec grep -l "area: ${area_slug}" {} \; 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    
+    if [[ -d "$TASKS_PATH" ]]; then
+      task_count=$(find "$TASKS_PATH" -type f -name "*.md" -exec grep -l "area: ${area_slug}" {} \; 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    
+    echo "Related items:"
+    echo "  • Projects: ${project_count}"
+    echo "  • Tasks: ${task_count}"
+    echo ""
+    
+    # Review questions
+    echo "1. Is this area still relevant to your life? (y/n/archive)"
+    read -p "   " is_relevant
+    echo ""
+    
+    if [[ "$is_relevant" == "archive" || "$is_relevant" == "a" ]]; then
+      areas_to_archive+=("$area_slug")
+      echo "   → Marked for archiving"
+    elif [[ "$is_relevant" == "n" || "$is_relevant" == "no" ]]; then
+      echo "2. Should it be merged with another area? (y/n)"
+      read -p "   " should_merge
+      if [[ "$should_merge" == "y" || "$should_merge" == "Y" ]]; then
+        echo "   Which area should it merge with?"
+        gtd-area list | grep -v "^$" | grep -v "━━" | grep -v "Areas"
+        read -p "   Area name: " merge_target
+        areas_to_merge+=("$area_slug|$merge_target")
+        echo "   → Marked for merging with: $merge_target"
+      else
+        areas_to_archive+=("$area_slug")
+        echo "   → Marked for archiving"
+      fi
+    else
+      echo "2. How is this area doing? (good/needs-attention/excellent)"
+      read -p "   " area_status
+      echo ""
+      
+      if [[ "$area_status" == "needs-attention" ]]; then
+        areas_needing_attention+=("$area_slug")
+        echo "3. What needs attention?"
+        read -p "   " attention_needed
+        echo ""
+        
+        # Quick review
+        review_area "$area_slug"
+      else
+        echo "3. Any updates needed? (y/n)"
+        read -p "   " needs_update
+        if [[ "$needs_update" == "y" || "$needs_update" == "Y" ]]; then
+          review_area "$area_slug"
+        fi
+      fi
+    fi
+    
+    echo ""
+  done
+  
+  # Summary
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Review Summary"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  if [[ ${#areas_to_archive[@]} -gt 0 ]]; then
+    echo "Areas to archive:"
+    for area in "${areas_to_archive[@]}"; do
+      local area_name=$(echo "$area" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      echo "  • $area_name"
+    done
+    echo ""
+    read -p "Archive these areas now? (y/n) " archive_now
+    if [[ "$archive_now" == "y" || "$archive_now" == "Y" ]]; then
+      for area in "${areas_to_archive[@]}"; do
+        gtd-area archive "$area"
+      done
+    fi
+    echo ""
+  fi
+  
+  if [[ ${#areas_to_merge[@]} -gt 0 ]]; then
+    echo "Areas to merge:"
+    for merge_pair in "${areas_to_merge[@]}"; do
+      local source=$(echo "$merge_pair" | cut -d'|' -f1 | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      local target=$(echo "$merge_pair" | cut -d'|' -f2 | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      echo "  • $source → $target"
+    done
+    echo ""
+    echo "Note: Manual merge required. Review projects and tasks in these areas."
+    echo ""
+  fi
+  
+  if [[ ${#areas_needing_attention[@]} -gt 0 ]]; then
+    echo "Areas needing attention:"
+    for area in "${areas_needing_attention[@]}"; do
+      local area_name=$(echo "$area" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      echo "  • $area_name"
+    done
+    echo ""
+  fi
+  
+  # Ask about new areas
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🆕 New Areas"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Are there new areas of responsibility you need to add?"
+  read -p "  (y/n): " add_new
+  echo ""
+  
+  if [[ "$add_new" == "y" || "$add_new" == "Y" ]]; then
+    echo "Options:"
+    echo "  1) Use starter areas wizard (recommended)"
+    echo "  2) Create custom area"
+    echo ""
+    read -p "Choose (1/2): " choice
+    
+    case "$choice" in
+      1)
+        if command -v gtd-area-starter &>/dev/null; then
+          gtd-area-starter
+        else
+          echo "Run: gtd-area-starter"
+        fi
+        ;;
+      2)
+        echo ""
+        read -p "Area name: " new_area_name
+        if [[ -n "$new_area_name" ]]; then
+          gtd-area create "$new_area_name"
+        fi
+        ;;
+    esac
+  fi
+  
+  echo ""
+  echo "✓ Area review complete!"
+  echo ""
+}
+
 # Main
 main() {
   case "$1" in
@@ -452,7 +653,14 @@ main() {
       ;;
     review)
       shift
-      review_area "$1"
+      if [[ -z "$1" ]]; then
+        review_all_areas
+      else
+        review_area "$1"
+      fi
+      ;;
+    review-all)
+      review_all_areas
       ;;
     --help|-h|"")
       echo "Usage: gtd-area <command> [options]"
@@ -463,7 +671,8 @@ main() {
       echo "  view <name>                    View area details"
       echo "  add-task <area> <description>  Add task to area"
       echo "  add-project <area> <name>      Add project to area"
-      echo "  review <name>                  Review area"
+      echo "  review [name]                  Review area (or all areas if no name)"
+      echo "  review-all                     Review all areas systematically"
       echo ""
       echo "Examples:"
       echo "  gtd-area create \"Health\""

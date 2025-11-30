@@ -207,7 +207,8 @@ eval "$(mise activate zsh)"
 
 # Ensure system paths are available (mise can sometimes remove them)
 # macOS system binaries are in /usr/bin and /bin
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+# Prepend system paths to ensure they're found first
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}"
 
 # zsh-syntax-highlighting - must be sourced after oh-my-zsh
 if [ -f /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]; then
@@ -244,17 +245,33 @@ function htmlEscape () {
 }
 
 # PATH configurations
+# IMPORTANT: System paths (/usr/bin, /bin) must come first for basic commands
 # Homebrew (Apple Silicon)
-export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 # npm global packages
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="${HOME}/.local/bin:${PATH}"
 # User bin directory
-export PATH="$HOME/bin:$PATH"
+export PATH="${HOME}/bin:${PATH}"
 # Dotfiles bin directory (GTD commands and other utilities)
-export PATH="$HOME/code/dotfiles/bin:$PATH"
+export PATH="${HOME}/code/dotfiles/bin:${PATH}"
 # Also support personal dotfiles location
-if [[ -d "$HOME/code/personal/dotfiles/bin" ]]; then
-  export PATH="$HOME/code/personal/dotfiles/bin:$PATH"
+if [[ -d "${HOME}/code/personal/dotfiles/bin" ]]; then
+  export PATH="${HOME}/code/personal/dotfiles/bin:${PATH}"
+fi
+
+# Final safety check: ensure system binaries are always in PATH
+# This prevents issues if mise or other tools remove them
+if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+  export PATH="/usr/bin:${PATH}"
+fi
+if [[ ":$PATH:" != *":/bin:"* ]]; then
+  export PATH="/bin:${PATH}"
+fi
+if [[ ":$PATH:" != *":/usr/sbin:"* ]]; then
+  export PATH="/usr/sbin:${PATH}"
+fi
+if [[ ":$PATH:" != *":/sbin:"* ]]; then
+  export PATH="/sbin:${PATH}"
 fi
 
 # NVM (Node Version Manager)
@@ -478,8 +495,14 @@ addInfoToDailyLog() {
       
       # Create prompt with log content
       if [[ -n "$log_content" ]]; then
+        # Get current day of week and date for context
+        local day_of_week=$($date_cmd +"%A")
+        local full_date=$($date_cmd +"%B %d, %Y")
+        
         # Use printf to properly format with newlines
         local prompt_text=$(printf "Review my daily log and provide advice based on the specific entries you see.
+
+IMPORTANT: Today is %s, %s. Please be aware of the current day and date when providing advice.
 
 Here is my complete daily log so far:
 
@@ -487,10 +510,13 @@ Here is my complete daily log so far:
 
 I just added this new entry: %s
 
-Please review the log entries above and provide specific, actionable advice based on what you see. Reference specific items from the log in your response." "$log_content" "$log_entry")
+Please review the log entries above and provide specific, actionable advice based on what you see. Reference specific items from the log in your response. Remember: today is %s." "$day_of_week" "$full_date" "$log_content" "$log_entry" "$day_of_week")
       else
         # Log file doesn't exist or is empty
-        local prompt_text="I just added a new entry to my daily log: ${log_entry}. Please provide advice."
+        # Get current day of week and date for context
+        local day_of_week=$($date_cmd +"%A")
+        local full_date=$($date_cmd +"%B %d, %Y")
+        local prompt_text="IMPORTANT: Today is ${day_of_week}, ${full_date}. I just added a new entry to my daily log: ${log_entry}. Please provide advice. Remember: today is ${day_of_week}."
       fi
       
       # Pass the prompt text to the persona helper

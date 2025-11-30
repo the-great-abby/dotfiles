@@ -1,0 +1,2061 @@
+#!/bin/bash
+# GTD Interactive Wizard - Guides you through GTD processes
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Clear screen
+clear
+
+# Main menu
+show_main_menu() {
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🧠 GTD Interactive Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${BOLD}What would you like to do?${NC}"
+  echo ""
+  echo -e "${GREEN}1)${NC} 📥 Capture something to inbox"
+  echo -e "${GREEN}2)${NC} 📋 Process inbox items"
+  echo -e "${GREEN}3)${NC} ✅ Manage tasks"
+  echo -e "${GREEN}4)${NC} 📁 Manage projects"
+  echo -e "${GREEN}5)${NC} 🎯 Manage areas of responsibility"
+  echo -e "${GREEN}6)${NC} 📊 Review (daily/weekly)"
+  echo -e "${GREEN}7)${NC} 🧠 Sync with Second Brain"
+  echo -e "${GREEN}8)${NC} 🗺️  Manage MOCs (Maps of Content)"
+  echo -e "${GREEN}9)${NC} ✍️  Express Phase (create content from notes)"
+  echo -e "${GREEN}10)${NC} 📋 Use Templates"
+  echo -e "${GREEN}11)${NC} 🤖 Get advice from personas"
+  echo -e "${GREEN}12)${NC} 📚 Learn GTD concepts"
+  echo -e "${GREEN}13)${NC} 🧠 Learn Second Brain (where to start)"
+  echo -e "${GREEN}14)${NC} 🎯 Discover Life Vision (if you don't have a plan)"
+  echo -e "${GREEN}15)${NC} 📝 Log to daily log"
+  echo -e "${GREEN}16)${NC} 🔍 Search GTD system"
+  echo -e "${GREEN}17)${NC} 📊 System status"
+  echo -e "${GREEN}18)${NC} 🔁 Manage habits & recurring tasks"
+  echo -e "${GREEN}19)${NC} 🌅 Morning/Evening Check-In"
+  echo -e "${GREEN}20)${NC} ☸️  Learn Kubernetes/CKA"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Exit"
+  echo ""
+  echo -n "Choose: "
+}
+
+# Capture wizard
+capture_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📥 Capture Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What type of item are you capturing?"
+  echo ""
+  echo "  1) Task (actionable item)"
+  echo "  2) Idea (someday/maybe)"
+  echo "  3) Reference (information to keep)"
+  echo "  4) Link (URL to save)"
+  echo "  5) Call (phone call notes)"
+  echo "  6) Email (email action)"
+  echo "  7) General note"
+  echo ""
+  echo -n "Choose: "
+  read capture_type
+  
+  echo ""
+  echo -n "What do you want to capture? "
+  read capture_content
+  
+  if [[ -z "$capture_content" ]]; then
+    echo "❌ No content provided"
+    return 1
+  fi
+  
+  case "$capture_type" in
+    1)
+      gtd-capture --type=task "$capture_content"
+      ;;
+    2)
+      gtd-capture --type=idea "$capture_content"
+      ;;
+    3)
+      gtd-capture --type=reference "$capture_content"
+      ;;
+    4)
+      gtd-capture --type=link "$capture_content"
+      ;;
+    5)
+      gtd-capture --type=call "$capture_content"
+      ;;
+    6)
+      gtd-capture --type=email "$capture_content"
+      ;;
+    7)
+      gtd-capture "$capture_content"
+      ;;
+    *)
+      gtd-capture "$capture_content"
+      ;;
+  esac
+  
+  echo ""
+  echo "✓ Captured! Press Enter to continue..."
+  read
+}
+
+# Process wizard
+process_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📋 Process Inbox Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Check inbox count
+  local inbox_count=$(ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | tr -d ' ')
+  
+  if [[ "$inbox_count" -eq 0 ]]; then
+    echo "✅ Your inbox is empty!"
+    echo ""
+    echo "Press Enter to continue..."
+    read
+    return 0
+  fi
+  
+  echo "You have ${inbox_count} item(s) in your inbox."
+  echo ""
+  echo "Starting inbox processing..."
+  echo ""
+  
+  gtd-process
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Task wizard
+task_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}✅ Task Management Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) Add a new task"
+  echo "  2) List tasks"
+  echo "  3) Complete a task"
+  echo "  4) Update a task"
+  echo ""
+  echo -n "Choose: "
+  read task_choice
+  
+  case "$task_choice" in
+    1)
+      echo ""
+      echo -n "Task description: "
+      read task_desc
+      
+      if [[ -z "$task_desc" ]]; then
+        echo "❌ No task description provided"
+        return 1
+      fi
+      
+      echo ""
+      echo "Optional: Link to a project?"
+      echo -n "Project name (or press Enter to skip): "
+      read project_name
+      
+      if [[ -n "$project_name" ]]; then
+        gtd-task add "$task_desc" --project="$project_name"
+      else
+        gtd-task add "$task_desc"
+      fi
+      ;;
+    2)
+      echo ""
+      gtd-task list
+      ;;
+    3)
+      echo ""
+      gtd-task list
+      echo ""
+      echo -n "Task number to complete: "
+      read task_num
+      gtd-task complete "$task_num"
+      ;;
+    4)
+      echo ""
+      gtd-task list
+      echo ""
+      echo -n "Task number to update: "
+      read task_num
+      echo -n "New description: "
+      read new_desc
+      gtd-task update "$task_num" "$new_desc"
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Area wizard
+area_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🎯 Areas of Responsibility Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) Create a new area"
+  echo "  2) Use starter areas wizard (recommended)"
+  echo "  3) List areas"
+  echo "  4) View an area"
+  echo "  5) Update an area"
+  echo "  6) Archive an area"
+  echo "  7) Review all areas"
+  echo ""
+  echo -n "Choose: "
+  read area_choice
+  
+  case "$area_choice" in
+    1)
+      echo ""
+      echo -n "Area name: "
+      read area_name
+      
+      if [[ -z "$area_name" ]]; then
+        echo "❌ No area name provided"
+        return 1
+      fi
+      
+      echo ""
+      echo -n "Area description (optional): "
+      read area_desc
+      
+      if [[ -n "$area_desc" ]]; then
+        gtd-area create "$area_name" "$area_desc"
+      else
+        gtd-area create "$area_name"
+      fi
+      ;;
+    2)
+      gtd-area-starter
+      ;;
+    3)
+      echo ""
+      gtd-area list
+      ;;
+    4)
+      echo ""
+      gtd-area list
+      echo ""
+      echo -n "Area name to view: "
+      read area_name
+      gtd-area view "$area_name"
+      ;;
+    5)
+      echo ""
+      gtd-area list
+      echo ""
+      echo -n "Area name: "
+      read area_name
+      echo -n "New description: "
+      read new_desc
+      gtd-area update "$area_name" "$new_desc"
+      ;;
+    6)
+      echo ""
+      gtd-area list
+      echo ""
+      echo -n "Area name to archive: "
+      read area_name
+      gtd-area archive "$area_name"
+      ;;
+    7)
+      echo ""
+      echo "Reviewing all areas..."
+      gtd-area review-all
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Project wizard
+project_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📁 Project Management Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) Create a new project"
+  echo "  2) List projects"
+  echo "  3) View a project"
+  echo "  4) Add task to project"
+  echo "  5) Update project status"
+  echo "  6) Archive a project"
+  echo ""
+  echo -n "Choose: "
+  read project_choice
+  
+  case "$project_choice" in
+    1)
+      echo ""
+      echo -n "Project name: "
+      read project_name
+      
+      if [[ -z "$project_name" ]]; then
+        echo "❌ No project name provided"
+        return 1
+      fi
+      
+      gtd-project create "$project_name"
+      ;;
+    2)
+      echo ""
+      gtd-project list
+      ;;
+    3)
+      echo ""
+      gtd-project list
+      echo ""
+      echo -n "Project name to view: "
+      read project_name
+      gtd-project view "$project_name"
+      ;;
+    4)
+      echo ""
+      gtd-project list
+      echo ""
+      echo -n "Project name: "
+      read project_name
+      echo -n "Task description: "
+      read task_desc
+      gtd-project add-task "$project_name" "$task_desc"
+      ;;
+    5)
+      echo ""
+      gtd-project list
+      echo ""
+      echo -n "Project name: "
+      read project_name
+      echo -n "New status: "
+      read new_status
+      gtd-project status "$project_name" "$new_status"
+      ;;
+    6)
+      echo ""
+      gtd-project list
+      echo ""
+      echo -n "Project name to archive: "
+      read project_name
+      gtd-project archive "$project_name"
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Review wizard
+review_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📊 Review Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What type of review?"
+  echo ""
+  echo "  1) Daily review"
+  echo "  2) Weekly review"
+  echo "  3) 📅 Monthly review"
+  echo "  4) 🔄 Quarterly review"
+  echo "  5) 📆 Yearly review"
+  echo "  6) 💰 Financial review (weekly/monthly/quarterly/annual)"
+  echo ""
+  echo -n "Choose: "
+  read review_type
+  
+  case "$review_type" in
+    1)
+      gtd-review daily
+      ;;
+    2)
+      gtd-review weekly
+      ;;
+    3)
+      gtd-review monthly
+      ;;
+    4)
+      gtd-review quarterly
+      ;;
+    5)
+      gtd-review yearly
+      ;;
+    6)
+      financial_review_wizard
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Sync wizard
+sync_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🧠 Second Brain Sync Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to sync?"
+  echo ""
+  echo "  1) Full sync (projects, areas, references)"
+  echo "  2) Projects only"
+  echo "  3) Areas only"
+  echo "  4) References only"
+  echo ""
+  echo -n "Choose: "
+  read sync_choice
+  
+  case "$sync_choice" in
+    1)
+      gtd-brain-sync
+      ;;
+    2)
+      gtd-brain-sync projects
+      ;;
+    3)
+      gtd-brain-sync areas
+      ;;
+    4)
+      gtd-brain-sync references
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Advice wizard
+advice_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🤖 Get Advice Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "How would you like to get advice?"
+  echo ""
+  echo "  1) Random persona"
+  echo "  2) Specific persona"
+  echo "  3) All personas"
+  echo "  4) Review daily log"
+  echo ""
+  echo -n "Choose: "
+  read advice_choice
+  
+  case "$advice_choice" in
+    1)
+      echo ""
+      echo -n "What do you need advice about? "
+      read question
+      gtd-advise --random "$question"
+      ;;
+    2)
+      echo ""
+      echo "Available personas:"
+      gtd-advise --list
+      echo ""
+      echo -n "Persona name: "
+      read persona
+      echo -n "Your question: "
+      read question
+      gtd-advise "$persona" "$question"
+      ;;
+    3)
+      echo ""
+      echo -n "What do you need advice about? "
+      read question
+      gtd-advise --all "$question"
+      ;;
+    4)
+      echo ""
+      echo "Reviewing your daily log..."
+      gtd-advise --daily-log
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Daily log wizard
+log_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📝 Daily Log Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -n "What would you like to log? "
+  read log_entry
+  
+  if [[ -z "$log_entry" ]]; then
+    echo "❌ No entry provided"
+    return 1
+  fi
+  
+  addInfoToDailyLog "$log_entry"
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Search wizard
+search_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔍 Search Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to search?"
+  echo ""
+  echo "  1) Search GTD system"
+  echo "  2) Search Second Brain"
+  echo ""
+  echo -n "Choose: "
+  read search_choice
+  
+  case "$search_choice" in
+    1)
+      echo ""
+      echo -n "Search term: "
+      read search_term
+      gtd-search "$search_term"
+      ;;
+    2)
+      echo ""
+      echo -n "Search term: "
+      read search_term
+      gtd-brain search "$search_term"
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Status wizard
+status_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📊 System Status${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Inbox count
+  local inbox_count=$(ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | tr -d ' ')
+  echo -e "${BOLD}Inbox:${NC} ${inbox_count} item(s)"
+  
+  # Projects count
+  local projects_count=$(ls -1 ~/Documents/gtd/1-projects/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+  echo -e "${BOLD}Active Projects:${NC} ${projects_count}"
+  
+  # Tasks count
+  local tasks_count=$(find ~/Documents/gtd/tasks -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  echo -e "${BOLD}Active Tasks:${NC} ${tasks_count}"
+  
+  # Today's log entries
+  local today=$(date +"%Y-%m-%d")
+  local log_file="$HOME/Documents/daily_logs/${today}.txt"
+  local log_count=0
+  if [[ -f "$log_file" ]]; then
+    log_count=$(grep -c "^[0-9][0-9]:[0-9][0-9]" "$log_file" 2>/dev/null || echo "0")
+  fi
+  echo -e "${BOLD}Today's Log Entries:${NC} ${log_count}"
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# MOC wizard
+moc_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🗺️  Maps of Content (MOC) Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) Create a new MOC"
+  echo "  2) List all MOCs"
+  echo "  3) View a MOC"
+  echo "  4) Add note to MOC"
+  echo "  5) Auto-populate MOC from tags"
+  echo ""
+  echo -n "Choose: "
+  read moc_choice
+  
+  case "$moc_choice" in
+    1)
+      echo ""
+      echo -n "MOC topic: "
+      read topic
+      echo -n "Description (optional): "
+      read desc
+      gtd-brain-moc create "$topic" "$desc"
+      ;;
+    2)
+      gtd-brain-moc list
+      ;;
+    3)
+      echo ""
+      gtd-brain-moc list
+      echo ""
+      echo -n "MOC topic to view: "
+      read topic
+      gtd-brain-moc view "$topic"
+      ;;
+    4)
+      echo ""
+      gtd-brain-moc list
+      echo ""
+      echo -n "MOC topic: "
+      read topic
+      echo -n "Note path: "
+      read note_path
+      echo -n "Category (Projects/Areas/Resources/Archives): "
+      read category
+      gtd-brain-moc add "$topic" "$note_path" "${category:-Resources}"
+      ;;
+    5)
+      echo ""
+      gtd-brain-moc list
+      echo ""
+      echo -n "MOC topic: "
+      read topic
+      echo -n "Tag to search for (optional, uses topic if empty): "
+      read tag
+      gtd-brain-moc auto "$topic" "$tag"
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Express wizard
+express_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}✍️  Express Phase Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) Create content from notes"
+  echo "  2) List drafts"
+  echo "  3) Publish a draft"
+  echo "  4) List published content"
+  echo "  5) Create an idea"
+  echo ""
+  echo -n "Choose: "
+  read express_choice
+  
+  case "$express_choice" in
+    1)
+      echo ""
+      echo -n "Content title: "
+      read title
+      echo -n "Source notes (comma-separated paths): "
+      read notes
+      echo -n "Content type (article/blog/presentation/report): "
+      read type
+      gtd-brain-express create "$title" "$notes" "${type:-article}"
+      ;;
+    2)
+      gtd-brain-express drafts
+      ;;
+    3)
+      echo ""
+      gtd-brain-express drafts
+      echo ""
+      echo -n "Draft path to publish: "
+      read draft
+      gtd-brain-express publish "$draft"
+      ;;
+    4)
+      gtd-brain-express published
+      ;;
+    5)
+      echo ""
+      echo -n "Idea description: "
+      read idea
+      gtd-brain-express idea "$idea"
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Template wizard
+template_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📋 Template Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) List available templates"
+  echo "  2) Create note from template"
+  echo ""
+  echo -n "Choose: "
+  read template_choice
+  
+  case "$template_choice" in
+    1)
+      gtd-brain-template list
+      ;;
+    2)
+      echo ""
+      gtd-brain-template list
+      echo ""
+      echo -n "Template name: "
+      read template
+      echo -n "Output note name: "
+      read name
+      echo -n "Category (Projects/Areas/Resources): "
+      read category
+      gtd-brain-template create "$template" "$name" "${category:-Resources}"
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Second Brain learning wizard
+learn_second_brain_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🧠 Second Brain Learning - Where to Start${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Welcome to your Second Brain! Let's get you started."
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) 📚 Learn Second Brain basics (with Mistress Louiza)"
+  echo "  2) 🎯 Quick start guide (step-by-step)"
+  echo "  3) 📖 Learn specific topic (interactive menu)"
+  echo "  4) 🔄 Sync your GTD with Second Brain"
+  echo "  9) 📱 Sync daily logs (for switching computers)"
+  echo "  5) 📋 Try a template"
+  echo "  6) 🗺️  Create your first MOC"
+  echo "  7) ✍️  Try Express phase"
+  echo "  8) 📊 Check your Second Brain status"
+  echo ""
+  echo -n "Choose: "
+  read choice
+  
+  case "$choice" in
+    1)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}👑 Learning from Mistress Louiza${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      gtd-learn second-brain
+      ;;
+    2)
+      quick_start_second_brain
+      ;;
+    3)
+      clear
+      show_second_brain_topics
+      ;;
+    4)
+      clear
+      echo ""
+      echo "🔄 Syncing GTD with Second Brain..."
+      echo ""
+      gtd-brain-sync
+      echo ""
+      echo "✓ Sync complete!"
+      echo ""
+      echo "Your GTD projects, areas, and references are now linked to Second Brain."
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    5)
+      clear
+      echo ""
+      echo "📋 Let's try a template!"
+      echo ""
+      gtd-brain-template list
+      echo ""
+      echo "Which template would you like to try?"
+      echo "  1) Meeting Notes"
+      echo "  2) Book Notes"
+      echo "  3) Article Notes"
+      echo "  4) Project Notes"
+      echo ""
+      echo -n "Choose: "
+      read template_choice
+      
+      case "$template_choice" in
+        1) template_name="Meeting Notes" ;;
+        2) template_name="Book Notes" ;;
+        3) template_name="Article Notes" ;;
+        4) template_name="Project Notes" ;;
+        *) template_name="Meeting Notes" ;;
+      esac
+      
+      echo ""
+      echo -n "What should we call this note? "
+      read note_name
+      
+      gtd-brain-template create "$template_name" "$note_name" Resources
+      echo ""
+      echo "✓ Created! Open it in Obsidian to fill it in."
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    6)
+      clear
+      echo ""
+      echo "🗺️  Let's create your first MOC!"
+      echo ""
+      echo "MOCs (Maps of Content) are index notes that organize related notes."
+      echo ""
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) Create a custom MOC"
+      echo "  2) Use starter MOC wizard (recommended)"
+      echo ""
+      echo -n "Choose: "
+      read moc_choice
+      
+      case "$moc_choice" in
+        1)
+          echo ""
+          echo -n "What topic would you like to create a MOC for? "
+          read topic
+          
+          if [[ -n "$topic" ]]; then
+            echo ""
+            gtd-brain-moc create "$topic"
+            echo ""
+            echo "💡 Next steps:"
+            echo "  • Add notes to this MOC: gtd-brain-moc add \"$topic\" <note-path>"
+            echo "  • Auto-populate from tags: gtd-brain-moc auto \"$topic\" <tag>"
+            echo "  • View the MOC: gtd-brain-moc view \"$topic\""
+            echo ""
+          fi
+          ;;
+        2)
+          gtd-brain-moc-starter
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      
+      echo "Press Enter to continue..."
+      read
+      ;;
+    7)
+      clear
+      echo ""
+      echo "✍️  Express Phase - Create content from your notes!"
+      echo ""
+      echo "The Express phase is about creating and sharing from your Second Brain."
+      echo ""
+      echo "First, let's see what notes you have:"
+      echo ""
+      gtd-brain list Resources 2>/dev/null | head -20
+      echo ""
+      echo "To create content from notes:"
+      echo "  gtd-brain-express create \"Title\" \"note1.md,note2.md\" article"
+      echo ""
+      echo "Or use the Express wizard from the main menu (option 9)."
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    8)
+      clear
+      echo ""
+      echo "📊 Your Second Brain Status"
+      echo ""
+      gtd-brain-metrics dashboard 2>/dev/null || echo "Run: gtd-brain-metrics dashboard"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    9)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📱 Daily Log Sync${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Sync your daily logs for switching computers."
+      echo ""
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) 🔄 Two-way sync (recommended)"
+      echo "  2) 📤 Push to Second Brain (before switching computers)"
+      echo "  3) 📥 Pull from Second Brain (after switching computers)"
+      echo "  4) 📊 Check sync status"
+      echo ""
+      echo -n "Choose: "
+      read sync_choice
+      
+      case "$sync_choice" in
+        1)
+          gtd-daily-log-sync sync
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        2)
+          gtd-daily-log-sync push
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        3)
+          gtd-daily-log-sync pull
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        4)
+          gtd-daily-log-sync status
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+}
+
+# Quick start guide
+quick_start_second_brain() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🚀 Second Brain Quick Start Guide${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Let's get you started with Second Brain in 5 steps!"
+  echo ""
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Step 1: Sync Your GTD"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Your GTD system can automatically sync with Second Brain."
+  echo ""
+  read -p "Sync now? (y/n) " sync_now
+  if [[ "$sync_now" == "y" || "$sync_now" == "Y" ]]; then
+    echo ""
+    gtd-brain-sync
+    echo ""
+  fi
+  echo ""
+  echo "Press Enter to continue..."
+  read
+  
+  clear
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Step 2: Create Your First Note"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Let's create a note in your Second Brain."
+  echo ""
+  echo -n "What would you like to create a note about? "
+  read note_topic
+  
+  if [[ -n "$note_topic" ]]; then
+    echo ""
+    gtd-brain create "$note_topic" Resources
+    echo ""
+    echo "✓ Created! This note is in: ~/Documents/obsidian/Second Brain/Resources/"
+    echo ""
+  fi
+  echo ""
+  echo "Press Enter to continue..."
+  read
+  
+  clear
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Step 3: Try a Template"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Templates help you create structured notes quickly."
+  echo ""
+  gtd-brain-template list 2>/dev/null || echo "Templates available: Meeting Notes, Book Notes, Article Notes, Project Notes"
+  echo ""
+  echo -n "Would you like to try a template? (y/n) "
+  read try_template
+  
+  if [[ "$try_template" == "y" || "$try_template" == "Y" ]]; then
+    echo ""
+    echo -n "Which template? (Meeting Notes/Book Notes/Article Notes): "
+    read template_name
+    echo -n "What should we call it? "
+    read template_note_name
+    
+    if [[ -n "$template_name" && -n "$template_note_name" ]]; then
+      gtd-brain-template create "$template_name" "$template_note_name" Resources
+    fi
+  fi
+  echo ""
+  echo "Press Enter to continue..."
+  read
+  
+  clear
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Step 4: Create Your First MOC"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "MOCs (Maps of Content) organize related notes by topic."
+  echo ""
+  echo -n "What topic would you like to create a MOC for? "
+  read moc_topic
+  
+  if [[ -n "$moc_topic" ]]; then
+    echo ""
+    gtd-brain-moc create "$moc_topic"
+    echo ""
+    echo "💡 You can add notes to this MOC later:"
+    echo "   gtd-brain-moc add \"$moc_topic\" <note-path>"
+    echo ""
+  fi
+  echo ""
+  echo "Press Enter to continue..."
+  read
+  
+  clear
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Step 5: Learn More"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "You're ready to start using your Second Brain!"
+  echo ""
+  echo "📚 Next steps:"
+  echo "  • Learn more: gtd-learn second-brain"
+  echo "  • Check quality: gtd-brain-metrics dashboard"
+  echo "  • Explore commands: gtd-brain --help"
+  echo "  • Read docs: ~/code/dotfiles/zsh/SECOND_BRAIN_INTEGRATION.md"
+  echo ""
+  echo "🎯 Key Commands:"
+  echo "  • gtd-brain create \"Note\" - Create a note"
+  echo "  • gtd-brain-sync - Sync GTD with Second Brain"
+  echo "  • gtd-brain-moc create \"Topic\" - Create a MOC"
+  echo "  • gtd-brain-template create \"Template\" \"Name\" - Use a template"
+  echo "  • gtd-brain-distill <note> - Progressive summarization"
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Show Second Brain topics menu
+show_second_brain_topics() {
+  while true; do
+    clear
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}📚 Second Brain Topics${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "What would you like to learn about?"
+    echo ""
+    echo "  1) CODE Method (Capture, Organize, Distill, Express)"
+    echo "  2) PARA Method (Projects, Areas, Resources, Archives)"
+    echo "  3) Progressive Summarization"
+    echo "  4) MOCs (Maps of Content)"
+    echo "  5) Express Phase"
+    echo "  6) Templates"
+    echo "  7) Intermediate Packets"
+    echo "  8) Evergreen Notes"
+    echo "  9) Divergence/Convergence"
+    echo "  10) Connection Notes"
+    echo "  11) Quality Metrics"
+    echo "  12) Archive Strategy"
+    echo ""
+    echo -e "${YELLOW}0)${NC} Back to main menu"
+    echo ""
+    echo -n "Choose: "
+    read topic_choice
+    
+    case "$topic_choice" in
+      1)
+        clear
+        echo ""
+        echo "📚 CODE Method"
+        echo ""
+        echo "CODE stands for:"
+        echo "  • Capture - gtd-capture"
+        echo "  • Organize - PARA method"
+        echo "  • Distill - Progressive summarization"
+        echo "  • Express - Create content from notes"
+        echo ""
+        echo "Learn more: gtd-learn second-brain"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      2)
+        clear
+        echo ""
+        echo "📁 PARA Method"
+        echo ""
+        echo "Organize notes into:"
+        echo "  • Projects - Active projects"
+        echo "  • Areas - Ongoing responsibilities"
+        echo "  • Resources - Reference materials"
+        echo "  • Archives - Completed/inactive items"
+        echo ""
+        echo "Your Second Brain uses this structure automatically!"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      3)
+        clear
+        echo ""
+        echo "🔬 Progressive Summarization"
+        echo ""
+        echo "Three levels of distillation:"
+        echo "  • Level 1: Highlight key points"
+        echo "  • Level 2: Create summary"
+        echo "  • Level 3: Distill to core insights"
+        echo ""
+        echo "Try it: gtd-brain-distill <note-path>"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      4)
+        clear
+        echo ""
+        echo "🗺️  MOCs (Maps of Content)"
+        echo ""
+        echo "Index notes that organize related notes by topic."
+        echo ""
+        echo "Commands:"
+        echo "  • gtd-brain-moc create \"Topic\""
+        echo "  • gtd-brain-moc add \"Topic\" <note>"
+        echo "  • gtd-brain-moc auto \"Topic\" <tag>"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      5)
+        clear
+        echo ""
+        echo "✍️  Express Phase"
+        echo ""
+        echo "Create and share content from your notes."
+        echo ""
+        echo "Commands:"
+        echo "  • gtd-brain-express create \"Title\" \"notes\" article"
+        echo "  • gtd-brain-express drafts"
+        echo "  • gtd-brain-express publish <draft>"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      6)
+        clear
+        echo ""
+        echo "📋 Templates"
+        echo ""
+        echo "Structured templates for different note types."
+        echo ""
+        echo "Available:"
+        echo "  • Meeting Notes"
+        echo "  • Book Notes"
+        echo "  • Article Notes"
+        echo "  • Project Notes"
+        echo "  • Area Notes"
+        echo ""
+        echo "Try: gtd-brain-template list"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      7)
+        clear
+        echo ""
+        echo "📦 Intermediate Packets"
+        echo ""
+        echo "Reusable components you can assemble into projects."
+        echo ""
+        echo "Commands:"
+        echo "  • gtd-brain-packet create <note> <name>"
+        echo "  • gtd-brain-packet use <name>"
+        echo "  • gtd-brain-packet assemble <name> <packets...>"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      8)
+        clear
+        echo ""
+        echo "🌲 Evergreen Notes"
+        echo ""
+        echo "Notes that grow in value through continuous refinement."
+        echo ""
+        echo "Commands:"
+        echo "  • gtd-brain-evergreen mark <note>"
+        echo "  • gtd-brain-evergreen refine <note>"
+        echo "  • gtd-brain-evergreen list"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      9)
+        clear
+        echo ""
+        echo "💡 Divergence/Convergence"
+        echo ""
+        echo "Two-phase thinking:"
+        echo "  • Divergence: Generate many ideas (brainstorming)"
+        echo "  • Convergence: Narrow down to best ideas (decisions)"
+        echo ""
+        echo "Commands:"
+        echo "  • gtd-brain-diverge \"Topic\""
+        echo "  • gtd-brain-converge <divergence-file>"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      10)
+        clear
+        echo ""
+        echo "🔗 Connection Notes"
+        echo ""
+        echo "Explicit notes that connect ideas across topics."
+        echo ""
+        echo "Commands:"
+        echo "  • gtd-brain-connect create <note1> <note2>"
+        echo "  • gtd-brain-connect detect <note>"
+        echo "  • gtd-brain-connect list"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      11)
+        clear
+        echo ""
+        echo "📊 Quality Metrics"
+        echo ""
+        echo "Track and improve note quality over time."
+        echo ""
+        echo "Commands:"
+        echo "  • gtd-brain-metrics <note>"
+        echo "  • gtd-brain-metrics dashboard"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      12)
+        clear
+        echo ""
+        echo "📦 Archive Strategy"
+        echo ""
+        echo "Better system for archiving and retrieving notes."
+        echo ""
+        echo "Commands:"
+        echo "  • gtd-brain archive <note> [reason]"
+        echo "  • gtd-brain archive-review"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      0)
+        return
+        ;;
+      *)
+        echo "Invalid choice"
+        sleep 1
+        ;;
+    esac
+  done
+}
+
+# Life vision discovery wizard
+life_vision_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🎯 Life Vision Discovery${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Not everyone has a clear life plan—and that's okay!"
+  echo "This wizard helps you discover what matters to you."
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) 📖 Read the Life Vision Discovery Guide"
+  echo "  2) 🔍 Review what you're already doing (discover patterns)"
+  echo "  3) 💭 Answer discovery questions"
+  echo "  4) 📝 Create a simple life vision document"
+  echo "  5) 🎯 Review your areas (what matters to you)"
+  echo "  6) 📊 Review your projects (what you're building)"
+  echo "  7) 📅 Review your daily logs (patterns in your life)"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back to main menu"
+  echo ""
+  echo -n "Choose: "
+  read choice
+  
+  case "$choice" in
+    1)
+      if [[ -f "$HOME/code/dotfiles/zsh/LIFE_VISION_DISCOVERY_GUIDE.md" ]]; then
+        if command -v less &>/dev/null; then
+          less "$HOME/code/dotfiles/zsh/LIFE_VISION_DISCOVERY_GUIDE.md"
+        elif command -v cat &>/dev/null; then
+          cat "$HOME/code/dotfiles/zsh/LIFE_VISION_DISCOVERY_GUIDE.md"
+        else
+          echo "Guide: $HOME/code/dotfiles/zsh/LIFE_VISION_DISCOVERY_GUIDE.md"
+        fi
+      else
+        echo "Guide not found. Creating it now..."
+        echo "See: zsh/LIFE_VISION_DISCOVERY_GUIDE.md"
+      fi
+      read -p "Press Enter to continue..."
+      life_vision_wizard
+      ;;
+    2)
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🔍 Reviewing What You're Already Doing"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "Let's look at your GTD system to discover patterns..."
+      echo ""
+      echo "📁 Your Areas of Responsibility:"
+      gtd-area list 2>/dev/null || echo "  (No areas yet)"
+      echo ""
+      echo "📁 Your Active Projects:"
+      gtd-project list 2>/dev/null || echo "  (No projects yet)"
+      echo ""
+      echo "📊 Your Habits:"
+      gtd-habit dashboard 2>/dev/null || echo "  (No habits yet)"
+      echo ""
+      echo "💡 Questions to consider:"
+      echo "  - What areas are you investing time in?"
+      echo "  - What projects are you building?"
+      echo "  - What patterns do you see?"
+      echo "  - What matters to you based on what you're doing?"
+      echo ""
+      read -p "Press Enter to continue..."
+      life_vision_wizard
+      ;;
+    3)
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "💭 Discovery Questions"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "Answer these questions honestly (it's okay if you don't know!):"
+      echo ""
+      echo "1. What makes you feel good?"
+      read -p "   " q1
+      echo ""
+      echo "2. What would you change if you could?"
+      read -p "   " q2
+      echo ""
+      echo "3. What are you curious about?"
+      read -p "   " q3
+      echo ""
+      echo "4. What would you do if you weren't afraid?"
+      read -p "   " q4
+      echo ""
+      echo "5. What would you do if money wasn't a concern?"
+      read -p "   " q5
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "💡 Your Answers"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "1. What makes you feel good: $q1"
+      echo "2. What would you change: $q2"
+      echo "3. What are you curious about: $q3"
+      echo "4. What would you do if you weren't afraid: $q4"
+      echo "5. What would you do if money wasn't a concern: $q5"
+      echo ""
+      echo "💡 Look for patterns in your answers. What themes emerge?"
+      echo ""
+      read -p "Save these answers? (y/n) " -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        local vision_file="$HOME/Documents/gtd/life-vision.md"
+        mkdir -p "$HOME/Documents/gtd"
+        if [[ ! -f "$vision_file" ]]; then
+          cat > "$vision_file" <<EOF
+# My Life Vision
+
+Created: $(date +"%Y-%m-%d")
+
+## Discovery Questions
+
+1. What makes you feel good?
+   $q1
+
+2. What would you change if you could?
+   $q2
+
+3. What are you curious about?
+   $q3
+
+4. What would you do if you weren't afraid?
+   $q4
+
+5. What would you do if money wasn't a concern?
+   $q5
+
+## Notes
+[Add your thoughts here]
+
+EOF
+        else
+          cat >> "$vision_file" <<EOF
+
+## Discovery Session - $(date +"%Y-%m-%d")
+
+1. What makes you feel good?
+   $q1
+
+2. What would you change if you could?
+   $q2
+
+3. What are you curious about?
+   $q3
+
+4. What would you do if you weren't afraid?
+   $q4
+
+5. What would you do if money wasn't a concern?
+   $q5
+
+EOF
+        fi
+        echo "✓ Saved to: $vision_file"
+      fi
+      read -p "Press Enter to continue..."
+      life_vision_wizard
+      ;;
+    4)
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "📝 Create Life Vision Document"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      local vision_file="$HOME/Documents/gtd/life-vision.md"
+      mkdir -p "$HOME/Documents/gtd"
+      
+      if [[ -f "$vision_file" ]]; then
+        echo "Life vision document already exists: $vision_file"
+        read -p "Open it? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+          if command -v open &>/dev/null; then
+            open "$vision_file"
+          elif command -v less &>/dev/null; then
+            less "$vision_file"
+          else
+            cat "$vision_file"
+          fi
+        fi
+      else
+        echo "Creating life vision document..."
+        echo ""
+        echo "1-Year Vision (even if vague):"
+        read -p "   " vision_1yr
+        echo ""
+        echo "3-5 Values that matter to you:"
+        read -p "   Value 1: " value1
+        read -p "   Value 2: " value2
+        read -p "   Value 3: " value3
+        echo ""
+        echo "3 Areas to focus on:"
+        read -p "   Area 1: " area1
+        read -p "   Area 2: " area2
+        read -p "   Area 3: " area3
+        
+        cat > "$vision_file" <<EOF
+# My Life Vision
+
+Created: $(date +"%Y-%m-%d")
+Last Updated: $(date +"%Y-%m-%d")
+
+## 1-Year Vision
+${vision_1yr:-Not sure yet - using reviews to discover}
+
+## Values (What Matters to Me)
+1. ${value1:-}
+2. ${value2:-}
+3. ${value3:-}
+
+## Areas of Focus
+1. ${area1:-}
+2. ${area2:-}
+3. ${area3:-}
+
+## Notes
+[Add your thoughts, questions, and discoveries here]
+
+## Discovery Process
+- Review this document monthly
+- Update quarterly
+- Refine yearly
+- It's okay if it changes!
+
+EOF
+        echo ""
+        echo "✓ Created: $vision_file"
+        echo ""
+        echo "💡 Tip: Review and update this document regularly."
+        echo "   Your vision will emerge as you use your GTD system."
+      fi
+      read -p "Press Enter to continue..."
+      life_vision_wizard
+      ;;
+    5)
+      echo ""
+      echo "Reviewing your areas to see what matters to you..."
+      gtd-area list
+      echo ""
+      read -p "Press Enter to continue..."
+      life_vision_wizard
+      ;;
+    6)
+      echo ""
+      echo "Reviewing your projects to see what you're building..."
+      gtd-project list
+      echo ""
+      read -p "Press Enter to continue..."
+      life_vision_wizard
+      ;;
+    7)
+      echo ""
+      echo "Reviewing your daily logs to discover patterns..."
+      gtd-log view
+      echo ""
+      read -p "Press Enter to continue..."
+      life_vision_wizard
+      ;;
+    0)
+      show_main_menu
+      ;;
+    *)
+      echo "Invalid choice"
+      sleep 1
+      life_vision_wizard
+      ;;
+  esac
+}
+
+# Check-in wizard
+checkin_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🌅🌙 Morning/Evening Check-In${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What type of check-in?"
+  echo ""
+  echo "  1) 🌅 Morning Check-In"
+  echo "  2) 🌙 Evening Check-In"
+  echo ""
+  echo -n "Choose: "
+  read checkin_choice
+  
+  case "$checkin_choice" in
+    1)
+      gtd-checkin morning
+      ;;
+    2)
+      gtd-checkin evening
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Quick complete habits - show all due habits and let user check them off
+quick_complete_habits() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}✅ Quick Complete Habits${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Load config to get HABITS_PATH
+  GTD_CONFIG_FILE="$HOME/.gtd_config"
+  if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+    GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+  elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+    GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+  fi
+  
+  if [[ -f "$GTD_CONFIG_FILE" ]]; then
+    source "$GTD_CONFIG_FILE"
+  fi
+  
+  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  HABITS_PATH="${GTD_BASE_DIR}/habits"
+  
+  # Get date command
+  get_date_cmd() {
+    if [[ -x "/usr/bin/date" ]]; then
+      echo "/usr/bin/date"
+    elif [[ -x "/bin/date" ]]; then
+      echo "/bin/date"
+    else
+      echo "date"
+    fi
+  }
+  
+  DATE_CMD=$(get_date_cmd)
+  TODAY=$($DATE_CMD +"%Y-%m-%d")
+  
+  if [[ ! -d "$HABITS_PATH" ]]; then
+    echo "No habits directory found. Create habits first."
+    echo ""
+    return
+  fi
+  
+  # Find all active habits
+  local habits=()
+  local habit_names=()
+  local habit_index=1
+  
+  for habit_file in "$HABITS_PATH"/*.md; do
+    [[ ! -f "$habit_file" ]] && continue
+    
+    local status=$(grep "^status:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
+    if [[ "$status" != "active" ]]; then
+      continue
+    fi
+    
+    local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
+    local frequency=$(grep "^frequency:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+    local last_completed=$(grep "^last_completed:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+    local streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+    
+    # Check if due
+    local is_due=false
+    if [[ "$frequency" == "daily" && "$last_completed" != "$TODAY" ]]; then
+      is_due=true
+    elif [[ "$frequency" == "weekly" ]]; then
+      # Check if it's been a week
+      if [[ -n "$last_completed" && "$last_completed" != "Never" ]]; then
+        local days_since=$(( ($($DATE_CMD +%s) - $($DATE_CMD -j -f "%Y-%m-%d" "$last_completed" +%s 2>/dev/null || echo 0)) / 86400 ))
+        if [[ $days_since -ge 7 ]]; then
+          is_due=true
+        fi
+      else
+        is_due=true
+      fi
+    elif [[ "$frequency" == "monthly" ]]; then
+      # Check if it's been a month
+      if [[ -n "$last_completed" && "$last_completed" != "Never" ]]; then
+        local days_since=$(( ($($DATE_CMD +%s) - $($DATE_CMD -j -f "%Y-%m-%d" "$last_completed" +%s 2>/dev/null || echo 0)) / 86400 ))
+        if [[ $days_since -ge 30 ]]; then
+          is_due=true
+        fi
+      else
+        is_due=true
+      fi
+    elif [[ -z "$last_completed" || "$last_completed" == "Never" ]]; then
+      is_due=true
+    fi
+    
+    if [[ "$is_due" == "true" ]]; then
+      habits+=("$habit_file")
+      habit_names+=("$habit_name")
+      
+      # Show habit with status
+      local status_icon="⭕"
+      if [[ "$last_completed" == "$TODAY" ]]; then
+        status_icon="✅"
+      fi
+      
+      echo -e "  ${GREEN}${habit_index})${NC} ${status_icon} ${BOLD}${habit_name}${NC}"
+      echo "     Frequency: ${frequency} | Streak: ${streak} days"
+      if [[ "$last_completed" != "$TODAY" && -n "$last_completed" && "$last_completed" != "Never" ]]; then
+        echo "     Last completed: ${last_completed}"
+      fi
+      echo ""
+      
+      ((habit_index++))
+    fi
+  done
+  
+  if [[ ${#habits[@]} -eq 0 ]]; then
+    echo "🎉 No habits due today! All caught up."
+    echo ""
+    return
+  fi
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Which habits did you complete? (Enter numbers separated by spaces, or 'all' for all, or 'none' to skip)"
+  echo ""
+  read -p "Your choice: " selected
+  
+  if [[ "$selected" == "all" || "$selected" == "ALL" ]]; then
+    echo ""
+    echo "Completing all habits..."
+    for habit_name in "${habit_names[@]}"; do
+      echo -n "  Completing '${habit_name}'... "
+      gtd-habit log "$habit_name" >/dev/null 2>&1
+      if [[ $? -eq 0 ]]; then
+        echo -e "${GREEN}✓${NC}"
+      else
+        echo -e "${RED}✗${NC}"
+      fi
+    done
+    echo ""
+    echo -e "${GREEN}✓ All habits completed!${NC}"
+  elif [[ "$selected" == "none" || "$selected" == "NONE" || -z "$selected" ]]; then
+    echo ""
+    echo "Skipping habit completion."
+  else
+    echo ""
+    echo "Completing selected habits..."
+    for num in $selected; do
+      if [[ "$num" =~ ^[0-9]+$ ]] && [[ $num -ge 1 ]] && [[ $num -le ${#habits[@]} ]]; then
+        local idx=$((num - 1))
+        local habit_name="${habit_names[$idx]}"
+        echo -n "  Completing '${habit_name}'... "
+        gtd-habit log "$habit_name" >/dev/null 2>&1
+        if [[ $? -eq 0 ]]; then
+          echo -e "${GREEN}✓${NC}"
+        else
+          echo -e "${RED}✗${NC}"
+        fi
+      fi
+    done
+    echo ""
+    echo -e "${GREEN}✓ Selected habits completed!${NC}"
+  fi
+  
+  echo ""
+}
+
+# Habit wizard
+habit_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔁 Habits & Recurring Tasks${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) ✅ Quick Complete (check off due habits)"
+  echo "  2) Create a new habit"
+  echo "  3) Log habit completion (by name)"
+  echo "  4) View habit dashboard"
+  echo "  5) List all habits"
+  echo "  6) View habit details"
+  echo "  7) Archive a habit"
+  echo ""
+  echo -n "Choose: "
+  read habit_choice
+  
+  case "$habit_choice" in
+    1)
+      quick_complete_habits
+      ;;
+    2)
+      echo ""
+      echo -n "Habit name: "
+      read habit_name
+      if [[ -n "$habit_name" ]]; then
+        gtd-habit create "$habit_name"
+      fi
+      ;;
+    3)
+      echo ""
+      gtd-habit list
+      echo ""
+      echo -n "Habit name to log: "
+      read habit_name
+      if [[ -n "$habit_name" ]]; then
+        gtd-habit log "$habit_name"
+      fi
+      ;;
+    4)
+      gtd-habit dashboard
+      ;;
+    5)
+      gtd-habit list
+      ;;
+    6)
+      echo ""
+      gtd-habit list
+      echo ""
+      echo -n "Habit name to view: "
+      read habit_name
+      if [[ -n "$habit_name" ]]; then
+        gtd-habit view "$habit_name"
+      fi
+      ;;
+    7)
+      echo ""
+      gtd-habit list
+      echo ""
+      echo -n "Habit name to archive: "
+      read habit_name
+      if [[ -n "$habit_name" ]]; then
+        gtd-habit archive "$habit_name"
+      fi
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Kubernetes learning wizard
+k8s_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}☸️  Kubernetes/CKA Learning Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) Start learning (interactive menu)"
+  echo "  2) Learn specific topic"
+  echo "  3) Create study plan"
+  echo "  4) View study progress"
+  echo ""
+  echo -n "Choose: "
+  read k8s_choice
+  
+  case "$k8s_choice" in
+    1)
+      gtd-learn-kubernetes
+      ;;
+    2)
+      echo ""
+      echo "Available topics:"
+      echo "  basics, pods, deployments, services, configmaps, storage, networking, troubleshooting, cka-exam, practice"
+      echo ""
+      echo -n "Topic: "
+      read topic
+      gtd-learn-kubernetes "$topic"
+      ;;
+    3)
+      gtd-study-plan cka
+      ;;
+    4)
+      gtd-learn-kubernetes
+      # This will show progress in the menu
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Main loop
+main() {
+  while true; do
+    show_main_menu
+    read choice
+    
+    case "$choice" in
+      1)
+        capture_wizard
+        ;;
+      2)
+        process_wizard
+        ;;
+      3)
+        task_wizard
+        ;;
+      4)
+        project_wizard
+        ;;
+      5)
+        area_wizard
+        ;;
+      6)
+        review_wizard
+        ;;
+      7)
+        sync_wizard
+        ;;
+      8)
+        moc_wizard
+        ;;
+      9)
+        express_wizard
+        ;;
+      10)
+        template_wizard
+        ;;
+      11)
+        advice_wizard
+        ;;
+      12)
+        clear
+        gtd-learn
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      13)
+        learn_second_brain_wizard
+        ;;
+      14)
+        life_vision_wizard
+        ;;
+      15)
+        log_wizard
+        ;;
+      16)
+        search_wizard
+        ;;
+      17)
+        status_wizard
+        ;;
+      18)
+        habit_wizard
+        ;;
+      19)
+        checkin_wizard
+        ;;
+      20)
+        k8s_wizard
+        ;;
+      0)
+        clear
+        echo ""
+        echo "👋 Goodbye! Keep getting things done!"
+        echo ""
+        exit 0
+        ;;
+      *)
+        echo "Invalid choice. Press Enter..."
+        read
+        ;;
+    esac
+    
+    clear
+  done
+}
+
+# Run main function
+main
+

@@ -247,6 +247,14 @@ main() {
   
   local inbox_count=$(count_inbox_items)
   
+  # Send notification if inbox is empty after processing
+  if [[ $inbox_count -eq 0 ]]; then
+    # Check if notifications are enabled
+    if [[ "${GTD_NOTIFICATIONS:-true}" == "true" ]]; then
+      "$(dirname "$0")/gtd-notify" "GTD Inbox" "Inbox is empty" "All items processed" "Ping" 2>/dev/null || true
+    fi
+  fi
+  
   if [[ $inbox_count -eq 0 ]]; then
     echo "✓ Inbox is empty! Nothing to process."
     exit 0

@@ -1,0 +1,342 @@
+#!/bin/bash
+# GTD Second Brain - Maps of Content (MOC) Management
+# MOCs are index notes that organize related notes by topic
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+MOC_DIR="${SECOND_BRAIN}/MOCs"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+
+# Create MOC directory
+mkdir -p "$MOC_DIR"
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Create a new MOC
+create_moc() {
+  local topic="$1"
+  local description="${2:-}"
+  
+  if [[ -z "$topic" ]]; then
+    echo "❌ Topic required"
+    echo "Usage: gtd-brain-moc create <topic> [description]"
+    return 1
+  fi
+  
+  # Sanitize topic for filename
+  local filename=$(echo "$topic" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local moc_file="${MOC_DIR}/MOC - ${topic}.md"
+  
+  if [[ -f "$moc_file" ]]; then
+    echo "⚠️  MOC already exists: $moc_file"
+    return 1
+  fi
+  
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local timestamp=$($DATE_CMD +"%Y-%m-%d %H:%M")
+  
+  # Create MOC file
+  cat > "$moc_file" <<EOF
+# MOC - ${topic}
+
+Created: ${timestamp}
+
+## Description
+${description:-A map of content for ${topic} topics.}
+
+## Overview
+This MOC organizes all notes related to ${topic}.
+
+## Notes by Category
+
+### Projects
+<!-- Add project notes here -->
+- 
+
+### Areas
+<!-- Add area notes here -->
+- 
+
+### Resources
+<!-- Add resource notes here -->
+- 
+
+### Archives
+<!-- Add archived notes here -->
+- 
+
+## Related MOCs
+<!-- Link to related MOCs -->
+- 
+
+## Tags
+#moc #${filename}
+
+## Last Updated
+${today}
+
+EOF
+
+  echo "✓ Created MOC: $moc_file"
+  echo "$moc_file"
+}
+
+# Add note to MOC
+add_to_moc() {
+  local moc_topic="$1"
+  local note_path="$2"
+  local category="${3:-Resources}"  # Projects, Areas, Resources, Archives
+  
+  if [[ -z "$moc_topic" || -z "$note_path" ]]; then
+    echo "❌ MOC topic and note path required"
+    echo "Usage: gtd-brain-moc add <moc-topic> <note-path> [category]"
+    return 1
+  fi
+  
+  local moc_file="${MOC_DIR}/MOC - ${moc_topic}.md"
+  
+  if [[ ! -f "$moc_file" ]]; then
+    echo "❌ MOC not found: $moc_file"
+    echo "Create it first with: gtd-brain-moc create \"${moc_topic}\""
+    return 1
+  fi
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  local note_name=$(basename "$note_path" .md)
+  local note_link="[[${note_name}]]"
+  
+  # Find the category section and add note
+  local category_section="### ${category}"
+  
+  if grep -q "$category_section" "$moc_file"; then
+    # Add note after the category header
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "/^${category_section}$/a\\
+- ${note_link}
+" "$moc_file"
+    else
+      sed -i "/^${category_section}$/a\\- ${note_link}" "$moc_file"
+    fi
+    
+    # Update last updated date
+    local today=$($DATE_CMD +"%Y-%m-%d")
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/^## Last Updated.*/## Last Updated\n${today}/" "$moc_file"
+    else
+      sed -i "s/^## Last Updated.*/## Last Updated\n${today}/" "$moc_file"
+    fi
+    
+    echo "✓ Added ${note_name} to MOC - ${moc_topic} (${category})"
+  else
+    echo "❌ Category section not found: ${category}"
+    return 1
+  fi
+}
+
+# Auto-populate MOC from tags
+auto_populate_moc() {
+  local moc_topic="$1"
+  local tag="${2:-}"
+  
+  if [[ -z "$moc_topic" ]]; then
+    echo "❌ MOC topic required"
+    echo "Usage: gtd-brain-moc auto <moc-topic> [tag]"
+    return 1
+  fi
+  
+  local moc_file="${MOC_DIR}/MOC - ${moc_topic}.md"
+  
+  if [[ ! -f "$moc_file" ]]; then
+    echo "❌ MOC not found: $moc_file"
+    return 1
+  fi
+  
+  # If tag provided, use it; otherwise use topic as tag
+  local search_tag="${tag:-${moc_topic}}"
+  search_tag=$(echo "$search_tag" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+  
+  echo "🔍 Finding notes with tag: #${search_tag}"
+  
+  # Find all notes with the tag
+  local notes=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/MOCs/*" ! -path "*/.obsidian/*" -exec grep -l "#${search_tag}" {} \; 2>/dev/null)
+  
+  if [[ -z "$notes" ]]; then
+    echo "⚠️  No notes found with tag #${search_tag}"
+    return 1
+  fi
+  
+  local count=0
+  echo "$notes" | while read -r note_path; do
+    local note_dir=$(dirname "$note_path")
+    local category="Resources"
+    
+    # Determine category from path
+    if [[ "$note_dir" == *"/Projects"* ]]; then
+      category="Projects"
+    elif [[ "$note_dir" == *"/Areas"* ]]; then
+      category="Areas"
+    elif [[ "$note_dir" == *"/Resources"* ]]; then
+      category="Resources"
+    elif [[ "$note_dir" == *"/Archives"* ]]; then
+      category="Archives"
+    fi
+    
+    # Add to MOC (check if already exists)
+    local note_name=$(basename "$note_path" .md)
+    if ! grep -q "\[\[${note_name}\]\]" "$moc_file"; then
+      add_to_moc "$moc_topic" "$note_path" "$category" >/dev/null 2>&1
+      count=$((count + 1))
+    fi
+  done
+  
+  echo "✓ Added ${count} note(s) to MOC - ${moc_topic}"
+}
+
+# List all MOCs
+list_mocs() {
+  echo ""
+  echo -e "${BOLD}${CYAN}Maps of Content (MOCs)${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  local moc_count=$(find "$MOC_DIR" -name "MOC - *.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  
+  if [[ "$moc_count" -eq 0 ]]; then
+    echo "No MOCs found. Create one with: gtd-brain-moc create <topic>"
+    echo ""
+    return 0
+  fi
+  
+  echo "Found ${moc_count} MOC(s):"
+  echo ""
+  
+  find "$MOC_DIR" -name "MOC - *.md" -type f 2>/dev/null | sort | while read -r moc_file; do
+    local topic=$(basename "$moc_file" .md | sed 's/^MOC - //')
+    local note_count=$(grep -c "^- \[\[" "$moc_file" 2>/dev/null || echo "0")
+    local last_updated=$(grep "^## Last Updated" "$moc_file" -A 1 | tail -1 | sed 's/^[[:space:]]*//' || echo "Unknown")
+    
+    echo -e "${GREEN}•${NC} ${BOLD}${topic}${NC}"
+    echo "  Notes: ${note_count} | Last updated: ${last_updated}"
+    echo ""
+  done
+}
+
+# View a MOC
+view_moc() {
+  local topic="$1"
+  
+  if [[ -z "$topic" ]]; then
+    echo "❌ Topic required"
+    echo "Usage: gtd-brain-moc view <topic>"
+    return 1
+  fi
+  
+  local moc_file="${MOC_DIR}/MOC - ${topic}.md"
+  
+  if [[ ! -f "$moc_file" ]]; then
+    echo "❌ MOC not found: $moc_file"
+    echo ""
+    echo "Available MOCs:"
+    list_mocs
+    return 1
+  fi
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}MOC - ${topic}${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  cat "$moc_file"
+  echo ""
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-brain-moc <command> [options]
+
+Commands:
+  create <topic> [description]    Create a new MOC
+  add <topic> <note-path> [cat]   Add note to MOC (category: Projects/Areas/Resources/Archives)
+  auto <topic> [tag]              Auto-populate MOC from tags
+  list                            List all MOCs
+  view <topic>                    View a specific MOC
+  help                            Show this help
+
+Examples:
+  gtd-brain-moc create "Productivity"
+  gtd-brain-moc add "Productivity" ~/Documents/obsidian/Second\ Brain/Resources/gtd-notes.md
+  gtd-brain-moc auto "Productivity" productivity
+  gtd-brain-moc list
+  gtd-brain-moc view "Productivity"
+
+MOCs (Maps of Content) are index notes that organize related notes by topic.
+They help you navigate large knowledge bases and discover connections.
+
+EOF
+}
+
+# Main command handler
+case "${1:-}" in
+  create)
+    create_moc "$2" "$3"
+    ;;
+  add)
+    add_to_moc "$2" "$3" "${4:-Resources}"
+    ;;
+  auto)
+    auto_populate_moc "$2" "$3"
+    ;;
+  list)
+    list_mocs
+    ;;
+  view)
+    view_moc "$2"
+    ;;
+  help|--help|-h)
+    show_usage
+    ;;
+  "")
+    show_usage
+    ;;
+  *)
+    echo "❌ Unknown command: $1"
+    echo ""
+    show_usage
+    exit 1
+    ;;
+esac
+

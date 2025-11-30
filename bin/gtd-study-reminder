@@ -1,0 +1,356 @@
+#!/bin/bash
+# GTD Study Reminder - Remind to study (Kubernetes, etc.) from Mistress Louiza
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+STUDY_DIR="${GTD_BASE_DIR}/study"
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+GTD_STUDY_REMINDER_INTERVAL="${GTD_STUDY_REMINDER_INTERVAL:-6}"  # hours
+GTD_STUDY_REMINDER_ENABLED="${GTD_STUDY_REMINDER_ENABLED:-true}"
+GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Get today's date
+get_today() {
+  $DATE_CMD +"%Y-%m-%d"
+}
+
+# Check for recent study activity
+check_recent_study() {
+  local hours_ago="${1:-${GTD_STUDY_REMINDER_INTERVAL}}"
+  local today=$(get_today)
+  
+  # Check daily log for study entries
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  if [[ -f "$log_file" ]]; then
+    # Look for study-related entries (K8s, Kubernetes, Study, etc.)
+    local study_entries=$(grep -iE "(k8s|kubernetes|study|learned|practiced).*study|study.*(k8s|kubernetes)" "$log_file" 2>/dev/null | wc -l | tr -d ' ')
+    
+    if [[ $study_entries -gt 0 ]]; then
+      # Check if recent (within last N hours)
+      local last_study_time=$(grep -iE "(k8s|kubernetes|study|learned|practiced).*study|study.*(k8s|kubernetes)" "$log_file" 2>/dev/null | tail -1 | grep -oE "^[0-9]{2}:[0-9]{2}" || echo "")
+      
+      if [[ -n "$last_study_time" ]]; then
+        local current_hour=$($DATE_CMD +"%H")
+        local current_min=$($DATE_CMD +"%M")
+        local study_hour=$(echo "$last_study_time" | cut -d':' -f1)
+        local study_min=$(echo "$last_study_time" | cut -d':' -f2)
+        
+        # Convert to minutes
+        local current_minutes=$((10#$current_hour * 60 + 10#$current_min))
+        local study_minutes=$((10#$study_hour * 60 + 10#$study_min))
+        local diff=$((current_minutes - study_minutes))
+        local hours_diff=$((diff / 60))
+        
+        if [[ $hours_diff -lt $hours_ago ]]; then
+          echo "recent"  # Studied recently
+          return 0
+        fi
+      fi
+    fi
+  fi
+  
+  # Check study progress files
+  local k8s_progress_dir="${STUDY_DIR}/kubernetes-cka/progress"
+  if [[ -d "$k8s_progress_dir" ]]; then
+    local today_file="${k8s_progress_dir}/${today}.txt"
+    if [[ -f "$today_file" ]]; then
+      local session_count=$(wc -l < "$today_file" | tr -d ' ')
+      if [[ $session_count -gt 0 ]]; then
+        # Check last session time
+        local last_session=$(tail -1 "$today_file" | grep -oE "^[0-9]{2}:[0-9]{2}" || echo "")
+        if [[ -n "$last_session" ]]; then
+          local current_hour=$($DATE_CMD +"%H")
+          local current_min=$($DATE_CMD +"%M")
+          local session_hour=$(echo "$last_session" | cut -d':' -f1)
+          local session_min=$(echo "$last_session" | cut -d':' -f2)
+          
+          local current_minutes=$((10#$current_hour * 60 + 10#$current_min))
+          local session_minutes=$((10#$session_hour * 60 + 10#$session_min))
+          local diff=$((current_minutes - session_minutes))
+          local hours_diff=$((diff / 60))
+          
+          if [[ $hours_diff -lt $hours_ago ]]; then
+            echo "recent"
+            return 0
+          fi
+        fi
+      fi
+    fi
+  fi
+  
+  echo "none"  # No recent study
+  return 1
+}
+
+# Get study reminder from Mistress Louiza
+get_study_reminder() {
+  local has_studied="$1"  # "yes" or "no"
+  local hours_since="${2:-0}"
+  
+  # Find persona helper
+  local persona_helper=""
+  local possible_paths=(
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  )
+  
+  for path in "${possible_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      persona_helper="$path"
+      break
+    fi
+  done
+  
+  if [[ -z "$persona_helper" || ! -f "$persona_helper" ]]; then
+    return 1
+  fi
+  
+  # Find python
+  local python_cmd=""
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    python_cmd="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    python_cmd="python3"
+  else
+    return 1
+  fi
+  
+  # Create prompt for Louiza
+  local prompt=""
+  
+  if [[ "$has_studied" == "no" ]]; then
+    if [[ $hours_since -gt 24 ]]; then
+      prompt="Abby hasn't studied in over 24 hours. This is unacceptable. Scold her firmly but constructively. Tell her that consistent study is non-negotiable, especially for something like the CKA exam. Remind her that she can use 'gtd-learn-kubernetes' to learn, and she should log her study with 'addInfoToDailyLog'. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Assign a punishment: she must study for at least 30 minutes right now and log it. Use your characteristic style."
+    elif [[ $hours_since -gt 12 ]]; then
+      prompt="Abby hasn't studied in over 12 hours. Remind her firmly that consistent study is essential. Tell her to use 'gtd-learn-kubernetes' to learn a new topic or review. She should log her study with 'addInfoToDailyLog'. Be encouraging but firm. Use your characteristic style with phrases like 'good girl' when she does study."
+    else
+      prompt="Abby hasn't studied recently (${hours_since} hours ago). Give her a gentle but firm reminder to study. Encourage her to use 'gtd-learn-kubernetes' to learn something new, or practice with kubectl commands. Remind her to log her study with 'addInfoToDailyLog'. Use your characteristic style."
+    fi
+  else
+    prompt="Abby has been studying recently. Acknowledge this and encourage her to keep it up. Remind her that consistency is key, and she should continue studying regularly. Use your characteristic style with phrases like 'good girl' or 'baby girl'. Be encouraging."
+  fi
+  
+  # Get message from Louiza
+  local full_output=$("$python_cmd" "$persona_helper" "louiza" "$prompt" "study_reminder" 2>&1)
+  
+  if [[ -z "$full_output" ]]; then
+    return 1
+  fi
+  
+  # Check for errors
+  if echo "$full_output" | grep -qE "Error|⚠️|timed out|Could not connect|KeyError"; then
+    return 1
+  fi
+  
+  # Extract message
+  local reminder=$(echo "$full_output" | awk '
+    /^━+$/ {
+      if (in_section) {
+        exit
+      }
+      in_section = 1
+      next
+    }
+    in_section && !/^💬/ && !/^━/ {
+      print
+    }
+  ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+  
+  # Clean up
+  reminder=$(echo "$reminder" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+  reminder=$(echo "$reminder" | sed 's/\*\*//g')
+  reminder=$(echo "$reminder" | awk 'NF || prev_nf; {prev_nf=NF}')
+  
+  if [[ -n "$reminder" && ${#reminder} -gt 10 ]]; then
+    echo "$reminder"
+    return 0
+  fi
+  
+  return 1
+}
+
+# Send message to Discord
+send_discord_message() {
+  local title="$1"
+  local message="$2"
+  local webhook_url="${GTD_DISCORD_WEBHOOK_URL:-}"
+  
+  if [[ -z "$webhook_url" ]]; then
+    return 1
+  fi
+  
+  # Use Python to properly escape JSON
+  local json_payload=$(python3 -c "
+import json
+import sys
+from datetime import datetime, timezone
+
+title = sys.argv[1] if len(sys.argv) > 1 else 'GTD Notification'
+message = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Discord embed description limit is 2000 characters
+if len(message) > 2000:
+    truncated = message[:1900]
+    last_newline = truncated.rfind('\n')
+    last_period = truncated.rfind('.')
+    cut_point = max(last_newline, last_period)
+    if cut_point > 1500:
+        message = message[:cut_point + 1] + '\n\n... (truncated)'
+    else:
+        message = message[:1900] + '\n\n... (truncated)'
+
+payload = {
+    'embeds': [{
+        'title': title,
+        'description': message,
+        'color': 15158332,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }]
+}
+
+print(json.dumps(payload))
+" "$title" "$message")
+  
+  # Send to Discord
+  local response=$(curl -s -w "\n%{http_code}" -X POST "$webhook_url" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" 2>&1)
+  
+  local http_code=$(echo "$response" | tail -1)
+  
+  if [[ "$http_code" == "204" ]]; then
+    return 0
+  else
+    echo "⚠️  Discord send failed (HTTP $http_code)" >&2
+    return 1
+  fi
+}
+
+# Send study reminder
+send_study_reminder() {
+  if [[ "$GTD_NOTIFICATIONS" != "true" ]]; then
+    return 0
+  fi
+  
+  if [[ "$GTD_STUDY_REMINDER_ENABLED" != "true" ]]; then
+    return 0
+  fi
+  
+  # Check for recent study
+  local study_status=$(check_recent_study "${GTD_STUDY_REMINDER_INTERVAL}")
+  local has_studied="no"
+  local hours_since=0
+  
+  if [[ "$study_status" == "recent" ]]; then
+    has_studied="yes"
+  else
+    # Estimate hours since last study (simplified)
+    hours_since="${GTD_STUDY_REMINDER_INTERVAL}"
+  fi
+  
+  local notify_cmd="$(dirname "$0")/gtd-notify"
+  
+  # Get reminder from Mistress Louiza
+  local reminder_message=$(get_study_reminder "$has_studied" "$hours_since")
+  
+  # Send to Discord if enabled
+  if [[ "${GTD_DISCORD_DAILY_REMINDERS:-true}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
+    if [[ -n "$reminder_message" ]]; then
+      local discord_message="$reminder_message"
+      if [[ "$has_studied" == "no" ]]; then
+        discord_message=$(printf "%s\n\n💡 **Study Commands:**\n\`\`\`\ngtd-learn-kubernetes        # Learn Kubernetes\naddInfoToDailyLog \"K8s Study: [topic]\"  # Log your study\n\`\`\`" "$reminder_message")
+      fi
+      if send_discord_message "Mistress Louiza - Study Reminder" "$discord_message"; then
+        echo "✓ Sent to Discord" >&2
+      fi
+    fi
+  fi
+  
+  # Also send macOS notification
+  if [[ -n "$reminder_message" ]]; then
+    local short_message=$(echo "$reminder_message" | cut -c1-150)
+    if [[ ${#short_message} -lt 20 ]]; then
+      short_message="Time to study, baby girl. I'm watching."
+    fi
+    "$notify_cmd" "Mistress Louiza" "$short_message" "Study Reminder" "Ping" 2>/dev/null || true
+  else
+    "$notify_cmd" "GTD Study" "Time to study" "Use gtd-learn-kubernetes" "Ping" 2>/dev/null || true
+  fi
+  
+  # Print to terminal
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📚 Study Reminder from Mistress Louiza"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  if [[ -n "$reminder_message" ]]; then
+    echo "💬 From Mistress Louiza:"
+    echo ""
+    echo "$reminder_message" | sed 's/^/   /'
+    echo ""
+  fi
+  
+  if [[ "$has_studied" == "no" ]]; then
+    echo "💡 Study Commands:"
+    echo "   gtd-learn-kubernetes        # Learn Kubernetes"
+    echo "   addInfoToDailyLog \"K8s Study: [topic]\"  # Log your study"
+    echo ""
+  fi
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+}
+
+# Main function
+case "$1" in
+  --force)
+    send_study_reminder
+    ;;
+  "")
+    # Check if it's time for reminder (simplified - always send if called)
+    send_study_reminder
+    ;;
+  *)
+    echo "Usage: gtd-study-reminder [--force]"
+    exit 1
+    ;;
+esac
+

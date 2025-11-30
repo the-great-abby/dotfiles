@@ -1,0 +1,109 @@
+#!/bin/bash
+# GTD Study Reminder Setup Script
+
+# Get the script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Paths
+PLIST_SOURCE="$DOTFILES_DIR/zsh/com.abby.gtd.study.plist"
+PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.study.plist"
+REMINDER_SCRIPT="$SCRIPT_DIR/gtd-study-reminder"
+
+echo "🧠 GTD Study Reminder Setup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if reminder script exists
+if [[ ! -f "$REMINDER_SCRIPT" ]]; then
+  echo "❌ Error: Reminder script not found at $REMINDER_SCRIPT"
+  exit 1
+fi
+
+# Check if plist source exists
+if [[ ! -f "$PLIST_SOURCE" ]]; then
+  echo "❌ Error: Plist file not found at $PLIST_SOURCE"
+  exit 1
+fi
+
+# Create LaunchAgents directory
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# Load config to get interval
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+fi
+
+STUDY_INTERVAL="${GTD_STUDY_REMINDER_INTERVAL:-6}"  # Default 6 hours
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+  STUDY_INTERVAL="${GTD_STUDY_REMINDER_INTERVAL:-6}"
+fi
+
+# Convert hours to seconds (for StartInterval)
+INTERVAL_SECONDS=$((STUDY_INTERVAL * 3600))
+
+# Create temporary plist with correct paths and interval
+TEMP_PLIST=$(mktemp)
+cat > "$TEMP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.abby.gtd.study</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REMINDER_SCRIPT</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>$INTERVAL_SECONDS</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-study-reminder.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-study-reminder.error.log</string>
+</dict>
+</plist>
+EOF
+
+# Copy to destination
+cp "$TEMP_PLIST" "$PLIST_DEST"
+rm "$TEMP_PLIST"
+
+echo "✓ Created plist file: $PLIST_DEST"
+echo ""
+
+# Check if already loaded
+if launchctl list | grep -q "com.abby.gtd.study"; then
+  echo "🔄 Unloading existing launch agent..."
+  launchctl unload "$PLIST_DEST" 2>/dev/null || true
+fi
+
+# Load the launch agent
+echo "🚀 Loading launch agent..."
+if launchctl load "$PLIST_DEST" 2>/dev/null; then
+  echo "✓ Study reminder installed and activated!"
+  echo ""
+  echo "📅 Reminder Schedule:"
+  echo "   Interval: Every ${STUDY_INTERVAL} hours"
+  echo "   Checks: If no study activity in ${STUDY_INTERVAL} hours"
+  echo ""
+  echo "💡 To change the interval, edit GTD_STUDY_REMINDER_INTERVAL in:"
+  echo "   $GTD_CONFIG_FILE"
+  echo ""
+  echo "   Then reload with:"
+  echo "   launchctl unload $PLIST_DEST"
+  echo "   launchctl load $PLIST_DEST"
+  echo ""
+  echo "🧪 Test the reminder:"
+  echo "   gtd-study-reminder --force"
+  echo ""
+else
+  echo "❌ Error: Failed to load launch agent"
+  echo "   Check the plist file for errors"
+  exit 1
+fi
+

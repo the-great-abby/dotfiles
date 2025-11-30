@@ -1,0 +1,295 @@
+#!/bin/bash
+# GTD Second Brain - Connection Notes Management
+# Create explicit notes that connect ideas across topics
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+CONNECTIONS_DIR="${SECOND_BRAIN}/Connections"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+
+# Create Connections directory
+mkdir -p "$CONNECTIONS_DIR"
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Create a connection note
+create_connection() {
+  local note1_path="$1"
+  local note2_path="$2"
+  local connection_title="${3:-}"
+  
+  if [[ -z "$note1_path" || -z "$note2_path" ]]; then
+    echo "❌ Two note paths required"
+    echo "Usage: gtd-brain-connect create <note1> <note2> [title]"
+    return 1
+  fi
+  
+  # Expand if relative paths
+  for i in 1 2; do
+    local var_name="note${i}_path"
+    local note_path="${!var_name}"
+    if [[ "$note_path" != /* ]]; then
+      local found_note=$(find "$SECOND_BRAIN" -name "$(basename "$note_path")" -type f 2>/dev/null | head -1)
+      if [[ -n "$found_note" ]]; then
+        eval "${var_name}=\"$found_note\""
+      fi
+    fi
+  done
+  
+  if [[ ! -f "$note1_path" ]]; then
+    echo "❌ Note 1 not found: $note1_path"
+    return 1
+  fi
+  
+  if [[ ! -f "$note2_path" ]]; then
+    echo "❌ Note 2 not found: $note2_path"
+    return 1
+  fi
+  
+  local note1_name=$(basename "$note1_path" .md)
+  local note2_name=$(basename "$note2_path" .md)
+  
+  if [[ -z "$connection_title" ]]; then
+    connection_title="${note1_name} + ${note2_name}"
+  fi
+  
+  local timestamp=$($DATE_CMD +"%Y-%m-%d %H:%M")
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local filename=$(echo "$connection_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local connection_file="${CONNECTIONS_DIR}/${filename}.md"
+  
+  if [[ -f "$connection_file" ]]; then
+    echo "⚠️  Connection note already exists: $connection_file"
+    read -p "Overwrite? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      return 1
+    fi
+  fi
+  
+  # Create connection note
+  cat > "$connection_file" <<EOF
+# Connection: ${connection_title}
+
+Created: ${timestamp}
+Type: Connection Note
+
+## Connected Notes
+- [[${note1_name}]]
+- [[${note2_name}]]
+
+## Connection Type
+<!-- How are these notes related? -->
+- Similar concepts
+- Complementary ideas
+- Cause and effect
+- Part of larger system
+- Different perspectives on same topic
+
+## Relationship
+<!-- Describe how these notes connect -->
+How do [[${note1_name}]] and [[${note2_name}]] relate to each other?
+
+## Synthesis
+<!-- What new insights emerge from connecting these? -->
+When you combine the ideas from [[${note1_name}]] and [[${note2_name}]], what emerges?
+
+## Applications
+<!-- How can this connection be applied? -->
+- 
+
+## Related Connections
+<!-- Link to other connection notes -->
+- 
+
+## Tags
+#connection #synthesis #${note1_name} #${note2_name}
+
+## Last Updated
+${today}
+
+EOF
+
+  echo "✓ Created connection note: $connection_file"
+  echo "$connection_file"
+}
+
+# Auto-detect connections
+detect_connections() {
+  local note_path="$1"
+  
+  if [[ -z "$note_path" ]]; then
+    echo "❌ Note path required"
+    echo "Usage: gtd-brain-connect detect <note-path>"
+    return 1
+  fi
+  
+  # Expand if relative path
+  if [[ "$note_path" != /* ]]; then
+    local found_note=$(find "$SECOND_BRAIN" -name "$(basename "$note_path")" -type f 2>/dev/null | head -1)
+    if [[ -n "$found_note" ]]; then
+      note_path="$found_note"
+    fi
+  fi
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  echo ""
+  echo "🔍 Detecting connections for: $(basename "$note_path" .md)"
+  echo ""
+  
+  # Find notes with similar tags
+  local tags=$(grep -E "^#\w+" "$note_path" 2>/dev/null | head -5)
+  local similar_notes=""
+  
+  if [[ -n "$tags" ]]; then
+    echo "Found tags: $tags"
+    echo ""
+    echo "Notes with similar tags:"
+    
+    for tag in $tags; do
+      local tag_clean=$(echo "$tag" | sed 's/^#//')
+      local matches=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/MOCs/*" ! -path "*/Packets/*" ! -path "*/Connections/*" ! -path "*/.obsidian/*" ! -path "*/Express/*" -exec grep -l "#${tag_clean}" {} \; 2>/dev/null | grep -v "$note_path")
+      
+      if [[ -n "$matches" ]]; then
+        echo "$matches" | head -5 | while read -r match; do
+          local match_name=$(basename "$match" .md)
+          echo -e "  ${GREEN}•${NC} ${match_name} (tag: ${tag_clean})"
+        done
+      fi
+    done
+  fi
+  
+  # Find notes with similar content (simple keyword matching)
+  echo ""
+  echo "Notes with similar content:"
+  local keywords=$(grep -oE "\b[A-Z][a-z]+\b" "$note_path" 2>/dev/null | sort -u | head -10)
+  
+  if [[ -n "$keywords" ]]; then
+    for keyword in $keywords; do
+      if [[ ${#keyword} -gt 4 ]]; then
+        local matches=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/MOCs/*" ! -path "*/Packets/*" ! -path "*/Connections/*" ! -path "*/.obsidian/*" ! -path "*/Express/*" -exec grep -l -i "$keyword" {} \; 2>/dev/null | grep -v "$note_path" | head -3)
+        
+        if [[ -n "$matches" ]]; then
+          echo "$matches" | while read -r match; do
+            local match_name=$(basename "$match" .md)
+            echo -e "  ${GREEN}•${NC} ${match_name} (keyword: ${keyword})"
+          done
+        fi
+      fi
+    done
+  fi
+  
+  echo ""
+  echo "💡 Use 'gtd-brain-connect create' to create connection notes for these."
+  echo ""
+}
+
+# List connection notes
+list_connections() {
+  echo ""
+  echo -e "${BOLD}${CYAN}Connection Notes${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  local connections=$(find "$CONNECTIONS_DIR" -name "*.md" -type f 2>/dev/null | sort)
+  
+  if [[ -z "$connections" ]]; then
+    echo "No connection notes found."
+    echo ""
+    echo "Create one with: gtd-brain-connect create <note1> <note2> [title]"
+    echo ""
+    return 0
+  fi
+  
+  echo "$connections" | while read -r connection; do
+    local title=$(grep "^# Connection:" "$connection" | head -1 | sed 's/^# Connection: //' || basename "$connection" .md)
+    local connected=$(grep "^- \[\[" "$connection" | head -2 | sed 's/^- \[\[//' | sed 's/\]\]//' | tr '\n' ' + ' | sed 's/ + $//')
+    local last_updated=$(grep "^## Last Updated" "$connection" -A 1 | tail -1 | sed 's/^[[:space:]]*//' || echo "Unknown")
+    
+    echo -e "${GREEN}•${NC} ${BOLD}${title}${NC}"
+    echo "  Connects: ${connected}"
+    echo "  Last updated: ${last_updated}"
+    echo ""
+  done
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-brain-connect <command> [options]
+
+Commands:
+  create <note1> <note2> [title]  Create connection note between two notes
+  detect <note-path>              Auto-detect potential connections
+  list                            List all connection notes
+  help                            Show this help
+
+Examples:
+  gtd-brain-connect create gtd-principles.md second-brain.md "GTD + Second Brain"
+  gtd-brain-connect detect gtd-principles.md
+  gtd-brain-connect list
+
+Connection notes explicitly link ideas across topics, creating synthesis and new insights.
+
+EOF
+}
+
+# Main command handler
+case "${1:-}" in
+  create)
+    create_connection "$2" "$3" "$4"
+    ;;
+  detect)
+    detect_connections "$2"
+    ;;
+  list)
+    list_connections
+    ;;
+  help|--help|-h)
+    show_usage
+    ;;
+  "")
+    show_usage
+    ;;
+  *)
+    echo "❌ Unknown command: $1"
+    echo ""
+    show_usage
+    exit 1
+    ;;
+esac
+

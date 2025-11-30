@@ -1,0 +1,380 @@
+#!/bin/bash
+# GTD Second Brain - Evergreen Notes Management
+# Evergreen notes are notes that grow in value over time through continuous refinement
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Mark note as evergreen
+mark_evergreen() {
+  local note_path="$1"
+  
+  if [[ -z "$note_path" ]]; then
+    echo "❌ Note path required"
+    echo "Usage: gtd-brain-evergreen mark <note-path>"
+    return 1
+  fi
+  
+  # Expand if relative path
+  if [[ "$note_path" != /* ]]; then
+    local found_note=$(find "$SECOND_BRAIN" -name "$(basename "$note_path")" -type f 2>/dev/null | head -1)
+    if [[ -n "$found_note" ]]; then
+      note_path="$found_note"
+    fi
+  fi
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local timestamp=$($DATE_CMD +"%Y-%m-%d %H:%M")
+  
+  # Add evergreen tag and metadata
+  if ! grep -q "#evergreen" "$note_path" 2>/dev/null; then
+    # Add tag
+    if grep -q "^## Tags" "$note_path"; then
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "/^## Tags$/a\\
+#evergreen
+" "$note_path"
+      else
+        sed -i "/^## Tags$/a\\#evergreen" "$note_path"
+      fi
+    else
+      # Add tags section
+      echo "" >> "$note_path"
+      echo "## Tags" >> "$note_path"
+      echo "#evergreen" >> "$note_path"
+    fi
+  fi
+  
+  # Add evergreen metadata section if not exists
+  if ! grep -q "^## Evergreen Note" "$note_path" 2>/dev/null; then
+    cat >> "$note_path" <<EOF
+
+## Evergreen Note
+
+Marked as evergreen: ${timestamp}
+
+### Refinement History
+- ${today}: Marked as evergreen note
+
+### Connections
+<!-- Link to related evergreen notes -->
+- 
+
+### Value Metrics
+- Link count: 0
+- Update frequency: New
+- Reference count: 0
+
+EOF
+  fi
+  
+  echo "✓ Marked as evergreen: $note_path"
+  echo "$note_path"
+}
+
+# List evergreen notes
+list_evergreen() {
+  echo ""
+  echo -e "${BOLD}${CYAN}Evergreen Notes${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  local evergreen_notes=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/MOCs/*" ! -path "*/Packets/*" ! -path "*/.obsidian/*" ! -path "*/Express/*" -exec grep -l "#evergreen" {} \; 2>/dev/null)
+  
+  if [[ -z "$evergreen_notes" ]]; then
+    echo "No evergreen notes found."
+    echo ""
+    echo "Mark a note as evergreen with: gtd-brain-evergreen mark <note-path>"
+    echo ""
+    return 0
+  fi
+  
+  local count=0
+  echo "$evergreen_notes" | while read -r note; do
+    ((count++))
+    local name=$(basename "$note" .md)
+    local marked_date=$(grep "Marked as evergreen:" "$note" | head -1 | grep -oE "[0-9]{4}-[0-9]{2}-[0-9]{2}" || echo "Unknown")
+    local link_count=$(grep -c "\[\[" "$note" 2>/dev/null || echo "0")
+    local refinement_count=$(grep -c "^- " "$note" | grep -A 100 "### Refinement History" | head -20 | wc -l | tr -d ' ' || echo "0")
+    
+    echo -e "${GREEN}•${NC} ${BOLD}${name}${NC}"
+    echo "  Marked: ${marked_date} | Links: ${link_count} | Refinements: ${refinement_count}"
+    echo ""
+  done
+  
+  local total=$(echo "$evergreen_notes" | wc -l | tr -d ' ')
+  echo "Total: ${total} evergreen note(s)"
+  echo ""
+}
+
+# Refine evergreen note
+refine_evergreen() {
+  local note_path="$1"
+  
+  if [[ -z "$note_path" ]]; then
+    echo "❌ Note path required"
+    echo "Usage: gtd-brain-evergreen refine <note-path>"
+    return 1
+  fi
+  
+  # Expand if relative path
+  if [[ "$note_path" != /* ]]; then
+    local found_note=$(find "$SECOND_BRAIN" -name "$(basename "$note_path")" -type f 2>/dev/null | head -1)
+    if [[ -n "$found_note" ]]; then
+      note_path="$found_note"
+    fi
+  fi
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  if ! grep -q "#evergreen" "$note_path" 2>/dev/null; then
+    echo "⚠️  Note is not marked as evergreen. Mark it first?"
+    read -p "Mark as evergreen and refine? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      mark_evergreen "$note_path"
+    else
+      return 1
+    fi
+  fi
+  
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local timestamp=$($DATE_CMD +"%Y-%m-%d %H:%M")
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔧 Refining Evergreen Note: $(basename "$note_path" .md)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Show current note
+  echo "Current note content:"
+  echo ""
+  cat "$note_path"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Refinement questions
+  echo "1. What new insights can you add?"
+  read -p "   " new_insights
+  echo ""
+  
+  echo "2. What connections have you discovered?"
+  read -p "   " new_connections
+  echo ""
+  
+  echo "3. What needs clarification or expansion?"
+  read -p "   " clarifications
+  echo ""
+  
+  echo "4. How has your understanding deepened?"
+  read -p "   " deeper_understanding
+  echo ""
+  
+  # Add refinement to history
+  if grep -q "### Refinement History" "$note_path"; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "/^### Refinement History$/a\\
+- ${today}: ${new_insights}
+" "$note_path"
+    else
+      sed -i "/^### Refinement History$/a\\- ${today}: ${new_insights}" "$note_path"
+    fi
+  fi
+  
+  # Add new content
+  if [[ -n "$new_insights" ]]; then
+    echo "" >> "$note_path"
+    echo "## Refinement - ${today}" >> "$note_path"
+    echo "" >> "$note_path"
+    echo "### New Insights" >> "$note_path"
+    echo "${new_insights}" >> "$note_path"
+    echo "" >> "$note_path"
+  fi
+  
+  if [[ -n "$new_connections" ]]; then
+    echo "### New Connections" >> "$note_path"
+    echo "${new_connections}" >> "$note_path"
+    echo "" >> "$note_path"
+  fi
+  
+  if [[ -n "$clarifications" ]]; then
+    echo "### Clarifications" >> "$note_path"
+    echo "${clarifications}" >> "$note_path"
+    echo "" >> "$note_path"
+  fi
+  
+  if [[ -n "$deeper_understanding" ]]; then
+    echo "### Deeper Understanding" >> "$note_path"
+    echo "${deeper_understanding}" >> "$note_path"
+    echo "" >> "$note_path"
+  fi
+  
+  # Update last updated
+  if grep -q "^## Last Updated" "$note_path"; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/^## Last Updated.*/## Last Updated\n${today}/" "$note_path"
+    else
+      sed -i "s/^## Last Updated.*/## Last Updated\n${today}/" "$note_path"
+    fi
+  else
+    echo "## Last Updated" >> "$note_path"
+    echo "${today}" >> "$note_path"
+  fi
+  
+  echo "✓ Note refined: $note_path"
+  echo ""
+}
+
+# Show connections for evergreen note
+show_connections() {
+  local note_path="$1"
+  
+  if [[ -z "$note_path" ]]; then
+    echo "❌ Note path required"
+    echo "Usage: gtd-brain-evergreen connections <note-path>"
+    return 1
+  fi
+  
+  # Expand if relative path
+  if [[ "$note_path" != /* ]]; then
+    local found_note=$(find "$SECOND_BRAIN" -name "$(basename "$note_path")" -type f 2>/dev/null | head -1)
+    if [[ -n "$found_note" ]]; then
+      note_path="$found_note"
+    fi
+  fi
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}Connections for: $(basename "$note_path" .md)${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Find links in note
+  local links=$(grep -oE "\[\[[^\]]+\]\]" "$note_path" 2>/dev/null | sort -u)
+  
+  if [[ -z "$links" ]]; then
+    echo "No connections found in this note."
+    echo ""
+    return 0
+  fi
+  
+  echo "Linked notes:"
+  echo "$links" | while read -r link; do
+    local link_name=$(echo "$link" | sed 's/\[\[//' | sed 's/\]\]//')
+    echo -e "  ${GREEN}•${NC} ${link_name}"
+  done
+  echo ""
+  
+  # Find notes that link to this one
+  local note_name=$(basename "$note_path" .md)
+  local backlinks=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/MOCs/*" ! -path "*/Packets/*" ! -path "*/.obsidian/*" ! -path "*/Express/*" -exec grep -l "\[\[${note_name}\]\]" {} \; 2>/dev/null)
+  
+  if [[ -n "$backlinks" ]]; then
+    echo "Notes linking to this:"
+    echo "$backlinks" | while read -r backlink; do
+      local backlink_name=$(basename "$backlink" .md)
+      echo -e "  ${GREEN}•${NC} ${backlink_name}"
+    done
+    echo ""
+  fi
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-brain-evergreen <command> [options]
+
+Commands:
+  mark <note-path>                Mark note as evergreen
+  list                            List all evergreen notes
+  refine <note-path>              Refine an evergreen note
+  connections <note-path>         Show connections for evergreen note
+  help                            Show this help
+
+Examples:
+  gtd-brain-evergreen mark ~/Documents/obsidian/Second\ Brain/Resources/gtd-principles.md
+  gtd-brain-evergreen list
+  gtd-brain-evergreen refine gtd-principles.md
+  gtd-brain-evergreen connections gtd-principles.md
+
+Evergreen notes are notes that grow in value over time through continuous refinement.
+They represent core concepts that deepen and evolve as you learn more.
+
+EOF
+}
+
+# Main command handler
+case "${1:-}" in
+  mark)
+    mark_evergreen "$2"
+    ;;
+  list)
+    list_evergreen
+    ;;
+  refine)
+    refine_evergreen "$2"
+    ;;
+  connections)
+    show_connections "$2"
+    ;;
+  help|--help|-h)
+    show_usage
+    ;;
+  "")
+    show_usage
+    ;;
+  *)
+    echo "❌ Unknown command: $1"
+    echo ""
+    show_usage
+    exit 1
+    ;;
+esac
+

@@ -1,0 +1,113 @@
+#!/bin/bash
+# GTD Daily Reminder Setup Script
+
+# Get the script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Paths
+PLIST_SOURCE="$DOTFILES_DIR/zsh/com.abby.gtd.daily.plist"
+PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.daily.plist"
+REMINDER_SCRIPT="$SCRIPT_DIR/gtd-daily-reminder"
+
+echo "🧠 GTD Daily Evening Reminder Setup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if reminder script exists
+if [[ ! -f "$REMINDER_SCRIPT" ]]; then
+  echo "❌ Error: Reminder script not found at $REMINDER_SCRIPT"
+  exit 1
+fi
+
+# Check if plist source exists
+if [[ ! -f "$PLIST_SOURCE" ]]; then
+  echo "❌ Error: Plist file not found at $PLIST_SOURCE"
+  exit 1
+fi
+
+# Create LaunchAgents directory if it doesn't exist
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# Load config to get review time
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+fi
+
+DAILY_REVIEW_TIME="18:00"
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+  DAILY_REVIEW_TIME="${GTD_DAILY_REVIEW_TIME:-18:00}"
+fi
+
+REVIEW_HOUR=$(echo "$DAILY_REVIEW_TIME" | cut -d':' -f1)
+REVIEW_MIN=$(echo "$DAILY_REVIEW_TIME" | cut -d':' -f2)
+
+# Create a temporary plist with correct paths and time
+TEMP_PLIST=$(mktemp)
+cat > "$TEMP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.abby.gtd.daily</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REMINDER_SCRIPT</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>$REVIEW_HOUR</integer>
+        <key>Minute</key>
+        <integer>$REVIEW_MIN</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-daily-reminder.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-daily-reminder.error.log</string>
+</dict>
+</plist>
+EOF
+
+# Copy to destination
+cp "$TEMP_PLIST" "$PLIST_DEST"
+rm "$TEMP_PLIST"
+
+echo "✓ Created plist file: $PLIST_DEST"
+echo ""
+
+# Check if already loaded
+if launchctl list | grep -q "com.abby.gtd.daily"; then
+  echo "🔄 Unloading existing launch agent..."
+  launchctl unload "$PLIST_DEST" 2>/dev/null || true
+fi
+
+# Load the launch agent
+echo "🚀 Loading launch agent..."
+if launchctl load "$PLIST_DEST" 2>/dev/null; then
+  echo "✓ Daily reminder installed and activated!"
+  echo ""
+  echo "📅 Reminder Schedule:"
+  echo "   Time: $DAILY_REVIEW_TIME (daily)"
+  echo ""
+  echo "💡 To change the time, edit GTD_DAILY_REVIEW_TIME in:"
+  echo "   $GTD_CONFIG_FILE"
+  echo ""
+  echo "   Then reload with:"
+  echo "   launchctl unload $PLIST_DEST"
+  echo "   launchctl load $PLIST_DEST"
+  echo ""
+  echo "🧪 Test the reminder:"
+  echo "   gtd-daily-reminder --force"
+  echo ""
+else
+  echo "❌ Error: Failed to load launch agent"
+  echo "   Check the plist file for errors"
+  exit 1
+fi
+

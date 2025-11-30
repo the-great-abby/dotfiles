@@ -1,0 +1,104 @@
+#!/bin/bash
+# GTD Weekly Reminder Setup Script
+
+# Get the script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Paths
+PLIST_SOURCE="$DOTFILES_DIR/zsh/com.abby.gtd.weekly.plist"
+PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.weekly.plist"
+REMINDER_SCRIPT="$SCRIPT_DIR/gtd-weekly-reminder"
+
+echo "🧠 GTD Weekly Reminder Setup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if reminder script exists
+if [[ ! -f "$REMINDER_SCRIPT" ]]; then
+  echo "❌ Error: Reminder script not found at $REMINDER_SCRIPT"
+  exit 1
+fi
+
+# Check if plist source exists
+if [[ ! -f "$PLIST_SOURCE" ]]; then
+  echo "❌ Error: Plist file not found at $PLIST_SOURCE"
+  exit 1
+fi
+
+# Create LaunchAgents directory if it doesn't exist
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# Update plist with correct paths
+echo "📝 Creating launch agent configuration..."
+
+# Create a temporary plist with correct paths
+TEMP_PLIST=$(mktemp)
+cat > "$TEMP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.abby.gtd.weekly</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REMINDER_SCRIPT</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-weekly-reminder.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-weekly-reminder.error.log</string>
+</dict>
+</plist>
+EOF
+
+# Copy to destination
+cp "$TEMP_PLIST" "$PLIST_DEST"
+rm "$TEMP_PLIST"
+
+echo "✓ Created plist file: $PLIST_DEST"
+echo ""
+
+# Check if already loaded
+if launchctl list | grep -q "com.abby.gtd.weekly"; then
+  echo "🔄 Unloading existing launch agent..."
+  launchctl unload "$PLIST_DEST" 2>/dev/null || true
+fi
+
+# Load the launch agent
+echo "🚀 Loading launch agent..."
+if launchctl load "$PLIST_DEST" 2>/dev/null; then
+  echo "✓ Weekly reminder installed and activated!"
+  echo ""
+  echo "📅 Reminder Schedule:"
+  echo "   Day: Sunday"
+  echo "   Time: 9:00 AM"
+  echo ""
+  echo "💡 To change the schedule, edit:"
+  echo "   $PLIST_DEST"
+  echo ""
+  echo "   Then reload with:"
+  echo "   launchctl unload $PLIST_DEST"
+  echo "   launchctl load $PLIST_DEST"
+  echo ""
+  echo "🧪 Test the reminder:"
+  echo "   gtd-weekly-reminder --force"
+  echo ""
+else
+  echo "❌ Error: Failed to load launch agent"
+  echo "   Check the plist file for errors"
+  exit 1
+fi
+

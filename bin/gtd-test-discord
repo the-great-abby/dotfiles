@@ -1,0 +1,76 @@
+#!/bin/bash
+# Test Discord webhook connection
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+# Check multiple possible locations
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Check if webhook URL is set
+if [[ -z "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
+  echo "❌ Discord webhook URL not configured"
+  echo ""
+  echo "Add this to your .gtd_config:"
+  echo "  GTD_DISCORD_WEBHOOK_URL=\"https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN\""
+  echo ""
+  echo "See DISCORD_NOTIFICATIONS_SETUP.md for instructions"
+  exit 1
+fi
+
+echo "🧪 Testing Discord webhook..."
+echo ""
+
+# Send test message
+json_payload=$(python3 <<PYTHON_EOF
+import json
+from datetime import datetime, timezone
+
+payload = {
+    "embeds": [{
+        "title": "GTD System Test",
+        "description": "This is a test message from your GTD system. If you see this, Discord integration is working! ✅",
+        "color": 3066993,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }]
+}
+
+print(json.dumps(payload))
+PYTHON_EOF
+)
+
+response=$(curl -s -w "\n%{http_code}" -X POST "${GTD_DISCORD_WEBHOOK_URL}" \
+  -H "Content-Type: application/json" \
+  -d "$json_payload")
+
+http_code=$(echo "$response" | tail -1)
+body=$(echo "$response" | sed '$d')
+
+if [[ "$http_code" == "204" ]]; then
+  echo "✅ Success! Message sent to Discord"
+  echo "   Check your Discord channel for the test message"
+  exit 0
+elif [[ "$http_code" == "401" || "$http_code" == "403" ]]; then
+  echo "❌ Authentication failed"
+  echo "   Check your webhook URL - it may be invalid or expired"
+  exit 1
+elif [[ "$http_code" == "404" ]]; then
+  echo "❌ Webhook not found"
+  echo "   The webhook URL is incorrect or the webhook was deleted"
+  exit 1
+else
+  echo "❌ Failed to send message (HTTP $http_code)"
+  if [[ -n "$body" ]]; then
+    echo "   Response: $body"
+  fi
+  exit 1
+fi
+

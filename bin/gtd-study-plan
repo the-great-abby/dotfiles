@@ -1,0 +1,169 @@
+#!/bin/bash
+# Create study plan for any topic (Kubernetes, etc.) in GTD system
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+STUDY_DIR="${GTD_BASE_DIR}/study"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Create CKA study plan
+create_cka_plan() {
+  local project_name="cka-exam-preparation"
+  local project_dir="${GTD_BASE_DIR}/1-projects/${project_name}"
+  
+  mkdir -p "$project_dir"
+  
+  # Create project README
+  cat > "${project_dir}/README.md" <<EOF
+# CKA Exam Preparation
+
+**Goal:** Pass the Certified Kubernetes Administrator (CKA) exam
+
+**Target Date:** [Set your exam date]
+
+**Status:** Active
+
+## Exam Details
+- **Duration:** 2 hours
+- **Format:** Performance-based (hands-on)
+- **Passing Score:** 66%
+- **Topics:** 
+  - Cluster Architecture, Installation & Configuration (25%)
+  - Workloads & Scheduling (15%)
+  - Services & Networking (20%)
+  - Storage (10%)
+  - Troubleshooting (30%)
+
+## Study Plan
+
+### Week 1-2: Fundamentals
+- [ ] Kubernetes basics and architecture
+- [ ] Pods, Deployments, Services
+- [ ] ConfigMaps and Secrets
+- [ ] Practice: Create and manage basic resources
+
+### Week 3-4: Core Concepts
+- [ ] Storage (PVs, PVCs, StorageClasses)
+- [ ] Networking (Services, Ingress, Network Policies)
+- [ ] Scheduling and Resource Management
+- [ ] Practice: Multi-pod applications
+
+### Week 5-6: Advanced Topics
+- [ ] Cluster maintenance
+- [ ] Security (RBAC, Pod Security)
+- [ ] Monitoring and logging
+- [ ] Practice: Troubleshooting scenarios
+
+### Week 7-8: Exam Preparation
+- [ ] Practice exams
+- [ ] Time management practice
+- [ ] Review weak areas
+- [ ] Final preparation
+
+## Daily Study Routine
+1. Study for 1-2 hours daily
+2. Practice with kubectl
+3. Log progress: \`addInfoToDailyLog "K8s Study: [topic]"\`
+4. Create tasks for practice exercises
+5. Review weekly progress
+
+## Resources
+- Official Kubernetes Documentation
+- CKA Exam Curriculum
+- Practice environments (minikube, kind, k3s)
+- Study notes in: \${STUDY_DIR}/kubernetes-cka/notes/
+
+## Commands
+- Learn: \`gtd-learn-kubernetes [topic]\`
+- Track: \`addInfoToDailyLog "K8s Study: [topic]"\`
+- Practice: Use kubectl commands daily
+- Review: \`gtd-review weekly\`
+
+Created: $($DATE_CMD)
+EOF
+
+  # Create initial tasks
+  echo "Creating initial study tasks..."
+  
+  # Use gtd-task if available
+  if command -v gtd-task &>/dev/null; then
+    gtd-task add "Study Kubernetes basics and architecture" --project="$project_name" --context=computer --energy=high 2>/dev/null || true
+    gtd-task add "Practice kubectl commands daily" --project="$project_name" --context=computer --energy=medium 2>/dev/null || true
+    gtd-task add "Set up local Kubernetes cluster (minikube/kind)" --project="$project_name" --context=computer --energy=high 2>/dev/null || true
+  fi
+  
+  echo ""
+  echo "✅ CKA Study Plan Created!"
+  echo ""
+  echo "Project: ${project_name}"
+  echo "Location: ${project_dir}"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Review the plan: cat ${project_dir}/README.md"
+  echo "  2. Set your exam date in the README"
+  echo "  3. Start learning: gtd-learn-kubernetes"
+  echo "  4. Track progress: addInfoToDailyLog \"K8s Study: [topic]\""
+  echo ""
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-study-plan [topic]
+
+Create a study plan integrated with your GTD system.
+
+Topics:
+  cka, kubernetes    - Create CKA exam preparation plan
+
+Examples:
+  gtd-study-plan cka
+
+This will:
+  • Create a GTD project for your study
+  • Set up study structure
+  • Create initial tasks
+  • Integrate with your GTD system
+
+EOF
+}
+
+# Main
+case "$1" in
+  cka|kubernetes|k8s)
+    create_cka_plan
+    ;;
+  --help|-h)
+    show_usage
+    exit 0
+    ;;
+  *)
+    echo "Available study plans:"
+    echo "  gtd-study-plan cka    - CKA exam preparation"
+    echo ""
+    show_usage
+    exit 1
+    ;;
+esac
+

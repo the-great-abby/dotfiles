@@ -1,0 +1,622 @@
+#!/bin/bash
+# GTD Interactive Help System
+
+# Load config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+BOLD='\033[1m'
+
+# Show main menu
+show_menu() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🧠 GTD System - Interactive Help${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${BOLD}What would you like to learn about?${NC}"
+  echo ""
+  echo -e "${GREEN}1)${NC} Quick Start Guide"
+  echo -e "${GREEN}2)${NC} Command Reference"
+  echo -e "${GREEN}3)${NC} Example Workflows"
+  echo -e "${GREEN}4)${NC} Daily Tips"
+  echo -e "${GREEN}5)${NC} Interactive Tutorial"
+  echo -e "${GREEN}6)${NC} Command Discovery"
+  echo -e "${GREEN}7)${NC} Get Help for Specific Command"
+  echo -e "${GREEN}8)${NC} System Status Check"
+  echo -e "${GREEN}9)${NC} Common Problems & Solutions"
+  echo -e "${GREEN}10)${NC} Mistress Louiza's Guide"
+  echo -e "${GREEN}11)${NC} Learn GTD with Mistress Louiza"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Exit"
+  echo ""
+  echo -n "Choose an option: "
+}
+
+# Quick start guide
+quick_start() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🚀 Quick Start Guide${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${BOLD}Step 1: Capture Everything${NC}"
+  echo "Use 'gtd-capture' to quickly add things to your inbox:"
+  echo -e "${GREEN}gtd-capture \"Call John about project\"${NC}"
+  echo ""
+  echo -e "${BOLD}Step 2: Process Your Inbox${NC}"
+  echo "Regularly process items from your inbox:"
+  echo -e "${GREEN}gtd-process${NC}"
+  echo ""
+  echo -e "${BOLD}Step 3: Log Your Day${NC}"
+  echo "Track your progress throughout the day:"
+  echo -e "${GREEN}addInfoToDailyLog \"Completed the report\"${NC}"
+  echo ""
+  echo -e "${BOLD}Step 4: Review Regularly${NC}"
+  echo "Do daily and weekly reviews:"
+  echo -e "${GREEN}gtd-review daily${NC}"
+  echo -e "${GREEN}gtd-review weekly${NC}"
+  echo ""
+  echo -e "${BOLD}Step 5: Get Advice${NC}"
+  echo "Ask the personas for help:"
+  echo -e "${GREEN}gtd-advise david \"Help me organize my tasks\"${NC}"
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Command reference
+command_reference() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📚 Command Reference${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${BOLD}Core Commands:${NC}"
+  echo ""
+  echo -e "${GREEN}gtd-capture${NC} \"text\"     - Quick capture to inbox"
+  echo -e "${GREEN}gtd-process${NC}             - Process inbox items"
+  echo -e "${GREEN}gtd-task${NC}                - Manage tasks"
+  echo -e "${GREEN}gtd-project${NC}             - Manage projects"
+  echo -e "${GREEN}gtd-review${NC}              - Daily/weekly reviews"
+  echo ""
+  echo -e "${BOLD}Logging:${NC}"
+  echo ""
+  echo -e "${GREEN}addInfoToDailyLog${NC} \"text\" - Log entry + get advice"
+  echo -e "${GREEN}gtd-log${NC}                 - View daily logs"
+  echo ""
+  echo -e "${BOLD}Advice:${NC}"
+  echo ""
+  echo -e "${GREEN}gtd-advise${NC} <persona> \"question\" - Get advice"
+  echo -e "${GREEN}gtd-advise --list${NC}        - List all personas"
+  echo ""
+  echo -e "${BOLD}Second Brain:${NC}"
+  echo ""
+  echo -e "${GREEN}gtd-brain${NC}               - Second Brain operations"
+  echo -e "${GREEN}gtd-brain-sync${NC}          - Sync with Second Brain"
+  echo ""
+  echo -e "${BOLD}Search & Discovery:${NC}"
+  echo ""
+  echo -e "${GREEN}gtd-search${NC}              - Search GTD items"
+  echo -e "${GREEN}gtd-context${NC}             - Context-based suggestions"
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Example workflows
+example_workflows() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔄 Example Workflows${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${BOLD}Morning Routine:${NC}"
+  echo ""
+  echo "1. Log your start:"
+  echo -e "   ${GREEN}addInfoToDailyLog \"Starting my day\"${NC}"
+  echo ""
+  echo "2. Process inbox:"
+  echo -e "   ${GREEN}gtd-process${NC}"
+  echo ""
+  echo "3. See your tasks:"
+  echo -e "   ${GREEN}gtd-task list${NC}"
+  echo ""
+  echo -e "${BOLD}During the Day:${NC}"
+  echo ""
+  echo "1. Capture ideas:"
+  echo -e "   ${GREEN}gtd-capture \"Meeting notes\"${NC}"
+  echo ""
+  echo "2. Log progress:"
+  echo -e "   ${GREEN}addInfoToDailyLog \"Completed feature X\"${NC}"
+  echo ""
+  echo "3. Complete tasks:"
+  echo -e "   ${GREEN}gtd-task complete <task-id>${NC}"
+  echo ""
+  echo -e "${BOLD}Evening Routine:${NC}"
+  echo ""
+  echo "1. Log accomplishments:"
+  echo -e "   ${GREEN}addInfoToDailyLog \"End of day summary\"${NC}"
+  echo ""
+  echo "2. Process inbox:"
+  echo -e "   ${GREEN}gtd-process${NC}"
+  echo ""
+  echo "3. Daily review:"
+  echo -e "   ${GREEN}gtd-review daily${NC}"
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Daily tips
+daily_tips() {
+  local tips=(
+    "💡 Tip: Use 'gtd-capture' throughout the day, then process everything at once"
+    "💡 Tip: Log entries trigger random persona advice - use it to get different perspectives"
+    "💡 Tip: Use contexts (computer, phone, home) to filter tasks by where you are"
+    "💡 Tip: Use energy levels (low, medium, high) to match tasks to your energy"
+    "💡 Tip: Process your inbox daily - don't let it pile up"
+    "💡 Tip: Weekly reviews are essential - set up the reminder with 'gtd-setup-weekly-reminder'"
+    "💡 Tip: Link GTD items to Second Brain notes for better knowledge management"
+    "💡 Tip: Use 'gtd-advise --all' to get advice from all personas at once"
+    "💡 Tip: Mistress Louiza monitors your progress - she'll scold you if you don't log"
+    "💡 Tip: Use 'gtd-task list --context=computer' to see only computer tasks"
+    "💡 Tip: Projects can have multiple tasks - use 'gtd-project add-task' to add them"
+    "💡 Tip: Archive completed projects to keep your active list clean"
+    "💡 Tip: Use 'gtd-search' to find items across your entire GTD system"
+    "💡 Tip: Set up Discord notifications to get full messages from Mistress Louiza"
+    "💡 Tip: Use 'gtd-context' to get task suggestions based on your current context"
+  )
+  
+  local tip_index=$((RANDOM % ${#tips[@]}))
+  
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}💡 Daily Tip${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${YELLOW}${tips[$tip_index]}${NC}"
+  echo ""
+  echo ""
+  echo -e "${BOLD}Want another tip?${NC}"
+  echo -e "${GREEN}y${NC} - Show another tip"
+  echo -e "${GREEN}n${NC} - Return to menu"
+  echo ""
+  read -p "Choice: " choice
+  if [[ "$choice" == "y" ]]; then
+    daily_tips
+  fi
+}
+
+# Interactive tutorial
+interactive_tutorial() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🎓 Interactive Tutorial${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "This tutorial will walk you through the GTD system step by step."
+  echo ""
+  read -p "Ready to start? (y/n): " ready
+  if [[ "$ready" != "y" ]]; then
+    return
+  fi
+  
+  # Step 1: Capture
+  clear
+  echo -e "${BOLD}Step 1: Capture${NC}"
+  echo ""
+  echo "The first step in GTD is to capture everything that's on your mind."
+  echo ""
+  echo "Try it now:"
+  echo -e "${GREEN}gtd-capture \"Test item from tutorial\"${NC}"
+  echo ""
+  read -p "Press Enter after you've run the command..."
+  
+  # Step 2: Process
+  clear
+  echo -e "${BOLD}Step 2: Process${NC}"
+  echo ""
+  echo "Now let's process that item from your inbox:"
+  echo -e "${GREEN}gtd-process${NC}"
+  echo ""
+  echo "This will guide you through deciding what to do with the item."
+  echo ""
+  read -p "Press Enter after you've processed the item..."
+  
+  # Step 3: Log
+  clear
+  echo -e "${BOLD}Step 3: Log Your Day${NC}"
+  echo ""
+  echo "Logging helps you track your progress and get advice:"
+  echo -e "${GREEN}addInfoToDailyLog \"Completed the tutorial\"${NC}"
+  echo ""
+  read -p "Press Enter after you've logged..."
+  
+  clear
+  echo -e "${GREEN}✅ Tutorial Complete!${NC}"
+  echo ""
+  echo "You've learned the basics:"
+  echo "1. Capture - Get things into the system"
+  echo "2. Process - Decide what to do with them"
+  echo "3. Log - Track your progress"
+  echo ""
+  echo "Continue exploring with 'gtd-help'!"
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Command discovery
+command_discovery() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔍 Command Discovery${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What do you want to do?"
+  echo ""
+  echo -e "${GREEN}1)${NC} Capture something quickly"
+  echo -e "${GREEN}2)${NC} Organize my tasks"
+  echo -e "${GREEN}3)${NC} Track my progress"
+  echo -e "${GREEN}4)${NC} Get advice"
+  echo -e "${GREEN}5)${NC} Review my system"
+  echo -e "${GREEN}6)${NC} Search for something"
+  echo ""
+  read -p "Choose: " choice
+  
+  case "$choice" in
+    1)
+      echo ""
+      echo -e "${BOLD}Use:${NC} ${GREEN}gtd-capture \"your text\"${NC}"
+      echo ""
+      echo "This quickly adds anything to your inbox for later processing."
+      ;;
+    2)
+      echo ""
+      echo -e "${BOLD}Use:${NC}"
+      echo -e "  ${GREEN}gtd-task list${NC}           - See all tasks"
+      echo -e "  ${GREEN}gtd-task add \"task\"${NC}     - Add a task"
+      echo -e "  ${GREEN}gtd-project list${NC}        - See projects"
+      echo -e "  ${GREEN}gtd-process${NC}            - Process inbox"
+      ;;
+    3)
+      echo ""
+      echo -e "${BOLD}Use:${NC}"
+      echo -e "  ${GREEN}addInfoToDailyLog \"entry\"${NC} - Log + get advice"
+      echo -e "  ${GREEN}gtd-log${NC}                - View logs"
+      echo -e "  ${GREEN}gtd-review daily${NC}        - Daily review"
+      ;;
+    4)
+      echo ""
+      echo -e "${BOLD}Use:${NC}"
+      echo -e "  ${GREEN}gtd-advise david \"question\"${NC} - GTD advice"
+      echo -e "  ${GREEN}gtd-advise --list${NC}       - See all personas"
+      echo -e "  ${GREEN}gtd-advise --all \"question\"${NC} - All personas"
+      ;;
+    5)
+      echo ""
+      echo -e "${BOLD}Use:${NC}"
+      echo -e "  ${GREEN}gtd-review daily${NC}        - Daily review"
+      echo -e "  ${GREEN}gtd-review weekly${NC}        - Weekly review"
+      ;;
+    6)
+      echo ""
+      echo -e "${BOLD}Use:${NC}"
+      echo -e "  ${GREEN}gtd-search \"query\"${NC}     - Search GTD items"
+      echo -e "  ${GREEN}gtd-context${NC}            - Context suggestions"
+      ;;
+  esac
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Get help for specific command
+command_help() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}❓ Command Help${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Which command do you need help with?"
+  echo ""
+  echo -e "${GREEN}1)${NC} gtd-capture"
+  echo -e "${GREEN}2)${NC} gtd-process"
+  echo -e "${GREEN}3)${NC} gtd-task"
+  echo -e "${GREEN}4)${NC} gtd-project"
+  echo -e "${GREEN}5)${NC} gtd-review"
+  echo -e "${GREEN}6)${NC} gtd-advise"
+  echo -e "${GREEN}7)${NC} gtd-log"
+  echo -e "${GREEN}8)${NC} addInfoToDailyLog"
+  echo -e "${GREEN}9)${NC} gtd-brain"
+  echo ""
+  read -p "Choose: " choice
+  
+  case "$choice" in
+    1)
+      echo ""
+      echo -e "${BOLD}gtd-capture${NC} - Quick capture to inbox"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}gtd-capture \"text\"${NC}"
+      echo -e "  ${GREEN}gtd-capture --type=task \"text\"${NC}"
+      echo -e "  ${GREEN}gtd-capture --interactive${NC}"
+      echo ""
+      echo "This is your quick capture tool. Use it throughout the day"
+      echo "to get things out of your head and into the system."
+      ;;
+    2)
+      echo ""
+      echo -e "${BOLD}gtd-process${NC} - Process inbox items"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}gtd-process${NC}          - Process next item"
+      echo -e "  ${GREEN}gtd-process --all${NC}     - Process all items"
+      echo ""
+      echo "Guides you through GTD processing questions to decide what"
+      echo "to do with each inbox item."
+      ;;
+    3)
+      echo ""
+      echo -e "${BOLD}gtd-task${NC} - Task management"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}gtd-task add \"task\"${NC}"
+      echo -e "  ${GREEN}gtd-task list${NC}"
+      echo -e "  ${GREEN}gtd-task complete <id>${NC}"
+      echo -e "  ${GREEN}gtd-task list --context=computer${NC}"
+      ;;
+    4)
+      echo ""
+      echo -e "${BOLD}gtd-project${NC} - Project management"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}gtd-project create \"name\"${NC}"
+      echo -e "  ${GREEN}gtd-project list${NC}"
+      echo -e "  ${GREEN}gtd-project view <name>${NC}"
+      ;;
+    5)
+      echo ""
+      echo -e "${BOLD}gtd-review${NC} - Reviews"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}gtd-review daily${NC}"
+      echo -e "  ${GREEN}gtd-review weekly${NC}"
+      ;;
+    6)
+      echo ""
+      echo -e "${BOLD}gtd-advise${NC} - Get advice from personas"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}gtd-advise david \"question\"${NC}"
+      echo -e "  ${GREEN}gtd-advise --list${NC}"
+      echo -e "  ${GREEN}gtd-advise --all \"question\"${NC}"
+      ;;
+    7)
+      echo ""
+      echo -e "${BOLD}gtd-log${NC} - View daily logs"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}gtd-log${NC}              - Today's log"
+      echo -e "  ${GREEN}gtd-log 2024-01-15${NC}   - Specific date"
+      echo -e "  ${GREEN}gtd-log list${NC}         - List all logs"
+      ;;
+    8)
+      echo ""
+      echo -e "${BOLD}addInfoToDailyLog${NC} - Log entry + get advice"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}addInfoToDailyLog \"entry\"${NC}"
+      echo ""
+      echo "Adds entry to daily log and gets random persona advice."
+      ;;
+    9)
+      echo ""
+      echo -e "${BOLD}gtd-brain${NC} - Second Brain operations"
+      echo ""
+      echo "Usage:"
+      echo -e "  ${GREEN}gtd-brain create \"title\"${NC}"
+      echo -e "  ${GREEN}gtd-brain link <item> <note>${NC}"
+      echo -e "  ${GREEN}gtd-brain search \"query\"${NC}"
+      ;;
+  esac
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# System status check
+system_status() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📊 System Status Check${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Check directories
+  echo -e "${BOLD}Directories:${NC}"
+  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  if [[ -d "$GTD_BASE_DIR" ]]; then
+    echo -e "  ${GREEN}✓${NC} GTD base directory exists"
+  else
+    echo -e "  ${RED}✗${NC} GTD base directory missing"
+  fi
+  
+  # Check inbox
+  INBOX_DIR="${GTD_BASE_DIR}/0-inbox"
+  if [[ -d "$INBOX_DIR" ]]; then
+    inbox_count=$(find "$INBOX_DIR" -type f | wc -l | tr -d ' ')
+    echo -e "  ${GREEN}✓${NC} Inbox: $inbox_count items"
+  else
+    echo -e "  ${RED}✗${NC} Inbox directory missing"
+  fi
+  
+  # Check daily logs
+  DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+  if [[ -d "$DAILY_LOG_DIR" ]]; then
+    today=$(date +"%Y-%m-%d")
+    if [[ -f "${DAILY_LOG_DIR}/${today}.txt" ]]; then
+      echo -e "  ${GREEN}✓${NC} Today's log exists"
+    else
+      echo -e "  ${YELLOW}⚠${NC} No log for today yet"
+    fi
+  fi
+  
+  # Check reminders
+  echo ""
+  echo -e "${BOLD}Reminders:${NC}"
+  if launchctl list | grep -q "com.abby.gtd.morning"; then
+    echo -e "  ${GREEN}✓${NC} Morning reminder active"
+  else
+    echo -e "  ${YELLOW}⚠${NC} Morning reminder not set up"
+  fi
+  
+  if launchctl list | grep -q "com.abby.gtd.lunch"; then
+    echo -e "  ${GREEN}✓${NC} Lunch reminder active"
+  else
+    echo -e "  ${YELLOW}⚠${NC} Lunch reminder not set up"
+  fi
+  
+  if launchctl list | grep -q "com.abby.gtd.daily"; then
+    echo -e "  ${GREEN}✓${NC} Evening reminder active"
+  else
+    echo -e "  ${YELLOW}⚠${NC} Evening reminder not set up"
+  fi
+  
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Common problems
+common_problems() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🆘 Common Problems & Solutions${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${BOLD}Problem: Inbox is piling up${NC}"
+  echo "Solution:"
+  echo -e "  ${GREEN}gtd-process --all${NC}"
+  echo "  Then commit to processing daily"
+  echo ""
+  echo -e "${BOLD}Problem: Forgot to review${NC}"
+  echo "Solution:"
+  echo -e "  ${GREEN}gtd-review weekly${NC}"
+  echo -e "  ${GREEN}gtd-setup-weekly-reminder${NC}"
+  echo ""
+  echo -e "${BOLD}Problem: Not logging regularly${NC}"
+  echo "Solution:"
+  echo "  Mistress Louiza will remind you!"
+  echo -e "  ${GREEN}gtd-setup-all-reminders${NC}"
+  echo ""
+  echo -e "${BOLD}Problem: Don't know what command to use${NC}"
+  echo "Solution:"
+  echo -e "  ${GREEN}gtd-help${NC} - Interactive help"
+  echo -e "  ${GREEN}gtd-help 6${NC} - Command discovery"
+  echo ""
+  echo -e "${BOLD}Problem: System feels overwhelming${NC}"
+  echo "Solution:"
+  echo "  Start simple:"
+  echo "  1. Use gtd-capture"
+  echo "  2. Process inbox daily"
+  echo "  3. Log with addInfoToDailyLog"
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Mistress Louiza guide
+louiza_guide() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}👑 Mistress Louiza's Guide${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Mistress Louiza is your accountability partner. She:"
+  echo ""
+  echo -e "${GREEN}✓${NC} Monitors your progress 3 times daily"
+  echo -e "${GREEN}✓${NC} Scolds you when you don't log"
+  echo -e "${GREEN}✓${NC} Assigns punishments for failures"
+  echo -e "${GREEN}✓${NC} Reminds you how to use GTD"
+  echo -e "${GREEN}✓${NC} Praises you when you do well"
+  echo ""
+  echo "She sends reminders at:"
+  echo "  🌅 8:00 AM - Morning motivation"
+  echo "  🍽️ 12:30 PM - Lunch check-in"
+  echo "  🌙 6:00 PM - Evening review"
+  echo ""
+  echo "To set up reminders:"
+  echo -e "  ${GREEN}gtd-setup-all-reminders${NC}"
+  echo ""
+  echo "To test reminders:"
+  echo -e "  ${GREEN}gtd-morning-reminder --force${NC}"
+  echo -e "  ${GREEN}gtd-lunch-reminder --force${NC}"
+  echo -e "  ${GREEN}gtd-daily-reminder --force${NC}"
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Main loop
+main() {
+  while true; do
+    show_menu
+    read choice
+    
+    case "$choice" in
+      1) quick_start ;;
+      2) command_reference ;;
+      3) example_workflows ;;
+      4) daily_tips ;;
+      5) interactive_tutorial ;;
+      6) command_discovery ;;
+      7) command_help ;;
+      8) system_status ;;
+      9) common_problems ;;
+      10) louiza_guide ;;
+      11) 
+        clear
+        echo "Launching GTD Learning with Mistress Louiza..."
+        echo ""
+        "$(dirname "$0")/gtd-learn"
+        ;;
+      0) 
+        clear
+        echo "Goodbye! Use 'gtd-help' anytime you need help."
+        exit 0
+        ;;
+      *)
+        echo "Invalid choice. Press Enter..."
+        read
+        ;;
+    esac
+  done
+}
+
+# Allow direct access to menu items
+if [[ -n "$1" ]]; then
+  case "$1" in
+    1) quick_start ;;
+    2) command_reference ;;
+    3) example_workflows ;;
+    4) daily_tips ;;
+    5) interactive_tutorial ;;
+    6) command_discovery ;;
+    7) command_help ;;
+    8) system_status ;;
+    9) common_problems ;;
+    10) louiza_guide ;;
+    11) "$(dirname "$0")/gtd-learn" ;;
+    *) main ;;
+  esac
+else
+  main
+fi
+

@@ -1,0 +1,269 @@
+#!/bin/bash
+# GTD Second Brain Discovery - Find connections and insights across your knowledge base
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/Second Brain}"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+
+# Find all notes with a specific tag
+find_by_tag() {
+  local tag="$1"
+  local search_tag="#${tag#\#}"  # Ensure it starts with #
+  
+  echo "🔍 Finding notes with tag: $search_tag"
+  echo ""
+  
+  find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) -exec grep -l "$search_tag" {} \; 2>/dev/null | while read -r note; do
+    local title=$(head -1 "$note" 2>/dev/null | sed 's/# //')
+    echo "  → $title"
+    echo "    $note"
+    echo ""
+  done
+}
+
+# Find orphaned notes (no links to/from)
+find_orphans() {
+  echo "🔍 Finding orphaned notes (no connections)..."
+  echo ""
+  
+  find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) 2>/dev/null | while read -r note; do
+    # Check if note has any links ([[link]] or [text](link))
+    if ! grep -qE '\[\[.*\]\]|\[.*\]\(.*\)' "$note" 2>/dev/null; then
+      local title=$(head -1 "$note" 2>/dev/null | sed 's/# //')
+      echo "  → $title"
+      echo "    $note"
+      echo ""
+    fi
+  done
+}
+
+# Find notes with similar content
+find_similar() {
+  local note_path="$1"
+  local threshold="${2:-3}"  # Minimum matching words
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  echo "🔍 Finding notes similar to: $(basename "$note_path")"
+  echo ""
+  
+  # Extract key words from the note (excluding common words)
+  local key_words=$(grep -oE '\b[a-zA-Z]{4,}\b' "$note_path" | sort | uniq -c | sort -rn | head -20 | awk '{print $2}')
+  
+  local matches_found=0
+  find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) ! -path "$note_path" 2>/dev/null | while read -r other_note; do
+    local match_count=0
+    for word in $key_words; do
+      if grep -qi "\b$word\b" "$other_note" 2>/dev/null; then
+        ((match_count++))
+      fi
+    done
+    
+    if [[ $match_count -ge $threshold ]]; then
+      local title=$(head -1 "$other_note" 2>/dev/null | sed 's/# //')
+      echo "  → $title ($match_count matching terms)"
+      echo "    $other_note"
+      echo ""
+      ((matches_found++))
+    fi
+  done
+  
+  if [[ $matches_found -eq 0 ]]; then
+    echo "  No similar notes found (threshold: $threshold matching terms)"
+  fi
+}
+
+# Find notes by date range
+find_by_date() {
+  local start_date="${1:-}"
+  local end_date="${2:-}"
+  
+  echo "🔍 Finding notes by date..."
+  echo ""
+  
+  if [[ -z "$start_date" ]]; then
+    echo "Usage: gtd-brain-discover date <start-date> [end-date]"
+    echo "Dates format: YYYY-MM-DD"
+    return 1
+  fi
+  
+  find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) 2>/dev/null | while read -r note; do
+    # Try to extract date from file (created date, modified date, or content)
+    local file_date=$(stat -f "%Sm" -t "%Y-%m-%d" "$note" 2>/dev/null || stat -c "%y" "$note" 2>/dev/null | cut -d' ' -f1)
+    local content_date=$(grep -iE "created|date" "$note" 2>/dev/null | head -1 | grep -oE "[0-9]{4}-[0-9]{2}-[0-9]{2}" | head -1)
+    
+    local note_date="${content_date:-$file_date}"
+    
+    if [[ -n "$note_date" ]]; then
+      # Compare dates (YYYY-MM-DD format allows string comparison)
+      if [[ "$note_date" > "$start_date" || "$note_date" == "$start_date" ]]; then
+        if [[ -z "$end_date" || "$note_date" < "$end_date" || "$note_date" == "$end_date" ]]; then
+          local title=$(head -1 "$note" 2>/dev/null | sed 's/# //')
+          echo "  → $title ($note_date)"
+          echo "    $note"
+          echo ""
+        fi
+      fi
+    fi
+  done
+}
+
+# Show connection graph for a note
+show_connections() {
+  local note_path="$1"
+  
+  if [[ ! -f "$note_path" ]]; then
+    echo "❌ Note not found: $note_path"
+    return 1
+  fi
+  
+  echo "🔗 Connection graph for: $(basename "$note_path")"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Find outgoing links
+  local outgoing=$(grep -oE '\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^\)]+)\)' "$note_path" 2>/dev/null)
+  if [[ -n "$outgoing" ]]; then
+    echo "Outgoing links:"
+    echo "$outgoing" | sed 's/^/  → /'
+    echo ""
+  fi
+  
+  # Find incoming links (notes that link to this one)
+  local note_name=$(basename "$note_path" .md)
+  local note_dir=$(dirname "$note_path")
+  local incoming=$(find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) ! -path "$note_path" -exec grep -l "$note_name\|$(basename "$note_path")" {} \; 2>/dev/null)
+  
+  if [[ -n "$incoming" ]]; then
+    echo "Incoming links (notes linking to this):"
+    echo "$incoming" | while read -r link_note; do
+      local title=$(head -1 "$link_note" 2>/dev/null | sed 's/# //')
+      echo "  ← $title"
+      echo "    $link_note"
+    done
+    echo ""
+  fi
+  
+  # Find related by tags
+  local tags=$(grep -oE '#[a-zA-Z0-9_-]+' "$note_path" 2>/dev/null | head -5)
+  if [[ -n "$tags" ]]; then
+    echo "Related notes (by tags):"
+    for tag in $tags; do
+      local tag_name="${tag#\#}"
+      find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) ! -path "$note_path" -exec grep -l "$tag" {} \; 2>/dev/null | head -3 | while read -r related; do
+        local title=$(head -1 "$related" 2>/dev/null | sed 's/# //')
+        echo "  → $title ($tag)"
+      done
+    done
+  fi
+}
+
+# Show statistics
+show_stats() {
+  echo "📊 Second Brain Statistics"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  for category in Projects Areas Resources Archives; do
+    local count=$(find "$SECOND_BRAIN/$category" -type f \( -name "*.md" -o -name "*.txt" \) 2>/dev/null | wc -l | tr -d ' ')
+    local total_size=$(find "$SECOND_BRAIN/$category" -type f \( -name "*.md" -o -name "*.txt" \) -exec du -ch {} + 2>/dev/null | tail -1 | awk '{print $1}')
+    echo "$category:"
+    echo "  Notes: $count"
+    echo "  Size: $total_size"
+    echo ""
+  done
+  
+  # Count total links
+  local total_links=$(find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) -exec grep -oE '\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^\)]+)\)' {} \; 2>/dev/null | wc -l | tr -d ' ')
+  echo "Total links: $total_links"
+  echo ""
+  
+  # Count total tags
+  local total_tags=$(find "$SECOND_BRAIN" -type f \( -name "*.md" -o -name "*.txt" \) -exec grep -oE '#[a-zA-Z0-9_-]+' {} \; 2>/dev/null | sort | uniq | wc -l | tr -d ' ')
+  echo "Unique tags: $total_tags"
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-brain-discover <command> [options]
+
+Commands:
+  tag <tag>              Find all notes with a specific tag
+  orphan                 Find orphaned notes (no connections)
+  similar <note> [n]     Find notes similar to a note (n = min matching terms, default: 3)
+  date <start> [end]     Find notes by date range (YYYY-MM-DD)
+  connections <note>     Show connection graph for a note
+  stats                  Show Second Brain statistics
+
+Examples:
+  gtd-brain-discover tag productivity
+  gtd-brain-discover orphan
+  gtd-brain-discover similar ~/Documents/Second\ Brain/Resources/note.md
+  gtd-brain-discover date 2025-01-01 2025-12-31
+  gtd-brain-discover connections ~/Documents/Second\ Brain/Projects/myproject.md
+  gtd-brain-discover stats
+
+EOF
+}
+
+# Main command handler
+case "$1" in
+  tag)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Tag required"
+      show_usage
+      exit 1
+    fi
+    find_by_tag "$2"
+    ;;
+  orphan)
+    find_orphans
+    ;;
+  similar)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Note path required"
+      show_usage
+      exit 1
+    fi
+    find_similar "$2" "${3:-3}"
+    ;;
+  date)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Start date required"
+      show_usage
+      exit 1
+    fi
+    find_by_date "$2" "$3"
+    ;;
+  connections)
+    if [[ -z "$2" ]]; then
+      echo "❌ Error: Note path required"
+      show_usage
+      exit 1
+    fi
+    show_connections "$2"
+    ;;
+  stats)
+    show_stats
+    ;;
+  *)
+    show_usage
+    exit 1
+    ;;
+esac
+

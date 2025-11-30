@@ -20,6 +20,7 @@ GTD_AREAS_DIR="${GTD_AREAS_DIR:-2-areas}"
 GTD_WAITING_DIR="${GTD_WAITING_DIR:-5-waiting-for}"
 GTD_SOMEDAY_DIR="${GTD_SOMEDAY_DIR:-4-someday-maybe}"
 GTD_WEEKLY_REVIEWS_DIR="${GTD_WEEKLY_REVIEWS_DIR:-weekly-reviews}"
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
 
 INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR}"
 PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR}"
@@ -212,6 +213,110 @@ weekly_review() {
   read -p "   " areas_attention
   echo ""
   
+  # Area Review Section
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🎯 Area Review - Are Your Areas Still Relevant?"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # List all areas
+  local areas=($(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null))
+  local area_count=${#areas[@]}
+  
+  if [[ $area_count -gt 0 ]]; then
+    echo "You have ${area_count} area(s) of responsibility:"
+    echo ""
+    
+    for area_file in "${areas[@]}"; do
+      local area_name=$(basename "$area_file" .md | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      local last_review=$(grep "^## Review -" "$area_file" 2>/dev/null | tail -1 | sed 's/^## Review - //' || echo "Never")
+      local status=$(grep "^status:" "$area_file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
+      
+      echo "  • ${area_name} (status: ${status}, last reviewed: ${last_review})"
+    done
+    echo ""
+    
+    echo "For each area, consider:"
+    echo "  - Is it still relevant to your life?"
+    echo "  - Does it need regular attention?"
+    echo "  - Should it be archived or merged?"
+    echo ""
+    
+    read -p "Review areas now? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      gtd-area review-all
+    fi
+    echo ""
+  else
+    echo "No areas defined yet."
+    echo ""
+    read -p "Would you like to create starter areas? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      gtd-area-starter
+    fi
+    echo ""
+  fi
+  
+  # Ask about new areas
+  echo "7. Are there new areas of responsibility you need to add?"
+  read -p "   " new_areas
+  echo ""
+  
+  if [[ -n "$new_areas" && "$new_areas" != "none" && "$new_areas" != "no" ]]; then
+    read -p "Create these areas now? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      echo ""
+      echo "You can create areas with:"
+      echo "  gtd-area create \"Area Name\""
+      echo "  gtd-area-starter  (for starter areas)"
+      echo ""
+    fi
+  fi
+  echo ""
+  
+  # Second Brain Review
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🧠 Second Brain Review"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Count Second Brain notes
+  local second_brain="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+  local brain_notes=0
+  local brain_projects=0
+  local brain_resources=0
+  
+  if [[ -d "$second_brain" ]]; then
+    brain_notes=$(find "$second_brain" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/MOCs/*" ! -path "*/.obsidian/*" ! -path "*/Express/*" 2>/dev/null | wc -l | tr -d ' ')
+    brain_projects=$(find "$second_brain/Projects" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+    brain_resources=$(find "$second_brain/Resources" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  echo "📊 Second Brain Stats:"
+  echo "   Total notes: ${brain_notes}"
+  echo "   Project notes: ${brain_projects}"
+  echo "   Resource notes: ${brain_resources}"
+  echo ""
+  
+  echo "8. What Second Brain notes need refinement or summarization?"
+  read -p "   " brain_refine
+  echo ""
+  
+  echo "9. What notes should I review for connections?"
+  read -p "   " brain_connections
+  echo ""
+  
+  echo "10. What MOCs need updating?"
+  read -p "   " brain_mocs
+  echo ""
+  
+  echo "11. What content can I create from my notes? (Express phase)"
+  read -p "   " brain_express
+  echo ""
+  
   # Save review
   local review_file="${WEEKLY_REVIEWS_PATH}/weekly-${TODAY}.md"
   cat > "$review_file" <<EOF
@@ -243,10 +348,30 @@ ${someday_activate}
 ## Areas of Responsibility
 ${areas_attention}
 
+## New Areas to Consider
+${new_areas}
+
+## Second Brain Review
+
+### Notes Needing Refinement
+${brain_refine}
+
+### Notes to Review for Connections
+${brain_connections}
+
+### MOCs to Update
+${brain_mocs}
+
+### Content to Create (Express Phase)
+${brain_express}
+
 ## Stats
 - Inbox items: ${inbox_count}
 - Active projects: ${active_projects}
 - Waiting for: ${waiting_count}
+- Second Brain notes: ${brain_notes}
+  - Project notes: ${brain_projects}
+  - Resource notes: ${brain_resources}
 
 EOF
   
@@ -341,6 +466,772 @@ EOF
   echo "✓ Review added to project: $project_name"
 }
 
+# Monthly review
+monthly_review() {
+  local month_start=$(date -v1d +"%Y-%m-%d" 2>/dev/null || date -d "first day of this month" +"%Y-%m-%d" 2>/dev/null || date +"%Y-%m-%d")
+  local month_end=$(date -v1d -v+1m -v-1d +"%Y-%m-%d" 2>/dev/null || date -d "last day of this month" +"%Y-%m-%d" 2>/dev/null || date +"%Y-%m-%d")
+  local month_name=$(date +"%B %Y" 2>/dev/null || echo "This Month")
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📅 Monthly Review - $month_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "This is a comprehensive monthly review (2-3 hours recommended)."
+  echo ""
+  echo "See the Monthly Review Guide for detailed tasks:"
+  echo "  zsh/MONTHLY_REVIEW_TASKS_GUIDE.md"
+  echo ""
+  
+  # Phase 1: System Cleanup
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🧹 Phase 1: System Cleanup (30-45 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "1. Archive Completed Projects"
+  local projects=($(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null))
+  local completed_count=0
+  for project_dir in "${projects[@]}"; do
+    local readme="${project_dir}/README.md"
+    if [[ -f "$readme" ]]; then
+      local status=$(grep "^status:" "$readme" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+      if [[ "$status" == "done" || "$status" == "completed" ]]; then
+        ((completed_count++))
+      fi
+    fi
+  done
+  
+  if [[ $completed_count -gt 0 ]]; then
+    echo "   Found $completed_count completed project(s)"
+    read -p "   Review and archive completed projects? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      gtd-project list
+      echo ""
+      echo "Archive projects with: gtd-project archive \"project-name\""
+    fi
+  else
+    echo "   No completed projects to archive"
+  fi
+  echo ""
+  
+  echo "2. Archive Completed Tasks"
+  local completed_tasks=$(find "$TASKS_PATH" -type f -name "*.md" -exec grep -l "^status: done" {} \; 2>/dev/null | wc -l | tr -d ' ')
+  if [[ $completed_tasks -gt 0 ]]; then
+    echo "   Found $completed_tasks completed task(s)"
+    read -p "   Review completed tasks? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      gtd-task list --status=done 2>/dev/null || echo "   Use: gtd-task list to see tasks"
+    fi
+  else
+    echo "   No completed tasks to archive"
+  fi
+  echo ""
+  
+  echo "3. Review and Clean Inbox"
+  local inbox_count=$(count_items "$INBOX_PATH")
+  if [[ $inbox_count -gt 0 ]]; then
+    echo "   Inbox has $inbox_count item(s)"
+    read -p "   Process inbox now? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      gtd-process --all
+    fi
+  else
+    echo "   Inbox is empty ✓"
+  fi
+  echo ""
+  
+  # Phase 2: Strategic Assessment
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🎯 Phase 2: Strategic Assessment (45-60 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "4. Comprehensive Project Review"
+  read -p "   Review all projects? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-project list
+    echo ""
+    echo "For each project, consider:"
+    echo "  - Is it still relevant?"
+    echo "  - Is it making progress?"
+    echo "  - Should it be on hold?"
+  fi
+  echo ""
+  
+  echo "5. Comprehensive Area Review"
+  read -p "   Review all areas? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-area review-all
+  fi
+  echo ""
+  
+  echo "6. Review Monthly Goals"
+  echo "   What goals did you achieve this month?"
+  read -p "   " goals_achieved
+  echo ""
+  echo "   What goals need more work?"
+  read -p "   " goals_need_work
+  echo ""
+  echo "   What goals should you set for next month?"
+  read -p "   " next_month_goals
+  echo ""
+  
+  echo "7. Review Habits and Routines"
+  read -p "   Review habits dashboard? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-habit dashboard
+  fi
+  echo ""
+  
+  echo "8. Review Financial Status"
+  read -p "   Complete monthly financial review? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "   Run: make gtd-wizard → 6) Review → 4) Financial review → 2) Monthly"
+  fi
+  echo ""
+  
+  # Phase 3: Pattern Recognition
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔍 Phase 3: Pattern Recognition (30-45 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "9. Review Daily Logs"
+  echo "   Review the past month's daily logs for patterns and insights."
+  read -p "   Review daily logs? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "   Use: gtd-log view to review logs"
+    echo "   Look for: patterns, insights, accomplishments"
+  fi
+  echo ""
+  
+  echo "10. Review Weekly Reviews"
+  echo "    Review all weekly reviews from the month."
+  read -p "    Review weekly reviews? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "    Weekly reviews are saved in: ${WEEKLY_REVIEWS_PATH}/"
+  fi
+  echo ""
+  
+  echo "11. Review Second Brain"
+  read -p "    Review Second Brain? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "    Commands:"
+    echo "      gtd-brain list"
+    echo "      gtd-brain-moc list"
+    echo "      gtd-brain-discover"
+  fi
+  echo ""
+  
+  echo "12. Identify Patterns and Trends"
+  echo "    What patterns do you see across the month?"
+  read -p "    " patterns
+  echo ""
+  
+  # Phase 4: Planning Ahead
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📅 Phase 4: Planning Ahead (30-45 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "13. Set Monthly Goals"
+  echo "    What are your top 3-5 goals for next month?"
+  read -p "    Goal 1: " goal1
+  read -p "    Goal 2: " goal2
+  read -p "    Goal 3: " goal3
+  echo ""
+  
+  echo "14. Plan Major Projects"
+  echo "    What major projects need attention next month?"
+  read -p "    " major_projects
+  echo ""
+  
+  echo "15. Review Calendar"
+  echo "    Review past month and plan next month's calendar."
+  read -p "    Calendar reviewed? (y/n) " -n 1 -r
+  echo
+  echo ""
+  
+  echo "16. Review and Adjust Systems"
+  echo "    Is your GTD system working well?"
+  read -p "    " system_review
+  echo ""
+  
+  # Reflection
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "💭 Monthly Reflection"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "What went well this month?"
+  read -p "   " went_well
+  echo ""
+  
+  echo "What could have gone better?"
+  read -p "   " could_improve
+  echo ""
+  
+  echo "What did you learn?"
+  read -p "   " learned
+  echo ""
+  
+  echo "What are you grateful for?"
+  read -p "   " gratitude
+  echo ""
+  
+  # Save review
+  local review_file="${WEEKLY_REVIEWS_PATH}/monthly-${TODAY}.md"
+  cat > "$review_file" <<EOF
+---
+type: monthly_review
+date: ${TODAY}
+month: ${month_name}
+month_start: ${month_start}
+month_end: ${month_end}
+created: ${TODAY}T${NOW}
+---
+
+# Monthly Review - ${month_name}
+
+## Accomplishments This Month
+${goals_achieved:-}
+
+## Goals Progress
+- Achieved: ${goals_achieved:-}
+- Needs Work: ${goals_need_work:-}
+
+## Next Month Goals
+1. ${goal1:-}
+2. ${goal2:-}
+3. ${goal3:-}
+
+## Major Projects for Next Month
+${major_projects:-}
+
+## Patterns Identified
+${patterns:-}
+
+## Reflection
+### What Went Well
+${went_well:-}
+
+### What Could Improve
+${could_improve:-}
+
+### What I Learned
+${learned:-}
+
+### Gratitude
+${gratitude:-}
+
+## System Review
+${system_review:-}
+
+EOF
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "✓ Monthly review saved to: $review_file"
+  echo ""
+  echo "📚 For detailed monthly review tasks, see:"
+  echo "   zsh/MONTHLY_REVIEW_TASKS_GUIDE.md"
+  echo ""
+}
+
+# Quarterly review
+quarterly_review() {
+  local current_month=$(date +"%m" 2>/dev/null || echo "01")
+  local current_year=$(date +"%Y" 2>/dev/null || echo "2025")
+  
+  # Determine quarter
+  local quarter=1
+  if [[ $current_month -ge 4 && $current_month -le 6 ]]; then
+    quarter=2
+  elif [[ $current_month -ge 7 && $current_month -le 9 ]]; then
+    quarter=3
+  elif [[ $current_month -ge 10 ]]; then
+    quarter=4
+  fi
+  
+  local quarter_name="Q${quarter} ${current_year}"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔄 Quarterly Review - $quarter_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "This is a comprehensive quarterly review (3-4 hours recommended)."
+  echo ""
+  echo "See the Quarterly Review Guide for detailed tasks:"
+  echo "  zsh/QUARTERLY_REVIEW_TASKS_GUIDE.md"
+  echo ""
+  
+  # Phase 1: System Audit
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🧹 Phase 1: Comprehensive System Audit (60-90 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "1. Complete System Cleanup"
+  read -p "   Clean up system? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "   Archiving completed projects and tasks..."
+    gtd-project list
+    gtd-task list
+    echo "   Use archive commands to clean up"
+  fi
+  echo ""
+  
+  echo "2. Project Portfolio Review"
+  read -p "   Review all projects? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-project list
+    echo ""
+    echo "For each project, consider:"
+    echo "  - Is it still relevant?"
+    echo "  - Should it be paused or canceled?"
+    echo "  - Does it align with goals?"
+  fi
+  echo ""
+  
+  echo "3. Area Portfolio Review"
+  read -p "   Review all areas? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-area review-all
+  fi
+  echo ""
+  
+  # Phase 2: Strategic Assessment
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🎯 Phase 2: Strategic Assessment (60-90 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "4. Quarterly Goals Review"
+  echo "   What goals did you achieve this quarter?"
+  read -p "   " goals_achieved
+  echo ""
+  echo "   What goals need more work?"
+  read -p "   " goals_need_work
+  echo ""
+  echo "   What goals should you set for next quarter?"
+  read -p "   " next_quarter_goals
+  echo ""
+  
+  echo "5. Habit System Review"
+  read -p "   Review habits? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-habit dashboard
+  fi
+  echo ""
+  
+  echo "6. Financial Review"
+  read -p "   Complete quarterly financial review? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "   Run: make gtd-wizard → 6) Review → 4) Financial review → 3) Quarterly"
+  fi
+  echo ""
+  
+  # Phase 3: Pattern Analysis
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔍 Phase 3: Pattern Analysis (45-60 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "7. Review All Daily Logs"
+  echo "   Review the entire quarter's daily logs for patterns."
+  read -p "   Review daily logs? (y/n) " -n 1 -r
+  echo
+  echo ""
+  
+  echo "8. Review All Weekly and Monthly Reviews"
+  echo "   Review all reviews from the quarter."
+  read -p "   Review reviews? (y/n) " -n 1 -r
+  echo
+  echo ""
+  
+  echo "9. Second Brain Comprehensive Review"
+  read -p "   Review Second Brain? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "   Commands:"
+    echo "     gtd-brain list"
+    echo "     gtd-brain-moc list"
+    echo "     gtd-brain-discover"
+  fi
+  echo ""
+  
+  echo "10. Identify Major Patterns"
+  echo "     What major patterns do you see across the quarter?"
+  read -p "     " patterns
+  echo ""
+  
+  # Phase 4: Strategic Planning
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📅 Phase 4: Strategic Planning (60-90 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "11. Set Quarterly Goals"
+  echo "     What are your top 3-5 goals for next quarter?"
+  echo "     (If unsure, focus on what you're already doing or what needs attention)"
+  read -p "     Goal 1: " goal1
+  read -p "     Goal 2: " goal2
+  read -p "     Goal 3: " goal3
+  echo ""
+  
+  echo "12. Plan Major Projects"
+  echo "     What major projects need attention next quarter?"
+  read -p "     " major_projects
+  echo ""
+  
+  echo "13. Review and Adjust Systems"
+  echo "     Is your GTD system working well?"
+  read -p "     " system_review
+  echo ""
+  
+  # Reflection
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "💭 Quarterly Reflection"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "What went well this quarter?"
+  read -p "   " went_well
+  echo ""
+  
+  echo "What could have gone better?"
+  read -p "   " could_improve
+  echo ""
+  
+  echo "What did you learn?"
+  read -p "   " learned
+  echo ""
+  
+  echo "What are you grateful for?"
+  read -p "   " gratitude
+  echo ""
+  
+  # Save review
+  local review_file="${WEEKLY_REVIEWS_PATH}/quarterly-${TODAY}.md"
+  cat > "$review_file" <<EOF
+---
+type: quarterly_review
+date: ${TODAY}
+quarter: ${quarter_name}
+created: ${TODAY}T${NOW}
+---
+
+# Quarterly Review - ${quarter_name}
+
+## Accomplishments This Quarter
+${goals_achieved:-}
+
+## Goals Progress
+- Achieved: ${goals_achieved:-}
+- Needs Work: ${goals_need_work:-}
+
+## Next Quarter Goals
+1. ${goal1:-}
+2. ${goal2:-}
+3. ${goal3:-}
+
+## Major Projects for Next Quarter
+${major_projects:-}
+
+## Patterns Identified
+${patterns:-}
+
+## Reflection
+### What Went Well
+${went_well:-}
+
+### What Could Improve
+${could_improve:-}
+
+### What I Learned
+${learned:-}
+
+### Gratitude
+${gratitude:-}
+
+## System Review
+${system_review:-}
+
+EOF
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "✓ Quarterly review saved to: $review_file"
+  echo ""
+  echo "📚 For detailed quarterly review tasks, see:"
+  echo "   zsh/QUARTERLY_REVIEW_TASKS_GUIDE.md"
+  echo ""
+}
+
+# Yearly review
+yearly_review() {
+  local current_year=$(date +"%Y" 2>/dev/null || echo "2025")
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📆 Yearly Review - ${current_year}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "This is a comprehensive yearly review (4-6 hours recommended)."
+  echo "You can split this over multiple days if needed."
+  echo ""
+  echo "See the Yearly Review Guide for detailed tasks:"
+  echo "  zsh/YEARLY_REVIEW_TASKS_GUIDE.md"
+  echo ""
+  
+  # Phase 1: Year-End Assessment
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Phase 1: Year-End Assessment (90-120 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "1. Complete Year-End System Cleanup"
+  read -p "   Clean up entire system? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "   Archiving all completed items..."
+    gtd-project list
+    gtd-task list
+    echo "   Use archive commands to clean up"
+  fi
+  echo ""
+  
+  echo "2. Annual Project Review"
+  read -p "   Review all projects from the year? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-project list
+    echo ""
+    echo "List completed projects and assess success"
+  fi
+  echo ""
+  
+  echo "3. Annual Area Review"
+  read -p "   Review all areas comprehensively? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-area review-all
+  fi
+  echo ""
+  
+  # Phase 2: Year-End Analysis
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🎯 Phase 2: Year-End Analysis (90-120 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "4. Annual Goals Review"
+  echo "   What were your biggest accomplishments this year?"
+  read -p "   " accomplishments
+  echo ""
+  echo "   What goals did you achieve?"
+  read -p "   " goals_achieved
+  echo ""
+  echo "   What goals did you miss?"
+  read -p "   " goals_missed
+  echo ""
+  
+  echo "5. Annual Financial Review"
+  read -p "   Complete annual financial review? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "   Run: make gtd-wizard → 6) Review → 4) Financial review → 4) Annual"
+  fi
+  echo ""
+  
+  echo "6. Annual Habit Review"
+  read -p "   Review all habits? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-habit dashboard
+    echo ""
+    echo "Review habit consistency and effectiveness"
+  fi
+  echo ""
+  
+  # Phase 3: Year-End Reflection
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🔍 Phase 3: Year-End Reflection (60-90 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "7. Review All Daily Logs"
+  echo "   Review the entire year's daily logs for patterns."
+  read -p "   Review daily logs? (y/n) " -n 1 -r
+  echo
+  echo ""
+  
+  echo "8. Review All Reviews"
+  echo "   Review all weekly, monthly, and quarterly reviews."
+  read -p "   Review reviews? (y/n) " -n 1 -r
+  echo
+  echo ""
+  
+  echo "9. Second Brain Annual Review"
+  read -p "   Review Second Brain comprehensively? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "   Commands:"
+    echo "     gtd-brain list"
+    echo "     gtd-brain-moc list"
+    echo "     gtd-brain-discover"
+    echo "     gtd-brain-metrics"
+  fi
+  echo ""
+  
+  echo "10. Identify Major Annual Patterns"
+  echo "     What major patterns do you see across the year?"
+  read -p "     " patterns
+  echo ""
+  
+  # Phase 4: Year-Ahead Planning
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📅 Phase 4: Year-Ahead Planning (90-120 min)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "11. Set Annual Goals"
+  echo "     What are your top 3-5 goals for next year?"
+  echo "     (If you don't have clear goals, that's okay! Start with what matters now.)"
+  read -p "     Goal 1: " goal1
+  read -p "     Goal 2: " goal2
+  read -p "     Goal 3: " goal3
+  if [[ -z "$goal1" && -z "$goal2" && -z "$goal3" ]]; then
+    goal1="Use reviews to discover what matters"
+    goal2="Build on what's working"
+    goal3="Learn what I want to focus on"
+    echo ""
+    echo "     💡 That's perfectly fine! Your GTD system will help you discover goals."
+    echo "     See: zsh/LIFE_VISION_DISCOVERY_GUIDE.md for guidance."
+  fi
+  echo ""
+  
+  echo "12. Plan Major Annual Projects"
+  echo "     What major projects need attention next year?"
+  read -p "     " major_projects
+  echo ""
+  
+  echo "13. Review and Redesign Systems"
+  echo "     Is your GTD system working well? What major improvements?"
+  read -p "     " system_review
+  echo ""
+  
+  echo "14. Life Vision and Balance"
+  echo "     What's your vision for next year?"
+  echo "     (If you don't have one, that's okay! See: zsh/LIFE_VISION_DISCOVERY_GUIDE.md)"
+  read -p "     " vision
+  if [[ -z "$vision" ]]; then
+    vision="No specific vision yet - using reviews to discover what matters"
+    echo ""
+    echo "     💡 Tip: Your GTD system will help you discover your vision over time."
+    echo "     Review your daily logs, projects, and areas to see what matters to you."
+  fi
+  echo ""
+  
+  # Reflection
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "💭 Annual Reflection"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo "What went well this year?"
+  read -p "   " went_well
+  echo ""
+  
+  echo "What could have gone better?"
+  read -p "   " could_improve
+  echo ""
+  
+  echo "What did you learn?"
+  read -p "   " learned
+  echo ""
+  
+  echo "What are you grateful for?"
+  read -p "   " gratitude
+  echo ""
+  
+  # Save review
+  local review_file="${WEEKLY_REVIEWS_PATH}/yearly-${current_year}.md"
+  cat > "$review_file" <<EOF
+---
+type: yearly_review
+date: ${TODAY}
+year: ${current_year}
+created: ${TODAY}T${NOW}
+---
+
+# Yearly Review - ${current_year}
+
+## Major Accomplishments
+${accomplishments:-}
+
+## Goals Achievement
+- Achieved: ${goals_achieved:-}
+- Missed: ${goals_missed:-}
+
+## Next Year Goals
+1. ${goal1:-}
+2. ${goal2:-}
+3. ${goal3:-}
+
+## Major Projects for Next Year
+${major_projects:-}
+
+## Patterns Identified
+${patterns:-}
+
+## Life Vision
+${vision:-}
+
+## Reflection
+### What Went Well
+${went_well:-}
+
+### What Could Improve
+${could_improve:-}
+
+### What I Learned
+${learned:-}
+
+### Gratitude
+${gratitude:-}
+
+## System Review
+${system_review:-}
+
+EOF
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "✓ Yearly review saved to: $review_file"
+  echo ""
+  echo "📚 For detailed yearly review tasks, see:"
+  echo "   zsh/YEARLY_REVIEW_TASKS_GUIDE.md"
+  echo ""
+}
+
 # Main
 main() {
   case "$1" in
@@ -349,6 +1240,15 @@ main() {
       ;;
     weekly)
       weekly_review
+      ;;
+    monthly)
+      monthly_review
+      ;;
+    quarterly)
+      quarterly_review
+      ;;
+    yearly|annual)
+      yearly_review
       ;;
     project)
       shift
@@ -360,11 +1260,17 @@ main() {
       echo "Types:"
       echo "  daily                    Daily review"
       echo "  weekly                   Weekly review"
+      echo "  monthly                  Monthly review"
+      echo "  quarterly                Quarterly review"
+      echo "  yearly|annual            Yearly review"
       echo "  project <name>           Review specific project"
       echo ""
       echo "Examples:"
       echo "  gtd-review daily"
       echo "  gtd-review weekly"
+      echo "  gtd-review monthly"
+      echo "  gtd-review quarterly"
+      echo "  gtd-review yearly"
       echo "  gtd-review project website-redesign"
       exit 0
       ;;

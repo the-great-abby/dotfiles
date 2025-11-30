@@ -1,0 +1,511 @@
+#!/bin/bash
+# GTD Habit Tracker - Track recurring tasks and habits
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Default values
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+HABITS_PATH="${GTD_BASE_DIR}/habits"
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+TASKS_PATH="${GTD_BASE_DIR}/tasks"
+
+mkdir -p "$HABITS_PATH"
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+TODAY=$($DATE_CMD +"%Y-%m-%d")
+NOW=$($DATE_CMD +"%H:%M")
+
+# Create a habit
+create_habit() {
+  local habit_name="$*"
+  
+  if [[ -z "$habit_name" ]]; then
+    read -p "Habit name: " habit_name
+  fi
+  
+  if [[ -z "$habit_name" ]]; then
+    echo "❌ Habit name required"
+    return 1
+  fi
+  
+  local habit_slug=$(echo "$habit_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+  local habit_file="${HABITS_PATH}/${habit_slug}.md"
+  
+  if [[ -f "$habit_file" ]]; then
+    echo "⚠️  Habit already exists: $habit_name"
+    return 1
+  fi
+  
+  echo ""
+  echo "Creating habit: $habit_name"
+  echo ""
+  
+  # Get habit details
+  read -p "Description: " description
+  echo ""
+  echo "Frequency:"
+  echo "  1) Daily"
+  echo "  2) Weekly"
+  echo "  3) Monthly"
+  echo "  4) Custom (e.g., every 3 days)"
+  echo ""
+  read -p "Choose (1-4): " freq_choice
+  
+  local frequency=""
+  case "$freq_choice" in
+    1) frequency="daily" ;;
+    2) frequency="weekly" ;;
+    3) frequency="monthly" ;;
+    4)
+      read -p "Custom frequency (e.g., 'every 3 days', 'weekdays'): " frequency
+      ;;
+    *) frequency="daily" ;;
+  esac
+  
+  echo ""
+  read -p "Area of responsibility (optional): " area
+  echo ""
+  read -p "Context (home/office/computer/phone/errands, optional): " context
+  echo ""
+  read -p "Time of day (optional, e.g., 'morning', 'evening'): " time_of_day
+  
+  # Create habit file
+  cat > "$habit_file" <<EOF
+---
+type: habit
+name: ${habit_name}
+frequency: ${frequency}
+status: active
+created: ${TODAY}T${NOW}
+area: ${area:-}
+context: ${context:-}
+time_of_day: ${time_of_day:-}
+streak: 0
+longest_streak: 0
+total_completions: 0
+last_completed: 
+---
+
+# ${habit_name}
+
+## Description
+${description:-}
+
+## Frequency
+${frequency}
+
+## Tracking
+- Streak: 0 days
+- Longest streak: 0 days
+- Total completions: 0
+- Last completed: Never
+
+## Notes
+
+EOF
+  
+  echo "✓ Habit created: $habit_name"
+  echo ""
+  echo "💡 Track completion with: gtd-habit complete \"$habit_name\""
+  echo "   Or: gtd-habit log \"$habit_name\""
+}
+
+# Log habit completion
+log_habit() {
+  local habit_name="$*"
+  
+  if [[ -z "$habit_name" ]]; then
+    echo "Usage: gtd-habit log <habit-name>"
+    echo "   Or: gtd-habit complete <habit-name>"
+    exit 1
+  fi
+  
+  local habit_slug=$(echo "$habit_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+  local habit_file="${HABITS_PATH}/${habit_slug}.md"
+  
+  if [[ ! -f "$habit_file" ]]; then
+    echo "❌ Habit not found: $habit_name"
+    echo ""
+    echo "Available habits:"
+    list_habits
+    return 1
+  fi
+  
+  # Update habit file
+  local current_streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+  local longest_streak=$(grep "^longest_streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+  local total_completions=$(grep "^total_completions:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+  local last_completed=$(grep "^last_completed:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+  
+  # Check if already completed today
+  if [[ "$last_completed" == "$TODAY" ]]; then
+    echo "✓ Already logged for today: $habit_name"
+    return 0
+  fi
+  
+  # Calculate new streak
+  local new_streak=1
+  if [[ -n "$last_completed" ]]; then
+    # Check if last completion was yesterday (for daily habits)
+    local yesterday=$($DATE_CMD -v-1d +"%Y-%m-%d" 2>/dev/null || $DATE_CMD -d "yesterday" +"%Y-%m-%d" 2>/dev/null || echo "")
+    if [[ "$last_completed" == "$yesterday" ]]; then
+      new_streak=$((current_streak + 1))
+    fi
+  fi
+  
+  local new_total=$((total_completions + 1))
+  local new_longest=$longest_streak
+  if [[ $new_streak -gt $longest_streak ]]; then
+    new_longest=$new_streak
+  fi
+  
+  # Update habit file
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "s/^streak:.*/streak: ${new_streak}/" "$habit_file"
+    sed -i '' "s/^longest_streak:.*/longest_streak: ${new_longest}/" "$habit_file"
+    sed -i '' "s/^total_completions:.*/total_completions: ${new_total}/" "$habit_file"
+    sed -i '' "s/^last_completed:.*/last_completed: ${TODAY}/" "$habit_file"
+  else
+    sed -i "s/^streak:.*/streak: ${new_streak}/" "$habit_file"
+    sed -i "s/^longest_streak:.*/longest_streak: ${new_longest}/" "$habit_file"
+    sed -i "s/^total_completions:.*/total_completions: ${new_total}/" "$habit_file"
+    sed -i "s/^last_completed:.*/last_completed: ${TODAY}/" "$habit_file"
+  fi
+  
+  # Add to tracking section
+  cat >> "$habit_file" <<EOF
+
+## Completion - ${TODAY} ${NOW}
+Completed successfully.
+
+EOF
+  
+  # Log to daily log
+  local area=$(grep "^area:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+  if [[ -n "$area" ]]; then
+    addInfoToDailyLog "Completed habit: $habit_name (${area} area)" 2>/dev/null || true
+  else
+    addInfoToDailyLog "Completed habit: $habit_name" 2>/dev/null || true
+  fi
+  
+  echo "✓ Logged: $habit_name"
+  echo "  Streak: ${new_streak} day(s)"
+  echo "  Longest streak: ${new_longest} day(s)"
+  echo "  Total completions: ${new_total}"
+  echo ""
+  
+  # Celebrate milestones
+  if [[ $new_streak -eq 7 ]]; then
+    echo "🎉 7-day streak! Keep it up!"
+  elif [[ $new_streak -eq 30 ]]; then
+    echo "🎉🎉 30-day streak! Amazing!"
+  elif [[ $new_streak -eq 100 ]]; then
+    echo "🎉🎉🎉 100-day streak! Incredible!"
+  fi
+}
+
+# List all habits
+list_habits() {
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📊 Your Habits${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  local habits=($(find "$HABITS_PATH" -type f -name "*.md" 2>/dev/null | sort))
+  local habit_count=${#habits[@]}
+  
+  if [[ $habit_count -eq 0 ]]; then
+    echo "No habits defined yet."
+    echo ""
+    echo "Create one with: gtd-habit create \"Habit Name\""
+    return 0
+  fi
+  
+  for habit_file in "${habits[@]}"; do
+    local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
+    local frequency=$(grep "^frequency:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "unknown")
+    local streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+    local longest=$(grep "^longest_streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+    local total=$(grep "^total_completions:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+    local last_completed=$(grep "^last_completed:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "Never")
+    local status=$(grep "^status:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
+    
+    # Check if due today
+    local is_due=""
+    if [[ "$last_completed" != "$TODAY" && "$status" == "active" ]]; then
+      if [[ "$frequency" == "daily" ]]; then
+        is_due="${RED}⚠️  Due today${NC}"
+      elif [[ "$frequency" == "weekly" ]]; then
+        # Check if it's been a week
+        if [[ -n "$last_completed" && "$last_completed" != "Never" ]]; then
+          local days_since=$(( ($($DATE_CMD +%s) - $($DATE_CMD -j -f "%Y-%m-%d" "$last_completed" +%s 2>/dev/null || echo 0)) / 86400 ))
+          if [[ $days_since -ge 7 ]]; then
+            is_due="${RED}⚠️  Due${NC}"
+          fi
+        fi
+      fi
+    fi
+    
+    echo -e "${BOLD}${habit_name}${NC} ${is_due}"
+    echo "  Frequency: ${frequency}"
+    echo "  Streak: ${GREEN}${streak}${NC} day(s) | Longest: ${longest} | Total: ${total}"
+    echo "  Last completed: ${last_completed}"
+    echo ""
+  done
+  
+  echo "Total: ${habit_count} habit(s)"
+  echo ""
+}
+
+# Show habit dashboard
+show_dashboard() {
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📊 Habit Dashboard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  local habits=($(find "$HABITS_PATH" -type f -name "*.md" 2>/dev/null | sort))
+  local habit_count=${#habits[@]}
+  local active_count=0
+  local due_count=0
+  local total_streaks=0
+  local total_completions=0
+  
+  if [[ $habit_count -eq 0 ]]; then
+    echo "No habits defined yet."
+    echo ""
+    echo "Create one with: gtd-habit create \"Habit Name\""
+    return 0
+  fi
+  
+  # Calculate stats
+  for habit_file in "${habits[@]}"; do
+    local status=$(grep "^status:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
+    if [[ "$status" == "active" ]]; then
+      ((active_count++))
+      
+      local last_completed=$(grep "^last_completed:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+      local frequency=$(grep "^frequency:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+      
+      if [[ "$last_completed" != "$TODAY" && "$frequency" == "daily" ]]; then
+        ((due_count++))
+      fi
+      
+      local streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+      local total=$(grep "^total_completions:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+      total_streaks=$((total_streaks + streak))
+      total_completions=$((total_completions + total))
+    fi
+  done
+  
+  echo "📊 Overall Stats:"
+  echo "  Total habits: ${habit_count}"
+  echo "  Active habits: ${active_count}"
+  echo "  Due today: ${due_count}"
+  echo "  Total streak days: ${total_streaks}"
+  echo "  Total completions: ${total_completions}"
+  echo ""
+  
+  # Show habits due today
+  if [[ $due_count -gt 0 ]]; then
+    echo -e "${YELLOW}⚠️  Habits Due Today:${NC}"
+    echo ""
+    for habit_file in "${habits[@]}"; do
+      local status=$(grep "^status:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
+      if [[ "$status" == "active" ]]; then
+        local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
+        local last_completed=$(grep "^last_completed:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+        local frequency=$(grep "^frequency:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+        
+        if [[ "$last_completed" != "$TODAY" && "$frequency" == "daily" ]]; then
+          echo "  • $habit_name"
+          echo "    Log with: gtd-habit log \"$habit_name\""
+        fi
+      fi
+    done
+    echo ""
+  fi
+  
+  # Show top streaks
+  echo -e "${GREEN}🔥 Top Streaks:${NC}"
+  echo ""
+  local top_habits=($(for habit_file in "${habits[@]}"; do
+    local streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+    local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
+    echo "${streak}|${habit_name}"
+  done | sort -t'|' -k1 -nr | head -5))
+  
+  for habit_info in "${top_habits[@]}"; do
+    local streak=$(echo "$habit_info" | cut -d'|' -f1)
+    local habit_name=$(echo "$habit_info" | cut -d'|' -f2)
+    if [[ $streak -gt 0 ]]; then
+      echo "  ${streak} days: $habit_name"
+    fi
+  done
+  echo ""
+}
+
+# View habit details
+view_habit() {
+  local habit_name="$*"
+  
+  if [[ -z "$habit_name" ]]; then
+    echo "Usage: gtd-habit view <habit-name>"
+    exit 1
+  fi
+  
+  local habit_slug=$(echo "$habit_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+  local habit_file="${HABITS_PATH}/${habit_slug}.md"
+  
+  if [[ ! -f "$habit_file" ]]; then
+    echo "❌ Habit not found: $habit_name"
+    echo ""
+    echo "Available habits:"
+    list_habits
+    return 1
+  fi
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📊 Habit: $habit_name${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  cat "$habit_file"
+  echo ""
+}
+
+# Archive habit
+archive_habit() {
+  local habit_name="$*"
+  
+  if [[ -z "$habit_name" ]]; then
+    echo "Usage: gtd-habit archive <habit-name>"
+    exit 1
+  fi
+  
+  local habit_slug=$(echo "$habit_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+  local habit_file="${HABITS_PATH}/${habit_slug}.md"
+  
+  if [[ ! -f "$habit_file" ]]; then
+    echo "❌ Habit not found: $habit_name"
+    return 1
+  fi
+  
+  # Update status
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "s/^status:.*/status: archived/" "$habit_file"
+  else
+    sed -i "s/^status:.*/status: archived/" "$habit_file"
+  fi
+  
+  echo "✓ Archived habit: $habit_name"
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-habit <command> [options]
+
+Commands:
+  create <name>              Create a new habit
+  log <name>                 Log habit completion (also: complete)
+  list|ls                    List all habits
+  dashboard                  Show habit dashboard
+  view <name>                View habit details
+  archive <name>             Archive a habit
+  help                       Show this help
+
+Examples:
+  gtd-habit create "Morning workout"
+  gtd-habit log "Morning workout"
+  gtd-habit list
+  gtd-habit dashboard
+  gtd-habit view "Morning workout"
+
+Habits are recurring tasks that you want to track over time.
+They automatically track streaks, completions, and integrate with your daily logs.
+
+EOF
+}
+
+# Main command handler
+case "${1:-}" in
+  create)
+    shift
+    create_habit "$@"
+    ;;
+  log|complete)
+    shift
+    log_habit "$@"
+    ;;
+  list|ls)
+    list_habits
+    ;;
+  dashboard)
+    show_dashboard
+    ;;
+  view)
+    shift
+    view_habit "$@"
+    ;;
+  archive)
+    shift
+    archive_habit "$@"
+    ;;
+  help|--help|-h)
+    show_usage
+    ;;
+  "")
+    show_dashboard
+    ;;
+  *)
+    echo "Unknown command: $1"
+    echo ""
+    show_usage
+    exit 1
+    ;;
+esac
+
