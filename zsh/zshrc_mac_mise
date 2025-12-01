@@ -126,7 +126,16 @@ _daily_log_command_counter() {
     local gtd_base_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
     if [[ -f "$gtd_config_file" ]]; then
       # Try to extract GTD_BASE_DIR from config (simple grep)
-      local config_base_dir=$(grep "^GTD_BASE_DIR=" "$gtd_config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+      # Use full paths to ensure commands are found even if PATH isn't set
+      local grep_cmd="/usr/bin/grep"
+      local head_cmd="/usr/bin/head"
+      local cut_cmd="/usr/bin/cut"
+      local tr_cmd="/usr/bin/tr"
+      [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+      [[ ! -f "$head_cmd" ]] && head_cmd="head"
+      [[ ! -f "$cut_cmd" ]] && cut_cmd="cut"
+      [[ ! -f "$tr_cmd" ]] && tr_cmd="tr"
+      local config_base_dir=$("$grep_cmd" "^GTD_BASE_DIR=" "$gtd_config_file" 2>/dev/null | "$head_cmd" -1 | "$cut_cmd" -d'=' -f2 | "$tr_cmd" -d '"' | "$tr_cmd" -d "'")
       if [[ -n "$config_base_dir" ]]; then
         gtd_base_dir="$config_base_dir"
       fi
@@ -134,7 +143,12 @@ _daily_log_command_counter() {
     local gtd_inbox="${gtd_base_dir}/0-inbox"
     local inbox_count=0
     if [[ -d "$gtd_inbox" ]]; then
-      inbox_count=$(find "$gtd_inbox" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+      # Use full paths to ensure commands are found
+      local wc_cmd="/usr/bin/wc"
+      local tr_cmd="/usr/bin/tr"
+      [[ ! -f "$wc_cmd" ]] && wc_cmd="wc"
+      [[ ! -f "$tr_cmd" ]] && tr_cmd="tr"
+      inbox_count=$(find "$gtd_inbox" -type f -name "*.md" 2>/dev/null | "$wc_cmd" -l | "$tr_cmd" -d ' ')
     fi
     
     echo ""
@@ -202,13 +216,22 @@ export PATH="$PATH:/Users/abbymalson/.lmstudio/bin"
 export PATH="/Users/abby/.rd/bin:$PATH"
 ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
 
+# CRITICAL: Set system paths FIRST before mise activation
+# This ensures basic commands (grep, head, cut, tr, wc, etc.) are always available
+# macOS system binaries are in /usr/bin and /bin
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}"
+
 # mise (version manager) - replaces asdf
 eval "$(mise activate zsh)"
 
-# Ensure system paths are available (mise can sometimes remove them)
-# macOS system binaries are in /usr/bin and /bin
-# Prepend system paths to ensure they're found first
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}"
+# Ensure system paths are STILL available after mise activation
+# mise can sometimes modify PATH, so we re-add system paths if needed
+if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+  export PATH="/usr/bin:${PATH}"
+fi
+if [[ ":$PATH:" != *":/bin:"* ]]; then
+  export PATH="/bin:${PATH}"
+fi
 
 # zsh-syntax-highlighting - must be sourced after oh-my-zsh
 if [ -f /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]; then
@@ -654,7 +677,10 @@ Give me a complete workout I can do right now with dumbbells. Be enthusiastic an
   
   # Check for dip bar mention and trigger coach if first time today
   local dipbar_flag_file="${log_dir}/.dipbar_triggered_${today}"
-  if echo "$log_entry" | grep -qiE "dip bar|dipbar|dips|parallel bar"; then
+  # Use word boundaries to avoid false matches
+  # Match: "dip bar", "dipbar", "dips" (as whole word only), "parallel bar", "parallel bars"
+  # This ensures "dips" only matches when it's a standalone word, not part of "kettlebell swings"
+  if echo "$log_entry" | grep -qiE "\b(dip[[:space:]]+bar|dipbar|parallel[[:space:]]+bar|parallel[[:space:]]+bars)\b|\bdips\b"; then
     if [[ ! -f "$dipbar_flag_file" ]]; then
       # First mention of dip bars today - trigger the coach
       echo ""
