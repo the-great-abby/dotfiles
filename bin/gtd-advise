@@ -45,7 +45,7 @@ else
 fi
 
 # Available personas
-PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza")
+PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich")
 
 # Show persona info
 show_persona_info() {
@@ -64,6 +64,25 @@ show_persona_info() {
     bob) echo "Bob Ross - Creativity, calm, finding joy in the process" ;;
     fred) echo "Fred Rogers - Kindness, self-care, emotional support" ;;
     louiza) echo "Mistress Louiza - Accountability, execution, tracking, discipline" ;;
+    spiderman) echo "Spider-Man - Creative problem-solving, juggling responsibilities, relatable struggles" ;;
+    ironman) echo "Iron Man - Innovation, ADHD-like hyperfocus, engineering creativity" ;;
+    squirrelgirl) echo "Squirrel Girl - Positive creativity, communication, unconventional thinking" ;;
+    harley) echo "Harley Quinn - Chaotic creativity, resourcefulness, outside-the-box thinking" ;;
+    deadpool) echo "Deadpool - Chaotic humor, unpredictable solutions, creative problem-solving" ;;
+    rogue) echo "Rogue - Adaptive creativity, working with unique abilities, resourcefulness" ;;
+    esther) echo "Esther Perel - Relationships, intimacy, making partners feel special" ;;
+    gottman) echo "Dr. John Gottman - Relationship science, building strong foundations" ;;
+    gary) echo "Gary Chapman - Love languages, expressing love effectively" ;;
+    brene) echo "Brené Brown - Vulnerability, courage, authentic connection" ;;
+    romance) echo "The Romance Coach - Date planning, thoughtful gestures, making partners feel like royalty" ;;
+    kettlebell) echo "Kettlebell Coach - EMOM workouts, kettlebell training, strength and functional fitness" ;;
+    maxfit) echo "Maxfit Pro Coach - Cable system workouts, resistance training, functional fitness with cables" ;;
+    dumbbell) echo "Dumbbell Coach - Dumbbell training, strength building, functional fitness with dumbbells" ;;
+    dipbar) echo "Dip Bar Coach - Dip bar and bodyweight training, calisthenics, functional strength" ;;
+    kelsey) echo "Kelsey Hightower - SRE pragmatism, avoiding overengineering, practical infrastructure" ;;
+    kent) echo "Kent Beck - Software simplicity, YAGNI, TDD, doing the simplest thing that works" ;;
+    charity) echo "Charity Majors - SRE reliability, observability, practical engineering, avoiding overengineering" ;;
+    rich) echo "Rich Hickey - Software design, simplicity vs complexity, essential vs accidental complexity" ;;
     *) echo "Unknown persona" ;;
   esac
 }
@@ -467,7 +486,9 @@ main() {
       echo ""
       echo "Personas:"
       echo "  hank, david, cal, james, marie, warren, sheryl, tim"
-      echo "  george, john, jon"
+      echo "  george, john, jon, bob, fred, louiza"
+      echo "  spiderman, ironman, squirrelgirl, harley, deadpool, rogue"
+      echo "  esther, gottman, gary, brene, romance (relationship coaches)"
       echo ""
       echo "Contexts (for --context):"
       echo "  project, organization, gtd → David Allen"

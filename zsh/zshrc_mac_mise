@@ -84,7 +84,7 @@ _GTD_HINTS=(
   "📥 Capture a task: gtd-capture --type=task \"your task\""
   "📋 Process your inbox: Check ~/Documents/gtd/0-inbox/"
   "🤖 Get advice: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py hank \"your question\""
-  "🎭 Try different personas: george, john, jon, david, cal, james, marie, warren, sheryl, tim"
+  "🎭 Try different personas: george, john, jon, david, cal, james, marie, warren, sheryl, tim, spiderman, ironman, squirrelgirl, harley, deadpool, rogue, esther, gottman, gary, brene, romance"
   "📝 Daily log location: ~/Documents/daily_logs/"
   "📁 GTD inbox: ~/Documents/gtd/0-inbox/"
   "💡 Capture ideas: gtd-capture --type=idea \"your idea\""
@@ -410,6 +410,329 @@ addInfoToDailyLog() {
   }
   echo "✓ Added: ${current_time} - ${log_entry}"
   
+  # Check for kettlebell mention and trigger coach if first time today
+  local kettlebell_flag_file="${log_dir}/.kettlebell_triggered_${today}"
+  if echo "$log_entry" | grep -qi "kettlebell"; then
+    if [[ ! -f "$kettlebell_flag_file" ]]; then
+      # First mention of kettlebells today - trigger the coach
+      echo ""
+      echo "💪 Kettlebell detected! Getting your EMOM workout for today..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      # Find persona helper
+      local persona_helper=""
+      local possible_persona_paths=(
+        "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+        "${(%):-%x:h}/functions/gtd_persona_helper.py"
+        "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+      )
+      
+      for path in "${possible_persona_paths[@]}"; do
+        if [[ -f "$path" ]]; then
+          persona_helper="$path"
+          break
+        fi
+      done
+      
+      # Find python
+      local python_cmd=""
+      if [[ -f "/opt/homebrew/bin/python3" ]]; then
+        python_cmd="/opt/homebrew/bin/python3"
+      elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+      fi
+      
+      if [[ -n "$persona_helper" && -f "$persona_helper" && -n "$python_cmd" ]]; then
+        # Get day of week for workout variety
+        local day_of_week=$($date_cmd +"%A")
+        local full_date=$($date_cmd +"%B %d, %Y")
+        
+        # Create special EMOM workout prompt
+        local kettlebell_prompt=$(printf "I just mentioned kettlebells for the first time today! Today is %s, %s.
+
+Please provide me with an EMOM (Every Minute On the Minute) kettlebell workout for today. IMPORTANT: EMOM means 'Every Minute On the Minute' - perform a set at the start of each minute, then rest for the remainder of that minute before the next set begins at the start of the next minute. This is a time-based format, NOT 'Every Month One Modification'. Make it:
+- Challenging but achievable
+- Varied and interesting
+- Include exercises like swings, snatches, Turkish get-ups, goblet squats, cleans, presses, windmills
+- Clear instructions with rep counts for each minute, total duration (e.g., 10 minutes = 10 rounds), and explain the EMOM timing format
+- Motivating and encouraging
+
+Give me a complete EMOM workout I can do right now. Be enthusiastic and celebrate my commitment to training!" "$day_of_week" "$full_date")
+        
+        # Call kettlebell coach
+        local kettlebell_output
+        kettlebell_output=$("$python_cmd" "$persona_helper" "kettlebell" "$kettlebell_prompt" "kettlebell_emom_workout" 2>&1)
+        
+        if [[ -n "$kettlebell_output" ]]; then
+          echo "$kettlebell_output"
+          echo ""
+          
+          # Append workout to daily log for easy reference
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "💪 KETTLEBELL EMOM WORKOUT - ${day_of_week}, ${full_date}" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "$kettlebell_output" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+        fi
+        
+        # Mark as triggered for today
+        touch "$kettlebell_flag_file" 2>/dev/null || true
+      else
+        echo "⚠️  Could not find persona helper or python3 for kettlebell coach"
+      fi
+      
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+    fi
+  fi
+  
+  # Check for Maxfit Pro/cable system mention and trigger coach if first time today
+  local maxfit_flag_file="${log_dir}/.maxfit_triggered_${today}"
+  if echo "$log_entry" | grep -qiE "maxfit|cable system|cable workout"; then
+    if [[ ! -f "$maxfit_flag_file" ]]; then
+      # First mention of Maxfit Pro/cable system today - trigger the coach
+      echo ""
+      echo "💪 Maxfit Pro detected! Getting your cable workout for today..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      # Find persona helper
+      local persona_helper=""
+      local possible_persona_paths=(
+        "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+        "${(%):-%x:h}/functions/gtd_persona_helper.py"
+        "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+      )
+      
+      for path in "${possible_persona_paths[@]}"; do
+        if [[ -f "$path" ]]; then
+          persona_helper="$path"
+          break
+        fi
+      done
+      
+      # Find python
+      local python_cmd=""
+      if [[ -f "/opt/homebrew/bin/python3" ]]; then
+        python_cmd="/opt/homebrew/bin/python3"
+      elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+      fi
+      
+      if [[ -n "$persona_helper" && -f "$persona_helper" && -n "$python_cmd" ]]; then
+        # Get day of week for workout variety
+        local day_of_week=$($date_cmd +"%A")
+        local full_date=$($date_cmd +"%B %d, %Y")
+        
+        # Create special Maxfit Pro workout prompt
+        local maxfit_prompt=$(printf "I just mentioned Maxfit Pro or my cable system for the first time today! Today is %s, %s.
+
+Please provide me with a complete Maxfit Pro cable workout for today. Make it:
+- Challenging but achievable
+- Varied and interesting
+- Include exercises like cable rows, cable presses, cable flies, cable curls, cable tricep extensions, cable lateral raises, cable wood chops, cable rotations, cable squats, cable deadlifts, cable pull-throughs, and cable core exercises
+- Clear instructions with rep counts, sets, resistance levels, and rest periods
+- Explain proper cable setup and form when relevant
+- Motivating and encouraging
+
+Give me a complete workout I can do right now with my Maxfit Pro cable system. Be enthusiastic and celebrate my commitment to training!" "$day_of_week" "$full_date")
+        
+        # Call Maxfit Pro coach
+        local maxfit_output
+        maxfit_output=$("$python_cmd" "$persona_helper" "maxfit" "$maxfit_prompt" "maxfit_workout" 2>&1)
+        
+        if [[ -n "$maxfit_output" ]]; then
+          echo "$maxfit_output"
+          echo ""
+          
+          # Append workout to daily log for easy reference
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "💪 MAXFIT PRO CABLE WORKOUT - ${day_of_week}, ${full_date}" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "$maxfit_output" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+        fi
+        
+        # Mark as triggered for today
+        touch "$maxfit_flag_file" 2>/dev/null || true
+      else
+        echo "⚠️  Could not find persona helper or python3 for Maxfit Pro coach"
+      fi
+      
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+    fi
+  fi
+  
+  # Check for dumbbell mention and trigger coach if first time today
+  local dumbbell_flag_file="${log_dir}/.dumbbell_triggered_${today}"
+  if echo "$log_entry" | grep -qiE "dumbbell|dumbbells"; then
+    if [[ ! -f "$dumbbell_flag_file" ]]; then
+      # First mention of dumbbells today - trigger the coach
+      echo ""
+      echo "💪 Dumbbells detected! Getting your workout for today..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      # Find persona helper
+      local persona_helper=""
+      local possible_persona_paths=(
+        "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+        "${(%):-%x:h}/functions/gtd_persona_helper.py"
+        "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+      )
+      
+      for path in "${possible_persona_paths[@]}"; do
+        if [[ -f "$path" ]]; then
+          persona_helper="$path"
+          break
+        fi
+      done
+      
+      # Find python
+      local python_cmd=""
+      if [[ -f "/opt/homebrew/bin/python3" ]]; then
+        python_cmd="/opt/homebrew/bin/python3"
+      elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+      fi
+      
+      if [[ -n "$persona_helper" && -f "$persona_helper" && -n "$python_cmd" ]]; then
+        # Get day of week for workout variety
+        local day_of_week=$($date_cmd +"%A")
+        local full_date=$($date_cmd +"%B %d, %Y")
+        
+        # Create special dumbbell workout prompt
+        local dumbbell_prompt=$(printf "I just mentioned dumbbells for the first time today! Today is %s, %s.
+
+Please provide me with a complete dumbbell workout for today. Make it:
+- Challenging but achievable
+- Varied and interesting
+- Include exercises like dumbbell presses (chest, shoulder, incline), dumbbell rows, dumbbell curls, dumbbell tricep extensions, dumbbell lateral raises, dumbbell squats, dumbbell lunges, dumbbell deadlifts, dumbbell goblet squats, dumbbell renegade rows, dumbbell thrusters, and dumbbell core exercises
+- Clear instructions with rep counts, sets, weight recommendations, and rest periods
+- Explain proper form and technique
+- Motivating and encouraging
+
+Give me a complete workout I can do right now with dumbbells. Be enthusiastic and celebrate my commitment to training!" "$day_of_week" "$full_date")
+        
+        # Call dumbbell coach
+        local dumbbell_output
+        dumbbell_output=$("$python_cmd" "$persona_helper" "dumbbell" "$dumbbell_prompt" "dumbbell_workout" 2>&1)
+        
+        if [[ -n "$dumbbell_output" ]]; then
+          echo "$dumbbell_output"
+          echo ""
+          
+          # Append workout to daily log for easy reference
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "💪 DUMBBELL WORKOUT - ${day_of_week}, ${full_date}" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "$dumbbell_output" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+        fi
+        
+        # Mark as triggered for today
+        touch "$dumbbell_flag_file" 2>/dev/null || true
+      else
+        echo "⚠️  Could not find persona helper or python3 for dumbbell coach"
+      fi
+      
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+    fi
+  fi
+  
+  # Check for dip bar mention and trigger coach if first time today
+  local dipbar_flag_file="${log_dir}/.dipbar_triggered_${today}"
+  if echo "$log_entry" | grep -qiE "dip bar|dipbar|dips|parallel bar"; then
+    if [[ ! -f "$dipbar_flag_file" ]]; then
+      # First mention of dip bars today - trigger the coach
+      echo ""
+      echo "💪 Dip bars detected! Getting your workout for today..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      # Find persona helper
+      local persona_helper=""
+      local possible_persona_paths=(
+        "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+        "${(%):-%x:h}/functions/gtd_persona_helper.py"
+        "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+      )
+      
+      for path in "${possible_persona_paths[@]}"; do
+        if [[ -f "$path" ]]; then
+          persona_helper="$path"
+          break
+        fi
+      done
+      
+      # Find python
+      local python_cmd=""
+      if [[ -f "/opt/homebrew/bin/python3" ]]; then
+        python_cmd="/opt/homebrew/bin/python3"
+      elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+      fi
+      
+      if [[ -n "$persona_helper" && -f "$persona_helper" && -n "$python_cmd" ]]; then
+        # Get day of week for workout variety
+        local day_of_week=$($date_cmd +"%A")
+        local full_date=$($date_cmd +"%B %d, %Y")
+        
+        # Create special dip bar workout prompt
+        local dipbar_prompt=$(printf "I just mentioned dip bars, dips, or parallel bars for the first time today! Today is %s, %s.
+
+Please provide me with a complete dip bar and bodyweight workout for today. Make it:
+- Challenging but achievable
+- Varied and interesting
+- Include exercises like dips (chest dips, tricep dips, weighted dips), leg raises, L-sits, muscle-ups, bar support holds, dip bar rows, knee raises, hanging leg raises, Russian dips, Bulgarian dips, and dip bar core exercises
+- Clear instructions with rep counts, sets, progression levels, and rest periods
+- Explain proper form, grip positions, and safety tips
+- Motivating and encouraging
+
+Give me a complete workout I can do right now with dip bars. Be enthusiastic and celebrate my commitment to training!" "$day_of_week" "$full_date")
+        
+        # Call dip bar coach
+        local dipbar_output
+        dipbar_output=$("$python_cmd" "$persona_helper" "dipbar" "$dipbar_prompt" "dipbar_workout" 2>&1)
+        
+        if [[ -n "$dipbar_output" ]]; then
+          echo "$dipbar_output"
+          echo ""
+          
+          # Append workout to daily log for easy reference
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "💪 DIP BAR WORKOUT - ${day_of_week}, ${full_date}" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "$dipbar_output" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+        fi
+        
+        # Mark as triggered for today
+        touch "$dipbar_flag_file" 2>/dev/null || true
+      else
+        echo "⚠️  Could not find persona helper or python3 for dip bar coach"
+      fi
+      
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+    fi
+  fi
+  
   # Get advice from LM Studio
   if [[ -n "$helper_script" && -f "$helper_script" ]]; then
     # Find python3 - try multiple methods (check file paths first for reliability)
@@ -444,7 +767,7 @@ addInfoToDailyLog() {
     fi
     
     # Randomly select a persona for variety
-    local personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza")
+    local personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich")
     local persona_count=${#personas[@]}
     local random_index=$((RANDOM % persona_count + 1))
     local selected_persona="${personas[$random_index]}"
@@ -466,6 +789,25 @@ addInfoToDailyLog() {
       bob) persona_name="Bob Ross" ;;
       fred) persona_name="Fred Rogers" ;;
       louiza) persona_name="Mistress Louiza" ;;
+      spiderman) persona_name="Spider-Man" ;;
+      ironman) persona_name="Iron Man" ;;
+      squirrelgirl) persona_name="Squirrel Girl" ;;
+      harley) persona_name="Harley Quinn" ;;
+      deadpool) persona_name="Deadpool" ;;
+      rogue) persona_name="Rogue" ;;
+      esther) persona_name="Esther Perel" ;;
+      gottman) persona_name="Dr. John Gottman" ;;
+      gary) persona_name="Gary Chapman" ;;
+      brene) persona_name="Brené Brown" ;;
+      romance) persona_name="The Romance Coach" ;;
+      kettlebell) persona_name="Kettlebell Coach" ;;
+      maxfit) persona_name="Maxfit Pro Coach" ;;
+      dumbbell) persona_name="Dumbbell Coach" ;;
+      dipbar) persona_name="Dip Bar Coach" ;;
+      kelsey) persona_name="Kelsey Hightower" ;;
+      kent) persona_name="Kent Beck" ;;
+      charity) persona_name="Charity Majors" ;;
+      rich) persona_name="Rich Hickey" ;;
       *) persona_name="Hank Hill" ;;
     esac
     

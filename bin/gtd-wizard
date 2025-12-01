@@ -40,6 +40,7 @@ show_main_menu() {
   echo -e "${GREEN}18)${NC} 🔁 Manage habits & recurring tasks"
   echo -e "${GREEN}19)${NC} 🌅 Morning/Evening Check-In"
   echo -e "${GREEN}20)${NC} ☸️  Learn Kubernetes/CKA"
+  echo -e "${GREEN}21)${NC} 🎨 Create diagrams & mindmaps"
   echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
@@ -1645,6 +1646,137 @@ EOF
   esac
 }
 
+# Diagram wizard
+diagram_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🎨 Diagram & Mindmap Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to create?"
+  echo ""
+  echo "  1) 🗺️  Mindmap (brainstorming, organizing thoughts)"
+  echo "  2) 🔄 Flowchart (processes, workflows)"
+  echo "  3) 📊 Sequence diagram (interactions, sequences)"
+  echo "  4) 📅 Gantt chart (timelines, scheduling)"
+  echo "  5) 🔀 State diagram (state transitions, lifecycles)"
+  echo "  6) 🗄️  Entity-relationship diagram (data relationships)"
+  echo "  7) 📋 Other diagram type"
+  echo "  8) 📝 List all diagrams"
+  echo "  9) 👁️  View a diagram"
+  echo "  10) 💾 Save diagram to Second Brain"
+  echo ""
+  echo -n "Choose: "
+  read diagram_choice
+  
+  case "$diagram_choice" in
+    1)
+      echo ""
+      echo -n "Mindmap topic: "
+      read topic
+      if [[ -n "$topic" ]]; then
+        gtd-diagram mindmap "$topic"
+      else
+        echo "❌ Topic required"
+      fi
+      ;;
+    2)
+      echo ""
+      echo -n "Process/flowchart description: "
+      read process
+      if [[ -n "$process" ]]; then
+        gtd-diagram flowchart "$process"
+      else
+        echo "❌ Description required"
+      fi
+      ;;
+    3)
+      echo ""
+      echo -n "Sequence diagram description: "
+      read desc
+      if [[ -n "$desc" ]]; then
+        gtd-diagram create sequence "$desc"
+      else
+        echo "❌ Description required"
+      fi
+      ;;
+    4)
+      echo ""
+      echo -n "Gantt chart description: "
+      read desc
+      if [[ -n "$desc" ]]; then
+        gtd-diagram create gantt "$desc"
+      else
+        echo "❌ Description required"
+      fi
+      ;;
+    5)
+      echo ""
+      echo -n "State diagram description: "
+      read desc
+      if [[ -n "$desc" ]]; then
+        gtd-diagram create state "$desc"
+      else
+        echo "❌ Description required"
+      fi
+      ;;
+    6)
+      echo ""
+      echo -n "ER diagram description: "
+      read desc
+      if [[ -n "$desc" ]]; then
+        gtd-diagram create er "$desc"
+      else
+        echo "❌ Description required"
+      fi
+      ;;
+    7)
+      echo ""
+      echo "Available types: class, journey, gitgraph, pie, requirement"
+      echo -n "Diagram type: "
+      read type
+      echo -n "Description: "
+      read desc
+      if [[ -n "$type" && -n "$desc" ]]; then
+        gtd-diagram create "$type" "$desc"
+      else
+        echo "❌ Type and description required"
+      fi
+      ;;
+    8)
+      gtd-diagram list
+      ;;
+    9)
+      echo ""
+      gtd-diagram list
+      echo ""
+      echo -n "Diagram name to view: "
+      read name
+      if [[ -n "$name" ]]; then
+        gtd-diagram view "$name"
+      fi
+      ;;
+    10)
+      echo ""
+      gtd-diagram list
+      echo ""
+      echo -n "Diagram filename to save: "
+      read filename
+      if [[ -n "$filename" ]]; then
+        gtd-diagram save "$filename"
+      fi
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
 # Check-in wizard
 checkin_wizard() {
   clear
@@ -2038,6 +2170,9 @@ main() {
         ;;
       20)
         k8s_wizard
+        ;;
+      21)
+        diagram_wizard
         ;;
       0)
         clear

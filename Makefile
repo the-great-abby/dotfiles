@@ -1,7 +1,7 @@
 GLIBC_VER=2.31-r0
 
 # GTD System Commands
-.PHONY: gtd-wizard gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status
+.PHONY: gtd-wizard gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status gtd-diagram
 
 # GTD Interactive Wizard
 gtd-wizard:
@@ -78,6 +78,26 @@ gtd-status:
 	@echo "Today's log entries:"
 	@date +"%Y-%m-%d" | xargs -I {} cat ~/Documents/daily_logs/{}.txt 2>/dev/null | grep -c "^[0-9][0-9]:[0-9][0-9]" || echo "  0"
 	@echo ""
+
+# Create diagrams
+gtd-diagram:
+	@echo "🎨 Diagram Generator"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "1) Mindmap"
+	@echo "2) Flowchart"
+	@echo "3) List diagrams"
+	@echo ""
+	@read -p "Choose (1-3): " choice && \
+		if [ "$$choice" = "1" ]; then \
+			read -p "Mindmap topic: " topic && gtd-diagram mindmap "$$topic"; \
+		elif [ "$$choice" = "2" ]; then \
+			read -p "Flowchart description: " desc && gtd-diagram flowchart "$$desc"; \
+		elif [ "$$choice" = "3" ]; then \
+			gtd-diagram list; \
+		else \
+			echo "Invalid choice"; \
+		fi
 
 .PHONY: setup wizard
 setup wizard:
@@ -400,7 +420,7 @@ install_oh_my_zsh:
 
 install_zshrc_mac:
 	mv ~/.zshrc ~/.zshrc.old
-	ln -s ${PWD}/zsh/zshrc_mac ~/.zshrc
+	ln -s ${PWD}/zsh/zshrc_mac_mise ~/.zshrc
 	brew install zsh-syntax-highlighting
 	brew install zsh-autosuggestions
 	#git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k
