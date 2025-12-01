@@ -1,3 +1,11 @@
+# CRITICAL: Set system paths FIRST, before anything else
+# This ensures basic commands (grep, mkdir, git, rm, etc.) are always available
+# macOS system binaries are in /usr/bin and /bin
+# Initialize PATH with system paths if it's empty or doesn't contain them
+if [[ -z "$PATH" ]] || [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
+fi
+
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
@@ -223,21 +231,32 @@ export PATH="$PATH:/Users/abbymalson/.lmstudio/bin"
 export PATH="/Users/abby/.rd/bin:$PATH"
 ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
 
-# CRITICAL: Set system paths FIRST before mise activation
-# This ensures basic commands (grep, head, cut, tr, wc, etc.) are always available
-# macOS system binaries are in /usr/bin and /bin
+# CRITICAL: Ensure system paths are PREPENDED before mise activation
+# This ensures basic commands (grep, head, cut, tr, wc, mkdir, git, rm, etc.) are always available
+# Prepend system paths so they're found first
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}"
 
 # mise (version manager) - replaces asdf
+# Save system paths before mise activation (mise can reset PATH)
+local saved_system_paths="/usr/bin:/bin:/usr/sbin:/sbin"
 eval "$(mise activate zsh)"
 
-# Ensure system paths are STILL available after mise activation
-# mise can sometimes modify PATH, so we re-add system paths if needed
+# CRITICAL: Re-add system paths immediately after mise activation
+# mise can reset PATH, so we must ensure system paths are always present
+export PATH="${saved_system_paths}:${PATH}"
+
+# Double-check system paths are present (defensive programming)
 if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
   export PATH="/usr/bin:${PATH}"
 fi
 if [[ ":$PATH:" != *":/bin:"* ]]; then
   export PATH="/bin:${PATH}"
+fi
+if [[ ":$PATH:" != *":/usr/sbin:"* ]]; then
+  export PATH="/usr/sbin:${PATH}"
+fi
+if [[ ":$PATH:" != *":/sbin:"* ]]; then
+  export PATH="/sbin:${PATH}"
 fi
 
 # zsh-syntax-highlighting - must be sourced after oh-my-zsh
@@ -276,6 +295,13 @@ function htmlEscape () {
 
 # PATH configurations
 # IMPORTANT: System paths (/usr/bin, /bin) must come first for basic commands
+# Re-ensure system paths are first (in case mise or other tools modified PATH)
+if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+  export PATH="/usr/bin:${PATH}"
+fi
+if [[ ":$PATH:" != *":/bin:"* ]]; then
+  export PATH="/bin:${PATH}"
+fi
 # Homebrew (Apple Silicon)
 export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 # npm global packages
