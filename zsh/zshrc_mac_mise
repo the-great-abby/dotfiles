@@ -125,17 +125,24 @@ _daily_log_command_counter() {
     fi
     local gtd_base_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
     if [[ -f "$gtd_config_file" ]]; then
-      # Try to extract GTD_BASE_DIR from config (simple grep)
+      # Try to extract GTD_BASE_DIR from config (use ripgrep if available, fallback to grep)
       # Use full paths to ensure commands are found even if PATH isn't set
-      local grep_cmd="/usr/bin/grep"
       local head_cmd="/usr/bin/head"
       local cut_cmd="/usr/bin/cut"
       local tr_cmd="/usr/bin/tr"
-      [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
       [[ ! -f "$head_cmd" ]] && head_cmd="head"
       [[ ! -f "$cut_cmd" ]] && cut_cmd="cut"
       [[ ! -f "$tr_cmd" ]] && tr_cmd="tr"
-      local config_base_dir=$("$grep_cmd" "^GTD_BASE_DIR=" "$gtd_config_file" 2>/dev/null | "$head_cmd" -1 | "$cut_cmd" -d'=' -f2 | "$tr_cmd" -d '"' | "$tr_cmd" -d "'")
+      local config_base_dir=""
+      if command -v rg &>/dev/null; then
+        # Use ripgrep for file search (faster)
+        config_base_dir=$(rg "^GTD_BASE_DIR=" "$gtd_config_file" 2>/dev/null | "$head_cmd" -1 | "$cut_cmd" -d'=' -f2 | "$tr_cmd" -d '"' | "$tr_cmd" -d "'")
+      else
+        # Fallback to grep
+        local grep_cmd="/usr/bin/grep"
+        [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+        config_base_dir=$("$grep_cmd" "^GTD_BASE_DIR=" "$gtd_config_file" 2>/dev/null | "$head_cmd" -1 | "$cut_cmd" -d'=' -f2 | "$tr_cmd" -d '"' | "$tr_cmd" -d "'")
+      fi
       if [[ -n "$config_base_dir" ]]; then
         gtd_base_dir="$config_base_dir"
       fi
@@ -435,7 +442,22 @@ addInfoToDailyLog() {
   
   # Check for kettlebell mention and trigger coach if first time today
   local kettlebell_flag_file="${log_dir}/.kettlebell_triggered_${today}"
-  if echo "$log_entry" | grep -qi "kettlebell"; then
+  # Use ripgrep (rg) if available, fallback to grep
+  local use_rg=false
+  if command -v rg &>/dev/null; then
+    use_rg=true
+  fi
+  local matched=false
+  if [[ "$use_rg" == true ]]; then
+    # rg can search stdin, use -i for case insensitive
+    echo "$log_entry" | rg -qi "kettlebell" 2>/dev/null && matched=true
+  else
+    # Fallback to grep
+    local grep_cmd="/usr/bin/grep"
+    [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+    echo "$log_entry" | "$grep_cmd" -qi "kettlebell" 2>/dev/null && matched=true
+  fi
+  if [[ "$matched" == true ]]; then
     if [[ ! -f "$kettlebell_flag_file" ]]; then
       # First mention of kettlebells today - trigger the coach
       echo ""
@@ -515,7 +537,20 @@ Give me a complete EMOM workout I can do right now. Be enthusiastic and celebrat
   
   # Check for Maxfit Pro/cable system mention and trigger coach if first time today
   local maxfit_flag_file="${log_dir}/.maxfit_triggered_${today}"
-  if echo "$log_entry" | grep -qiE "maxfit|cable system|cable workout"; then
+  # Use ripgrep (rg) if available, fallback to grep
+  local use_rg=false
+  if command -v rg &>/dev/null; then
+    use_rg=true
+  fi
+  local matched=false
+  if [[ "$use_rg" == true ]]; then
+    echo "$log_entry" | rg -qiE "maxfit|cable system|cable workout" 2>/dev/null && matched=true
+  else
+    local grep_cmd="/usr/bin/grep"
+    [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+    echo "$log_entry" | "$grep_cmd" -qiE "maxfit|cable system|cable workout" 2>/dev/null && matched=true
+  fi
+  if [[ "$matched" == true ]]; then
     if [[ ! -f "$maxfit_flag_file" ]]; then
       # First mention of Maxfit Pro/cable system today - trigger the coach
       echo ""
@@ -596,7 +631,20 @@ Give me a complete workout I can do right now with my Maxfit Pro cable system. B
   
   # Check for dumbbell mention and trigger coach if first time today
   local dumbbell_flag_file="${log_dir}/.dumbbell_triggered_${today}"
-  if echo "$log_entry" | grep -qiE "dumbbell|dumbbells"; then
+  # Use ripgrep (rg) if available, fallback to grep
+  local use_rg=false
+  if command -v rg &>/dev/null; then
+    use_rg=true
+  fi
+  local matched=false
+  if [[ "$use_rg" == true ]]; then
+    echo "$log_entry" | rg -qiE "dumbbell|dumbbells" 2>/dev/null && matched=true
+  else
+    local grep_cmd="/usr/bin/grep"
+    [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+    echo "$log_entry" | "$grep_cmd" -qiE "dumbbell|dumbbells" 2>/dev/null && matched=true
+  fi
+  if [[ "$matched" == true ]]; then
     if [[ ! -f "$dumbbell_flag_file" ]]; then
       # First mention of dumbbells today - trigger the coach
       echo ""
@@ -680,7 +728,20 @@ Give me a complete workout I can do right now with dumbbells. Be enthusiastic an
   # Use word boundaries to avoid false matches
   # Match: "dip bar", "dipbar", "dips" (as whole word only), "parallel bar", "parallel bars"
   # This ensures "dips" only matches when it's a standalone word, not part of "kettlebell swings"
-  if echo "$log_entry" | grep -qiE "\b(dip[[:space:]]+bar|dipbar|parallel[[:space:]]+bar|parallel[[:space:]]+bars)\b|\bdips\b"; then
+  # Use ripgrep (rg) if available, fallback to grep
+  local use_rg=false
+  if command -v rg &>/dev/null; then
+    use_rg=true
+  fi
+  local matched=false
+  if [[ "$use_rg" == true ]]; then
+    echo "$log_entry" | rg -qiE "\b(dip[[:space:]]+bar|dipbar|parallel[[:space:]]+bar|parallel[[:space:]]+bars)\b|\bdips\b" 2>/dev/null && matched=true
+  else
+    local grep_cmd="/usr/bin/grep"
+    [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+    echo "$log_entry" | "$grep_cmd" -qiE "\b(dip[[:space:]]+bar|dipbar|parallel[[:space:]]+bar|parallel[[:space:]]+bars)\b|\bdips\b" 2>/dev/null && matched=true
+  fi
+  if [[ "$matched" == true ]]; then
     if [[ ! -f "$dipbar_flag_file" ]]; then
       # First mention of dip bars today - trigger the coach
       echo ""
@@ -793,7 +854,8 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
     fi
     
     # Randomly select a persona for variety
-    local personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich")
+    # Exclude workout coaches from random selection - they only trigger when equipment is mentioned
+    local personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kelsey" "kent" "charity" "rich")
     local persona_count=${#personas[@]}
     local random_index=$((RANDOM % persona_count + 1))
     local selected_persona="${personas[$random_index]}"
