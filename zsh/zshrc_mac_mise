@@ -238,7 +238,7 @@ export PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH}"
 
 # mise (version manager) - replaces asdf
 # Save system paths before mise activation (mise can reset PATH)
-local saved_system_paths="/usr/bin:/bin:/usr/sbin:/sbin"
+saved_system_paths="/usr/bin:/bin:/usr/sbin:/sbin"
 eval "$(mise activate zsh)"
 
 # CRITICAL: Re-add system paths immediately after mise activation
@@ -484,7 +484,23 @@ addInfoToDailyLog() {
     echo "$log_entry" | "$grep_cmd" -qi "kettlebell" 2>/dev/null && matched=true
   fi
   if [[ "$matched" == true ]]; then
-    if [[ ! -f "$kettlebell_flag_file" ]]; then
+    # Check if workout already exists in log file (more reliable than flag file)
+    local workout_already_added=false
+    if [[ -f "$log_file" ]]; then
+      if [[ "$use_rg" == true ]]; then
+        rg -q "KETTLEBELL EMOM WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      else
+        local grep_cmd="/usr/bin/grep"
+        [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+        "$grep_cmd" -q "KETTLEBELL EMOM WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      fi
+    fi
+    
+    # Only trigger if flag file doesn't exist AND workout not already in log
+    if [[ ! -f "$kettlebell_flag_file" && "$workout_already_added" == false ]]; then
+      # Create flag file FIRST to prevent race conditions
+      touch "$kettlebell_flag_file" 2>/dev/null || true
+      
       # First mention of kettlebells today - trigger the coach
       echo ""
       echo "💪 Kettlebell detected! Getting your EMOM workout for today..."
@@ -549,11 +565,10 @@ Give me a complete EMOM workout I can do right now. Be enthusiastic and celebrat
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
           echo "" >> "$log_file" || true
         fi
-        
-        # Mark as triggered for today
-        touch "$kettlebell_flag_file" 2>/dev/null || true
       else
         echo "⚠️  Could not find persona helper or python3 for kettlebell coach"
+        # Remove flag file if we couldn't add workout
+        rm -f "$kettlebell_flag_file" 2>/dev/null || true
       fi
       
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -577,7 +592,23 @@ Give me a complete EMOM workout I can do right now. Be enthusiastic and celebrat
     echo "$log_entry" | "$grep_cmd" -qiE "maxfit|cable system|cable workout" 2>/dev/null && matched=true
   fi
   if [[ "$matched" == true ]]; then
-    if [[ ! -f "$maxfit_flag_file" ]]; then
+    # Check if workout already exists in log file (more reliable than flag file)
+    local workout_already_added=false
+    if [[ -f "$log_file" ]]; then
+      if [[ "$use_rg" == true ]]; then
+        rg -q "MAXFIT PRO CABLE WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      else
+        local grep_cmd="/usr/bin/grep"
+        [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+        "$grep_cmd" -q "MAXFIT PRO CABLE WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      fi
+    fi
+    
+    # Only trigger if flag file doesn't exist AND workout not already in log
+    if [[ ! -f "$maxfit_flag_file" && "$workout_already_added" == false ]]; then
+      # Create flag file FIRST to prevent race conditions
+      touch "$maxfit_flag_file" 2>/dev/null || true
+      
       # First mention of Maxfit Pro/cable system today - trigger the coach
       echo ""
       echo "💪 Maxfit Pro detected! Getting your cable workout for today..."
@@ -643,11 +674,10 @@ Give me a complete workout I can do right now with my Maxfit Pro cable system. B
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
           echo "" >> "$log_file" || true
         fi
-        
-        # Mark as triggered for today
-        touch "$maxfit_flag_file" 2>/dev/null || true
       else
         echo "⚠️  Could not find persona helper or python3 for Maxfit Pro coach"
+        # Remove flag file if we couldn't add workout
+        rm -f "$maxfit_flag_file" 2>/dev/null || true
       fi
       
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -671,7 +701,23 @@ Give me a complete workout I can do right now with my Maxfit Pro cable system. B
     echo "$log_entry" | "$grep_cmd" -qiE "dumbbell|dumbbells" 2>/dev/null && matched=true
   fi
   if [[ "$matched" == true ]]; then
-    if [[ ! -f "$dumbbell_flag_file" ]]; then
+    # Check if workout already exists in log file (more reliable than flag file)
+    local workout_already_added=false
+    if [[ -f "$log_file" ]]; then
+      if [[ "$use_rg" == true ]]; then
+        rg -q "DUMBBELL WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      else
+        local grep_cmd="/usr/bin/grep"
+        [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+        "$grep_cmd" -q "DUMBBELL WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      fi
+    fi
+    
+    # Only trigger if flag file doesn't exist AND workout not already in log
+    if [[ ! -f "$dumbbell_flag_file" && "$workout_already_added" == false ]]; then
+      # Create flag file FIRST to prevent race conditions
+      touch "$dumbbell_flag_file" 2>/dev/null || true
+      
       # First mention of dumbbells today - trigger the coach
       echo ""
       echo "💪 Dumbbells detected! Getting your workout for today..."
@@ -737,11 +783,10 @@ Give me a complete workout I can do right now with dumbbells. Be enthusiastic an
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
           echo "" >> "$log_file" || true
         fi
-        
-        # Mark as triggered for today
-        touch "$dumbbell_flag_file" 2>/dev/null || true
       else
         echo "⚠️  Could not find persona helper or python3 for dumbbell coach"
+        # Remove flag file if we couldn't add workout
+        rm -f "$dumbbell_flag_file" 2>/dev/null || true
       fi
       
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -768,7 +813,23 @@ Give me a complete workout I can do right now with dumbbells. Be enthusiastic an
     echo "$log_entry" | "$grep_cmd" -qiE "\b(dip[[:space:]]+bar|dipbar|parallel[[:space:]]+bar|parallel[[:space:]]+bars)\b|\bdips\b" 2>/dev/null && matched=true
   fi
   if [[ "$matched" == true ]]; then
-    if [[ ! -f "$dipbar_flag_file" ]]; then
+    # Check if workout already exists in log file (more reliable than flag file)
+    local workout_already_added=false
+    if [[ -f "$log_file" ]]; then
+      if [[ "$use_rg" == true ]]; then
+        rg -q "DIP BAR WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      else
+        local grep_cmd="/usr/bin/grep"
+        [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+        "$grep_cmd" -q "DIP BAR WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      fi
+    fi
+    
+    # Only trigger if flag file doesn't exist AND workout not already in log
+    if [[ ! -f "$dipbar_flag_file" && "$workout_already_added" == false ]]; then
+      # Create flag file FIRST to prevent race conditions
+      touch "$dipbar_flag_file" 2>/dev/null || true
+      
       # First mention of dip bars today - trigger the coach
       echo ""
       echo "💪 Dip bars detected! Getting your workout for today..."
@@ -834,11 +895,10 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
           echo "" >> "$log_file" || true
         fi
-        
-        # Mark as triggered for today
-        touch "$dipbar_flag_file" 2>/dev/null || true
       else
         echo "⚠️  Could not find persona helper or python3 for dip bar coach"
+        # Remove flag file if we couldn't add workout
+        rm -f "$dipbar_flag_file" 2>/dev/null || true
       fi
       
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

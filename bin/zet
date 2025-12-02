@@ -1,59 +1,242 @@
 #!/bin/bash
 
-# A bash script that helps me create notes in my second brain
-# based on my "blog" script
-# TODO
-# 1. check if file already exists
-# 2. write this in Go :)
+# Zettelkasten Note Creator - Integrated with GTD + Second Brain
+# Creates atomic notes with unique IDs that can link to PARA structure
 
-# function to prompt the user for a filename
-get_filename() {
-	read -p "Enter a filename: " filename
-	echo "$filename"
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+ZET_INBOX="${ZET_INBOX:-$SECOND_BRAIN/0-inbox}"
+ZET_DIR="${ZET_DIR:-$SECOND_BRAIN/Zettelkasten}"
+
+# Create directories if they don't exist
+mkdir -p "$ZET_INBOX"
+mkdir -p "$ZET_DIR"
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Generate unique Zettelkasten ID (YYYYMMDDHHMM format)
+generate_zet_id() {
+  date +"%Y%m%d%H%M"
 }
 
-# function to create and open a file in the specified directory
-open_file() {
-
-	# Cd into the directory
-	cd "$1" || exit
-	# Create the file in the specified directory
-	touch "$1/$filename.md"
-
-	# create unique identifier and links section
-	timestamp="$(date +"%Y%m%d%H%m")"
-
-	# format the file
-	{
-		echo "# "
-		echo -en "\n"
-		echo -en "\n"
-		echo -en "\n"
-		echo "Links:"
-		echo -en "\n"
-		echo "$timestamp"
-	} >>"$1/$filename.md"
-
-	# Open the file in Neovim
-	#nvim '+ normal ggzzi' "$1/$filename.md" -c :NoNeckPain
-	nvim '+ normal ggzzi' "$1/$filename.md"
+# Generate shorter ID for filenames (timestamp + random suffix)
+generate_filename_id() {
+  local base_id=$(date +"%Y%m%d%H%M")
+  local suffix=$(openssl rand -hex 2 2>/dev/null || echo $(date +%N | cut -b1-4))
+  echo "${base_id}${suffix}"
 }
 
-# Prompt the user if no filename is provided
-if [[ $# -eq 0 ]]; then
-	filename=$(get_filename)
+# Create a zettelkasten note
+create_zet_note() {
+  local title="$1"
+  local para_category="${2:-inbox}"  # inbox, zettelkasten, or PARA category
+  local zet_id=$(generate_filename_id)
+  local timestamp=$(date +"%Y-%m-%d %H:%M")
+  local date_created=$(date +"%Y-%m-%d")
+  
+  # Determine output directory
+  local output_dir
+  case "$para_category" in
+    inbox)
+      output_dir="$ZET_INBOX"
+      ;;
+    zettelkasten|zk)
+      output_dir="$ZET_DIR"
+      ;;
+    projects|Projects)
+      output_dir="$SECOND_BRAIN/Projects"
+      ;;
+    areas|Areas)
+      output_dir="$SECOND_BRAIN/Areas"
+      ;;
+    resources|Resources)
+      output_dir="$SECOND_BRAIN/Resources"
+      ;;
+    archives|Archives)
+      output_dir="$SECOND_BRAIN/Archives"
+      ;;
+    *)
+      output_dir="$ZET_INBOX"
+      ;;
+  esac
+  
+  # Create filename: ID + sanitized title
+  local sanitized_title=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local filename="${zet_id}-${sanitized_title}.md"
+  local note_path="$output_dir/$filename"
+  
+  # Check if file already exists
+  if [[ -f "$note_path" ]]; then
+    echo -e "${YELLOW}⚠ Warning: File already exists: $note_path${NC}"
+    read -p "Create anyway with new ID? (y/N): " create_anyway
+    if [[ ! "$create_anyway" =~ ^[Yy]$ ]]; then
+      echo "Cancelled."
+      exit 0
+    fi
+    # Generate new ID
+    zet_id=$(generate_filename_id)
+    filename="${zet_id}-${sanitized_title}.md"
+    note_path="$output_dir/$filename"
+  fi
+  
+  # Create note with zettelkasten structure
+  cat > "$note_path" <<EOF
+# $title
+
+**Zettelkasten ID:** \`$zet_id\`  
+**Created:** $timestamp  
+**Date:** $date_created
+
+---
+
+## Content
+
+<!-- One atomic idea per note -->
+
+---
+
+## Links
+
+<!-- Link to related notes using [[note name]] or [[$zet_id]] -->
+- 
+
+## Tags
+
+<!-- Use #tags for categorization -->
+#zettelkasten
+
+## Related
+
+<!-- Link to PARA categories, projects, or areas -->
+- 
+
+EOF
+
+  echo -e "${GREEN}✓ Created zettelkasten note:${NC} $note_path"
+  echo -e "  ${CYAN}ID:${NC} $zet_id"
+  echo -e "  ${CYAN}Category:${NC} $para_category"
+  echo "$note_path"
+  echo "$note_path"  # Return path for chaining
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: zet [options] <title>
+
+Create a zettelkasten (atomic) note with unique ID, integrated with Second Brain.
+
+Options:
+  -i, --inbox          Create in inbox (default)
+  -z, --zettelkasten   Create in Zettelkasten directory
+  -p, --project        Create in Projects (PARA)
+  -a, --area           Create in Areas (PARA)
+  -r, --resource       Create in Resources (PARA)
+  -c, --category CAT   Create in specific PARA category
+  -h, --help           Show this help
+
+Examples:
+  zet "Understanding Kubernetes Pods"
+  zet -z "Atomic Notes Explained"
+  zet -r "Productivity Tips Collection"
+  zet -c Projects "Project Kickoff Ideas"
+  zet "Quick thought"  # Goes to inbox
+
+Zettelkasten Principles:
+  - One atomic idea per note
+  - Unique ID for each note
+  - Link notes together using [[links]]
+  - Use tags for categorization
+  - Notes can link to PARA categories
+
+Integration:
+  - Notes in inbox can be processed with gtd-process
+  - Link to Second Brain notes using gtd-brain link
+  - Move to PARA categories with gtd-brain move
+  - Discover connections with gtd-brain-discover
+
+EOF
+}
+
+# Parse arguments
+title=""
+category="inbox"
+prompt_for_title=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -i|--inbox)
+      category="inbox"
+      shift
+      ;;
+    -z|--zettelkasten|--zk)
+      category="zettelkasten"
+      shift
+      ;;
+    -p|--project)
+      category="Projects"
+      shift
+      ;;
+    -a|--area)
+      category="Areas"
+      shift
+      ;;
+    -r|--resource)
+      category="Resources"
+      shift
+      ;;
+    -c|--category)
+      category="$2"
+      shift 2
+      ;;
+    -h|--help)
+      show_usage
+      exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      show_usage
+      exit 1
+      ;;
+    *)
+      title="$1"
+      shift
+      ;;
+  esac
+done
+
+# Prompt for title if not provided
+if [[ -z "$title" ]]; then
+  read -p "Enter note title: " title
+  if [[ -z "$title" ]]; then
+    echo "Error: Title is required"
+    exit 1
+  fi
 fi
 
-# if more than one argument is given, print error message and stop script
-if [[ $# -gt 1 ]]; then
-	echo "Please provide only one filename separated by dashes, without .md extension."
-	echo "Example: zet my-new-note"
-	exit 1
-fi
+# Create the note
+note_path=$(create_zet_note "$title" "$category")
 
-# set filename to the argument given to the script
-if [[ $# -eq 1 ]]; then
-	filename=$1
+# Open in Neovim
+if [[ -n "$note_path" && -f "$note_path" ]]; then
+  cd "$(dirname "$note_path")" || exit
+  nvim '+ normal ggzzi' "$note_path"
 fi
-
-open_file "$SECOND_BRAIN/0-inbox"

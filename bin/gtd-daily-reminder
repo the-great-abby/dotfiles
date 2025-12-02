@@ -91,6 +91,58 @@ get_log_stats() {
   fi
 }
 
+# Check for lack of progress (for evening)
+check_evening_progress() {
+  local today=$(get_today)
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  # Check if no log exists
+  if [[ ! -f "$log_file" ]]; then
+    echo "no_log"
+    return
+  fi
+  
+  # Check entry count
+  local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  
+  if [[ $entry_count -eq 0 ]]; then
+    echo "no_entries"
+    return
+  fi
+  
+  # For evening, expect at least 3 entries for the entire day
+  if [[ $entry_count -lt 3 ]]; then
+    echo "low_entries"
+    return
+  fi
+  
+  # Check if last entry is recent (within last 4 hours for evening)
+  local last_entry_time=$(grep "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
+  if [[ -z "$last_entry_time" ]]; then
+    echo "no_entries"
+    return
+  fi
+  
+  # Get current time
+  local current_hour=$($DATE_CMD +"%H")
+  local current_min=$($DATE_CMD +"%M")
+  local entry_hour=$(echo "$last_entry_time" | cut -d':' -f1)
+  local entry_min=$(echo "$last_entry_time" | cut -d':' -f2)
+  
+  # Convert to minutes (use 10# to force base-10, avoiding octal issues)
+  local current_minutes=$((10#$current_hour * 60 + 10#$current_min))
+  local entry_minutes=$((10#$entry_hour * 60 + 10#$entry_min))
+  local diff=$((current_minutes - entry_minutes))
+  
+  # If last entry was more than 4 hours ago, it's stale
+  if [[ $diff -gt 240 ]]; then
+    echo "stale_entries"
+    return
+  fi
+  
+  echo "good"
+}
+
 # Check if it's time for daily review
 check_daily_review_time() {
   local current_time=$(get_current_time)

@@ -30,7 +30,7 @@ make gtd-status    # Show system status
 
 ## 🎯 Wizard Menu Options
 
-The wizard provides 12 main options:
+The wizard provides 22 main options:
 
 ### 1. 📥 Capture Something to Inbox
 Guides you through capturing different types of items:
@@ -41,6 +41,7 @@ Guides you through capturing different types of items:
 - Call (phone call notes)
 - Email (email action)
 - General note
+- Zettelkasten note (atomic idea)
 
 ### 2. 📋 Process Inbox Items
 - Shows inbox count
@@ -104,6 +105,17 @@ Guides you through capturing different types of items:
 - Learn specific topic
 - Create study plan
 - View study progress
+
+### 22. 🔗 Zettelkasten (Atomic Notes)
+- Create atomic note (inbox)
+- Create atomic note (Zettelkasten directory)
+- Create atomic note (Resources/Projects/Areas - PARA)
+- Link note to Second Brain/PARA
+- Link note to GTD item
+- Move note to PARA category
+- List notes in inbox
+- List notes in Zettelkasten directory
+- Process inbox (move to organized location)
 
 ## 💡 Example Workflows
 

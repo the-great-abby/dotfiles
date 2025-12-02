@@ -1,6 +1,22 @@
 #!/bin/bash
 # GTD Interactive Wizard - Guides you through GTD processes
 
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+fi
+
+# Source config if it exists
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+
 # Colors
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
@@ -41,6 +57,7 @@ show_main_menu() {
   echo -e "${GREEN}19)${NC} 🌅 Morning/Evening Check-In"
   echo -e "${GREEN}20)${NC} ☸️  Learn Kubernetes/CKA"
   echo -e "${GREEN}21)${NC} 🎨 Create diagrams & mindmaps"
+  echo -e "${GREEN}22)${NC} 🔗 Zettelkasten (atomic notes)"
   echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
@@ -64,6 +81,7 @@ capture_wizard() {
   echo "  5) Call (phone call notes)"
   echo "  6) Email (email action)"
   echo "  7) General note"
+  echo "  8) Zettelkasten note (atomic idea)"
   echo ""
   echo -n "Choose: "
   read capture_type
@@ -98,6 +116,9 @@ capture_wizard() {
       ;;
     7)
       gtd-capture "$capture_content"
+      ;;
+    8)
+      zet "$capture_content"
       ;;
     *)
       gtd-capture "$capture_content"
@@ -2100,6 +2121,297 @@ k8s_wizard() {
   read
 }
 
+# Zettelkasten wizard
+zettelkasten_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔗 Zettelkasten (Atomic Notes) Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) Create atomic note (inbox)"
+  echo "  2) Create atomic note (Zettelkasten directory)"
+  echo "  3) Create atomic note (Resources - PARA)"
+  echo "  4) Create atomic note (Projects - PARA)"
+  echo "  5) Create atomic note (Areas - PARA)"
+  echo "  6) Link note to Second Brain/PARA"
+  echo "  7) Link note to GTD item"
+  echo "  8) Move note to PARA category"
+  echo "  9) List notes in inbox"
+  echo "  10) List notes in Zettelkasten directory"
+  echo "  11) Process inbox (move to organized location)"
+  echo ""
+  echo -n "Choose: "
+  read zet_choice
+  
+  case "$zet_choice" in
+    1)
+      echo ""
+      echo -n "Note title: "
+      read note_title
+      if [[ -n "$note_title" ]]; then
+        zet "$note_title"
+      else
+        echo "❌ No title provided"
+      fi
+      ;;
+    2)
+      echo ""
+      echo -n "Note title: "
+      read note_title
+      if [[ -n "$note_title" ]]; then
+        zet -z "$note_title"
+      else
+        echo "❌ No title provided"
+      fi
+      ;;
+    3)
+      echo ""
+      echo -n "Note title: "
+      read note_title
+      if [[ -n "$note_title" ]]; then
+        zet -r "$note_title"
+      else
+        echo "❌ No title provided"
+      fi
+      ;;
+    4)
+      echo ""
+      echo -n "Note title: "
+      read note_title
+      if [[ -n "$note_title" ]]; then
+        zet -p "$note_title"
+      else
+        echo "❌ No title provided"
+      fi
+      ;;
+    5)
+      echo ""
+      echo -n "Note title: "
+      read note_title
+      if [[ -n "$note_title" ]]; then
+        zet -a "$note_title"
+      else
+        echo "❌ No title provided"
+      fi
+      ;;
+    6)
+      echo ""
+      echo "Link Zettelkasten note to Second Brain"
+      echo ""
+      echo -n "Zettelkasten note path: "
+      read zet_note
+      echo ""
+      echo "Link to:"
+      echo "  1) Projects (PARA)"
+      echo "  2) Areas (PARA)"
+      echo "  3) Resources (PARA)"
+      echo "  4) Specific Second Brain note"
+      echo ""
+      echo -n "Choose: "
+      read link_choice
+      
+      case "$link_choice" in
+        1)
+          zet-link link "$zet_note" Projects
+          ;;
+        2)
+          zet-link link "$zet_note" Areas
+          ;;
+        3)
+          zet-link link "$zet_note" Resources
+          ;;
+        4)
+          echo -n "Second Brain note path: "
+          read brain_note
+          zet-link link "$zet_note" "$brain_note"
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      ;;
+    7)
+      echo ""
+      echo -n "Zettelkasten note path: "
+      read zet_note
+      echo -n "GTD item path: "
+      read gtd_item
+      if [[ -n "$zet_note" && -n "$gtd_item" ]]; then
+        zet-link gtd "$zet_note" "$gtd_item"
+      else
+        echo "❌ Both paths required"
+      fi
+      ;;
+    8)
+      echo ""
+      echo -n "Zettelkasten note path: "
+      read zet_note
+      echo ""
+      echo "Move to:"
+      echo "  1) Projects"
+      echo "  2) Areas"
+      echo "  3) Resources"
+      echo "  4) Archives"
+      echo ""
+      echo -n "Choose: "
+      read move_choice
+      
+      case "$move_choice" in
+        1)
+          zet-link move "$zet_note" Projects
+          ;;
+        2)
+          zet-link move "$zet_note" Areas
+          ;;
+        3)
+          zet-link move "$zet_note" Resources
+          ;;
+        4)
+          zet-link move "$zet_note" Archives
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      ;;
+    9)
+      echo ""
+      echo "📥 Notes in inbox:"
+      echo ""
+      local inbox_dir="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}/0-inbox"
+      if [[ -d "$inbox_dir" ]]; then
+        local count=$(ls -1 "$inbox_dir"/*.md 2>/dev/null | wc -l | tr -d ' ')
+        if [[ $count -gt 0 ]]; then
+          ls -1t "$inbox_dir"/*.md 2>/dev/null | head -10 | while read -r note; do
+            local title=$(head -1 "$note" 2>/dev/null | sed 's/# //' | head -c 60)
+            echo "  → $(basename "$note")"
+            echo "    $title"
+          done
+          echo ""
+          echo "Total: $count note(s)"
+        else
+          echo "  (empty)"
+        fi
+      else
+        echo "  Inbox directory not found"
+      fi
+      ;;
+    10)
+      echo ""
+      echo "🔗 Notes in Zettelkasten directory:"
+      echo ""
+      local zet_dir="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}/Zettelkasten"
+      if [[ -d "$zet_dir" ]]; then
+        local count=$(ls -1 "$zet_dir"/*.md 2>/dev/null | wc -l | tr -d ' ')
+        if [[ $count -gt 0 ]]; then
+          ls -1t "$zet_dir"/*.md 2>/dev/null | head -10 | while read -r note; do
+            local title=$(head -1 "$note" 2>/dev/null | sed 's/# //' | head -c 60)
+            echo "  → $(basename "$note")"
+            echo "    $title"
+          done
+          echo ""
+          echo "Total: $count note(s)"
+        else
+          echo "  (empty)"
+        fi
+      else
+        echo "  Zettelkasten directory not found"
+      fi
+      ;;
+    11)
+      echo ""
+      echo "📋 Process Zettelkasten inbox"
+      echo ""
+      local inbox_dir="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}/0-inbox"
+      if [[ ! -d "$inbox_dir" ]]; then
+        echo "❌ Inbox directory not found"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 1
+      fi
+      
+      local notes=($(ls -1t "$inbox_dir"/*.md 2>/dev/null))
+      local count=${#notes[@]}
+      
+      if [[ $count -eq 0 ]]; then
+        echo "✅ Zettelkasten inbox is empty!"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 0
+      fi
+      
+      echo "You have $count note(s) in Zettelkasten inbox."
+      echo ""
+      echo "Processing notes..."
+      echo ""
+      
+      for note in "${notes[@]}"; do
+        local note_name=$(basename "$note")
+        local title=$(head -1 "$note" 2>/dev/null | sed 's/# //' | head -c 60)
+        
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "📝 Note: $note_name"
+        echo "   Title: $title"
+        echo ""
+        echo "What would you like to do?"
+        echo ""
+        echo "  1) Move to Zettelkasten directory"
+        echo "  2) Move to Resources (PARA)"
+        echo "  3) Move to Projects (PARA)"
+        echo "  4) Move to Areas (PARA)"
+        echo "  5) Keep in inbox"
+        echo "  6) Skip (process next)"
+        echo ""
+        echo -n "Choose: "
+        read process_choice
+        
+        case "$process_choice" in
+          1)
+            local zet_dir="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}/Zettelkasten"
+            mkdir -p "$zet_dir"
+            mv "$note" "$zet_dir/"
+            echo "✓ Moved to Zettelkasten directory"
+            ;;
+          2)
+            zet-link move "$note" Resources
+            ;;
+          3)
+            zet-link move "$note" Projects
+            ;;
+          4)
+            zet-link move "$note" Areas
+            ;;
+          5)
+            echo "✓ Keeping in inbox"
+            ;;
+          6|"")
+            echo "→ Skipping..."
+            ;;
+          *)
+            echo "Invalid choice, skipping..."
+            ;;
+        esac
+        echo ""
+      done
+      
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "✓ Processing complete!"
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
 # Main loop
 main() {
   while true; do
@@ -2173,6 +2485,9 @@ main() {
         ;;
       21)
         diagram_wizard
+        ;;
+      22)
+        zettelkasten_wizard
         ;;
       0)
         clear
