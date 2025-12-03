@@ -1,0 +1,81 @@
+#!/bin/bash
+# Afternoon review - Midday check-in and refocus
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+echo ""
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}☀️  Afternoon Review - Midday Check-in${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# 1. Check status
+make gtd-status
+
+# 2. Process inbox (if items exist)
+inbox_count=$(ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | tr -d ' ')
+if [[ $inbox_count -gt 0 ]]; then
+  echo ""
+  echo -e "${YELLOW}📥 Inbox: ${inbox_count} item(s)${NC}"
+  read -p "Process inbox now? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gtd-process
+  fi
+fi
+
+# 3. Show today's remaining priorities
+echo ""
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}📋 Remaining Priorities${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+gtd-task list --priority=urgent_important 2>/dev/null | head -5 || echo "  (none)"
+echo ""
+
+# 4. Show active tasks
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}📝 Active Tasks${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+gtd-task list --status=active 2>/dev/null | head -10 || echo "  (none)"
+echo ""
+
+# 5. Afternoon log entry
+read -p "Afternoon log entry (or press Enter to skip): " log_entry
+if [[ -n "$log_entry" ]]; then
+  # Use gtd-daily-log script (standalone version of addInfoToDailyLog)
+  # This works in bash scripts, unlike the zsh function
+  if command -v gtd-daily-log &>/dev/null; then
+    gtd-daily-log "$log_entry"
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-daily-log" "$log_entry"
+  elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-daily-log" ]]; then
+    "$HOME/code/personal/dotfiles/bin/gtd-daily-log" "$log_entry"
+  elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
+    addInfoToDailyLog "$log_entry"
+  else
+    echo "⚠️  Daily log command not found. Using fallback..."
+    # Fallback: implement basic logging directly
+    local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+    local today=$(date +"%Y-%m-%d")
+    local current_time=$(date +"%H:%M")
+    local log_file="${log_dir}/${today}.txt"
+    mkdir -p "$log_dir"
+    if [[ ! -f "$log_file" ]]; then
+      echo "# Daily Log - $today" > "$log_file"
+      echo "" >> "$log_file"
+    fi
+    echo "${current_time} - ${log_entry}" >> "$log_file"
+    echo "✓ Added: ${current_time} - ${log_entry}"
+  fi
+fi
+
+echo ""
+echo -e "${GREEN}✅ Afternoon review complete! Keep up the momentum!${NC}"
+echo ""
+
+

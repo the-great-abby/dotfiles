@@ -174,8 +174,41 @@ move_zet_to_para() {
   local zet_note="$1"
   local para_category="$2"
   
+  # Debug: Check what we received
+  if [[ -z "$zet_note" ]]; then
+    echo -e "${YELLOW}❌ Error: No note path provided${NC}"
+    return 1
+  fi
+  
+  # If path appears incomplete (doesn't start with / or ~), try to reconstruct
+  if [[ ! "$zet_note" =~ ^[/~] ]]; then
+    # Try to find it relative to SECOND_BRAIN/0-inbox
+    local possible_path="${SECOND_BRAIN}/0-inbox/${zet_note}"
+    if [[ -f "$possible_path" ]]; then
+      zet_note="$possible_path"
+    else
+      echo -e "${YELLOW}❌ Error: Note path appears incomplete: $zet_note${NC}"
+      echo -e "${YELLOW}   Expected full path starting with / or ~${NC}"
+      return 1
+    fi
+  fi
+  
+  # Expand any tilde paths to absolute path
+  if [[ "$zet_note" == ~* ]]; then
+    zet_note=$(eval echo "$zet_note")
+  fi
+  
+  # Ensure we have an absolute path
+  if [[ ! "$zet_note" =~ ^/ ]]; then
+    if [[ -f "$zet_note" ]]; then
+      zet_note=$(cd "$(dirname "$zet_note")" 2>/dev/null && pwd)/$(basename "$zet_note")
+    fi
+  fi
+  
+  # Final check - file must exist
   if [[ ! -f "$zet_note" ]]; then
     echo -e "${YELLOW}❌ Error: Note not found: $zet_note${NC}"
+    echo -e "${YELLOW}   Please check the path and try again${NC}"
     return 1
   fi
   

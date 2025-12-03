@@ -103,15 +103,87 @@ create_cka_plan() {
 Created: $($DATE_CMD)
 EOF
 
-  # Create initial tasks
+  # Create initial tasks directly (non-interactive)
   echo "Creating initial study tasks..."
   
-  # Use gtd-task if available
-  if command -v gtd-task &>/dev/null; then
-    gtd-task add "Study Kubernetes basics and architecture" --project="$project_name" --context=computer --energy=high 2>/dev/null || true
-    gtd-task add "Practice kubectl commands daily" --project="$project_name" --context=computer --energy=medium 2>/dev/null || true
-    gtd-task add "Set up local Kubernetes cluster (minikube/kind)" --project="$project_name" --context=computer --energy=high 2>/dev/null || true
-  fi
+  local tasks_path="${GTD_BASE_DIR}/tasks"
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local now=$($DATE_CMD +"%H:%M")
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  
+  mkdir -p "$tasks_path"
+  
+  # Task 1: Study Kubernetes basics
+  local task1_file="${tasks_path}/${timestamp}-study-kubernetes-basics.md"
+  cat > "$task1_file" <<EOF
+---
+type: task
+status: active
+created: ${today}T${now}
+context: computer
+energy: high
+priority: not_urgent_important
+project: ${project_name}
+tags: []
+---
+
+# Study Kubernetes basics and architecture
+
+## Next Action
+Study Kubernetes basics and architecture
+
+## Notes
+
+EOF
+  echo "✓ Created task: Study Kubernetes basics and architecture"
+  
+  # Task 2: Practice kubectl
+  local task2_file="${tasks_path}/${timestamp}-practice-kubectl.md"
+  cat > "$task2_file" <<EOF
+---
+type: task
+status: active
+created: ${today}T${now}
+context: computer
+energy: medium
+priority: not_urgent_important
+project: ${project_name}
+tags: []
+---
+
+# Practice kubectl commands daily
+
+## Next Action
+Practice kubectl commands daily
+
+## Notes
+
+EOF
+  echo "✓ Created task: Practice kubectl commands daily"
+  
+  # Task 3: Set up cluster
+  local task3_file="${tasks_path}/${timestamp}-setup-kubernetes-cluster.md"
+  cat > "$task3_file" <<EOF
+---
+type: task
+status: active
+created: ${today}T${now}
+context: computer
+energy: high
+priority: not_urgent_important
+project: ${project_name}
+tags: []
+---
+
+# Set up local Kubernetes cluster (minikube/kind)
+
+## Next Action
+Set up local Kubernetes cluster (minikube/kind)
+
+## Notes
+
+EOF
+  echo "✓ Created task: Set up local Kubernetes cluster"
   
   echo ""
   echo "✅ CKA Study Plan Created!"

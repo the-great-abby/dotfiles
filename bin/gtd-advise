@@ -45,7 +45,7 @@ else
 fi
 
 # Available personas
-PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich")
+PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer")
 
 # Show persona info
 show_persona_info() {
@@ -83,6 +83,9 @@ show_persona_info() {
     kent) echo "Kent Beck - Software simplicity, YAGNI, TDD, doing the simplest thing that works" ;;
     charity) echo "Charity Majors - SRE reliability, observability, practical engineering, avoiding overengineering" ;;
     rich) echo "Rich Hickey - Software design, simplicity vs complexity, essential vs accidental complexity" ;;
+    goggins) echo "David Goggins - Mental toughness, pushing limits, extreme fitness, calling out excuses, staying hard" ;;
+    dean) echo "Dean Karnazes - Ultra marathon running, endurance training, long-distance running, building mental resilience" ;;
+    bioneer) echo "The Bioneer (Adam) - Functional fitness, science-based training, movement quality, practical fitness advice" ;;
     *) echo "Unknown persona" ;;
   esac
 }
@@ -96,6 +99,84 @@ list_personas() {
     echo "  $persona - $(show_persona_info "$persona")"
   done
   echo ""
+}
+
+# Get habit tracker data for a specific date
+get_habit_tracker_data() {
+  local target_date="${1:-today}"  # today or YYYY-MM-DD format
+  local date_cmd="date"
+  if [[ -x "/usr/bin/date" ]]; then
+    date_cmd="/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    date_cmd="/bin/date"
+  fi
+  
+  # Get target date
+  local check_date=""
+  if [[ "$target_date" == "today" ]]; then
+    check_date=$($date_cmd +"%Y-%m-%d")
+  elif [[ "$target_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    check_date="$target_date"
+  else
+    return 1
+  fi
+  
+  # Load GTD config to find habits path
+  local gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  local habits_path="${gtd_base}/habits"
+  
+  if [[ ! -d "$habits_path" ]]; then
+    return 1
+  fi
+  
+  local completed_habits=()
+  local due_habits=()
+  
+  # Check all habit files
+  local habits=($(find "$habits_path" -type f -name "*.md" 2>/dev/null))
+  
+  for habit_file in "${habits[@]}"; do
+    local status=$(grep "^status:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
+    if [[ "$status" != "active" ]]; then
+      continue
+    fi
+    
+    local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
+    local frequency=$(grep "^frequency:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+    local last_completed=$(grep "^last_completed:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+    local streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+    
+    if [[ "$last_completed" == "$check_date" ]]; then
+      completed_habits+=("$habit_name (streak: ${streak} days)")
+    elif [[ "$frequency" == "daily" && "$last_completed" != "$check_date" ]]; then
+      due_habits+=("$habit_name")
+    fi
+  done
+  
+  # Build output
+  if [[ ${#completed_habits[@]} -gt 0 || ${#due_habits[@]} -gt 0 ]]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "# Habit Tracker Status - $check_date"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
+    if [[ ${#completed_habits[@]} -gt 0 ]]; then
+      echo "✅ Completed Habits:"
+      for habit in "${completed_habits[@]}"; do
+        echo "  • $habit"
+      done
+      echo ""
+    fi
+    
+    if [[ ${#due_habits[@]} -gt 0 ]]; then
+      echo "⭕ Habits Not Completed Yet:"
+      for habit in "${due_habits[@]}"; do
+        echo "  • $habit"
+      done
+      echo ""
+    fi
+  fi
 }
 
 # Get daily log content
@@ -247,11 +328,25 @@ advise_single() {
     fi
   fi
   
-  # If daily log requested, load it
+  # If daily log requested, load it and include habit tracker data
   if [[ "$use_daily_log" == "true" ]]; then
     local log_content=$(get_daily_log_content "$date_range")
+    local habit_data=""
+    
+    # Get habit tracker data (for today or specific date)
+    if [[ "$date_range" == "today" ]]; then
+      habit_data=$(get_habit_tracker_data "today")
+    elif [[ "$date_range" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      habit_data=$(get_habit_tracker_data "$date_range")
+    fi
+    
     if [[ $? -eq 0 ]]; then
-      content=$(printf "Review my daily log:\n\n%s\n\n%s" "$log_content" "$content")
+      # Combine daily log and habit tracker data
+      if [[ -n "$habit_data" ]]; then
+        content=$(printf "Review my daily log and habit tracker status:\n\n%s\n%s\n\n%s" "$log_content" "$habit_data" "$content")
+      else
+        content=$(printf "Review my daily log:\n\n%s\n\n%s" "$log_content" "$content")
+      fi
     fi
   fi
   
@@ -279,7 +374,7 @@ advise_all() {
     fi
   fi
   
-  # If daily log requested, load it (default to today)
+  # If daily log requested, load it (default to today) and include habit tracker data
   if [[ "$use_daily_log" == "true" ]]; then
     local date_range="today"
     # Check if content specifies a range
@@ -291,8 +386,22 @@ advise_all() {
       date_range="month"
     fi
     local log_content=$(get_daily_log_content "$date_range")
+    local habit_data=""
+    
+    # Get habit tracker data (for today or specific date)
+    if [[ "$date_range" == "today" ]]; then
+      habit_data=$(get_habit_tracker_data "today")
+    elif [[ "$date_range" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      habit_data=$(get_habit_tracker_data "$date_range")
+    fi
+    
     if [[ $? -eq 0 ]]; then
-      content=$(printf "Review my daily log:\n\n%s\n\n%s" "$log_content" "$content")
+      # Combine daily log and habit tracker data
+      if [[ -n "$habit_data" ]]; then
+        content=$(printf "Review my daily log and habit tracker status:\n\n%s\n%s\n\n%s" "$log_content" "$habit_data" "$content")
+      else
+        content=$(printf "Review my daily log:\n\n%s\n\n%s" "$log_content" "$content")
+      fi
     fi
   fi
   

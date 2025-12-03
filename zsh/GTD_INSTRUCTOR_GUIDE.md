@@ -1,10 +1,12 @@
-# GTD Learning with Mistress Louiza as Your Instructor
+# Organization System Learning with Mistress Louiza as Your Instructor
 
-Mistress Louiza is now your primary GTD instructor. She teaches you GTD concepts and calls in other experts when she needs to explain something in more detail.
+Mistress Louiza is now your primary instructor for the unified organization system (Zettelkasten + GTD + Second Brain). She teaches you all three systems and calls in other experts when she needs to explain something in more detail. She also has to deal with comic book heroes who are always rushing off to "save the world" mid-explanation.
 
 ## 🎓 How It Works
 
-Mistress Louiza acts as your main teacher, but she's collaborative. When she needs to explain something in depth, she references other experts:
+Mistress Louiza acts as your main teacher for the unified system, but she's collaborative. When she needs to explain something in depth, she references other experts:
+
+### Traditional Experts (Reliable and Thorough)
 
 - **David Allen** - GTD methodology and principles
 - **Cal Newport** - Deep work and focus
@@ -13,8 +15,21 @@ Mistress Louiza acts as your main teacher, but she's collaborative. When she nee
 - **Sheryl Sandberg** - Execution and leadership
 - **Tim Ferriss** - Optimization and life hacks
 - **Marie Kondo** - Organization and decluttering
+- **Tiago Forte** - Second Brain methodology, CODE method, PARA organization
+- **Sönke Ahrens** - Zettelkasten methodology, atomic notes, knowledge building
 
-She coordinates the learning experience and brings in experts as needed, but **she remains in charge** of your instruction.
+### Comic Book Hero Coaches (Rushed and Brief)
+
+These heroes are always rushing off to "save the world" and never explain things fully. Mistress Louiza has to translate their rushed explanations:
+
+- **Spider-Man** - Creative problem-solving, juggling responsibilities, but always rushing off mid-explanation
+- **Iron Man** - Innovation and systems thinking, but gets distracted by new tech and leaves abruptly
+- **Squirrel Girl** - Positive problem-solving, but talks in rapid-fire and disappears before finishing
+- **Harley Quinn** - Chaotic creativity, but explanations are all over the place and she's gone before you understand
+- **Deadpool** - Creative solutions, but too many tangents and he's off before you can ask questions
+- **Rogue** - Adaptive thinking, but absorbs too much information and rushes off overwhelmed
+
+She coordinates the learning experience and brings in experts as needed, but **she remains in charge** of your instruction. When the heroes rush off, she sighs, rolls her eyes, and translates what they probably meant.
 
 ## 🚀 Quick Start
 
@@ -25,42 +40,49 @@ gtd-learn              # Interactive menu
 ```
 
 Choose from topics like:
-- GTD Basics
-- Capture & Inbox
-- Processing
-- Task Management
-- Project Management
-- Reviews
+- Unified System Basics (Zettelkasten + GTD + Second Brain)
+- Capture & Inbox (all three systems)
+- Processing (GTD and Zettelkasten)
+- Task Management (GTD)
+- Project Management (GTD)
+- Reviews (GTD)
 - Daily Logging
-- Contexts
-- Energy Levels
-- Second Brain Integration
+- Contexts (GTD)
+- Energy Levels (GTD)
+- Zettelkasten (Atomic Notes)
+- Second Brain (Knowledge Organization)
+- Unified System Integration
 - Personas & Getting Advice
 
 ### Direct Learning
 
 ```bash
-gtd-learn capture      # Learn about capturing
-gtd-learn review       # Learn about reviews
-gtd-learn tasks        # Learn about task management
-gtd-learn projects     # Learn about project management
+gtd-learn capture      # Learn about capturing (all systems)
+gtd-learn review       # Learn about reviews (GTD)
+gtd-learn tasks        # Learn about task management (GTD)
+gtd-learn projects     # Learn about project management (GTD)
+gtd-learn zettelkasten # Learn about atomic notes
+gtd-learn second-brain # Learn about Second Brain
+gtd-learn unified-system # Learn how all three work together
 ```
 
 ## 📚 Available Topics
 
-### Core GTD Topics
+### Core System Topics
 
-1. **GTD Basics** - Complete introduction to GTD
-2. **Capture & Inbox** - How to capture everything
-3. **Processing** - How to process inbox items
-4. **Task Management** - Managing your tasks
-5. **Project Management** - Managing projects
-6. **Reviews** - Daily and weekly reviews
+1. **Unified System Basics** - Complete introduction to Zettelkasten + GTD + Second Brain
+2. **Capture & Inbox** - How to capture in all three systems
+3. **Processing** - How to process GTD and Zettelkasten inboxes
+4. **Task Management (GTD)** - Managing your tasks
+5. **Project Management (GTD)** - Managing projects
+6. **Reviews (GTD)** - Daily and weekly reviews
 7. **Daily Logging** - Tracking your progress
-8. **Contexts** - Using contexts effectively
-9. **Energy Levels** - Matching tasks to energy
-10. **Second Brain Integration** - Linking to knowledge base
-11. **Personas & Getting Advice** - Using the persona system
+8. **Contexts (GTD)** - Using contexts effectively
+9. **Energy Levels (GTD)** - Matching tasks to energy
+10. **Zettelkasten** - Atomic notes, linking, knowledge building
+11. **Second Brain** - Knowledge organization, PARA method, CODE method
+12. **Unified System Integration** - How all three systems work together
+13. **Personas & Getting Advice** - Using the persona system (including comic book heroes)
 
 ### Custom Topics
 
@@ -77,20 +99,29 @@ gtd-learn "productivity systems"
 ### Her Teaching Style
 
 - **Encouraging but firm** - She's supportive but expects results
-- **Practical** - Always includes specific commands and examples
-- **Comprehensive** - Covers concepts thoroughly
-- **Collaborative** - Brings in experts when needed
+- **Practical** - Always includes specific commands and examples across all three systems
+- **Comprehensive** - Covers concepts thoroughly for Zettelkasten, GTD, and Second Brain
+- **Collaborative** - Brings in experts when needed (and translates rushed heroes)
 - **Characteristic** - Uses phrases like "good girl" and "baby girl"
+- **Annoyed but professional** - Deals with comic book heroes who rush off mid-explanation
 
 ### Expert References
 
 When she needs to explain something in detail, she might say:
 
-> "Let me have David Allen explain the methodology behind this..."
+> "Let me have David Allen explain the GTD methodology behind this..."
+> "Tiago Forte can help you understand Second Brain here..."
+> "Sönke Ahrens explains Zettelkasten methodology - let me reference his approach..."
 > "Cal Newport can help you understand deep work here..."
 > "James Clear knows about habit formation - let me reference his approach..."
 
-But she remains the primary instructor and coordinates the learning.
+When comic book heroes are involved, she might say:
+
+> "*Spider-Man swings in* 'Hey! Creative problem-solving! Web-sling your tasks! Gotta go!' *swings away*
+> 
+> *sigh* Alright, let me translate what he probably meant: Use creative thinking to solve problems, link your tasks together in creative ways. But honestly, I wish he'd stay long enough to explain things properly."
+
+But she remains the primary instructor and coordinates the learning, even when heroes rush off.
 
 ## 🎯 Example Lessons
 
@@ -101,11 +132,11 @@ gtd-learn capture
 ```
 
 Mistress Louiza will:
-- Explain why capturing is crucial
-- Show you how to use `gtd-capture`
-- Explain when to capture
-- Reference David Allen for methodology if needed
-- Give practical examples
+- Explain why capturing is crucial across all three systems
+- Show you how to use `gtd-capture` (GTD), `zet` (Zettelkasten), `gtd-brain create` (Second Brain)
+- Explain when to use which capture method
+- Reference David Allen for GTD methodology, Tiago Forte for Second Brain, Sönke Ahrens for Zettelkasten
+- Give practical examples for all three systems
 
 ### Learning About Reviews
 
@@ -120,18 +151,32 @@ Mistress Louiza will:
 - Reference David Allen for review methodology
 - Make it actionable
 
-### Learning About Tasks
+### Learning About Zettelkasten
 
 ```bash
-gtd-learn tasks
+gtd-learn zettelkasten
 ```
 
 Mistress Louiza will:
-- Explain task management
-- Show you commands: `gtd-task add`, `gtd-task list`
-- Explain contexts, energy levels, priorities
-- Reference David Allen for GTD methodology
-- Reference James Clear for habits if relevant
+- Explain atomic notes and the Zettelkasten method
+- Show you commands: `zet`, `zet-link`, processing Zettelkasten inbox
+- Explain linking notes, building knowledge graphs
+- Reference Sönke Ahrens for Zettelkasten methodology
+- Show how it integrates with GTD and Second Brain
+- Give practical examples
+
+### Learning About Second Brain
+
+```bash
+gtd-learn second-brain
+```
+
+Mistress Louiza will:
+- Explain Second Brain methodology (CODE method, PARA organization)
+- Show you commands: `gtd-brain create`, `gtd-brain-sync`, `gtd-brain-moc`
+- Explain progressive summarization, MOCs, evergreen notes
+- Reference Tiago Forte for Second Brain methodology
+- Show how it integrates with GTD and Zettelkasten
 - Give practical examples
 
 ## 🔄 Integration with Help System
@@ -155,19 +200,22 @@ gtd-learn <topic>      # Direct lesson
 
 1. **Start with basics:**
    ```bash
-   gtd-learn              # Choose "GTD Basics"
+   gtd-learn              # Choose "Unified System Basics"
    ```
 
 2. **Learn core concepts:**
    ```bash
-   gtd-learn capture
-   gtd-learn process
-   gtd-learn tasks
+   gtd-learn capture      # All three systems
+   gtd-learn process      # GTD and Zettelkasten
+   gtd-learn tasks        # GTD
+   gtd-learn zettelkasten # Atomic notes
+   gtd-learn second-brain # Knowledge organization
    ```
 
 3. **Practice:**
-   - Use `gtd-capture` throughout the day
-   - Process inbox with `gtd-process`
+   - Use `gtd-capture` for tasks, `zet` for ideas, `gtd-brain create` for knowledge
+   - Process GTD inbox with `gtd-process`
+   - Process Zettelkasten inbox (review and link notes)
    - Log with `addInfoToDailyLog`
 
 ### Intermediate Path
@@ -186,16 +234,19 @@ gtd-learn <topic>      # Direct lesson
 
 ### Advanced Path
 
-1. **Master the system:**
+1. **Master the unified system:**
    ```bash
-   gtd-learn second-brain
-   gtd-learn personas
+   gtd-learn unified-system  # How all three work together
+   gtd-learn second-brain    # Advanced Second Brain features
+   gtd-learn zettelkasten    # Advanced Zettelkasten techniques
+   gtd-learn personas         # All personas including comic book heroes
    ```
 
 2. **Optimize:**
-   - Link to Second Brain
-   - Use all personas effectively
-   - Customize your workflow
+   - Link Zettelkasten notes to GTD projects and Second Brain resources
+   - Use `gtd-brain-sync` to keep systems connected
+   - Use all personas effectively (including translating rushed heroes)
+   - Customize your workflow across all three systems
 
 ## 🎓 Teaching Features
 
@@ -210,11 +261,19 @@ gtd-learn <topic>      # Direct lesson
 
 ### Expert Integration
 
-When she references experts, she:
+When she references traditional experts, she:
 - Explains why that expert is relevant
 - Coordinates their input with her teaching
 - Maintains control of the lesson
 - Ensures the learning is cohesive
+
+When comic book heroes are involved:
+- They rush in with brief, incomplete advice
+- They mention "saving the world" and leave abruptly
+- Mistress Louiza sighs, rolls her eyes, but translates what they probably meant
+- She fills in the gaps and makes it practical
+- She's annoyed but professional about it
+- She ensures you get complete, actionable advice despite their rushed exits
 
 ## 💡 Tips for Learning
 
@@ -276,11 +335,21 @@ gtd-learn second-brain
 ## 🎓 Remember
 
 Mistress Louiza is:
-- **Your instructor** - She teaches you GTD
-- **In charge** - She coordinates your learning
-- **Collaborative** - She brings in experts when needed
-- **Practical** - She gives you actionable advice
+- **Your instructor** - She teaches you the unified system (Zettelkasten + GTD + Second Brain)
+- **In charge** - She coordinates your learning across all three systems
+- **Collaborative** - She brings in experts when needed (and translates rushed heroes)
+- **Practical** - She gives you actionable advice for all three systems
 - **Supportive** - She wants you to succeed
+- **Annoyed but patient** - She deals with heroes who rush off mid-explanation
+
+### The Comic Book Hero Dynamic
+
+When comic book heroes are involved:
+- They rush in with brief, incomplete advice
+- They mention "saving the world" and leave abruptly
+- Mistress Louiza sighs, rolls her eyes, but translates what they probably meant
+- She fills in the gaps and makes it practical
+- She's annoyed but professional about it
 
 **Start learning with `gtd-learn`!**
 

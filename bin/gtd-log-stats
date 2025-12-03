@@ -1,0 +1,248 @@
+#!/bin/bash
+# GTD Log Stats - Calculate streak and statistics for daily logs
+
+# Load config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Calculate current streak (consecutive days with log entries)
+calculate_streak() {
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local streak=0
+  local check_date="$today"
+  local days_checked=0
+  local max_days_to_check=365  # Safety limit
+  
+  while [[ $days_checked -lt $max_days_to_check ]]; do
+    local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+    
+    if [[ -f "$log_file" ]]; then
+      # Check if file has at least one entry (not just header)
+      local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+      if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ $entry_count -gt 0 ]]; then
+        streak=$((streak + 1))
+      else
+        break
+      fi
+    else
+      break
+    fi
+    
+    days_checked=$((days_checked + 1))
+    
+    # Go back one day
+    local prev_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      # macOS - use -v-1d format
+      prev_date=$($DATE_CMD -v-1d -j -f "%Y-%m-%d" "$check_date" +"%Y-%m-%d" 2>/dev/null || echo "")
+      # If that fails, try alternative method
+      if [[ -z "$prev_date" ]]; then
+        local timestamp=$($DATE_CMD -j -f "%Y-%m-%d" "$check_date" +%s 2>/dev/null || echo "0")
+        if [[ "$timestamp" =~ ^[0-9]+$ ]] && [[ $timestamp -gt 0 ]]; then
+          local prev_timestamp=$((timestamp - 86400))
+          prev_date=$($DATE_CMD -r $prev_timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+      fi
+    else
+      # Linux
+      prev_date=$($DATE_CMD -d "$check_date -1 day" +"%Y-%m-%d" 2>/dev/null || echo "")
+      # Fallback
+      if [[ -z "$prev_date" ]]; then
+        local timestamp=$($DATE_CMD -d "$check_date" +%s 2>/dev/null || echo "0")
+        if [[ "$timestamp" =~ ^[0-9]+$ ]] && [[ $timestamp -gt 0 ]]; then
+          local prev_timestamp=$((timestamp - 86400))
+          prev_date=$($DATE_CMD -d "@$prev_timestamp" +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+      fi
+    fi
+    
+    # Safety check - if we can't calculate previous date, stop
+    if [[ -z "$prev_date" ]] || [[ "$prev_date" == "$check_date" ]]; then
+      break
+    fi
+    
+    check_date="$prev_date"
+  done
+  
+  echo "$streak"
+}
+
+# Calculate longest streak
+calculate_longest_streak() {
+  local max_streak=0
+  local current_streak=0
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  
+  # Get all log files, sorted by date (newest first)
+  local logs=($(find "$DAILY_LOG_DIR" -name "*.txt" -type f | sort -r))
+  
+  for log_file in "${logs[@]}"; do
+    local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+    entry_count=${entry_count:-0}
+    
+    # Ensure entry_count is numeric
+    if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ $entry_count -gt 0 ]]; then
+      current_streak=$((current_streak + 1))
+      if [[ $current_streak -gt $max_streak ]]; then
+        max_streak=$current_streak
+      fi
+    else
+      current_streak=0
+    fi
+  done
+  
+  echo "$max_streak"
+}
+
+# Get today's entry count
+get_todays_entry_count() {
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  if [[ -f "$log_file" ]]; then
+    grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0"
+  else
+    echo "0"
+  fi
+}
+
+# Get total days logged
+get_total_days_logged() {
+  local count=0
+  local logs=($(find "$DAILY_LOG_DIR" -name "*.txt" -type f))
+  
+  for log_file in "${logs[@]}"; do
+    local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+    entry_count=${entry_count:-0}
+    # Ensure entry_count is numeric and strip any whitespace
+    entry_count=$(echo "$entry_count" | tr -d '[:space:]')
+    if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ $entry_count -gt 0 ]]; then
+      count=$((count + 1))
+    fi
+  done
+  
+  echo "$count"
+}
+
+# Get weekly stats (last 7 days)
+get_weekly_stats() {
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local days_logged=0
+  local total_entries=0
+  
+  for i in {0..6}; do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+      # Fallback calculation
+      if [[ -z "$check_date" ]]; then
+        local current_timestamp=$($DATE_CMD +%s 2>/dev/null)
+        if [[ "$current_timestamp" =~ ^[0-9]+$ ]] && [[ $current_timestamp -gt 0 ]]; then
+          local days_back=$i
+          local target_timestamp=$((current_timestamp - (days_back * 86400)))
+          check_date=$($DATE_CMD -r $target_timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+      fi
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+      # Fallback
+      if [[ -z "$check_date" ]]; then
+        local current_timestamp=$($DATE_CMD +%s 2>/dev/null)
+        if [[ "$current_timestamp" =~ ^[0-9]+$ ]] && [[ $current_timestamp -gt 0 ]]; then
+          local days_back=$i
+          local target_timestamp=$((current_timestamp - (days_back * 86400)))
+          check_date=$($DATE_CMD -d "@$target_timestamp" +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+      fi
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+      if [[ -f "$log_file" ]]; then
+        local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+        entry_count=${entry_count:-0}
+        # Ensure entry_count is numeric
+        if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ $entry_count -gt 0 ]]; then
+          days_logged=$((days_logged + 1))
+          total_entries=$((total_entries + entry_count))
+        fi
+      fi
+    fi
+  done
+  
+  echo "$days_logged|$total_entries"
+}
+
+# Main function
+main() {
+  case "${1:-stats}" in
+    streak)
+      calculate_streak
+      ;;
+    longest)
+      calculate_longest_streak
+      ;;
+    today)
+      get_todays_entry_count
+      ;;
+    total)
+      get_total_days_logged
+      ;;
+    weekly)
+      get_weekly_stats
+      ;;
+    stats|*)
+      local streak=$(calculate_streak)
+      local longest=$(calculate_longest_streak)
+      local today_count=$(get_todays_entry_count)
+      local total_days=$(get_total_days_logged)
+      local weekly=$(get_weekly_stats)
+      local week_days=$(echo "$weekly" | cut -d'|' -f1)
+      local week_entries=$(echo "$weekly" | cut -d'|' -f2)
+      
+      echo "📊 Daily Log Statistics"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🔥 Current Streak: ${streak} day(s)"
+      echo "🏆 Longest Streak: ${longest} day(s)"
+      echo "📝 Today's Entries: ${today_count}"
+      echo "📅 Total Days Logged: ${total_days}"
+      echo "📆 This Week: ${week_days} days, ${week_entries} entries"
+      echo ""
+      
+      # Show milestone if applicable
+      if [[ $streak -ge 7 && $streak -lt 30 ]]; then
+        echo "🎉 You're on a ${streak}-day streak! Keep it up!"
+      elif [[ $streak -ge 30 && $streak -lt 100 ]]; then
+        echo "🎉🎉 Amazing ${streak}-day streak! You're building a real habit!"
+      elif [[ $streak -ge 100 ]]; then
+        echo "🎉🎉🎉 INCREDIBLE ${streak}-day streak! You're a logging champion!"
+      fi
+      ;;
+  esac
+}
+
+main "$@"
+

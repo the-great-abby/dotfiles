@@ -1,0 +1,169 @@
+#!/bin/bash
+# GTD Item Selection Helper - Select items by number or partial name match
+# Usage: gtd-select-item <item_type> <search_path> [display_format]
+#
+# Returns selected item name via stdout
+# Exit codes: 0 = success, 1 = cancelled/no match, 2 = error
+
+ITEM_TYPE="${1:-item}"
+SEARCH_PATH="${2:-}"
+DISPLAY_FORMAT="${3:-name}"  # name, file, full
+
+if [[ -z "$SEARCH_PATH" || ! -d "$SEARCH_PATH" ]]; then
+  echo "❌ Invalid search path: $SEARCH_PATH" >&2
+  exit 2
+fi
+
+# Collect items
+declare -a ITEMS
+declare -a ITEM_FULL_PATHS
+declare -a ITEM_DISPLAY_NAMES
+
+# Function to extract display name based on format
+get_display_name() {
+  local file="$1"
+  local format="$2"
+  
+  case "$format" in
+    name)
+      # Extract from frontmatter or filename
+      local name=$(grep "^name:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+      if [[ -z "$name" ]]; then
+        # Try title in frontmatter
+        name=$(grep "^title:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+      fi
+      if [[ -z "$name" ]]; then
+        # Try project name
+        name=$(grep "^project:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+      fi
+      if [[ -z "$name" ]]; then
+        # Fall back to filename without extension
+        name=$(basename "$file" .md)
+      fi
+      echo "$name"
+      ;;
+    file)
+      basename "$file" .md
+      ;;
+    full)
+      echo "$file"
+      ;;
+    *)
+      basename "$file" .md
+      ;;
+  esac
+}
+
+# Find items based on type
+if [[ "$ITEM_TYPE" == "project" ]]; then
+  # Projects are directories with README.md
+  while IFS= read -r project_dir; do
+    local readme="${project_dir}/README.md"
+    if [[ -f "$readme" ]]; then
+      ITEM_FULL_PATHS+=("$readme")
+      local display_name=$(get_display_name "$readme" "$DISPLAY_FORMAT")
+      ITEM_DISPLAY_NAMES+=("$display_name")
+    fi
+  done < <(find "$SEARCH_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null | sort)
+elif [[ "$ITEM_TYPE" == "note" || "$ITEM_TYPE" == "zet" ]]; then
+  # Notes are markdown files
+  while IFS= read -r note_file; do
+    ITEM_FULL_PATHS+=("$note_file")
+    local display_name=$(get_display_name "$note_file" "$DISPLAY_FORMAT")
+    ITEM_DISPLAY_NAMES+=("$display_name")
+  done < <(find "$SEARCH_PATH" -type f -name "*.md" 2>/dev/null | sort)
+else
+  # Default: all markdown files
+  while IFS= read -r item_file; do
+    ITEM_FULL_PATHS+=("$item_file")
+    local display_name=$(get_display_name "$item_file" "$DISPLAY_FORMAT")
+    ITEM_DISPLAY_NAMES+=("$display_name")
+  done < <(find "$SEARCH_PATH" -type f -name "*.md" 2>/dev/null | sort)
+fi
+
+ITEM_COUNT=${#ITEM_FULL_PATHS[@]}
+
+if [[ $ITEM_COUNT -eq 0 ]]; then
+  echo "No ${ITEM_TYPE}s found in $SEARCH_PATH" >&2
+  exit 1
+fi
+
+# Display numbered list
+echo ""
+for i in "${!ITEM_DISPLAY_NAMES[@]}"; do
+  local num=$((i + 1))
+  echo "  ${num}) ${ITEM_DISPLAY_NAMES[$i]}"
+done
+echo ""
+
+# Get user input
+read -p "Select ${ITEM_TYPE} (number or partial name): " user_input
+
+if [[ -z "$user_input" ]]; then
+  exit 1
+fi
+
+# Check if it's a number
+if [[ "$user_input" =~ ^[0-9]+$ ]]; then
+  local selected_index=$((user_input - 1))
+  if [[ $selected_index -ge 0 && $selected_index -lt $ITEM_COUNT ]]; then
+    echo "${ITEM_DISPLAY_NAMES[$selected_index]}"
+    exit 0
+  else
+    echo "❌ Invalid number. Please select 1-$ITEM_COUNT" >&2
+    exit 1
+  fi
+fi
+
+# Try partial name matching
+declare -a MATCHES
+declare -a MATCH_INDICES
+
+for i in "${!ITEM_DISPLAY_NAMES[@]}"; do
+  local display_name="${ITEM_DISPLAY_NAMES[$i]}"
+  local file_base=$(basename "${ITEM_FULL_PATHS[$i]}" .md)
+  
+  # Case-insensitive partial match
+  if [[ "${display_name,,}" == *"${user_input,,}"* ]] || [[ "${file_base,,}" == *"${user_input,,}"* ]]; then
+    MATCHES+=("$display_name")
+    MATCH_INDICES+=($i)
+  fi
+done
+
+MATCH_COUNT=${#MATCHES[@]}
+
+if [[ $MATCH_COUNT -eq 0 ]]; then
+  echo "❌ No ${ITEM_TYPE}s found matching '$user_input'" >&2
+  exit 1
+elif [[ $MATCH_COUNT -eq 1 ]]; then
+  # Single match - return it
+  echo "${MATCHES[0]}"
+  exit 0
+else
+  # Multiple matches - show them and ask again
+  echo ""
+  echo "Multiple matches found:"
+  echo ""
+  for i in "${!MATCHES[@]}"; do
+    local num=$((i + 1))
+    echo "  ${num}) ${MATCHES[$i]}"
+  done
+  echo ""
+  read -p "Select ${ITEM_TYPE} (number): " user_input
+  
+  if [[ "$user_input" =~ ^[0-9]+$ ]]; then
+    local selected_index=$((user_input - 1))
+    if [[ $selected_index -ge 0 && $selected_index -lt $MATCH_COUNT ]]; then
+      echo "${MATCHES[$selected_index]}"
+      exit 0
+    else
+      echo "❌ Invalid number. Please select 1-$MATCH_COUNT" >&2
+      exit 1
+    fi
+  else
+    echo "❌ Invalid input" >&2
+    exit 1
+  fi
+fi
+
+

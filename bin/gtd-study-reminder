@@ -157,14 +157,14 @@ get_study_reminder() {
   
   if [[ "$has_studied" == "no" ]]; then
     if [[ $hours_since -gt 24 ]]; then
-      prompt="Abby hasn't studied in over 24 hours. This is unacceptable. Scold her firmly but constructively. Tell her that consistent study is non-negotiable, especially for something like the CKA exam. Remind her that she can use 'gtd-learn-kubernetes' to learn, and she should log her study with 'addInfoToDailyLog'. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Assign a punishment: she must study for at least 30 minutes right now and log it. Use your characteristic style."
+      prompt="${GTD_USER_NAME:-Abby} hasn't studied in over 24 hours. This is unacceptable. Scold her firmly but constructively. Tell her that consistent study is non-negotiable, especially for something like the CKA exam. Remind her that she can use 'gtd-learn-kubernetes' to learn, and she should log her study with 'addInfoToDailyLog'. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Assign a punishment: she must study for at least 30 minutes right now and log it. Use your characteristic style."
     elif [[ $hours_since -gt 12 ]]; then
-      prompt="Abby hasn't studied in over 12 hours. Remind her firmly that consistent study is essential. Tell her to use 'gtd-learn-kubernetes' to learn a new topic or review. She should log her study with 'addInfoToDailyLog'. Be encouraging but firm. Use your characteristic style with phrases like 'good girl' when she does study."
+      prompt="${GTD_USER_NAME:-Abby} hasn't studied in over 12 hours. Remind her firmly that consistent study is essential. Tell her to use 'gtd-learn-kubernetes' to learn a new topic or review. She should log her study with 'addInfoToDailyLog'. Be encouraging but firm. Use your characteristic style with phrases like 'good girl' when she does study."
     else
-      prompt="Abby hasn't studied recently (${hours_since} hours ago). Give her a gentle but firm reminder to study. Encourage her to use 'gtd-learn-kubernetes' to learn something new, or practice with kubectl commands. Remind her to log her study with 'addInfoToDailyLog'. Use your characteristic style."
+      prompt="${GTD_USER_NAME:-Abby} hasn't studied recently (${hours_since} hours ago). Give her a gentle but firm reminder to study. Encourage her to use 'gtd-learn-kubernetes' to learn something new, or practice with kubectl commands. Remind her to log her study with 'addInfoToDailyLog'. Use your characteristic style."
     fi
   else
-    prompt="Abby has been studying recently. Acknowledge this and encourage her to keep it up. Remind her that consistency is key, and she should continue studying regularly. Use your characteristic style with phrases like 'good girl' or 'baby girl'. Be encouraging."
+    prompt="${GTD_USER_NAME:-Abby} has been studying recently. Acknowledge this and encourage her to keep it up. Remind her that consistency is key, and she should continue studying regularly. Use your characteristic style with phrases like 'good girl' or 'baby girl'. Be encouraging."
   fi
   
   # Get message from Louiza

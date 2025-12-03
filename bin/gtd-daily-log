@@ -1,0 +1,125 @@
+#!/bin/bash
+# GTD Daily Log Command - Add entry to daily log
+# Standalone script version of addInfoToDailyLog function
+
+# Load config if available
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Default values
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
+# Get the log entry
+if [[ -z "$1" ]]; then
+  echo "Usage: gtd-daily-log \"Your log entry here\""
+  exit 1
+fi
+
+log_entry="$1"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+today=$($DATE_CMD +"%Y-%m-%d")
+current_time=$($DATE_CMD +"%H:%M")
+log_file="${DAILY_LOG_DIR}/${today}.txt"
+
+# Expand $HOME if present in path
+log_file="${log_file//\$HOME/$HOME}"
+DAILY_LOG_DIR="${DAILY_LOG_DIR//\$HOME/$HOME}"
+
+# Create directory if it doesn't exist
+if [[ ! -d "$DAILY_LOG_DIR" ]]; then
+  mkdir -p "$DAILY_LOG_DIR" || {
+    echo "Error: Could not create directory $DAILY_LOG_DIR" >&2
+    exit 1
+  }
+fi
+
+# Create file with header if it doesn't exist
+if [[ ! -f "$log_file" ]]; then
+  echo "# Daily Log - $today" > "$log_file" || {
+    echo "Error: Could not create log file $log_file" >&2
+    exit 1
+  }
+  echo "" >> "$log_file"
+fi
+
+# Append the entry with timestamp
+echo "${current_time} - ${log_entry}" >> "$log_file" || {
+  echo "Error: Could not write to log file $log_file" >&2
+  exit 1
+}
+
+echo "✓ Added: ${current_time} - ${log_entry}"
+
+# Check for milestones (run in background to not slow down logging)
+MILESTONE_SCRIPT="$(dirname "$0")/gtd-milestone-celebration"
+if [[ -f "$MILESTONE_SCRIPT" ]]; then
+  "$MILESTONE_SCRIPT" >/dev/null 2>&1 &
+fi
+
+# Auto-suggestions from log entry (run in background to not slow down logging)
+AUTO_SUGGEST_SCRIPT="$HOME/code/dotfiles/mcp/gtd_auto_suggest.py"
+if [[ ! -f "$AUTO_SUGGEST_SCRIPT" ]]; then
+  AUTO_SUGGEST_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_auto_suggest.py"
+fi
+
+if [[ -f "$AUTO_SUGGEST_SCRIPT" ]]; then
+  # Helper script to extract banter
+  EXTRACT_BANTER="$HOME/code/dotfiles/mcp/extract_banter.py"
+  if [[ ! -f "$EXTRACT_BANTER" ]]; then
+    EXTRACT_BANTER="$HOME/code/personal/dotfiles/mcp/extract_banter.py"
+  fi
+  
+  # Run auto-suggestions in background and save banter
+  (
+    result=$(python3 "$AUTO_SUGGEST_SCRIPT" entry "$log_entry" 2>&1)
+    if [[ -f "$EXTRACT_BANTER" ]]; then
+      banter=$(echo "$result" | python3 "$EXTRACT_BANTER" 2>/dev/null)
+    else
+      # Fallback: try simple extraction
+      banter=$(echo "$result" | grep -o '"banter":\s*"[^"]*"' | cut -d'"' -f4)
+    fi
+    
+    if [[ -n "$banter" && "$banter" != "None" && "$banter" != "null" ]]; then
+      # Save banter to display after a brief delay
+      echo "$banter" > "${log_file}.banter.$$"
+    fi
+  ) &
+  
+  # Display banter after processing (non-blocking, appears ~1-2 seconds later)
+  (
+    sleep 2
+    banter_file="${log_file}.banter.$$"
+    if [[ -f "$banter_file" ]]; then
+      banter=$(cat "$banter_file" 2>/dev/null | head -1)
+      if [[ -n "$banter" && "$banter" != "None" && "$banter" != "null" ]]; then
+        echo ""
+        echo "💬 $banter"
+      fi
+      rm -f "$banter_file" 2>/dev/null
+    fi
+  ) &
+fi
+
+exit 0
+
+

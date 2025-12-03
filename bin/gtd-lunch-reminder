@@ -174,25 +174,25 @@ get_louiza_lunch_message() {
   case "$progress_status" in
     no_log|no_entries)
       local punishment_hint="Assign severe punishments: write an accountability letter, process entire inbox immediately, complete 3 tasks right now, log every hour for rest of day, or do a full project audit. Also consider: clean your room, vacuum the house, do your face routine, take your pills."
-      prompt=$(printf "It's lunch time, Abby. It's MID-DAY and she has logged NOTHING today. This is completely unacceptable. Scold her firmly. Tell her that by lunch time, I expect to see multiple entries. This is a failure to track her progress. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Remind her that I'm watching and I'm NOT pleased. Tell her to start logging IMMEDIATELY with 'addInfoToDailyLog'. Assign punishments: %s Include this GTD reminder: %s" "$punishment_hint" "$gtd_reminder")
+      prompt=$(printf "It's lunch time, ${GTD_USER_NAME:-Abby}. It's MID-DAY and she has logged NOTHING today. This is completely unacceptable. Scold her firmly. Tell her that by lunch time, I expect to see multiple entries. This is a failure to track her progress. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Remind her that I'm watching and I'm NOT pleased. Tell her to start logging IMMEDIATELY with 'addInfoToDailyLog'. Assign punishments: %s Include this GTD reminder: %s" "$punishment_hint" "$gtd_reminder")
       ;;
     low_entries)
       local punishment_hint="Assign moderate punishments: log every hour for rest of day, complete 2 tasks immediately, process inbox, or write a reflection on why consistency is failing. Also consider: organize your desk or do your face routine."
-      prompt=$(printf "It's lunch time, Abby. She only has 1 entry logged by mid-day. That's not enough. Scold her firmly but constructively. Tell her that I expect to see regular logging throughout the day, not just one entry. Remind her that tracking is about consistency. Be firm. Assign punishments: %s Include this GTD reminder: %s" "$punishment_hint" "$gtd_reminder")
+      prompt=$(printf "It's lunch time, ${GTD_USER_NAME:-Abby}. She only has 1 entry logged by mid-day. That's not enough. Scold her firmly but constructively. Tell her that I expect to see regular logging throughout the day, not just one entry. Remind her that tracking is about consistency. Be firm. Assign punishments: %s Include this GTD reminder: %s" "$punishment_hint" "$gtd_reminder")
       ;;
     stale_entries)
       local punishment_hint="Assign light punishments: reconstruct the day from memory, log every hour for rest of day, process inbox items, or complete 2 tasks. Also consider: organize your workspace."
-      prompt=$(printf "It's lunch time, Abby. She logged some entries earlier but nothing recent (last entry was hours ago). This shows lack of consistency. Scold her for not keeping up with logging. Tell her that logging should happen throughout the day, not just in the morning. Be firm. Assign punishments: %s Include this GTD reminder: %s" "$punishment_hint" "$gtd_reminder")
+      prompt=$(printf "It's lunch time, ${GTD_USER_NAME:-Abby}. She logged some entries earlier but nothing recent (last entry was hours ago). This shows lack of consistency. Scold her for not keeping up with logging. Tell her that logging should happen throughout the day, not just in the morning. Be firm. Assign punishments: %s Include this GTD reminder: %s" "$punishment_hint" "$gtd_reminder")
       ;;
     good)
       if [[ -n "$log_content" && "$log_content" != "No daily log found"* ]]; then
-        prompt=$(printf "It's lunch time - mid-day check-in for Abby. Here's what she's logged so far today:\n\n%s\n\nStats: %s\n\nGive her an encouraging but firm reminder to keep logging her progress throughout the day. Acknowledge what she's done so far, but remind her to keep recording everything. Tell her I'm watching and I'll be proud when she logs her accomplishments. Use phrases like 'good girl' or 'baby girl' when appropriate. Be encouraging but emphasize the importance of consistent tracking. Include this GTD reminder: %s" "$log_content" "$stats" "$gtd_reminder")
+        prompt=$(printf "It's lunch time - mid-day check-in for ${GTD_USER_NAME:-Abby}. Here's what she's logged so far today:\n\n%s\n\nStats: %s\n\nGive her an encouraging but firm reminder to keep logging her progress throughout the day. Acknowledge what she's done so far, but remind her to keep recording everything. Tell her I'm watching and I'll be proud when she logs her accomplishments. Use phrases like 'good girl' or 'baby girl' when appropriate. Be encouraging but emphasize the importance of consistent tracking. Include this GTD reminder: %s" "$log_content" "$stats" "$gtd_reminder")
       else
-        prompt=$(printf "It's lunch time, Abby. Give her a firm but encouraging reminder to keep logging her progress. Tell her I'm watching and I'll be proud when she logs her accomplishments. Remind her to use 'addInfoToDailyLog' frequently. Include this GTD reminder: %s" "$gtd_reminder")
+        prompt=$(printf "It's lunch time, ${GTD_USER_NAME:-Abby}. Give her a firm but encouraging reminder to keep logging her progress. Tell her I'm watching and I'll be proud when she logs her accomplishments. Remind her to use 'addInfoToDailyLog' frequently. Include this GTD reminder: %s" "$gtd_reminder")
       fi
       ;;
     *)
-      prompt=$(printf "It's lunch time, Abby. Give her a reminder to keep logging her progress. Include this GTD reminder: %s" "$gtd_reminder")
+      prompt=$(printf "It's lunch time, ${GTD_USER_NAME:-Abby}. Give her a reminder to keep logging her progress. Include this GTD reminder: %s" "$gtd_reminder")
       ;;
   esac
   
@@ -310,6 +310,17 @@ send_lunch_reminder() {
   # Get message from Mistress Louiza
   local reminder_message=$(get_louiza_lunch_message "$log_content" "$stats" "$progress_status")
   
+  # Get streak stats
+  local stats_script="$(dirname "$0")/gtd-log-stats"
+  if [[ ! -f "$stats_script" ]]; then
+    stats_script="gtd-log-stats"
+  fi
+  local current_streak=$("$stats_script" streak 2>/dev/null || echo "0")
+  local streak_info=""
+  if [[ $current_streak -gt 0 ]]; then
+    streak_info=$(printf "\n🔥 **Current Streak:** ${current_streak} day(s)")
+  fi
+  
   # Format log for Discord
   local formatted_log=""
   if [[ -n "$log_content" && "$log_content" != "No daily log found"* ]]; then
@@ -320,7 +331,7 @@ send_lunch_reminder() {
   # Send to Discord if enabled
   if [[ "${GTD_DISCORD_DAILY_REMINDERS:-true}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
     if [[ -n "$reminder_message" ]]; then
-      local discord_message=$(printf "%s%s\n\n📊 **Stats:** %s\n\n💡 Keep logging with: \`addInfoToDailyLog \"your entry\"\`" "$reminder_message" "$formatted_log" "$stats")
+      local discord_message=$(printf "%s%s\n\n📊 **Stats:** %s%s\n\n💡 Keep logging with: \`addInfoToDailyLog \"your entry\"\`" "$reminder_message" "$formatted_log" "$stats" "$streak_info")
       if send_discord_message "Mistress Louiza - Lunch Check-In" "$discord_message"; then
         echo "✓ Sent to Discord" >&2
       fi

@@ -43,9 +43,32 @@ count_items() {
 
 # Daily review
 daily_review() {
+  local review_type="${1:-auto}"  # auto, morning, or evening
+  
+  # Auto-detect time of day if not specified
+  if [[ "$review_type" == "auto" ]]; then
+    local current_hour=$(date +"%H" | sed 's/^0//')  # Remove leading zero
+    if [[ $current_hour -lt 12 ]]; then
+      review_type="morning"
+    else
+      review_type="evening"
+    fi
+  fi
+  
+  # Determine time of day label
+  local time_label=""
+  local time_icon=""
+  if [[ "$review_type" == "morning" ]]; then
+    time_label="Morning"
+    time_icon="🌅"
+  else
+    time_label="Evening"
+    time_icon="🌙"
+  fi
+  
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📅 Daily Review - $TODAY"
+  echo "📅 Daily ${time_label} Review - $TODAY ${time_icon}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
@@ -64,40 +87,77 @@ daily_review() {
   echo "📋 Active tasks: $active_tasks"
   echo ""
   
-  # Daily review questions
+  # Daily review questions - different for morning vs evening
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "💭 Daily Review Questions"
+  echo "💭 Daily ${time_label} Review Questions"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
-  echo "1. What are my top 3 priorities today?"
-  read -p "   Priority 1: " priority1
-  read -p "   Priority 2: " priority2
-  read -p "   Priority 3: " priority3
-  echo ""
+  local priority1=""
+  local priority2=""
+  local priority3=""
+  local accomplishments=""
+  local blockers=""
+  local attention_items=""
+  local what_went_well=""
+  local tomorrow_priorities=""
   
-  echo "2. What did I accomplish yesterday?"
-  read -p "   " yesterday_accomplishments
-  echo ""
-  
-  echo "3. What's blocking me?"
-  read -p "   " blockers
-  echo ""
-  
-  echo "4. What needs my attention?"
-  read -p "   " attention_items
-  echo ""
+  if [[ "$review_type" == "morning" ]]; then
+    # Morning review - plan for today
+    echo "1. What are my top 3 priorities for today?"
+    read -p "   Priority 1: " priority1
+    read -p "   Priority 2: " priority2
+    read -p "   Priority 3: " priority3
+    echo ""
+    
+    echo "2. What did I accomplish yesterday?"
+    read -p "   " accomplishments
+    echo ""
+    
+    echo "3. What's blocking me?"
+    read -p "   " blockers
+    echo ""
+    
+    echo "4. What needs my attention?"
+    read -p "   " attention_items
+    echo ""
+  else
+    # Evening review - reflect on today, plan for tomorrow
+    echo "1. What did I accomplish today?"
+    read -p "   " accomplishments
+    echo ""
+    
+    echo "2. What went well today?"
+    read -p "   " what_went_well
+    echo ""
+    
+    echo "3. What's blocking me?"
+    read -p "   " blockers
+    echo ""
+    
+    echo "4. What are my top 3 priorities for tomorrow?"
+    read -p "   Priority 1: " priority1
+    read -p "   Priority 2: " priority2
+    read -p "   Priority 3: " priority3
+    echo ""
+    
+    echo "5. What needs my attention?"
+    read -p "   " attention_items
+    echo ""
+  fi
   
   # Save review
-  local review_file="${WEEKLY_REVIEWS_PATH}/daily-${TODAY}.md"
-  cat > "$review_file" <<EOF
+  local review_file="${WEEKLY_REVIEWS_PATH}/daily-${TODAY}-${review_type}.md"
+  if [[ "$review_type" == "morning" ]]; then
+    cat > "$review_file" <<EOF
 ---
 type: daily_review
+time: morning
 date: ${TODAY}
 created: ${TODAY}T${NOW}
 ---
 
-# Daily Review - ${TODAY}
+# Daily Morning Review - ${TODAY} 🌅
 
 ## Priorities Today
 1. ${priority1}
@@ -105,7 +165,7 @@ created: ${TODAY}T${NOW}
 3. ${priority3}
 
 ## Yesterday's Accomplishments
-${yesterday_accomplishments}
+${accomplishments}
 
 ## Blockers
 ${blockers}
@@ -118,17 +178,54 @@ ${attention_items}
 - Active tasks: ${active_tasks}
 
 EOF
+  else
+    cat > "$review_file" <<EOF
+---
+type: daily_review
+time: evening
+date: ${TODAY}
+created: ${TODAY}T${NOW}
+---
+
+# Daily Evening Review - ${TODAY} 🌙
+
+## Today's Accomplishments
+${accomplishments}
+
+## What Went Well
+${what_went_well}
+
+## Priorities Tomorrow
+1. ${priority1}
+2. ${priority2}
+3. ${priority3}
+
+## Blockers
+${blockers}
+
+## Needs Attention
+${attention_items}
+
+## Stats
+- Inbox items: ${inbox_count}
+- Active tasks: ${active_tasks}
+
+EOF
+  fi
   
-  echo "✓ Daily review saved: $review_file"
+  echo "✓ Daily ${time_label} review saved: $review_file"
   echo ""
   
   # Offer AI advice
-  read -p "Get AI advice on your priorities? (y/n) " -n 1 -r
+  read -p "Get AI advice on your ${review_type} review? (y/n) " -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     local review_content=$(cat "$review_file")
     if command -v python3 &>/dev/null; then
       local persona_helper="$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+      if [[ ! -f "$persona_helper" ]]; then
+        persona_helper="$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+      fi
       if [[ -f "$persona_helper" ]]; then
         python3 "$persona_helper" "david" "$review_content" "daily_review"
       fi
@@ -1236,7 +1333,8 @@ EOF
 main() {
   case "$1" in
     daily)
-      daily_review
+      shift
+      daily_review "$1"  # Pass argument (morning/evening/auto)
       ;;
     weekly)
       weekly_review
@@ -1258,15 +1356,17 @@ main() {
       echo "Usage: gtd-review <type> [options]"
       echo ""
       echo "Types:"
-      echo "  daily                    Daily review"
-      echo "  weekly                   Weekly review"
-      echo "  monthly                  Monthly review"
-      echo "  quarterly                Quarterly review"
-      echo "  yearly|annual            Yearly review"
-      echo "  project <name>           Review specific project"
+      echo "  daily [morning|evening]   Daily review (auto-detects time if not specified)"
+      echo "  weekly                    Weekly review"
+      echo "  monthly                   Monthly review"
+      echo "  quarterly                 Quarterly review"
+      echo "  yearly|annual             Yearly review"
+      echo "  project <name>            Review specific project"
       echo ""
       echo "Examples:"
-      echo "  gtd-review daily"
+      echo "  gtd-review daily                    # Auto-detects morning/evening"
+      echo "  gtd-review daily morning            # Morning review"
+      echo "  gtd-review daily evening            # Evening review"
       echo "  gtd-review weekly"
       echo "  gtd-review monthly"
       echo "  gtd-review quarterly"

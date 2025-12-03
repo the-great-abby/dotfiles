@@ -254,9 +254,20 @@ send_weekly_reminder() {
   # Send to Discord if enabled and webhook is configured
   if [[ "${GTD_DISCORD_WEEKLY_REMINDERS:-false}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
     if [[ -n "$reminder_message" ]]; then
+      # Add weekly progress report
+      local progress_script="$(dirname "$0")/gtd-weekly-progress"
+      local progress_report=""
+      if [[ -f "$progress_script" ]]; then
+        progress_report=$("$progress_script" 2>/dev/null | grep -v "✓ Sent to Discord" | head -30)
+      fi
+      
       # Send full message to Discord (preserve newlines)
-      # Format: message + stats + reminder
-      local full_discord_message=$(printf "%s\n\n📊 **Current Status:**\n%s\n\n💡 Run \`gtd-review weekly\` to start your review" "$reminder_message" "$stats")
+      # Format: message + stats + progress report + reminder
+      local full_discord_message=$(printf "%s\n\n📊 **Current Status:**\n%s" "$reminder_message" "$stats")
+      if [[ -n "$progress_report" ]]; then
+        full_discord_message=$(printf "%s\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n%s" "$full_discord_message" "$progress_report")
+      fi
+      full_discord_message=$(printf "%s\n\n💡 Run \`gtd-review weekly\` to start your review" "$full_discord_message")
       send_discord_message "Mistress Louiza - Weekly Review Reminder" "$full_discord_message"
     else
       # Fallback message

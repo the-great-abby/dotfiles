@@ -1,0 +1,273 @@
+#!/bin/bash
+# GTD Energy-Aware Scheduling - Match tasks to energy patterns
+
+# Load config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+PATTERNS_DIR="${GTD_BASE_DIR}/.patterns"
+TASKS_PATH="${GTD_BASE_DIR}/tasks"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Get energy pattern for time of day
+get_energy_pattern() {
+  local hour=$($DATE_CMD +"%H" | sed 's/^0//')
+  hour=${hour:-0}
+  
+  # Load learned patterns if available
+  local patterns_file="${PATTERNS_DIR}/task_patterns.json"
+  if [[ -f "$patterns_file" ]]; then
+    local peak_hour=$(grep -o '"peak_completion_hour": [0-9]*' "$patterns_file" 2>/dev/null | cut -d' ' -f2 || echo "")
+    local best_energy=$(grep -o '"best_energy": "[^"]*"' "$patterns_file" 2>/dev/null | cut -d'"' -f4 || echo "")
+    
+    # If we have learned patterns, use them
+    if [[ -n "$peak_hour" ]] && [[ "$peak_hour" =~ ^[0-9]+$ ]]; then
+      # Check if current hour is near peak
+      local diff=$((hour - peak_hour))
+      if [[ ${diff#-} -le 2 ]]; then
+        echo "$best_energy"
+        return
+      fi
+    fi
+  fi
+  
+  # Default energy patterns based on time
+  if [[ $hour -ge 6 && $hour -lt 10 ]]; then
+    echo "high"
+  elif [[ $hour -ge 10 && $hour -lt 14 ]]; then
+    echo "medium"
+  elif [[ $hour -ge 14 && $hour -lt 18 ]]; then
+    echo "medium"
+  elif [[ $hour -ge 18 && $hour -lt 22 ]]; then
+    echo "low"
+  else
+    echo "low"
+  fi
+}
+
+# Get suggested tasks for current energy
+suggest_tasks_for_energy() {
+  local current_energy="${1:-$(get_energy_pattern)}"
+  local limit="${2:-5}"
+  
+  echo "⚡ Energy-Aware Task Suggestions"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Current Energy: $current_energy"
+  echo "Current Time: $($DATE_CMD +"%H:%M")"
+  echo ""
+  
+  # Extract frontmatter value
+  get_frontmatter_value() {
+    local file="$1"
+    local key="$2"
+    grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+  }
+  
+  # Score task for energy match
+  score_task() {
+    local file="$1"
+    local task_energy=$(get_frontmatter_value "$file" "energy")
+    local priority=$(get_frontmatter_value "$file" "priority")
+    local status=$(get_frontmatter_value "$file" "status")
+    local due=$(get_frontmatter_value "$file" "due")
+    
+    local score=0
+    
+    # Must be active
+    if [[ "$status" != "active" ]]; then
+      echo "0"
+      return
+    fi
+    
+    # Energy match (high weight)
+    if [[ "$task_energy" == "$current_energy" ]]; then
+      score=$((score + 10))
+    elif [[ "$task_energy" == "medium" && "$current_energy" == "high" ]]; then
+      score=$((score + 5))  # High energy can do medium tasks
+    elif [[ "$task_energy" == "low" && "$current_energy" == "medium" ]]; then
+      score=$((score + 5))  # Medium energy can do low tasks
+    fi
+    
+    # Priority boost
+    case "$priority" in
+      urgent_important)
+        score=$((score + 8))
+        ;;
+      not_urgent_important)
+        score=$((score + 5))
+        ;;
+      urgent_not_important)
+        score=$((score + 3))
+        ;;
+    esac
+    
+    # Due date urgency
+    if [[ -n "$due" ]]; then
+      local today=$($DATE_CMD +"%Y-%m-%d")
+      local due_date="${due%%T*}"
+      if [[ "$due_date" == "$today" ]]; then
+        score=$((score + 10))
+      elif [[ "$due_date" < "$today" ]]; then
+        score=$((score + 15))
+      fi
+    fi
+    
+    echo "$score"
+  }
+  
+  # Collect and score tasks
+  local tasks=()
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" ]] && continue
+      
+      local score=$(score_task "$task_file")
+      if [[ $score -gt 0 ]]; then
+        local title=$(get_frontmatter_value "$task_file" "title")
+        local task_energy=$(get_frontmatter_value "$task_file" "energy")
+        local priority=$(get_frontmatter_value "$task_file" "priority")
+        
+        tasks+=("$score|$title|$task_energy|$priority|$task_file")
+      fi
+    done < <(find "$TASKS_PATH" -name "*.md" -type f)
+  fi
+  
+  # Sort by score (descending)
+  IFS=$'\n' sorted_tasks=($(printf '%s\n' "${tasks[@]}" | sort -t'|' -k1 -rn))
+  
+  # Display top tasks
+  local count=0
+  for task_info in "${sorted_tasks[@]}"; do
+    [[ $count -ge $limit ]] && break
+    
+    local score=$(echo "$task_info" | cut -d'|' -f1)
+    local title=$(echo "$task_info" | cut -d'|' -f2)
+    local task_energy=$(echo "$task_info" | cut -d'|' -f3)
+    local priority=$(echo "$task_info" | cut -d'|' -f4)
+    
+    echo "  $((count + 1)). $title"
+    echo "     Energy: $task_energy | Priority: $priority | Score: $score"
+    echo ""
+    
+    count=$((count + 1))
+  done
+  
+  if [[ $count -eq 0 ]]; then
+    echo "  No tasks found matching current energy level."
+    echo ""
+    echo "  Try:"
+    echo "    gtd-task list --energy=$current_energy"
+    echo ""
+  fi
+}
+
+# Schedule tasks for optimal energy times
+schedule_for_energy() {
+  local task_id="$1"
+  local target_energy="$2"
+  
+  if [[ -z "$task_id" || -z "$target_energy" ]]; then
+    echo "Usage: gtd-energy-schedule schedule <task-id> <energy-level>"
+    echo ""
+    echo "Energy levels: low, medium, high, creative, administrative"
+    exit 1
+  fi
+  
+  # Find task file
+  local task_file=""
+  if [[ -d "$TASKS_PATH" ]]; then
+    task_file=$(find "$TASKS_PATH" -name "*${task_id}*.md" -type f | head -1)
+  fi
+  
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    echo "Error: Task not found"
+    exit 1
+  fi
+  
+  # Get optimal time for energy level
+  local patterns_file="${PATTERNS_DIR}/task_patterns.json"
+  local optimal_hour=10  # Default
+  
+  if [[ -f "$patterns_file" ]]; then
+    local peak_hour=$(grep -o '"peak_completion_hour": [0-9]*' "$patterns_file" 2>/dev/null | cut -d' ' -f2 || echo "")
+    if [[ -n "$peak_hour" && "$peak_hour" =~ ^[0-9]+$ ]]; then
+      optimal_hour=$peak_hour
+    fi
+  fi
+  
+  # Adjust based on energy level
+  case "$target_energy" in
+    high)
+      optimal_hour=9  # Morning for high energy
+      ;;
+    medium)
+      optimal_hour=14  # Afternoon for medium
+      ;;
+    low)
+      optimal_hour=18  # Evening for low
+      ;;
+  esac
+  
+  echo "📅 Scheduling Recommendation"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Task: $(grep "^title:" "$task_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')"
+  echo "Target Energy: $target_energy"
+  echo "Optimal Time: ${optimal_hour}:00"
+  echo ""
+  echo "💡 Consider scheduling this task around ${optimal_hour}:00 when your energy"
+  echo "   level typically matches '$target_energy'."
+  echo ""
+}
+
+# Main function
+main() {
+  case "${1:-suggest}" in
+    suggest)
+      shift
+      suggest_tasks_for_energy "$@"
+      ;;
+    schedule)
+      shift
+      schedule_for_energy "$@"
+      ;;
+    pattern)
+      get_energy_pattern
+      ;;
+    *)
+      echo "Usage: gtd-energy-schedule [suggest|schedule|pattern]"
+      echo ""
+      echo "Commands:"
+      echo "  suggest [energy] [limit]  - Suggest tasks for current/ specified energy"
+      echo "  schedule <task-id> <energy> - Get scheduling recommendation"
+      echo "  pattern                    - Show current energy pattern"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+
+

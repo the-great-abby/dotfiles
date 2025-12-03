@@ -1,0 +1,50 @@
+#!/bin/bash
+# Quick find across GTD system
+# Usage: gtd-find <search-term>
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+if [[ -z "$1" ]]; then
+  echo "Usage: gtd-find <search-term>"
+  echo ""
+  echo "Examples:"
+  echo "  gtd-find kubernetes"
+  echo "  gtd-find 'project name'"
+  exit 1
+fi
+
+SEARCH_TERM="$1"
+
+echo ""
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}🔍 Searching for: ${SEARCH_TERM}${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Search GTD
+echo -e "${BOLD}📁 GTD System:${NC}"
+if command -v gtd-search &>/dev/null; then
+  gtd-search "$SEARCH_TERM" 2>/dev/null | head -10
+else
+  # Fallback: grep in GTD directory
+  grep -r -i "$SEARCH_TERM" ~/Documents/gtd/ 2>/dev/null | head -10 | sed 's/^/  /'
+fi
+echo ""
+
+# Search Second Brain
+if command -v gtd-brain &>/dev/null; then
+  echo -e "${BOLD}🧠 Second Brain:${NC}"
+  gtd-brain search "$SEARCH_TERM" 2>/dev/null | head -10
+  echo ""
+fi
+
+# Search daily logs
+echo -e "${BOLD}📝 Daily Logs:${NC}"
+grep -r -i "$SEARCH_TERM" ~/Documents/daily_logs/ 2>/dev/null | head -5 | sed 's/^/  /'
+echo ""
+
+

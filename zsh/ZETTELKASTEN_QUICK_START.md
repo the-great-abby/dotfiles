@@ -94,3 +94,5 @@ zet-link move <note-path> Resources
 
 See `ZETTELKASTEN_SECOND_BRAIN_INTEGRATION.md` for complete guide.
 
+
+

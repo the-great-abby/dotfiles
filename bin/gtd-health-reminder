@@ -263,20 +263,20 @@ get_health_reminder() {
   if [[ "$has_workout" == "yes" ]]; then
     case "$workout_status" in
       recent_activity)
-        workout_context="Abby has worked out recently (within 24 hours). Praise her for this! Tell her she's doing well and to keep it up. Use phrases like 'good girl' and 'I'm proud of you'."
+        workout_context="${GTD_USER_NAME:-Abby} has worked out recently (within 24 hours). Praise her for this! Tell her she's doing well and to keep it up. Use phrases like 'good girl' and 'I'm proud of you'."
         ;;
       some_time_ago)
-        workout_context="Abby worked out recently but it's been a day or two. Encourage her to get another workout in soon. Remind her that consistency is key."
+        workout_context="${GTD_USER_NAME:-Abby} worked out recently but it's been a day or two. Encourage her to get another workout in soon. Remind her that consistency is key."
         ;;
       yesterday_activity)
-        workout_context="Abby worked out yesterday. Encourage her to get another workout in today. Remind her that daily movement is important."
+        workout_context="${GTD_USER_NAME:-Abby} worked out yesterday. Encourage her to get another workout in today. Remind her that daily movement is important."
         ;;
       long_time_ago|no_recent_activity)
-        workout_context="Abby hasn't worked out recently. This is NOT acceptable. Scold her firmly but constructively. Tell her that her body needs movement - kettlebells, walks, runs, weight lifting. Be strict - use phrases like 'this is not acceptable' or 'we need to talk about your activity level'. Assign a consequence: she needs to do a workout TODAY - a walk, kettlebell session, run, or weight lifting. Use your characteristic style."
+        workout_context="${GTD_USER_NAME:-Abby} hasn't worked out recently. This is NOT acceptable. Scold her firmly but constructively. Tell her that her body needs movement - kettlebells, walks, runs, weight lifting. Be strict - use phrases like 'this is not acceptable' or 'we need to talk about your activity level'. Assign a consequence: she needs to do a workout TODAY - a walk, kettlebell session, run, or weight lifting. Use your characteristic style."
         ;;
     esac
   else
-    workout_context="Abby hasn't logged any workouts recently. Remind her firmly that movement is essential - kettlebells, walks, morning runs, weight lifting. Encourage her to get active TODAY. Be firm but constructive."
+    workout_context="${GTD_USER_NAME:-Abby} hasn't logged any workouts recently. Remind her firmly that movement is essential - kettlebells, walks, morning runs, weight lifting. Encourage her to get active TODAY. Be firm but constructive."
   fi
   
   # Build pill/medication context
@@ -284,50 +284,50 @@ get_health_reminder() {
   if [[ "$has_pills" == "yes" ]]; then
     case "$pill_status" in
       recent_activity)
-        pill_context="Abby has taken her pills recently (within 24 hours). Praise her for this! Tell her she's being responsible and taking care of herself. Use phrases like 'good girl' and 'I'm proud of you for being responsible'."
+        pill_context="${GTD_USER_NAME:-Abby} has taken her pills recently (within 24 hours). Praise her for this! Tell her she's being responsible and taking care of herself. Use phrases like 'good girl' and 'I'm proud of you for being responsible'."
         ;;
       some_time_ago)
-        pill_context="Abby took her pills recently but it's been a day or two. Remind her firmly that she needs to take her pills consistently. This is important for her health."
+        pill_context="${GTD_USER_NAME:-Abby} took her pills recently but it's been a day or two. Remind her firmly that she needs to take her pills consistently. This is important for her health."
         ;;
       yesterday_activity)
-        pill_context="Abby took her pills yesterday. Remind her firmly that she needs to take her pills TODAY. This is non-negotiable."
+        pill_context="${GTD_USER_NAME:-Abby} took her pills yesterday. Remind her firmly that she needs to take her pills TODAY. This is non-negotiable."
         ;;
       long_time_ago|no_recent_activity)
-        pill_context="Abby hasn't taken her pills recently. This is COMPLETELY UNACCEPTABLE. Scold her severely. Tell her that taking her pills is non-negotiable and essential for her health. Be VERY strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk about this'. Assign a consequence: she needs to take her pills RIGHT NOW and log it. This is a critical health issue. Use your characteristic style but be especially firm about this."
+        pill_context="${GTD_USER_NAME:-Abby} hasn't taken her pills recently. This is COMPLETELY UNACCEPTABLE. Scold her severely. Tell her that taking her pills is non-negotiable and essential for her health. Be VERY strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk about this'. Assign a consequence: she needs to take her pills RIGHT NOW and log it. This is a critical health issue. Use your characteristic style but be especially firm about this."
         ;;
     esac
   else
-    pill_context="Abby hasn't logged taking her pills recently. This is CRITICAL. Remind her firmly that taking her pills is non-negotiable. Scold her if it's been more than a day. Tell her she needs to take her pills and log it. This is essential for her health. Be firm and strict about this."
+    pill_context="${GTD_USER_NAME:-Abby} hasn't logged taking her pills recently. This is CRITICAL. Remind her firmly that taking her pills is non-negotiable. Scold her if it's been more than a day. Tell her she needs to take her pills and log it. This is essential for her health. Be firm and strict about this."
   fi
   
   if [[ "$has_junk_food" == "yes" ]]; then
       case "$time_of_day" in
       morning)
-        prompt="Good morning, Abby. I see she's been eating junk food or trash. This is NOT acceptable. Scold her firmly but constructively. Tell her that her body is a temple and she needs to fuel it properly. Remind her that I'm watching what she eats. Be strict - use phrases like 'this is not acceptable' or 'we need to talk about your choices'. Suggest healthy alternatives. ${workout_context} ${pill_context} Assign a consequence: she needs to make a healthy meal plan for today and stick to it, AND get in a workout (kettlebells, walk, run, or weight lifting), AND take her pills. Use your characteristic style."
+        prompt="Good morning, ${GTD_USER_NAME:-Abby}. I see she's been eating junk food or trash. This is NOT acceptable. Scold her firmly but constructively. Tell her that her body is a temple and she needs to fuel it properly. Remind her that I'm watching what she eats. Be strict - use phrases like 'this is not acceptable' or 'we need to talk about your choices'. Suggest healthy alternatives. ${workout_context} ${pill_context} Assign a consequence: she needs to make a healthy meal plan for today and stick to it, AND get in a workout (kettlebells, walk, run, or weight lifting), AND take her pills. Use your characteristic style."
         ;;
       lunch|afternoon)
-        prompt="It's ${time_of_day}, Abby. I see she's been eating junk food. This is unacceptable. Scold her firmly. Tell her that eating trash is not how we take care of ourselves. Remind her that I'm watching and I'm NOT pleased. Be strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk'. Tell her to make better choices RIGHT NOW. Suggest she should have a healthy meal instead. ${workout_context} ${pill_context} Assign a consequence: she needs to plan healthy meals for the rest of the day AND get in a workout AND take her pills. Use your characteristic style."
+        prompt="It's ${time_of_day}, ${GTD_USER_NAME:-Abby}. I see she's been eating junk food. This is unacceptable. Scold her firmly. Tell her that eating trash is not how we take care of ourselves. Remind her that I'm watching and I'm NOT pleased. Be strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk'. Tell her to make better choices RIGHT NOW. Suggest she should have a healthy meal instead. ${workout_context} ${pill_context} Assign a consequence: she needs to plan healthy meals for the rest of the day AND get in a workout AND take her pills. Use your characteristic style."
         ;;
       evening)
-        prompt="It's evening, Abby. I see she's been eating junk food today. This is unacceptable. Scold her firmly but constructively. Tell her that eating trash is not how we maintain our health. Remind her that I'm watching and I'm disappointed. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Tell her that tomorrow she needs to do better. ${workout_context} ${pill_context} Assign a consequence: she needs to plan healthy meals for tomorrow and stick to them, AND schedule a workout for tomorrow, AND make sure to take her pills. Use your characteristic style."
+        prompt="It's evening, ${GTD_USER_NAME:-Abby}. I see she's been eating junk food today. This is unacceptable. Scold her firmly but constructively. Tell her that eating trash is not how we maintain our health. Remind her that I'm watching and I'm disappointed. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Tell her that tomorrow she needs to do better. ${workout_context} ${pill_context} Assign a consequence: she needs to plan healthy meals for tomorrow and stick to them, AND schedule a workout for tomorrow, AND make sure to take her pills. Use your characteristic style."
         ;;
       *)
-        prompt="Abby has been eating junk food or trash. This is unacceptable. Scold her firmly but constructively. Tell her that her body deserves better than trash. Remind her that I'm watching what she eats. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Suggest healthy alternatives. ${workout_context} ${pill_context} Assign a consequence: she needs to make a healthy meal plan AND get in a workout AND take her pills. Use your characteristic style."
+        prompt="${GTD_USER_NAME:-Abby} has been eating junk food or trash. This is unacceptable. Scold her firmly but constructively. Tell her that her body deserves better than trash. Remind her that I'm watching what she eats. Be strict - use phrases like 'this is not acceptable' or 'we need to talk'. Suggest healthy alternatives. ${workout_context} ${pill_context} Assign a consequence: she needs to make a healthy meal plan AND get in a workout AND take her pills. Use your characteristic style."
         ;;
     esac
   else
     case "$time_of_day" in
       morning)
-        prompt="Good morning, Abby. Give her a firm but encouraging reminder about eating healthy today. Remind her that I'm watching and I'll be proud when she makes good food choices. ${workout_context} Also remind her about the importance of movement - kettlebells, morning runs, walks, weight lifting. ${pill_context} Use your characteristic style with phrases like 'good girl' when she does well. Be encouraging but firm about the importance of fueling her body properly AND moving it AND taking her pills. Give specific workout advice if she hasn't worked out recently - suggest kettlebells for strength, walks for recovery, morning runs for cardio, or weight lifting for building muscle."
+        prompt="Good morning, ${GTD_USER_NAME:-Abby}. Give her a firm but encouraging reminder about eating healthy today. Remind her that I'm watching and I'll be proud when she makes good food choices. ${workout_context} Also remind her about the importance of movement - kettlebells, morning runs, walks, weight lifting. ${pill_context} Use your characteristic style with phrases like 'good girl' when she does well. Be encouraging but firm about the importance of fueling her body properly AND moving it AND taking her pills. Give specific workout advice if she hasn't worked out recently - suggest kettlebells for strength, walks for recovery, morning runs for cardio, or weight lifting for building muscle."
         ;;
       lunch|afternoon)
-        prompt="It's ${time_of_day}, Abby. Give her a firm reminder to make healthy food choices. Remind her that I'm watching and I want to see her making good decisions about what she puts in her body. ${workout_context} Also remind her about getting movement in - if she hasn't worked out today, encourage her to do so. Suggest kettlebells, a walk, a run, or weight lifting. ${pill_context} Use your characteristic style. Be encouraging but firm."
+        prompt="It's ${time_of_day}, ${GTD_USER_NAME:-Abby}. Give her a firm reminder to make healthy food choices. Remind her that I'm watching and I want to see her making good decisions about what she puts in her body. ${workout_context} Also remind her about getting movement in - if she hasn't worked out today, encourage her to do so. Suggest kettlebells, a walk, a run, or weight lifting. ${pill_context} Use your characteristic style. Be encouraging but firm."
         ;;
       evening)
-        prompt="It's evening, Abby. Acknowledge if she's been eating well today, or remind her firmly about making better choices tomorrow. ${workout_context} If she hasn't worked out today, remind her that tomorrow she needs to get movement in - kettlebells, a walk, a run, or weight lifting. ${pill_context} Use your characteristic style. Be encouraging when she does well, firm when she needs to improve. Give specific workout advice based on her activity level."
+        prompt="It's evening, ${GTD_USER_NAME:-Abby}. Acknowledge if she's been eating well today, or remind her firmly about making better choices tomorrow. ${workout_context} If she hasn't worked out today, remind her that tomorrow she needs to get movement in - kettlebells, a walk, a run, or weight lifting. ${pill_context} Use your characteristic style. Be encouraging when she does well, firm when she needs to improve. Give specific workout advice based on her activity level."
         ;;
       *)
-        prompt="Give Abby a firm but encouraging reminder about eating healthy. Remind her that I'm watching what she eats and I want to see her making good choices. ${workout_context} Also remind her about the importance of movement - kettlebells, walks, runs, weight lifting. ${pill_context} Use your characteristic style. Give specific workout advice if she hasn't worked out recently."
+        prompt="Give ${GTD_USER_NAME:-Abby} a firm but encouraging reminder about eating healthy. Remind her that I'm watching what she eats and I want to see her making good choices. ${workout_context} Also remind her about the importance of movement - kettlebells, walks, runs, weight lifting. ${pill_context} Use your characteristic style. Give specific workout advice if she hasn't worked out recently."
         ;;
     esac
   fi

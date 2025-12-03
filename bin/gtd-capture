@@ -73,6 +73,9 @@ fi
 FILENAME="${TIMESTAMP}-${CAPTURE_TYPE}.md"
 FILEPATH="${INBOX_PATH}/${FILENAME}"
 
+# Capitalize first letter (compatible method)
+CAPTURE_TYPE_TITLE=$(echo "${CAPTURE_TYPE}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+
 # Create file with template
 cat > "$FILEPATH" <<EOF
 ---
@@ -82,7 +85,7 @@ created: ${TODAY}T${NOW}
 tags: []
 ---
 
-# ${CAPTURE_TYPE^}: ${CONTENT}
+# ${CAPTURE_TYPE_TITLE}: ${CONTENT}
 
 ## Details
 

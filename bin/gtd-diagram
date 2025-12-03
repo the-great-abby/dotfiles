@@ -1,5 +1,5 @@
 #!/bin/bash
-# GTD Diagram Generator - Create Mermaid.js diagrams and mindmaps with AI
+# GTD Diagram Generator - Create diagrams with AI (Mermaid, PlantUML, Graphviz/DOT, or Text)
 
 # Load config
 GTD_CONFIG_FILE="$HOME/.gtd_config"
@@ -45,6 +45,10 @@ SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
 # Diagram types
 DIAGRAM_TYPES=("flowchart" "mindmap" "sequence" "gantt" "class" "state" "er" "journey" "gitgraph" "pie" "requirement")
 
+# Output formats
+OUTPUT_FORMATS=("mermaid" "plantuml" "dot" "text")
+DEFAULT_FORMAT="mermaid"
+
 # Clean and validate Mermaid code
 clean_mermaid_code() {
   local code="$1"
@@ -66,11 +70,15 @@ clean_mermaid_code() {
     code=$(echo "$code" | sed -E 's/([A-Za-z0-9]+)--([[:space:]]*-->)/\1 --\2/g')
     
     # Ensure all subgraphs are properly closed
-    local subgraph_count=$(echo "$code" | grep -cE "^[[:space:]]*subgraph" || echo "0")
-    local end_count=$(echo "$code" | grep -cE "^[[:space:]]*end" || echo "0")
+    local subgraph_count=$(echo "$code" | grep -cE "^[[:space:]]*subgraph" 2>/dev/null || echo "0")
+    local end_count=$(echo "$code" | grep -cE "^[[:space:]]*end" 2>/dev/null || echo "0")
+    
+    # Convert to numeric for comparison
+    subgraph_count=${subgraph_count:-0}
+    end_count=${end_count:-0}
     
     # If we have subgraphs but missing ends, add them
-    if [[ $subgraph_count -gt $end_count ]]; then
+    if [[ "$subgraph_count" -gt "$end_count" ]]; then
       local missing_ends=$((subgraph_count - end_count))
       # Add missing end statements before the last line (or at the end)
       for ((i=0; i<missing_ends; i++)); do
@@ -88,13 +96,141 @@ clean_mermaid_code() {
     code=$(echo "$code" | grep -vE "^[[:space:]]*style[[:space:]]+[A-Za-z0-9]+[[:space:]]+.*#.*[^,)]$")
   fi
   
-  # For mindmaps: ensure proper structure
+  # For mindmaps: ensure proper structure and fix common issues
   if echo "$code" | grep -qE "^mindmap"; then
-    # Ensure root node format is correct
-    code=$(echo "$code" | sed 's/^[[:space:]]*root[[:space:]]*(\(.*\))/  root((\1))/')
+    # Check if AI generated completely invalid syntax (node(), title(), style=, etc.)
+    if echo "$code" | grep -qE "(title\(|subTitle\(|node\(|style=|label\()"; then
+      # This is invalid - we need to extract labels and rebuild
+      return 1  # Signal to caller to rebuild
+    fi
+    
+    # Remove all invalid syntax that AI might generate
+    code=$(echo "$code" | grep -vE "^[[:space:]]*(title|subTitle|node|style|label)\(.*\)")
+    code=$(echo "$code" | grep -vE "^[[:space:]]*style=")
+    code=$(echo "$code" | grep -vE "^[[:space:]]*label=")
+    
+    # Fix root node format - should be root(("text")) not root((("text")))
+    code=$(echo "$code" | sed -E 's/root\(\(\(/root((/g' | sed -E 's/root\(\(\(\(/root((/g')
+    code=$(echo "$code" | sed -E 's/root\(\(\(\(\(/root((/g')
+    
+    # Remove any flowchart-like syntax (arrows, semicolons, node IDs)
+    code=$(echo "$code" | grep -vE "^[[:space:]]*[A-Z][[:space:]]*--")
+    code=$(echo "$code" | sed 's/;[[:space:]]*$//')  # Remove trailing semicolons
+    code=$(echo "$code" | sed 's/^[[:space:]]*[A-Z][[:space:]]*\[/    /')  # Convert flowchart nodes to indented text
+    code=$(echo "$code" | sed 's/^[[:space:]]*[A-Z][[:space:]]*{/    /')  # Convert decision nodes to indented text
+    code=$(echo "$code" | sed 's/\[\([^]]*\)\]/\1/g')  # Remove square brackets, keep content
+    code=$(echo "$code" | sed 's/{\([^}]*\)}/\1/g')  # Remove curly braces, keep content
+    
+    # Remove empty lines and clean up
+    code=$(echo "$code" | grep -v '^[[:space:]]*$')
+    
+    # Ensure proper indentation (2 spaces per level)
+    # Keep root node at start (no indent), children at 2 spaces
+    if echo "$code" | grep -qE "^[[:space:]]*root"; then
+      code=$(echo "$code" | sed 's/^[[:space:]]*root/  root/')
+    fi
+  fi
+  
+  # If AI generated invalid mindmap syntax, clean it up
+  if [[ "$diagram_type" == "mindmap" ]]; then
+    # Check if AI generated invalid syntax (like node(), title(), style=, etc.)
+    if echo "$code" | grep -qE "(title|subTitle|node\(|style=|label\(|\"The )"; then
+      echo "⚠️  AI generated invalid mindmap syntax. Generating clean mindmap..." >&2
+      local root_topic=$(echo "$description" | cut -c1-40)
+      
+      # Extract meaningful labels from the invalid syntax
+      local labels=$(echo "$code" | grep -oE 'label\("([^"]+)"' | sed 's/label("//;s/")//' | head -10)
+      local titles=$(echo "$code" | grep -oE 'title\("([^"]+)"' | sed 's/title("//;s/")//' | head -5)
+      
+      # Build clean mindmap structure
+      code="mindmap
+  root((\"${root_topic}\"))"
+      
+      # Add extracted labels as branches
+      local branch_count=0
+      for label in $labels $titles; do
+        if [[ -n "$label" ]] && [[ ${#label} -lt 50 ]] && [[ ${#label} -gt 2 ]]; then
+          code="${code}
+    ${label}"
+          ((branch_count++))
+        fi
+      done
+      
+      # If no good labels found, use default structure
+      if [[ $branch_count -eq 0 ]]; then
+        code="mindmap
+  root((\"${root_topic}\"))
+    Main Topic 1
+      Sub-topic 1.1
+      Sub-topic 1.2
+    Main Topic 2
+      Sub-topic 2.1
+      Sub-topic 2.2
+    Main Topic 3
+      Sub-topic 3.1
+      Sub-topic 3.2"
+      fi
+    fi
+  fi
+  
+  # If AI generated wrong diagram type (flowchart/graph instead of mindmap), convert it
+  if [[ "$diagram_type" == "mindmap" ]] && echo "$code" | grep -qE "^(flowchart|graph)"; then
+    echo "⚠️  AI generated wrong diagram type. Converting to mindmap..." >&2
+    local root_topic=$(echo "$description" | cut -c1-30)
+    
+    # Extract meaningful nodes from the flowchart
+    local nodes=$(echo "$code" | grep -E "^[[:space:]]*[A-Z]\[" | sed 's/.*\[\([^]]*\)\].*/\1/' | head -8)
+    local decisions=$(echo "$code" | grep -E "^[[:space:]]*[A-Z]\{" | sed 's/.*{\([^}]*\)}.*/\1/' | head -8)
+    
+    # Build mindmap structure
+    code="mindmap
+  root((\"${root_topic}\"))"
+    
+    # Add nodes as branches
+    local branch_num=1
+    for node in $nodes; do
+      if [[ "$node" != "$root_topic" ]] && [[ -n "$node" ]]; then
+        code="${code}
+    ${node}"
+        ((branch_num++))
+      fi
+    done
+    
+    # Add decisions as branches too
+    for decision in $decisions; do
+      if [[ -n "$decision" ]]; then
+        code="${code}
+    ${decision}"
+        ((branch_num++))
+      fi
+    done
+    
+    # If no nodes extracted, use default structure
+    if [[ $branch_num -eq 1 ]]; then
+      code="mindmap
+  root((\"${root_topic}\"))
+    Main Branch 1
+      Sub-item 1
+      Sub-item 2
+    Main Branch 2
+      Sub-item 3
+      Sub-item 4"
+    fi
   fi
   
   echo "$code"
+}
+
+# Check if tool is available
+check_tool() {
+  local tool="$1"
+  local install_hint="$2"
+  
+  if ! command -v "$tool" &>/dev/null; then
+    echo "⚠️  $tool not found. $install_hint" >&2
+    return 1
+  fi
+  return 0
 }
 
 # Show help
@@ -110,6 +246,10 @@ show_help() {
   echo "  view <name>                   View a diagram"
   echo "  fix <name>                    Fix syntax errors in a diagram"
   echo ""
+  echo "Options:"
+  echo "  --format, -f <format>         Output format: mermaid, plantuml, dot, text"
+  echo "                                Default: mermaid"
+  echo ""
   echo "Diagram Types:"
   echo "  flowchart                     Flowcharts and process diagrams"
   echo "  mindmap                       Mind maps"
@@ -123,37 +263,211 @@ show_help() {
   echo "  pie                           Pie charts"
   echo "  requirement                   Requirement diagrams"
   echo ""
+  echo "Output Formats:"
+  echo "  mermaid                       Mermaid.js (default, works in Obsidian/GitHub)"
+  echo "  plantuml                      PlantUML (very reliable with AI, requires Java)"
+  echo "  dot                           Graphviz DOT (simple, reliable, requires Graphviz)"
+  echo "  text                          Simple indented text tree (always works, no dependencies)"
+  echo ""
   echo "Examples:"
   echo "  gtd-diagram mindmap \"GTD System Overview\""
-  echo "  gtd-diagram flowchart \"Wedding Planning Process\""
+  echo "  gtd-diagram mindmap \"GTD System\" --format plantuml"
+  echo "  gtd-diagram flowchart \"Process\" --format dot"
+  echo "  gtd-diagram mindmap \"Topic\" --format text"
   echo "  gtd-diagram create sequence \"Daily Log Review Process\""
   echo "  gtd-diagram save my-diagram.md"
   echo ""
 }
 
-# Generate diagram with AI
-generate_diagram() {
-  local diagram_type="$1"
-  shift
-  local description="$*"
+# Generate prompt for AI based on format and diagram type
+generate_prompt() {
+  local format="$1"
+  local diagram_type="$2"
+  local description="$3"
   
-  if [[ -z "$description" ]]; then
-    echo "Enter description for $diagram_type:"
-    read description
-  fi
-  
-  if [[ -z "$description" ]]; then
-    echo "❌ Description required"
-    exit 1
-  fi
-  
-  echo ""
-  echo "🎨 Generating $diagram_type diagram..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-  
-  # Create prompt for AI
-  local prompt="Create a Mermaid.js ${diagram_type} diagram for: ${description}
+  case "$format" in
+    plantuml)
+      if [[ "$diagram_type" == "mindmap" ]]; then
+        echo "Create a PlantUML mindmap diagram for: ${description}
+
+Use @startmindmap and @endmindmap tags.
+Use * for root, ** for first level, *** for second level, etc.
+Format it as a code block with three backticks and plantuml at the start.
+
+Example:
+\`\`\`plantuml
+@startmindmap
+* Root Topic
+** Branch 1
+*** Leaf 1
+*** Leaf 2
+** Branch 2
+*** Leaf 3
+@endmindmap
+\`\`\`
+
+Output ONLY the PlantUML code, no explanations outside the code block."
+      elif [[ "$diagram_type" == "sequence" ]]; then
+        echo "Create a PlantUML sequence diagram for: ${description}
+
+Use @startuml and @enduml tags.
+Use participant declarations and arrows (->, -->, ->>, -->>).
+Format it as a code block with three backticks and plantuml at the start.
+
+Example:
+\`\`\`plantuml
+@startuml
+participant A as Actor
+participant B as System
+A -> B: Request
+B --> A: Response
+@enduml
+\`\`\`
+
+Output ONLY the PlantUML code, no explanations outside the code block."
+      elif [[ "$diagram_type" == "flowchart" ]]; then
+        echo "Create a PlantUML flowchart/activity diagram for: ${description}
+
+Use @startuml and @enduml tags.
+Use :label; for processes, if/then/else for decisions, start/stop for begin/end.
+Format it as a code block with three backticks and plantuml at the start.
+
+Example:
+\`\`\`plantuml
+@startuml
+start
+:Process Step 1;
+:Process Step 2;
+if (Decision?) then (yes)
+  :Action A;
+else (no)
+  :Action B;
+endif
+stop
+@enduml
+\`\`\`
+
+Output ONLY the PlantUML code, no explanations outside the code block."
+      else
+        echo "Create a PlantUML ${diagram_type} diagram for: ${description}
+
+Use @startuml and @enduml tags.
+Use appropriate PlantUML syntax for ${diagram_type}.
+Format it as a code block with three backticks and plantuml at the start.
+
+Output ONLY the PlantUML code, no explanations outside the code block."
+      fi
+      ;;
+    dot)
+      if [[ "$diagram_type" == "mindmap" ]]; then
+        echo "Create a Graphviz DOT graph for a mindmap: ${description}
+
+Use simple graph syntax (not digraph).
+Use -- to connect nodes.
+Format it as a code block with three backticks and dot at the start.
+
+Example:
+\`\`\`dot
+graph G {
+  Root -- Branch1
+  Root -- Branch2
+  Branch1 -- Leaf1
+  Branch1 -- Leaf2
+  Branch2 -- Leaf3
+}
+\`\`\`
+
+Output ONLY the DOT code, no explanations outside the code block."
+      elif [[ "$diagram_type" == "flowchart" ]]; then
+        echo "Create a Graphviz DOT digraph for a flowchart: ${description}
+
+Use digraph syntax.
+Use -> for directed edges.
+Use node labels in quotes if they contain spaces.
+Format it as a code block with three backticks and dot at the start.
+
+Example:
+\`\`\`dot
+digraph G {
+  Start -> Process1
+  Process1 -> Decision
+  Decision -> End [label=\"Yes\"]
+  Decision -> Process1 [label=\"No\"]
+}
+\`\`\`
+
+Output ONLY the DOT code, no explanations outside the code block."
+      else
+        echo "Create a Graphviz DOT graph for: ${description}
+
+Use appropriate DOT syntax (graph or digraph).
+Format it as a code block with three backticks and dot at the start.
+
+Output ONLY the DOT code, no explanations outside the code block."
+      fi
+      ;;
+    text)
+      echo "Create a simple indented text tree for: ${description}
+
+Use 2 spaces per indentation level.
+No special syntax, just plain text labels.
+Start with the root topic, then indent children.
+Format it as a code block with three backticks and text at the start.
+
+Example:
+\`\`\`text
+Root Topic
+  Branch 1
+    Leaf 1
+    Leaf 2
+  Branch 2
+    Leaf 3
+    Leaf 4
+\`\`\`
+
+Output ONLY the indented text, no explanations outside the code block."
+      ;;
+    mermaid|*)
+      # Default to Mermaid
+      if [[ "$diagram_type" == "mindmap" ]]; then
+        echo "Create a Mermaid.js MINDMAP diagram for: ${description}
+
+CRITICAL: This MUST be a MINDMAP, not a flowchart or graph!
+
+MINDMAP SYNTAX REQUIREMENTS:
+- MUST start with 'mindmap' (not 'graph' or 'flowchart')
+- Root node format: root((\"Root Topic\")) - use double parentheses
+- Child nodes use indentation (2 spaces per level)
+- NO arrows, NO semicolons, NO curly braces for decisions
+- NO node IDs like A, B, C
+- Just indented text labels - plain text, no functions, no styling
+- DO NOT use: node(), title(), subTitle(), label(), style=, or any function calls
+- DO NOT use: HTML-like syntax or CSS styling
+- Only use simple indented text under the root node
+- Format it as a code block with three backticks and mermaid at the start
+
+Example valid mindmap syntax:
+\`\`\`mermaid
+mindmap
+  root((\"Main Topic\"))
+    Branch 1
+      Leaf 1
+      Leaf 2
+    Branch 2
+      Leaf 3
+      Leaf 4
+\`\`\`
+
+INVALID EXAMPLES (DO NOT USE):
+- node(\"Text\") ❌
+- title(\"Text\") ❌
+- style=\"color:red\" ❌
+- label(\"Text\") ❌
+- subTitle(\"Text\") ❌
+
+The diagram must be syntactically valid and ready to use in Mermaid-compatible viewers."
+      else
+        echo "Create a Mermaid.js ${diagram_type} diagram for: ${description}
 
 CRITICAL SYNTAX REQUIREMENTS:
 - Use ONLY valid Mermaid.js syntax for ${diagram_type}
@@ -164,7 +478,6 @@ CRITICAL SYNTAX REQUIREMENTS:
 - Keep node IDs short and simple (A, B, C, Node1, Node2, etc.)
 - Use descriptive labels in quotes for display text
 - For flowcharts: Use format like A[\"Label Text\"] or A{\"Decision\"} or A(\"Process\")
-- For mindmaps: Use proper indentation (2 spaces per level)
 - Format it as a code block with three backticks and mermaid at the start
 - Only output the Mermaid code, no explanations or markdown formatting outside the code block
 
@@ -180,49 +493,181 @@ flowchart TD
     C -->|No| B
 
 The diagram must be syntactically valid and ready to use in Mermaid-compatible viewers."
+      fi
+      ;;
+  esac
+}
 
-  # Use persona helper with a diagram-focused persona
-  # We'll use "tim" (Tim Ferriss) as he's good at optimization and visualization
-  # Or create a special diagram generation call
-  local diagram_code
-  diagram_code=$("$PYTHON_CMD" "$PERSONA_HELPER" "tim" "$prompt" "diagram_generation" 2>&1)
+# Extract code from AI response
+extract_code() {
+  local response="$1"
+  local format="$2"
   
-  # Extract mermaid code block if present
-  # Use a variable to avoid backtick issues in grep
-  local mermaid_start="mermaid"
-  if echo "$diagram_code" | grep -q "$mermaid_start"; then
-    # Extract content between mermaid code block markers
-    diagram_code=$(echo "$diagram_code" | sed -n '/mermaid/,/```/p' | sed '1d;$d')
-    # If that didn't work, try a different approach
-    if [[ -z "$diagram_code" || ${#diagram_code} -lt 10 ]]; then
-      # Try extracting everything after "mermaid" until next code block or end
-      diagram_code=$(echo "$diagram_code" | sed 's/.*mermaid//' | sed 's/```.*//' | sed '/^$/d')
+  local code_block_start=""
+  case "$format" in
+    plantuml) code_block_start="plantuml" ;;
+    dot) code_block_start="dot" ;;
+    text) code_block_start="text" ;;
+    mermaid|*) code_block_start="mermaid" ;;
+  esac
+  
+  # Try to extract code block
+  if echo "$response" | grep -q "$code_block_start"; then
+    # Extract content between code block markers
+    local extracted=$(echo "$response" | sed -n "/$code_block_start/,/```/p" | sed '1d;$d')
+    if [[ -n "$extracted" && ${#extracted} -ge 10 ]]; then
+      echo "$extracted"
+      return 0
     fi
   fi
   
-  # Clean and validate the extracted code
-  if [[ -n "$diagram_code" && ${#diagram_code} -ge 10 ]]; then
-    diagram_code=$(clean_mermaid_code "$diagram_code" "$diagram_type")
+  # If that didn't work, try extracting everything after the format keyword
+  local extracted=$(echo "$response" | sed "s/.*$code_block_start//" | sed 's/```.*//' | sed '/^$/d')
+  if [[ -n "$extracted" && ${#extracted} -ge 10 ]]; then
+    echo "$extracted"
+    return 0
   fi
   
-  # If no mermaid code found, try to extract any code block
+  return 1
+}
+
+# Generate diagram with AI
+generate_diagram() {
+  local diagram_type="$1"
+  local output_format="$2"
+  shift 2
+  local description="$*"
+  
+  if [[ -z "$description" ]]; then
+    echo "Enter description for $diagram_type:"
+    read description
+  fi
+  
+  if [[ -z "$description" ]]; then
+    echo "❌ Description required"
+    exit 1
+  fi
+  
+  # Validate format
+  if [[ ! " ${OUTPUT_FORMATS[@]} " =~ " ${output_format} " ]]; then
+    echo "❌ Invalid format: $output_format"
+    echo "Valid formats: ${OUTPUT_FORMATS[*]}"
+    exit 1
+  fi
+  
+  echo ""
+  echo "🎨 Generating $diagram_type diagram (format: $output_format)..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Generate prompt based on format
+  local prompt
+  prompt=$(generate_prompt "$output_format" "$diagram_type" "$description")
+
+  # Use persona helper with a diagram-focused persona
+  local ai_response
+  ai_response=$("$PYTHON_CMD" "$PERSONA_HELPER" "tim" "$prompt" "diagram_generation" 2>&1)
+  
+  # Extract code from AI response
+  local diagram_code
+  if ! diagram_code=$(extract_code "$ai_response" "$output_format"); then
+    echo "⚠️  AI response didn't contain valid ${output_format} code. Generating basic structure..." >&2
+    diagram_code=""
+  fi
+  
+  # Generate fallback based on format and type
   if [[ -z "$diagram_code" || ${#diagram_code} -lt 10 ]]; then
-    echo "⚠️  AI response didn't contain valid Mermaid code. Generating basic structure..."
-    
-    # Generate basic structure based on type
-    case "$diagram_type" in
-      mindmap)
-        diagram_code="mindmap
-  root(($(echo "$description" | cut -c1-20)))
+    case "$output_format" in
+      plantuml)
+        case "$diagram_type" in
+          mindmap)
+            diagram_code="@startmindmap
+* $(echo "$description" | cut -c1-30)
+** Branch 1
+*** Leaf 1
+*** Leaf 2
+** Branch 2
+*** Leaf 3
+*** Leaf 4
+@endmindmap"
+            ;;
+          flowchart)
+            diagram_code="@startuml
+start
+:$(echo "$description" | cut -c1-30);
+:Process Step 1;
+:Process Step 2;
+stop
+@enduml"
+            ;;
+          sequence)
+            diagram_code="@startuml
+participant A as Actor
+participant B as System
+A -> B: Request
+B --> A: Response
+@enduml"
+            ;;
+          *)
+            diagram_code="@startuml
+start
+:$(echo "$description" | cut -c1-30);
+stop
+@enduml"
+            ;;
+        esac
+        ;;
+      dot)
+        case "$diagram_type" in
+          mindmap)
+            diagram_code="graph G {
+  Root -- Branch1
+  Root -- Branch2
+  Branch1 -- Leaf1
+  Branch1 -- Leaf2
+  Branch2 -- Leaf3
+}"
+            ;;
+          flowchart)
+            diagram_code="digraph G {
+  Start -> Process1
+  Process1 -> Decision
+  Decision -> End [label=\"Yes\"]
+  Decision -> Process1 [label=\"No\"]
+}"
+            ;;
+          *)
+            diagram_code="digraph G {
+  A -> B
+  A -> C
+}"
+            ;;
+        esac
+        ;;
+      text)
+        diagram_code="$(echo "$description" | cut -c1-30)
+  Branch 1
+    Leaf 1
+    Leaf 2
+  Branch 2
+    Leaf 3
+    Leaf 4"
+        ;;
+      mermaid|*)
+        # Fallback to Mermaid (existing logic)
+        case "$diagram_type" in
+          mindmap)
+            diagram_code="mindmap
+  root((\"$(echo "$description" | cut -c1-20)\"))
     Branch 1
       Leaf 1
       Leaf 2
     Branch 2
       Leaf 3
       Leaf 4"
-        ;;
-      flowchart)
-        diagram_code="flowchart TD
+            ;;
+          flowchart)
+            diagram_code="flowchart TD
     Start([Start: $description])
     Process1[Process Step 1]
     Process2[Process Step 2]
@@ -234,52 +679,135 @@ The diagram must be syntactically valid and ready to use in Mermaid-compatible v
     Process2 --> Decision
     Decision -->|Yes| End
     Decision -->|No| Process1"
-        ;;
-      sequence)
-        diagram_code="sequenceDiagram
+            ;;
+          sequence)
+            diagram_code="sequenceDiagram
     participant A as Actor
     participant B as System
     
     A->>B: Request
     B-->>A: Response"
-        ;;
-      *)
-        diagram_code="graph TD
+            ;;
+          *)
+            diagram_code="graph TD
     A[$description]
     B[Related Item 1]
     C[Related Item 2]
     A --> B
     A --> C"
+            ;;
+        esac
+        # Clean Mermaid code if needed
+        if [[ "$output_format" == "mermaid" ]]; then
+          diagram_code=$(clean_mermaid_code "$diagram_code" "$diagram_type")
+        fi
         ;;
     esac
   fi
   
-  # Create filename
+  # Create filename based on format
   local safe_name=$(echo "$description" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
-  local filename="${safe_name}.md"
+  local extension="md"
+  case "$output_format" in
+    plantuml) extension="puml" ;;
+    dot) extension="dot" ;;
+    text) extension="txt" ;;
+    mermaid|*) extension="md" ;;
+  esac
+  local filename="${safe_name}.${extension}"
   local filepath="${DIAGRAM_DIR}/${filename}"
   
   # Create directory if needed
   mkdir -p "$DIAGRAM_DIR"
   
-  # Create markdown file with diagram
-  # Use printf to avoid issues with special characters
-  {
-    echo "# ${description}"
-    echo ""
-    echo '```mermaid'
-    echo "${diagram_code}"
-    echo '```'
-    echo ""
-    echo "## Notes"
-    echo "<!-- Add notes about this diagram -->"
-    echo ""
-    echo "## Related"
-    echo "<!-- Link to related items -->"
-    echo ""
-    echo "Created: $(date +"%Y-%m-%d %H:%M")"
-    echo "Type: ${diagram_type}"
-  } > "$filepath"
+  # Create file with diagram based on format
+  case "$output_format" in
+    plantuml)
+      {
+        echo "# ${description}"
+        echo ""
+        echo '```plantuml'
+        echo "${diagram_code}"
+        echo '```'
+        echo ""
+        echo "## Notes"
+        echo "<!-- Add notes about this diagram -->"
+        echo ""
+        echo "## Related"
+        echo "<!-- Link to related items -->"
+        echo ""
+        echo "Created: $(date +"%Y-%m-%d %H:%M")"
+        echo "Type: ${diagram_type}"
+        echo "Format: ${output_format}"
+      } > "$filepath"
+      ;;
+    dot)
+      {
+        echo "# ${description}"
+        echo ""
+        echo '```dot'
+        echo "${diagram_code}"
+        echo '```'
+        echo ""
+        echo "## Notes"
+        echo "<!-- Add notes about this diagram -->"
+        echo ""
+        echo "## Related"
+        echo "<!-- Link to related items -->"
+        echo ""
+        echo "Created: $(date +"%Y-%m-%d %H:%M")"
+        echo "Type: ${diagram_type}"
+        echo "Format: ${output_format}"
+        echo ""
+        echo "## Render"
+        echo "To render this diagram, run:"
+        echo "  dot -Tpng ${filename} -o ${safe_name}.png"
+        echo "  dot -Tsvg ${filename} -o ${safe_name}.svg"
+      } > "$filepath"
+      ;;
+    text)
+      {
+        echo "# ${description}"
+        echo ""
+        echo '```text'
+        echo "${diagram_code}"
+        echo '```'
+        echo ""
+        echo "## Plain Text Version"
+        echo ""
+        echo "${diagram_code}"
+        echo ""
+        echo "## Notes"
+        echo "<!-- Add notes about this diagram -->"
+        echo ""
+        echo "## Related"
+        echo "<!-- Link to related items -->"
+        echo ""
+        echo "Created: $(date +"%Y-%m-%d %H:%M")"
+        echo "Type: ${diagram_type}"
+        echo "Format: ${output_format}"
+      } > "$filepath"
+      ;;
+    mermaid|*)
+      {
+        echo "# ${description}"
+        echo ""
+        echo '```mermaid'
+        echo "${diagram_code}"
+        echo '```'
+        echo ""
+        echo "## Notes"
+        echo "<!-- Add notes about this diagram -->"
+        echo ""
+        echo "## Related"
+        echo "<!-- Link to related items -->"
+        echo ""
+        echo "Created: $(date +"%Y-%m-%d %H:%M")"
+        echo "Type: ${diagram_type}"
+        echo "Format: ${output_format}"
+      } > "$filepath"
+      ;;
+  esac
   
   echo "✓ Diagram created: $filepath"
   echo ""
@@ -290,8 +818,36 @@ The diagram must be syntactically valid and ready to use in Mermaid-compatible v
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "💡 To view in Obsidian or other Mermaid-compatible viewer, open:"
-  echo "   $filepath"
+  
+  # Format-specific viewing instructions
+  case "$output_format" in
+    plantuml)
+      if check_tool "plantuml" "Install with: brew install plantuml"; then
+        echo "💡 To render this PlantUML diagram:"
+        echo "   plantuml ${filepath}"
+        echo ""
+      fi
+      echo "💡 To view in Obsidian, install the PlantUML plugin"
+      echo "💡 Or use online viewer: http://www.plantuml.com/plantuml/uml/"
+      ;;
+    dot)
+      if check_tool "dot" "Install with: brew install graphviz"; then
+        echo "💡 To render this DOT diagram:"
+        echo "   dot -Tpng ${filepath} -o ${safe_name}.png"
+        echo "   dot -Tsvg ${filepath} -o ${safe_name}.svg"
+        echo ""
+      fi
+      echo "💡 Or use online viewer: https://dreampuf.github.io/GraphvizOnline/"
+      ;;
+    text)
+      echo "💡 This is plain text - view it directly or convert to other formats"
+      ;;
+    mermaid|*)
+      echo "💡 To view in Obsidian or other Mermaid-compatible viewer, open:"
+      echo "   $filepath"
+      ;;
+  esac
+  
   echo ""
   echo "💡 To save to Second Brain:"
   echo "   gtd-diagram save ${filename}"
@@ -300,22 +856,26 @@ The diagram must be syntactically valid and ready to use in Mermaid-compatible v
 
 # Create mindmap
 create_mindmap() {
+  local format="$1"
+  shift
   local topic="$*"
   if [[ -z "$topic" ]]; then
     echo "Enter mindmap topic:"
     read topic
   fi
-  generate_diagram "mindmap" "$topic"
+  generate_diagram "mindmap" "$format" "$topic"
 }
 
 # Create flowchart
 create_flowchart() {
+  local format="$1"
+  shift
   local process="$*"
   if [[ -z "$process" ]]; then
     echo "Enter process description:"
     read process
   fi
-  generate_diagram "flowchart" "$process"
+  generate_diagram "flowchart" "$format" "$process"
 }
 
 # Save diagram to Second Brain
@@ -324,7 +884,7 @@ save_diagram() {
   
   if [[ -z "$filename" ]]; then
     echo "Available diagrams:"
-    ls -1 "$DIAGRAM_DIR"/*.md 2>/dev/null | xargs -n1 basename
+    ls -1 "$DIAGRAM_DIR"/*.{md,puml,dot,txt} 2>/dev/null | xargs -n1 basename
     echo ""
     echo "Enter diagram filename to save:"
     read filename
@@ -361,7 +921,7 @@ list_diagrams() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
-  if [[ ! -d "$DIAGRAM_DIR" ]] || [[ -z "$(ls -A "$DIAGRAM_DIR"/*.md 2>/dev/null)" ]]; then
+  if [[ ! -d "$DIAGRAM_DIR" ]] || [[ -z "$(ls -A "$DIAGRAM_DIR"/*.{md,puml,dot,txt} 2>/dev/null)" ]]; then
     echo "No diagrams found. Create one with:"
     echo "  gtd-diagram mindmap \"Your Topic\""
     echo ""
@@ -369,16 +929,21 @@ list_diagrams() {
   fi
   
   local count=1
-  for file in "$DIAGRAM_DIR"/*.md; do
+  # List all diagram files (md, puml, dot, txt)
+  for file in "$DIAGRAM_DIR"/*.{md,puml,dot,txt} 2>/dev/null; do
     if [[ -f "$file" ]]; then
-      local basename=$(basename "$file" .md)
+      local basename=$(basename "$file")
       local title=$(head -1 "$file" | sed 's/^# //')
       local type=$(grep "^Type:" "$file" 2>/dev/null | cut -d' ' -f2)
+      local format=$(grep "^Format:" "$file" 2>/dev/null | cut -d' ' -f2)
       local created=$(grep "^Created:" "$file" 2>/dev/null | cut -d' ' -f2-)
       
       echo "$count) $title"
       echo "   Type: ${type:-unknown}"
-      echo "   File: $basename.md"
+      if [[ -n "$format" ]]; then
+        echo "   Format: $format"
+      fi
+      echo "   File: $basename"
       if [[ -n "$created" ]]; then
         echo "   Created: $created"
       fi
@@ -400,12 +965,23 @@ view_diagram() {
     read name
   fi
   
-  # Remove .md extension if present
+  # Remove any extension if present
   name="${name%.md}"
-  local filepath="${DIAGRAM_DIR}/${name}.md"
+  name="${name%.puml}"
+  name="${name%.dot}"
+  name="${name%.txt}"
   
-  if [[ ! -f "$filepath" ]]; then
-    echo "❌ Diagram not found: $filepath"
+  # Try to find the file with any extension
+  local filepath=""
+  for ext in md puml dot txt; do
+    if [[ -f "${DIAGRAM_DIR}/${name}.${ext}" ]]; then
+      filepath="${DIAGRAM_DIR}/${name}.${ext}"
+      break
+    fi
+  done
+  
+  if [[ -z "$filepath" ]]; then
+    echo "❌ Diagram not found: ${DIAGRAM_DIR}/${name}.*"
     exit 1
   fi
   
@@ -527,14 +1103,68 @@ fix_diagram() {
   
   # Detect diagram type from actual content (not metadata, which might be wrong)
   local diagram_type
+  local original_type=$(grep "^Type:" "$filepath" 2>/dev/null | cut -d' ' -f2)
+  
   if echo "$mermaid_code" | grep -qE "^mindmap"; then
     diagram_type="mindmap"
   elif echo "$mermaid_code" | grep -qE "^(flowchart|graph)"; then
-    diagram_type="flowchart"
+    # If metadata says mindmap but content is flowchart, convert it
+    if [[ "$original_type" == "mindmap" ]]; then
+      echo "⚠️  Converting flowchart to mindmap format..." >&2
+      # Extract nodes and convert to mindmap structure
+      local root_topic=$(head -1 "$filepath" | sed 's/^# //' | cut -c1-30)
+      
+      # Extract node labels properly - handle both [label] and {label} formats
+      # Use awk to properly extract full labels without splitting
+      local all_nodes=$(awk '
+        /\[[^]]+\]/ {
+          match($0, /\[([^]]+)\]/, arr)
+          if (arr[1] != "") print arr[1]
+        }
+        /\{[^}]+\}/ {
+          match($0, /\{([^}]+)\}/, arr)
+          if (arr[1] != "") print arr[1]
+        }
+      ' <<< "$mermaid_code" | grep -v "^[[:space:]]*$" | head -15)
+      
+      # Build mindmap structure
+      mermaid_code="mindmap
+  root((\"${root_topic}\"))"
+      
+      # Add nodes as branches (skip the root topic itself)
+      local branch_count=0
+      while IFS= read -r node; do
+        # Clean up the node text
+        node=$(echo "$node" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [[ "$node" != "$root_topic" ]] && [[ -n "$node" ]] && [[ ${#node} -lt 60 ]] && [[ ${#node} -gt 2 ]]; then
+          mermaid_code="${mermaid_code}
+    ${node}"
+          ((branch_count++))
+        fi
+      done <<< "$all_nodes"
+      
+      # If no nodes extracted, use default structure
+      if [[ $branch_count -eq 0 ]]; then
+        mermaid_code="mindmap
+  root((\"${root_topic}\"))
+    Planning
+      Research
+      Design
+    Implementation
+      Setup
+      Migration
+    Verification
+      Testing
+      Monitoring"
+      fi
+      
+      diagram_type="mindmap"
+    else
+      diagram_type="flowchart"
+    fi
   else
     # Fall back to metadata if content detection fails
-    diagram_type=$(grep "^Type:" "$filepath" 2>/dev/null | cut -d' ' -f2)
-    diagram_type="${diagram_type:-flowchart}"  # default to flowchart
+    diagram_type="${original_type:-flowchart}"  # default to flowchart
   fi
   
   # Clean the code
@@ -579,52 +1209,86 @@ fix_diagram() {
 
 # Main
 main() {
-  case "$1" in
+  local format="$DEFAULT_FORMAT"
+  local cmd=""
+  local args=()
+  
+  # Parse arguments, extracting format flag
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format|-f)
+        if [[ -n "$2" ]]; then
+          format="$2"
+          shift 2
+        else
+          echo "❌ --format requires a value"
+          exit 1
+        fi
+        ;;
+      --help|-h)
+        show_help
+        exit 0
+        ;;
+      *)
+        if [[ -z "$cmd" ]]; then
+          cmd="$1"
+        else
+          args+=("$1")
+        fi
+        shift
+        ;;
+    esac
+  done
+  
+  # Validate format
+  if [[ ! " ${OUTPUT_FORMATS[@]} " =~ " ${format} " ]]; then
+    echo "❌ Invalid format: $format"
+    echo "Valid formats: ${OUTPUT_FORMATS[*]}"
+    exit 1
+  fi
+  
+  case "$cmd" in
     create)
-      shift
-      local type="$1"
-      shift
-      if [[ -z "$type" ]]; then
+      if [[ ${#args[@]} -lt 1 ]]; then
         echo "Diagram type required"
         echo "Types: ${DIAGRAM_TYPES[*]}"
         exit 1
       fi
-      generate_diagram "$type" "$@"
+      local type="${args[0]}"
+      local description="${args[*]:1}"
+      generate_diagram "$type" "$format" "$description"
       ;;
     mindmap)
-      shift
-      create_mindmap "$@"
+      local topic="${args[*]}"
+      create_mindmap "$format" "$topic"
       ;;
     flowchart)
-      shift
-      create_flowchart "$@"
+      local process="${args[*]}"
+      create_flowchart "$format" "$process"
       ;;
     save)
-      shift
-      save_diagram "$@"
+      save_diagram "${args[0]}"
       ;;
     list)
       list_diagrams
       ;;
-           view)
-             shift
-             view_diagram "$@"
-             ;;
-           fix)
-             shift
-             fix_diagram "$@"
-             ;;
-           --help|-h|"")
-             show_help
-             exit 0
-             ;;
-           *)
-             echo "Unknown command: $1"
-             echo "Run 'gtd-diagram --help' for usage"
-             exit 1
-             ;;
-         esac
-       }
-       
-       main "$@"
+    view)
+      view_diagram "${args[0]}"
+      ;;
+    fix)
+      fix_diagram "${args[0]}"
+      ;;
+    "")
+      show_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown command: $cmd"
+      echo "Run 'gtd-diagram --help' for usage"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
 

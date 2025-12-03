@@ -1,0 +1,233 @@
+#!/bin/bash
+# GTD Milestone Celebration - Check for and celebrate milestones
+
+# Load config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Load GTD config for Discord
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Get streak from gtd-log-stats
+STREAK_SCRIPT="$(dirname "$0")/gtd-log-stats"
+if [[ ! -f "$STREAK_SCRIPT" ]]; then
+  STREAK_SCRIPT="gtd-log-stats"
+fi
+
+current_streak=$("$STREAK_SCRIPT" streak 2>/dev/null || echo "0")
+current_streak=${current_streak:-0}
+
+# Milestone tracking file
+MILESTONE_FILE="${GTD_BASE_DIR:-$HOME/Documents/gtd}/.milestones"
+mkdir -p "$(dirname "$MILESTONE_FILE")"
+
+# Check if milestone was already celebrated
+check_milestone_celebrated() {
+  local milestone="$1"
+  if [[ -f "$MILESTONE_FILE" ]]; then
+    grep -q "^${milestone}:" "$MILESTONE_FILE" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
+# Mark milestone as celebrated
+mark_milestone_celebrated() {
+  local milestone="$1"
+  local date=$(date +"%Y-%m-%d")
+  echo "${milestone}:${date}" >> "$MILESTONE_FILE"
+}
+
+# Get celebration message from Mistress Louiza
+get_celebration_message() {
+  local milestone="$1"
+  local streak="$2"
+  
+  # Find persona helper
+  local persona_helper=""
+  local possible_paths=(
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  )
+  
+  for path in "${possible_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      persona_helper="$path"
+      break
+    fi
+  done
+  
+  if [[ -z "$persona_helper" || ! -f "$persona_helper" ]]; then
+    return 1
+  fi
+  
+  # Find python
+  local python_cmd=""
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    python_cmd="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    python_cmd="python3"
+  else
+    return 1
+  fi
+  
+  local prompt=""
+  case "$milestone" in
+    7)
+      prompt="${GTD_USER_NAME:-Abby} just hit a 7-day logging streak! This is a significant milestone - she's building a real habit. Celebrate this achievement enthusiastically! Use phrases like 'good girl', 'baby girl', 'I'm so proud', 'this is amazing'. Be excited and encouraging. Tell her she's building consistency and discipline. This is a big deal - make her feel accomplished!"
+      ;;
+    30)
+      prompt="${GTD_USER_NAME:-Abby} just hit a 30-day logging streak! This is INCREDIBLE - a full month of consistent logging! This shows real discipline and commitment. Celebrate this MAJOR achievement with huge enthusiasm! Use phrases like 'I'm SO proud', 'this is AMAZING', 'you're incredible', 'good girl', 'baby girl'. This is a massive accomplishment - make her feel like a champion! Tell her this is building a real system and she's doing something remarkable."
+      ;;
+    100)
+      prompt="${GTD_USER_NAME:-Abby} just hit a 100-DAY LOGGING STREAK! This is ABSOLUTELY INCREDIBLE - over three months of consistent daily logging! This is a MASSIVE achievement that shows incredible discipline, commitment, and system-building. Celebrate this with MAXIMUM enthusiasm! Use phrases like 'I'm SO PROUD', 'this is INCREDIBLE', 'you're a CHAMPION', 'this is AMAZING', 'good girl', 'baby girl'. This is a rare accomplishment - make her feel like she's achieved something truly special. Tell her this shows she's built a real system and has incredible discipline."
+      ;;
+    *)
+      prompt="${GTD_USER_NAME:-Abby} just hit a ${streak}-day logging streak! Celebrate this achievement! Use phrases like 'good girl', 'baby girl', 'I'm proud'. Be encouraging and enthusiastic."
+      ;;
+  esac
+  
+  # Get message from Louiza
+  local full_output=$("$python_cmd" "$persona_helper" "louiza" "$prompt" "milestone_celebration" 2>&1)
+  
+  if [[ -z "$full_output" ]]; then
+    return 1
+  fi
+  
+  # Check for errors
+  if echo "$full_output" | grep -qE "Error|⚠️|timed out|Could not connect|KeyError"; then
+    return 1
+  fi
+  
+  # Extract message
+  local message=$(echo "$full_output" | awk '
+    /^━+$/ {
+      if (in_section) {
+        exit
+      }
+      in_section = 1
+      next
+    }
+    in_section && !/^💬/ && !/^━/ {
+      print
+    }
+  ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+  
+  # Clean up
+  message=$(echo "$message" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+  message=$(echo "$message" | sed 's/\*\*//g')
+  message=$(echo "$message" | awk 'NF || prev_nf; {prev_nf=NF}')
+  
+  if [[ -n "$message" && ${#message} -gt 10 ]]; then
+    echo "$message"
+    return 0
+  fi
+  
+  return 1
+}
+
+# Send celebration to Discord
+send_celebration_discord() {
+  local milestone="$1"
+  local message="$2"
+  local streak="$3"
+  
+  local webhook_url="${GTD_DISCORD_WEBHOOK_URL:-}"
+  if [[ -z "$webhook_url" ]]; then
+    return 1
+  fi
+  
+  # Determine color based on milestone
+  local color=3066993  # Default green
+  case "$milestone" in
+    7) color=3447003 ;;   # Blue
+    30) color=15844367 ;; # Gold
+    100) color=15158332 ;; # Red/Gold
+  esac
+  
+  # Create embed
+  local json_payload=$(python3 <<PYTHON_EOF
+import json
+from datetime import datetime, timezone
+
+payload = {
+    "embeds": [{
+        "title": "🎉 Milestone Achievement! 🎉",
+        "description": f"**{streak}-Day Logging Streak!**\n\n{message}",
+        "color": ${color},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "footer": {
+            "text": "Keep up the amazing work!"
+        }
+    }]
+}
+
+print(json.dumps(payload))
+PYTHON_EOF
+)
+  
+  local response=$(curl -s -w "\n%{http_code}" -X POST "$webhook_url" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" 2>&1)
+  
+  local http_code=$(echo "$response" | tail -1)
+  
+  if [[ "$http_code" == "204" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Main function
+main() {
+  # Check for milestones
+  local milestones=(7 30 50 100 200 365)
+  
+  for milestone in "${milestones[@]}"; do
+    if [[ $current_streak -ge $milestone ]]; then
+      # Check if we already celebrated this milestone
+      if ! check_milestone_celebrated "$milestone"; then
+        # Get celebration message
+        local celebration_msg=$(get_celebration_message "$milestone" "$current_streak")
+        
+        if [[ -n "$celebration_msg" ]]; then
+          # Send to Discord
+          if [[ "${GTD_DISCORD_DAILY_REMINDERS:-true}" == "true" ]]; then
+            send_celebration_discord "$milestone" "$celebration_msg" "$current_streak"
+          fi
+          
+          # Mark as celebrated
+          mark_milestone_celebrated "$milestone"
+          
+          # Also show in terminal
+          echo ""
+          echo "🎉🎉🎉 MILESTONE ACHIEVED! 🎉🎉🎉"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "${celebration_msg}"
+          echo ""
+        fi
+      fi
+    fi
+  done
+}
+
+main "$@"
+

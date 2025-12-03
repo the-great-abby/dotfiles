@@ -40,7 +40,7 @@ show_menu() {
   echo -e "${GREEN}8)${NC} System Status Check"
   echo -e "${GREEN}9)${NC} Common Problems & Solutions"
   echo -e "${GREEN}10)${NC} Mistress Louiza's Guide"
-  echo -e "${GREEN}11)${NC} Learn GTD with Mistress Louiza"
+  echo -e "${GREEN}11)${NC} Learn Organization System with Mistress Louiza (Zettelkasten + GTD + Second Brain)"
   echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
@@ -583,7 +583,8 @@ main() {
       10) louiza_guide ;;
       11) 
         clear
-        echo "Launching GTD Learning with Mistress Louiza..."
+        echo "Launching Organization System Learning with Mistress Louiza..."
+        echo "(Zettelkasten + GTD + Second Brain)"
         echo ""
         "$(dirname "$0")/gtd-learn"
         ;;

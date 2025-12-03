@@ -1,0 +1,353 @@
+#!/bin/bash
+# GTD Calendar Integration - Google Calendar (personal) and Office 365 (work)
+
+# Load config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+TASKS_PATH="${GTD_BASE_DIR}/tasks"
+
+# Calendar configuration
+GOOGLE_CALENDAR="${GTD_GOOGLE_CALENDAR:-}"
+OFFICE365_CALENDAR="${GTD_OFFICE365_CALENDAR:-}"
+GOOGLE_CALENDAR_NAME="${GTD_GOOGLE_CALENDAR_NAME:-GTD}"
+OFFICE365_CALENDAR_NAME="${GTD_OFFICE365_CALENDAR_NAME:-Work}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Check if gcalcli is installed
+check_gcalcli() {
+  if command -v gcalcli &>/dev/null; then
+    return 0
+  else
+    echo "Error: gcalcli not found. Install with: brew install gcalcli"
+    return 1
+  fi
+}
+
+# Get Google Calendar events
+get_google_events() {
+  local start_date="${1:-today}"
+  local end_date="${2:-tomorrow}"
+  local calendar="${3:-$GOOGLE_CALENDAR_NAME}"
+  
+  if ! check_gcalcli; then
+    return 1
+  fi
+  
+  gcalcli --calendar "$calendar" agenda "$start_date" "$end_date" 2>/dev/null
+}
+
+# Add event to Google Calendar
+add_google_event() {
+  local title="$1"
+  local when="$2"
+  local duration="${3:-60}"
+  local description="${4:-}"
+  local calendar="${5:-$GOOGLE_CALENDAR_NAME}"
+  
+  if ! check_gcalcli; then
+    return 1
+  fi
+  
+  local cmd="gcalcli --calendar '$calendar' add --title '$title' --when '$when' --duration $duration"
+  
+  if [[ -n "$description" ]]; then
+    cmd="$cmd --description '$description'"
+  fi
+  
+  eval "$cmd" 2>/dev/null
+}
+
+# Get Office 365 events (requires Microsoft Graph API or similar)
+get_office365_events() {
+  local start_date="${1:-today}"
+  local end_date="${2:-tomorrow}"
+  
+  # Check if we have Office 365 credentials
+  if [[ -z "$GTD_OFFICE365_CLIENT_ID" ]] || [[ -z "$GTD_OFFICE365_CLIENT_SECRET" ]]; then
+    echo "Error: Office 365 credentials not configured"
+    echo "Set GTD_OFFICE365_CLIENT_ID and GTD_OFFICE365_CLIENT_SECRET in your .gtd_config"
+    return 1
+  fi
+  
+  # Use Microsoft Graph API
+  # This is a simplified version - you may need to implement OAuth2 flow
+  local access_token="${GTD_OFFICE365_ACCESS_TOKEN:-}"
+  
+  if [[ -z "$access_token" ]]; then
+    echo "Error: Office 365 access token not available"
+    echo "You may need to authenticate first"
+    return 1
+  fi
+  
+  # Format dates for Graph API
+  local start_iso=$(date -j -f "%Y-%m-%d" "$start_date" +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -d "$start_date" +"%Y-%m-%dT00:00:00Z" 2>/dev/null || echo "")
+  local end_iso=$(date -j -f "%Y-%m-%d" "$end_date" +"%Y-%m-%dT23:59:59Z" 2>/dev/null || date -d "$end_date" +"%Y-%m-%dT23:59:59Z" 2>/dev/null || echo "")
+  
+  # Call Graph API
+  curl -s -H "Authorization: Bearer $access_token" \
+    "https://graph.microsoft.com/v1.0/me/calendar/calendarView?startDateTime=${start_iso}&endDateTime=${end_iso}" \
+    2>/dev/null | python3 -m json.tool 2>/dev/null || echo "[]"
+}
+
+# View calendar (both calendars)
+view_calendar() {
+  local days="${1:-7}"
+  local end_date=""
+  
+  if [[ "$(uname)" == "Darwin" ]]; then
+    end_date=$($DATE_CMD -v+${days}d +"%Y-%m-%d" 2>/dev/null || echo "")
+  else
+    end_date=$($DATE_CMD -d "+${days} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+  fi
+  
+  echo "📅 Calendar View (Next $days days)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Google Calendar
+  if [[ -n "$GOOGLE_CALENDAR_NAME" ]]; then
+    echo "📘 Google Calendar ($GOOGLE_CALENDAR_NAME):"
+    echo ""
+    if check_gcalcli; then
+      get_google_events "today" "$end_date" "$GOOGLE_CALENDAR_NAME" | head -20
+    else
+      echo "  (gcalcli not configured)"
+    fi
+    echo ""
+  fi
+  
+  # Office 365
+  if [[ -n "$GTD_OFFICE365_CLIENT_ID" ]]; then
+    echo "📗 Office 365 ($OFFICE365_CALENDAR_NAME):"
+    echo ""
+    local events=$(get_office365_events "today" "$end_date" 2>/dev/null)
+    if [[ -n "$events" && "$events" != "[]" ]]; then
+      echo "$events" | python3 -c "
+import json, sys
+from datetime import datetime
+data = json.load(sys.stdin)
+if 'value' in data:
+    for event in data['value']:
+        start = event.get('start', {}).get('dateTime', '')
+        subject = event.get('subject', 'No title')
+        print(f'  {start}: {subject}')
+" 2>/dev/null || echo "  (Error fetching events)"
+    else
+      echo "  (No events or not configured)"
+    fi
+    echo ""
+  fi
+}
+
+# Check for conflicts
+check_conflicts() {
+  local start_time="$1"
+  local end_time="$2"
+  local duration="${3:-60}"
+  
+  if [[ -z "$start_time" || -z "$end_time" ]]; then
+    echo "Usage: gtd-calendar conflicts <start-time> <end-time> [duration-minutes]"
+    echo "Example: gtd-calendar conflicts '2024-12-02 10:00' '2024-12-02 11:00'"
+    exit 1
+  fi
+  
+  echo "🔍 Checking for conflicts..."
+  echo ""
+  
+  local conflicts=0
+  
+  # Check Google Calendar
+  if check_gcalcli && [[ -n "$GOOGLE_CALENDAR_NAME" ]]; then
+    local start_date=$(echo "$start_time" | cut -d' ' -f1)
+    local end_date=$(echo "$end_time" | cut -d' ' -f1)
+    
+    local events=$(get_google_events "$start_date" "$end_date" "$GOOGLE_CALENDAR_NAME")
+    if [[ -n "$events" ]]; then
+      echo "📘 Google Calendar conflicts:"
+      echo "$events" | grep -E "$start_date|$end_date" || echo "  None"
+      echo ""
+    fi
+  fi
+  
+  # Check Office 365
+  if [[ -n "$GTD_OFFICE365_CLIENT_ID" ]]; then
+    local start_date=$(echo "$start_time" | cut -d' ' -f1)
+    local end_date=$(echo "$end_time" | cut -d' ' -f1)
+    
+    local events=$(get_office365_events "$start_date" "$end_date" 2>/dev/null)
+    if [[ -n "$events" && "$events" != "[]" ]]; then
+      echo "📗 Office 365 conflicts:"
+      echo "$events" | python3 -c "
+import json, sys
+from datetime import datetime
+data = json.load(sys.stdin)
+if 'value' in data:
+    for event in data['value']:
+        start = event.get('start', {}).get('dateTime', '')
+        subject = event.get('subject', 'No title')
+        print(f'  {start}: {subject}')
+" 2>/dev/null || echo "  (Error checking)"
+      echo ""
+    fi
+  fi
+  
+  if [[ $conflicts -eq 0 ]]; then
+    echo "✅ No conflicts found!"
+  fi
+}
+
+# Sync task to calendar
+sync_task_to_calendar() {
+  local task_id="$1"
+  local calendar_type="${2:-google}"  # google or office365
+  local when="${3:-}"
+  
+  # Find task
+  local task_file=""
+  if [[ -d "$TASKS_PATH" ]]; then
+    task_file=$(find "$TASKS_PATH" -name "*${task_id}*.md" -type f | head -1)
+  fi
+  
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    echo "Error: Task not found"
+    exit 1
+  fi
+  
+  # Extract task info
+  get_frontmatter_value() {
+    local file="$1"
+    local key="$2"
+    grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+  }
+  
+  local title=$(get_frontmatter_value "$task_file" "title")
+  local due=$(get_frontmatter_value "$task_file" "due")
+  local description=$(get_frontmatter_value "$task_file" "description")
+  local energy=$(get_frontmatter_value "$task_file" "energy")
+  
+  # Use due date or provided when
+  local event_time="${when:-$due}"
+  
+  if [[ -z "$event_time" ]]; then
+    echo "Error: No time specified. Use --when or task must have due date"
+    exit 1
+  fi
+  
+  # Format for calendar
+  case "$calendar_type" in
+    google)
+      if check_gcalcli; then
+        add_google_event "$title" "$event_time" "60" "$description" "$GOOGLE_CALENDAR_NAME"
+        echo "✓ Added to Google Calendar: $title"
+      fi
+      ;;
+    office365)
+      echo "Office 365 sync requires Microsoft Graph API implementation"
+      echo "Task: $title"
+      echo "Time: $event_time"
+      ;;
+    *)
+      echo "Error: Unknown calendar type: $calendar_type"
+      exit 1
+      ;;
+  esac
+}
+
+# Main function
+main() {
+  case "${1:-view}" in
+    view)
+      shift
+      view_calendar "${1:-7}"
+      ;;
+    conflicts)
+      shift
+      check_conflicts "$@"
+      ;;
+    sync)
+      shift
+      sync_task_to_calendar "$@"
+      ;;
+    google)
+      shift
+      case "$1" in
+        add)
+          shift
+          add_google_event "$@"
+          ;;
+        list|agenda)
+          shift
+          get_google_events "${1:-today}" "${2:-tomorrow}" "${3:-$GOOGLE_CALENDAR_NAME}"
+          ;;
+        *)
+          echo "Usage: gtd-calendar google [add|list|agenda]"
+          exit 1
+          ;;
+      esac
+      ;;
+    office365|o365)
+      shift
+      case "$1" in
+        list|agenda)
+          shift
+          get_office365_events "${1:-today}" "${2:-tomorrow}"
+          ;;
+        *)
+          echo "Usage: gtd-calendar office365 [list|agenda]"
+          exit 1
+          ;;
+      esac
+      ;;
+    --help|-h)
+      echo "GTD Calendar Integration"
+      echo ""
+      echo "Usage: gtd-calendar [command] [options]"
+      echo ""
+      echo "Commands:"
+      echo "  view [days]              - View calendar (default: 7 days)"
+      echo "  conflicts <start> <end> - Check for scheduling conflicts"
+      echo "  sync <task-id> [type]   - Sync task to calendar (google/office365)"
+      echo "  google add <title> <when> [duration] [description]"
+      echo "  google list [start] [end] [calendar]"
+      echo "  office365 list [start] [end]"
+      echo ""
+      echo "Examples:"
+      echo "  gtd-calendar view 14"
+      echo "  gtd-calendar conflicts '2024-12-02 10:00' '2024-12-02 11:00'"
+      echo "  gtd-calendar sync task-123 google"
+      echo "  gtd-calendar google add 'Meeting' '2024-12-02 10:00' 60"
+      exit 0
+      ;;
+    *)
+      echo "Unknown command: $1"
+      echo "Use --help for usage"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+
+

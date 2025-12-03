@@ -1,0 +1,253 @@
+#!/bin/bash
+# GTD Weekly Progress Report - Generate and send weekly progress summary
+
+# Load config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Get stats
+STATS_SCRIPT="$(dirname "$0")/gtd-log-stats"
+if [[ ! -f "$STATS_SCRIPT" ]]; then
+  STATS_SCRIPT="gtd-log-stats"
+fi
+
+# Calculate weekly stats
+calculate_weekly_stats() {
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local days_logged=0
+  local total_entries=0
+  local days_with_entries=()
+  
+  for i in {0..6}; do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -z "$check_date" ]]; then
+      local timestamp=$(($($DATE_CMD +%s) - (i * 86400)))
+      check_date=$($DATE_CMD -r $timestamp +"%Y-%m-%d" 2>/dev/null || $DATE_CMD -d "@$timestamp" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+      if [[ -f "$log_file" ]]; then
+        local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+        if [[ $entry_count -gt 0 ]]; then
+          days_logged=$((days_logged + 1))
+          total_entries=$((total_entries + entry_count))
+          days_with_entries+=("$check_date: $entry_count entries")
+        fi
+      fi
+    fi
+  done
+  
+  echo "$days_logged|$total_entries|${days_with_entries[*]}"
+}
+
+# Get GTD stats
+get_gtd_stats() {
+  local inbox_count=$(ls -1 "${GTD_BASE_DIR}/0-inbox"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  local tasks_count=$(find "${GTD_BASE_DIR}/tasks" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  local projects_count=$(ls -1 "${GTD_BASE_DIR}/1-projects"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+  
+  echo "$inbox_count|$tasks_count|$projects_count"
+}
+
+# Generate progress report
+generate_report() {
+  local current_streak=$("$STATS_SCRIPT" streak 2>/dev/null || echo "0")
+  local longest_streak=$("$STATS_SCRIPT" longest 2>/dev/null || echo "0")
+  local total_days=$("$STATS_SCRIPT" total 2>/dev/null || echo "0")
+  local weekly=$(calculate_weekly_stats)
+  local week_days=$(echo "$weekly" | cut -d'|' -f1)
+  local week_entries=$(echo "$weekly" | cut -d'|' -f2)
+  local gtd_stats=$(get_gtd_stats)
+  local inbox_count=$(echo "$gtd_stats" | cut -d'|' -f1)
+  local tasks_count=$(echo "$gtd_stats" | cut -d'|' -f2)
+  local projects_count=$(echo "$gtd_stats" | cut -d'|' -f3)
+  
+  local avg_entries=0
+  if [[ $week_days -gt 0 ]]; then
+    avg_entries=$((week_entries / week_days))
+  fi
+  
+  # Find persona helper for Louiza
+  local persona_helper=""
+  local possible_paths=(
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  )
+  
+  for path in "${possible_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      persona_helper="$path"
+      break
+    fi
+  done
+  
+  local python_cmd=""
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    python_cmd="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    python_cmd="python3"
+  fi
+  
+  # Create prompt for Louiza
+  local prompt=""
+  if [[ $week_days -ge 5 ]]; then
+    prompt="${GTD_USER_NAME:-Abby} had an EXCELLENT week! She logged ${week_days} out of 7 days with ${week_entries} total entries (average ${avg_entries} per day). Her current streak is ${current_streak} days, longest streak is ${longest_streak} days, and she's logged ${total_days} total days. GTD stats: ${inbox_count} inbox items, ${tasks_count} tasks, ${projects_count} projects. Celebrate this! Use phrases like 'good girl', 'baby girl', 'I'm SO proud', 'this is amazing'. Be enthusiastic and encouraging. Tell her she's building incredible consistency and discipline."
+  elif [[ $week_days -ge 3 ]]; then
+    prompt="${GTD_USER_NAME:-Abby} had a GOOD week. She logged ${week_days} out of 7 days with ${week_entries} total entries (average ${avg_entries} per day). Her current streak is ${current_streak} days, longest streak is ${longest_streak} days, and she's logged ${total_days} total days. GTD stats: ${inbox_count} inbox items, ${tasks_count} tasks, ${projects_count} projects. Acknowledge the progress but encourage her to log more consistently. Use phrases like 'good girl', 'baby girl', 'this is good progress'. Be encouraging but remind her that consistency is key."
+  else
+    prompt="${GTD_USER_NAME:-Abby} had a SLOW week. She only logged ${week_days} out of 7 days with ${week_entries} total entries. Her current streak is ${current_streak} days, longest streak is ${longest_streak} days, and she's logged ${total_days} total days. GTD stats: ${inbox_count} inbox items, ${tasks_count} tasks, ${projects_count} projects. Be firm but constructive. Remind her that consistency is important. Use phrases like 'we need to do better', 'this is not enough', but also encourage with 'you can do this', 'let's get back on track'. Be strict but supportive."
+  fi
+  
+  # Get message from Louiza
+  local louiza_message=""
+  if [[ -n "$persona_helper" && -n "$python_cmd" ]]; then
+    local full_output=$("$python_cmd" "$persona_helper" "louiza" "$prompt" "weekly_progress" 2>&1)
+    
+    if [[ -n "$full_output" && ! "$full_output" =~ Error|⚠️|timed out ]]; then
+      louiza_message=$(echo "$full_output" | awk '
+        /^━+$/ {
+          if (in_section) {
+            exit
+          }
+          in_section = 1
+          next
+        }
+        in_section && !/^💬/ && !/^━/ {
+          print
+        }
+      ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      
+      # Clean up
+      louiza_message=$(echo "$louiza_message" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+      louiza_message=$(echo "$louiza_message" | sed 's/\*\*//g')
+      louiza_message=$(echo "$louiza_message" | awk 'NF || prev_nf; {prev_nf=NF}')
+    fi
+  fi
+  
+  # Build report
+  local report=""
+  report+="📊 **Weekly Progress Report**\n\n"
+  report+="**Daily Logging:**\n"
+  report+="• Days logged this week: ${week_days}/7\n"
+  report+="• Total entries: ${week_entries}\n"
+  report+="• Average per day: ${avg_entries}\n"
+  report+="• Current streak: ${current_streak} days 🔥\n"
+  report+="• Longest streak: ${longest_streak} days 🏆\n"
+  report+="• Total days logged: ${total_days}\n\n"
+  report+="**GTD System:**\n"
+  report+="• Inbox items: ${inbox_count}\n"
+  report+="• Active tasks: ${tasks_count}\n"
+  report+="• Active projects: ${projects_count}\n\n"
+  
+  if [[ -n "$louiza_message" ]]; then
+    report+="**Mistress Louiza's Review:**\n"
+    report+="${louiza_message}\n\n"
+  fi
+  
+  report+="💡 **Keep it up!** Use \`addInfoToDailyLog\` to keep tracking your progress.\n"
+  
+  echo -e "$report"
+}
+
+# Send to Discord
+send_to_discord() {
+  local report="$1"
+  local webhook_url="${GTD_DISCORD_WEBHOOK_URL:-}"
+  
+  if [[ -z "$webhook_url" ]]; then
+    return 1
+  fi
+  
+  local json_payload=$(python3 <<PYTHON_EOF
+import json
+from datetime import datetime, timezone
+
+payload = {
+    "embeds": [{
+        "title": "📊 Weekly Progress Report",
+        "description": """${report}""",
+        "color": 3066993,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "footer": {
+            "text": "Keep building your system!"
+        }
+    }]
+}
+
+print(json.dumps(payload))
+PYTHON_EOF
+)
+  
+  local response=$(curl -s -w "\n%{http_code}" -X POST "$webhook_url" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" 2>&1)
+  
+  local http_code=$(echo "$response" | tail -1)
+  
+  if [[ "$http_code" == "204" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Main
+main() {
+  local report=$(generate_report)
+  
+  echo "$report"
+  
+  # Send to Discord if enabled
+  if [[ "${GTD_DISCORD_WEEKLY_REMINDERS:-true}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
+    if send_to_discord "$report"; then
+      echo ""
+      echo "✓ Sent to Discord"
+    fi
+  fi
+}
+
+main "$@"
+

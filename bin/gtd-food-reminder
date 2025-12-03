@@ -126,16 +126,16 @@ get_food_reminder() {
   
   case "$food_status" in
     junk_food)
-      prompt="Abby has been eating junk food/trash. I can see it in her daily log. This is completely unacceptable. Scold her severely but constructively. Tell her that eating trash is not acceptable - her body deserves better. Be very strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk'. Tell her that I'm watching and I'm NOT pleased. Remind her that she needs to make better choices. Suggest consequences: she needs to meal prep, she needs to plan healthy meals, she needs to stop ordering takeout. Use your characteristic style with phrases like 'baby girl' but be FIRM about this. Eating trash is a form of self-sabotage and I won't tolerate it."
+      prompt="${GTD_USER_NAME:-Abby} has been eating junk food/trash. I can see it in her daily log. This is completely unacceptable. Scold her severely but constructively. Tell her that eating trash is not acceptable - her body deserves better. Be very strict - use phrases like 'this is completely unacceptable' or 'we need to have a serious talk'. Tell her that I'm watching and I'm NOT pleased. Remind her that she needs to make better choices. Suggest consequences: she needs to meal prep, she needs to plan healthy meals, she needs to stop ordering takeout. Use your characteristic style with phrases like 'baby girl' but be FIRM about this. Eating trash is a form of self-sabotage and I won't tolerate it."
       ;;
     no_food_logged)
-      prompt="Abby hasn't logged any food choices today. Remind her firmly that I'm watching what she eats. Tell her to log her meals and make healthy choices. Remind her that eating trash is not acceptable. Be encouraging but firm - use phrases like 'good girl' when she makes good choices, but be strict about logging and making healthy decisions."
+      prompt="${GTD_USER_NAME:-Abby} hasn't logged any food choices today. Remind her firmly that I'm watching what she eats. Tell her to log her meals and make healthy choices. Remind her that eating trash is not acceptable. Be encouraging but firm - use phrases like 'good girl' when she makes good choices, but be strict about logging and making healthy decisions."
       ;;
     healthy)
-      prompt="Abby has been making healthy food choices today. Acknowledge this and praise her - use phrases like 'good girl' or 'baby girl, I'm proud of you'. Encourage her to keep it up. Remind her that I'm watching and I'm pleased when she takes care of herself. Be encouraging and supportive."
+      prompt="${GTD_USER_NAME:-Abby} has been making healthy food choices today. Acknowledge this and praise her - use phrases like 'good girl' or 'baby girl, I'm proud of you'. Encourage her to keep it up. Remind her that I'm watching and I'm pleased when she takes care of herself. Be encouraging and supportive."
       ;;
     neutral|*)
-      prompt="Abby, I'm watching what you eat. Remind her firmly that eating trash/junk food is not acceptable. Tell her to make healthy choices, to meal prep, to plan nutritious meals. Be encouraging but firm - use phrases like 'good girl' when she makes good choices, but be strict about avoiding junk food. Remind her that her body deserves better than trash."
+      prompt="${GTD_USER_NAME:-Abby}, I'm watching what you eat. Remind her firmly that eating trash/junk food is not acceptable. Tell her to make healthy choices, to meal prep, to plan nutritious meals. Be encouraging but firm - use phrases like 'good girl' when she makes good choices, but be strict about avoiding junk food. Remind her that her body deserves better than trash."
       ;;
   esac
   

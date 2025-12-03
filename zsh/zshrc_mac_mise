@@ -939,12 +939,228 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
       return 1
     fi
     
-    # Randomly select a persona for variety
-    # Exclude workout coaches from random selection - they only trigger when equipment is mentioned
-    local personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kelsey" "kent" "charity" "rich")
-    local persona_count=${#personas[@]}
-    local random_index=$((RANDOM % persona_count + 1))
-    local selected_persona="${personas[$random_index]}"
+    # Intelligent persona selection based on log entry content
+    # Read the full log content for better context matching
+    local log_content_for_matching=""
+    if [[ -f "$log_file" ]]; then
+      log_content_for_matching=$(cat "$log_file" 2>/dev/null)
+    fi
+    # Combine log entry with full log content for matching
+    local combined_content="${log_entry} ${log_content_for_matching}"
+    
+    # Define keyword patterns for each expertise area
+    # Format: persona_key|keyword_pattern
+    typeset -A persona_keywords
+    persona_keywords["goggins"]="workout|exercise|fitness|gym|weight|lifting|strength training|cardio workout|endurance workout|mental toughness|stay hard|callous your mind|who's gonna carry the boats|physical limits|body limits|ultramarathon|endurance training|leg day|chest day|back day|shoulder day|arm day|workout session|fitness training|gym session|lifting session|physical training|PT session|fitness motivation|push your limits|break through barriers|physical barriers|body building|muscle building|powerlifting|crossfit|HIIT|high intensity|fitness challenge|physical challenge|fitness goal|training goal|bench press|squat|deadlift|barbell|dumbbell|kettlebell|pull up|push up|fitness routine|exercise routine|workout routine|training program|fitness program|muscle|muscle group|reps|sets|personal trainer|fitness coach|gym workout|home workout|strength workout"
+    persona_keywords["dean"]="marathon|ultra|ultramarathon|endurance|race|running race|jog|jogging|running workout|training run|long run|running pace|running form|running distance|ultra distance|endurance running|running miles|running km|ultra running|endurance race|50k|50 mile|100k|100 mile|trail running|road race"
+    persona_keywords["bioneer"]="workout|exercise|fitness|training|strength|movement|mobility|functional|form|technique|biomechanics|program|routine|muscle|muscle group"
+    persona_keywords["david"]="project|goal|task|inbox|process|organize|gtd|getting things done|next action|context|review|weekly|system|workflow|area|someday|waiting"
+    persona_keywords["cal"]="focus|distraction|deep work|concentration|flow|interruption|phone|social media|notification|attention|productivity|flow state|distracted|can't focus|interrupt"
+    persona_keywords["james"]="habit|routine|system|atomic|incremental|progress|track|consistency|behavior|pattern|daily|repeat|build habit|form habit|stuck with habit"
+    persona_keywords["marie"]="clutter|organize|declutter|spark joy|tidy|clean|minimal|simplify|stuff|things|belongings|space|messy|disorganized|too much stuff"
+    persona_keywords["warren"]="strategy|priority|prioritize|important|urgent|decision|invest|long term|value|focus|opportunity|business|plan|planning|strategic"
+    persona_keywords["sheryl"]="leadership|execute|execution|team|manage|lead|action|get things done|efficient|productivity|results|delegate|coordinate"
+    persona_keywords["tim"]="optimize|optimization|hack|system|experiment|test|trial|improve|efficiency|life hack|productivity tip|experiment|trial|test"
+    persona_keywords["bob"]="creative|art|paint|calm|stress|anxiety|peace|relax|breathe|joy|happy accident|mistake|process|meditation|mindful"
+    persona_keywords["fred"]="kind|self-care|self care|worth|value|overwhelmed|emotional|support|care|gentle|compassion|love yourself|feeling|feelings|sad|depressed"
+    persona_keywords["louiza"]="procrastinate|stuck|accountability|slacking|discipline|tracking|log|record|complete|done|finished|consequence|missed|failed|didn't do"
+    persona_keywords["esther"]="relationship|partner|intimacy|connection|communicate|date|romance|love|couple|together|relationship advice"
+    persona_keywords["gottman"]="relationship|partner|couple|marriage|communication|conflict|fight|argument|resolve|together|love language"
+    persona_keywords["gary"]="love language|partner|relationship|affection|touch|service|gift|time|words|appreciation|express love"
+    persona_keywords["brene"]="vulnerability|courage|connection|authentic|brave|shame|worth|belonging|daring|show up|present"
+    persona_keywords["romance"]="date|romantic|surprise|gesture|massage|backrub|special|treat|appreciate|show love|make feel special"
+    persona_keywords["kelsey"]="code|programming|software|engineering|overengineer|simple|ship|deploy|infrastructure|sre|system|tech"
+    persona_keywords["kent"]="code|programming|software|tdd|test|yagni|simple|refactor|design|pattern|architecture|engineering"
+    persona_keywords["charity"]="code|programming|software|observability|reliability|monitoring|sre|engineering|system|production|tech"
+    persona_keywords["rich"]="code|programming|software|design|architecture|complexity|simple|clojure|system|engineering|tech"
+    persona_keywords["spiderman"]="creative|problem|solve|challenge|stuck|juggling|balance|responsibility|creative solution|think outside"
+    persona_keywords["ironman"]="creative|innovation|engineering|adhd|hyperfocus|system|build|create|invent|tech|project"
+    persona_keywords["squirrelgirl"]="creative|positive|optimistic|problem|solve|communication|unconventional|think different|creative solution"
+    persona_keywords["harley"]="creative|chaos|unconventional|think outside|creative solution|problem|solve|different|unique"
+    persona_keywords["deadpool"]="creative|humor|funny|chaos|unconventional|problem|solve|think different|creative solution"
+    persona_keywords["rogue"]="creative|adapt|overwhelmed|control|problem|solve|creative solution|think different|unique"
+    
+    # Score each persona based on keyword matches
+    typeset -A persona_scores
+    typeset -A persona_match_counts
+    local max_score=0
+    local best_personas=()
+    
+    # Score fitness coaches first (they have priority for fitness topics)
+    # Use ripgrep (rg) if available, fallback to grep with full path
+    local use_rg=false
+    if command -v rg &>/dev/null; then
+      use_rg=true
+    fi
+    local search_cmd=""
+    if [[ "$use_rg" == true ]]; then
+      search_cmd="rg"
+    else
+      search_cmd="/usr/bin/grep"
+      [[ ! -f "$search_cmd" ]] && search_cmd="grep"
+    fi
+    local fitness_coaches=("goggins" "dean" "bioneer")
+    for persona in "${fitness_coaches[@]}"; do
+      local score=0
+      local match_count=0
+      # Count actual keyword matches for confidence scoring
+      local matches_output=""
+      if [[ "$use_rg" == true ]]; then
+        matches_output=$(echo "$combined_content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+      else
+        matches_output=$(echo "$combined_content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+      fi
+      if [[ -n "$matches_output" ]]; then
+        match_count=$(echo "$matches_output" | wc -l | tr -d ' ')
+      fi
+      # Fitness coaches need at least 2 matches for confidence (prevents false positives)
+      if [[ $match_count -ge 2 ]]; then
+        score=$((match_count * 2))  # Weight matches, but require multiple for confidence
+      elif [[ $match_count -eq 1 ]]; then
+        score=1  # Single match gets low score (likely false positive)
+      fi
+      persona_scores[$persona]=$score
+      persona_match_counts[$persona]=$match_count
+      if [[ $score -gt $max_score ]]; then
+        max_score=$score
+        best_personas=("$persona")
+      elif [[ $score -eq $max_score && $score -gt 0 ]]; then
+        best_personas+=("$persona")
+      fi
+    done
+    
+    # Score other personas
+    local other_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kelsey" "kent" "charity" "rich")
+    for persona in "${other_personas[@]}"; do
+      local score=0
+      local match_count=0
+      # Count actual keyword matches
+      local matches_output=""
+      if [[ "$use_rg" == true ]]; then
+        matches_output=$(echo "$combined_content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+      else
+        matches_output=$(echo "$combined_content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+      fi
+      if [[ -n "$matches_output" ]]; then
+        match_count=$(echo "$matches_output" | wc -l | tr -d ' ')
+      fi
+      if [[ $match_count -gt 0 ]]; then
+        score=$match_count
+      fi
+      persona_scores[$persona]=$score
+      persona_match_counts[$persona]=$match_count
+      if [[ $score -gt $max_score ]]; then
+        max_score=$score
+        best_personas=("$persona")
+      elif [[ $score -eq $max_score && $score -gt 0 ]]; then
+        best_personas+=("$persona")
+      fi
+    done
+    
+    # Select persona: use best match if found with sufficient confidence, otherwise fallback to random from general pool
+    local selected_persona=""
+    local confidence_threshold=2  # Minimum confidence score required for fitness coaches
+    local general_threshold=1     # Minimum confidence score for other personas
+    
+    if [[ ${#best_personas[@]} -gt 0 && $max_score -gt 0 ]]; then
+      # Check confidence threshold - filter out low-confidence matches
+      local confident_personas=()
+      for persona in "${best_personas[@]}"; do
+        local is_fitness=false
+        for fit_persona in "${fitness_coaches[@]}"; do
+          if [[ "$persona" == "$fit_persona" ]]; then
+            is_fitness=true
+            break
+          fi
+        done
+        
+        # Fitness coaches need higher confidence (at least 2 matches = score 4)
+        if [[ "$is_fitness" == true ]]; then
+          if [[ ${persona_scores[$persona]} -ge 4 ]]; then  # 2+ matches * 2 = 4+
+            confident_personas+=("$persona")
+          fi
+        else
+          # Other personas need at least 1 match
+          if [[ ${persona_scores[$persona]} -ge $general_threshold ]]; then
+            confident_personas+=("$persona")
+          fi
+        fi
+      done
+      
+      # Use confident personas if available, otherwise fall back to general pool
+      if [[ ${#confident_personas[@]} -gt 0 ]]; then
+        local best_count=${#confident_personas[@]}
+        local random_index=$((RANDOM % best_count))
+        selected_persona="${confident_personas[$random_index]}"
+      else
+        # Confidence too low - use general productivity coaches
+        local general_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "bob" "fred" "louiza")
+        local general_count=${#general_personas[@]}
+        local random_index=$((RANDOM % general_count))
+        selected_persona="${general_personas[$random_index]}"
+      fi
+    else
+      # No clear match - use general productivity coaches (not fitness-specific)
+      local general_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "bob" "fred" "louiza")
+      local general_count=${#general_personas[@]}
+      local random_index=$((RANDOM % general_count))
+      selected_persona="${general_personas[$random_index]}"
+    fi
+    
+    # Check if selected persona is a comic book character
+    local comic_book_characters=("spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue")
+    local is_comic_character=false
+    for comic in "${comic_book_characters[@]}"; do
+      if [[ "$selected_persona" == "$comic" ]]; then
+        is_comic_character=true
+        break
+      fi
+    done
+    
+    # Sometimes have a comic book character make a brief appearance before the main coach
+    # (30% chance, but only if main coach is NOT already a comic book character)
+    # Select hero based on topic relevance if possible
+    local hero_brief_appearance=""
+    local hero_name=""
+    if [[ "$is_comic_character" == false ]]; then
+      local hero_chance=$((RANDOM % 10))  # 0-9, so 30% chance (when < 3)
+      if [[ $hero_chance -lt 3 ]]; then
+        # Find heroes whose keywords match the log content
+        local matching_heroes=()
+        for hero in "${comic_book_characters[@]}"; do
+          if [[ "$use_rg" == true ]]; then
+            if echo "$combined_content" | "$search_cmd" -qiE "${persona_keywords[$hero]}" 2>/dev/null; then
+              matching_heroes+=("$hero")
+            fi
+          else
+            if echo "$combined_content" | "$search_cmd" -qiE "${persona_keywords[$hero]}"; then
+              matching_heroes+=("$hero")
+            fi
+          fi
+        done
+        
+        # If we have matching heroes, randomly pick one; otherwise pick randomly from all
+        if [[ ${#matching_heroes[@]} -gt 0 ]]; then
+          local matching_count=${#matching_heroes[@]}
+          local hero_index=$((RANDOM % matching_count))
+          hero_brief_appearance="${matching_heroes[$hero_index]}"
+        else
+          # No matches, randomly select any hero
+          local hero_count=${#comic_book_characters[@]}
+          local hero_index=$((RANDOM % hero_count))
+          hero_brief_appearance="${comic_book_characters[$hero_index]}"
+        fi
+        
+        case "$hero_brief_appearance" in
+          spiderman) hero_name="Spider-Man" ;;
+          ironman) hero_name="Iron Man" ;;
+          squirrelgirl) hero_name="Squirrel Girl" ;;
+          harley) hero_name="Harley Quinn" ;;
+          deadpool) hero_name="Deadpool" ;;
+          rogue) hero_name="Rogue" ;;
+        esac
+      fi
+    fi
     
     # Get persona name for display
     local persona_name=""
@@ -982,6 +1198,9 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
       kent) persona_name="Kent Beck" ;;
       charity) persona_name="Charity Majors" ;;
       rich) persona_name="Rich Hickey" ;;
+      goggins) persona_name="David Goggins" ;;
+      dean) persona_name="Dean Karnazes" ;;
+      bioneer) persona_name="The Bioneer (Adam)" ;;
       *) persona_name="Hank Hill" ;;
     esac
     
@@ -1009,6 +1228,37 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
         log_content=$(cat "$log_file" 2>/dev/null)
       fi
       
+      # Get user name from config for prompt clarity
+      local user_name="Abby"  # Default
+      local gtd_config_file="$HOME/.gtd_config"
+      if [[ ! -f "$gtd_config_file" && -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+        gtd_config_file="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+      fi
+      if [[ ! -f "$gtd_config_file" && -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+        gtd_config_file="$HOME/code/dotfiles/zsh/.gtd_config"
+      fi
+      if [[ -f "$gtd_config_file" ]]; then
+        # Read GTD_USER_NAME or NAME from config - handle bash variable substitution format
+        # Use grep -m 1 instead of head to avoid PATH issues
+        local name_line=$(grep -m 1 -E "^GTD_USER_NAME=|^NAME=" "$gtd_config_file" 2>/dev/null)
+        if [[ -n "$name_line" ]]; then
+          # Extract value after =, handling quotes and variable substitution
+          local name_value=$(echo "$name_line" | cut -d'=' -f2- | sed 's/^["'\'']*//; s/["'\'']*$//')
+          # If it has ${GTD_USER_NAME:-default} or ${NAME:-default} format, extract the default value
+          if echo "$name_value" | grep -qE '\$\{GTD_USER_NAME:-|\$\{NAME:-'; then
+            # Extract the default value from ${VAR:-default} format
+            user_name=$(echo "$name_value" | sed -E 's/.*\$\{[^:]+:-([^}]+)\}.*/\1/')
+          elif [[ -n "$name_value" && "$name_value" != "\${GTD_USER_NAME:-Abby}" && "$name_value" != '${GTD_USER_NAME:-Abby}' ]]; then
+            user_name="$name_value"
+          fi
+          user_name=$(echo "$user_name" | xargs)  # trim whitespace
+        fi
+      fi
+      # Use environment variable if set (takes precedence)
+      if [[ -n "$GTD_USER_NAME" ]]; then
+        user_name="$GTD_USER_NAME"
+      fi
+      
       # Create prompt with log content
       if [[ -n "$log_content" ]]; then
         # Get current day of week and date for context
@@ -1016,28 +1266,73 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
         local full_date=$($date_cmd +"%B %d, %Y")
         
         # Use printf to properly format with newlines
-        local prompt_text=$(printf "Review my daily log and provide advice based on the specific entries you see.
+        local prompt_text=$(printf "This is %s's daily log. You are providing advice to %s (the person writing this log).
 
-IMPORTANT: Today is %s, %s. Please be aware of the current day and date when providing advice.
+CRITICAL: If the log mentions other people's names (colleagues, friends, recipients), those are OTHER PEOPLE - NOT %s. %s is the person writing the log, not anyone mentioned in it.
 
-Here is my complete daily log so far:
+Today is %s, %s. Please be aware of the current day and date when providing advice.
+
+Here is %s's complete daily log so far:
 
 %s
 
-I just added this new entry: %s
+%s just added this new entry: %s
 
-Please review the log entries above and provide specific, actionable advice based on what you see. Reference specific items from the log in your response. Remember: today is %s." "$day_of_week" "$full_date" "$log_content" "$log_entry" "$day_of_week")
+Please review the log entries above and provide specific, actionable advice to %s based on what you see. Reference specific items from the log in your response. Remember: today is %s, and you are speaking to %s, not to anyone else mentioned in the log." "$user_name" "$user_name" "$user_name" "$user_name" "$day_of_week" "$full_date" "$user_name" "$log_content" "$user_name" "$log_entry" "$user_name" "$day_of_week" "$user_name")
       else
         # Log file doesn't exist or is empty
         # Get current day of week and date for context
         local day_of_week=$($date_cmd +"%A")
         local full_date=$($date_cmd +"%B %d, %Y")
-        local prompt_text="IMPORTANT: Today is ${day_of_week}, ${full_date}. I just added a new entry to my daily log: ${log_entry}. Please provide advice. Remember: today is ${day_of_week}."
+        local prompt_text="This is ${user_name}'s daily log. You are providing advice to ${user_name} (the person writing this log). IMPORTANT: Today is ${day_of_week}, ${full_date}. ${user_name} just added a new entry to the daily log: ${log_entry}. Please provide advice to ${user_name}. Remember: today is ${day_of_week}. If the entry mentions other people's names, those are OTHER PEOPLE - you are speaking to ${user_name}, not anyone mentioned in the log."
       fi
       
-      # Pass the prompt text to the persona helper
+      # If a comic book hero is making a brief appearance, call them first
+      local hero_comment=""
+      if [[ -n "$hero_brief_appearance" ]]; then
+        # Create a brief prompt for the hero - they MUST give actual advice first, then leave
+        local hero_prompt="You're making a BRIEF appearance. You MUST FIRST provide actual helpful advice (2-3 sentences) about the problem in the log entry - give real, actionable insight based on your expertise. THEN excuse yourself because you need to save someone. Format: [Your actual helpful advice] ... [Then your exit line]. DO NOT just leave immediately - you must give advice first! Here's the context: ${prompt_text}"
+        hero_comment=$("$python_cmd" "$persona_helper" "$hero_brief_appearance" "$hero_prompt" "hero_brief_appearance" 2>&1)
+      fi
+      
+      # ALWAYS call the main coach - they provide the full, detailed advice
+      # If a hero appeared, the main coach should acknowledge it briefly but provide comprehensive advice
+      local main_prompt="$prompt_text"
+      if [[ -n "$hero_brief_appearance" ]]; then
+        main_prompt="A superhero just made a brief appearance and had to leave. Now provide your FULL, COMPREHENSIVE advice about the log entry. Give detailed, actionable guidance. ${prompt_text}"
+      fi
+      
+      # Validate selected_persona is not empty before calling
+      if [[ -z "$selected_persona" ]]; then
+        echo "⚠️  Error: Could not determine which persona to use. Defaulting to 'hank'." >&2
+        selected_persona="hank"
+      fi
+      
+      # Pass the prompt text to the persona helper for the main coach
       # The content will be passed as a single argument, preserving newlines
-      advice_output=$("$python_cmd" "$persona_helper" "$selected_persona" "$prompt_text" "daily_log_review" 2>&1)
+      # Use printf to ensure proper quoting of the prompt
+      advice_output=$("$python_cmd" "$persona_helper" "$selected_persona" "$(printf '%s' "$main_prompt")" "daily_log_review" 2>&1)
+      
+      # Combine hero comment with main advice if hero appeared
+      if [[ -n "$hero_brief_appearance" && -n "$hero_comment" ]]; then
+        # Check if hero comment has errors
+        # Use ripgrep if available, otherwise grep (search_cmd already defined earlier)
+        local has_error=false
+        if [[ "$use_rg" == true ]]; then
+          if echo "$hero_comment" | "$search_cmd" -qiE "error|⚠️|timed out|Could not connect" 2>/dev/null; then
+            has_error=true
+          fi
+        else
+          if echo "$hero_comment" | "$search_cmd" -qiE "error|⚠️|timed out|Could not connect"; then
+            has_error=true
+          fi
+        fi
+        if [[ "$has_error" == false ]]; then
+          advice_output="${hero_comment}
+
+${advice_output}"
+        fi
+      fi
     else
       # Fallback to old helper
       echo ""
@@ -1074,3 +1369,12 @@ Please review the log entries above and provide specific, actionable advice base
 # Added by LM Studio CLI (lms)
 export PATH="$PATH:/Users/abby/.lmstudio/bin"
 # End of LM Studio CLI section
+
+# ============================================
+# GTD Quick Aliases & Functions
+# ============================================
+if [[ -f "$HOME/code/dotfiles/zsh/gtd-aliases.zsh" ]]; then
+  source "$HOME/code/dotfiles/zsh/gtd-aliases.zsh"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/gtd-aliases.zsh" ]]; then
+  source "$HOME/code/personal/dotfiles/zsh/gtd-aliases.zsh"
+fi

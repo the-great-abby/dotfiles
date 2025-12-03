@@ -1,0 +1,453 @@
+#!/bin/bash
+# GTD Pattern Recognition - Analyze patterns in daily logs and task completion
+
+# Load config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+PATTERNS_DIR="${GTD_BASE_DIR}/.patterns"
+mkdir -p "$PATTERNS_DIR"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Analyze logging patterns
+analyze_logging_patterns() {
+  local patterns_file="${PATTERNS_DIR}/logging_patterns.json"
+  
+  # Analyze last 30 days
+  local total_days=30
+  local days_with_logs=0
+  local total_entries=0
+  local entries_by_hour=()
+  local entries_by_day_of_week=()
+  local avg_entries_per_day=0
+  
+  # Initialize arrays
+  for i in {0..23}; do
+    entries_by_hour[$i]=0
+  done
+  for i in {0..6}; do
+    entries_by_day_of_week[$i]=0
+  done
+  
+  # Analyze logs
+  for i in {0..29}; do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+      if [[ -f "$log_file" ]]; then
+        local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+        entry_count=${entry_count:-0}
+        
+        if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ $entry_count -gt 0 ]]; then
+          days_with_logs=$((days_with_logs + 1))
+          total_entries=$((total_entries + entry_count))
+          
+          # Get day of week (0=Sunday, 6=Saturday)
+          local day_of_week=$($DATE_CMD -j -f "%Y-%m-%d" "$check_date" +"%w" 2>/dev/null || $DATE_CMD -d "$check_date" +"%w" 2>/dev/null || echo "0")
+          day_of_week=${day_of_week:-0}
+          
+          # Count entries by hour (use process substitution to avoid subshell)
+          while IFS= read -r line; do
+            local hour=$(echo "$line" | cut -d':' -f1 | sed 's/^0//')
+            hour=${hour:-0}
+            if [[ "$hour" =~ ^[0-9]+$ ]] && [[ $hour -ge 0 ]] && [[ $hour -le 23 ]]; then
+              entries_by_hour[$hour]=$((${entries_by_hour[$hour]} + 1))
+            fi
+          done < <(grep "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null)
+          
+          # Count by day of week
+          entries_by_day_of_week[$day_of_week]=$((${entries_by_day_of_week[$day_of_week]} + 1))
+        fi
+      fi
+    fi
+  done
+  
+  # Calculate averages
+  if [[ $days_with_logs -gt 0 ]]; then
+    avg_entries_per_day=$((total_entries / days_with_logs))
+  fi
+  
+  # Find peak hours (only if we have entries)
+  local peak_hour=0
+  local max_hour_entries=0
+  if [[ $total_entries -gt 0 ]]; then
+    for i in {0..23}; do
+      if [[ ${entries_by_hour[$i]} -gt $max_hour_entries ]]; then
+        max_hour_entries=${entries_by_hour[$i]}
+        peak_hour=$i
+      fi
+    done
+  fi
+  
+  # Find most active day (only if we have entries)
+  local most_active_day=0
+  local max_day_entries=0
+  if [[ $days_with_logs -gt 0 ]]; then
+    for i in {0..6}; do
+      if [[ ${entries_by_day_of_week[$i]} -gt $max_day_entries ]]; then
+        max_day_entries=${entries_by_day_of_week[$i]}
+        most_active_day=$i
+      fi
+    done
+  fi
+  
+  # Save patterns
+  cat > "$patterns_file" <<EOF
+{
+  "logging": {
+    "total_days_analyzed": $total_days,
+    "days_with_logs": $days_with_logs,
+    "total_entries": $total_entries,
+    "avg_entries_per_day": $avg_entries_per_day,
+    "peak_hour": $peak_hour,
+    "most_active_day": $most_active_day,
+    "entries_by_hour": [$(IFS=,; echo "${entries_by_hour[*]}")],
+    "entries_by_day_of_week": [$(IFS=,; echo "${entries_by_day_of_week[*]}")]
+  },
+  "last_updated": "$($DATE_CMD +"%Y-%m-%d %H:%M:%S")"
+}
+EOF
+  
+  echo "$patterns_file"
+}
+
+# Analyze task completion patterns
+analyze_task_patterns() {
+  local patterns_file="${PATTERNS_DIR}/task_patterns.json"
+  local tasks_path="${GTD_BASE_DIR}/tasks"
+  
+  local total_tasks=0
+  local completed_tasks=0
+  local tasks_by_context=()
+  local tasks_by_energy=()
+  local completion_by_time=()
+  
+  # Initialize arrays (use regular arrays with string keys)
+  # We'll use a different approach - store as "key:count" pairs
+  local context_counts_str=""
+  local energy_counts_str=""
+  local time_completion_str=""
+  
+  # Analyze tasks
+  if [[ -d "$tasks_path" ]]; then
+    # Use process substitution to avoid subshell issues with associative arrays
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" ]] && continue
+      
+      local status=$(grep "^status:" "$task_file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      local context=$(grep "^context:" "$task_file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      local energy=$(grep "^energy:" "$task_file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      local completed=$(grep "^completed:" "$task_file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      
+      total_tasks=$((total_tasks + 1))
+      
+      if [[ "$status" == "done" ]]; then
+        completed_tasks=$((completed_tasks + 1))
+        
+        # Track completion time if available
+        if [[ -n "$completed" ]]; then
+          local hour=$(echo "$completed" | cut -d'T' -f2 | cut -d':' -f1 2>/dev/null || echo "")
+          hour=${hour:-0}
+          if [[ "$hour" =~ ^[0-9]+$ ]] && [[ $hour -ge 0 ]] && [[ $hour -le 23 ]]; then
+            # Update time completion string
+            local found=0
+            local new_time_completion=""
+            for pair in $time_completion_str; do
+              local key=$(echo "$pair" | cut -d':' -f1)
+              local count=$(echo "$pair" | cut -d':' -f2)
+              if [[ "$key" == "$hour" ]]; then
+                count=$((count + 1))
+                found=1
+              fi
+              new_time_completion="$new_time_completion $key:$count"
+            done
+            if [[ $found -eq 0 ]]; then
+              new_time_completion="$new_time_completion $hour:1"
+            fi
+            time_completion_str="$new_time_completion"
+          fi
+        fi
+      fi
+      
+      # Count by context (normalize empty to unknown)
+      if [[ -z "$context" ]]; then
+        context="unknown"
+      fi
+      # Update context count string
+      local found=0
+      local new_context_counts=""
+      for pair in $context_counts_str; do
+        local key=$(echo "$pair" | cut -d':' -f1)
+        local count=$(echo "$pair" | cut -d':' -f2)
+        if [[ "$key" == "$context" ]]; then
+          count=$((count + 1))
+          found=1
+        fi
+        new_context_counts="$new_context_counts $key:$count"
+      done
+      if [[ $found -eq 0 ]]; then
+        new_context_counts="$new_context_counts $context:1"
+      fi
+      context_counts_str="$new_context_counts"
+      
+      # Count by energy (normalize empty to unknown)
+      if [[ -z "$energy" ]]; then
+        energy="unknown"
+      fi
+      # Update energy count string
+      found=0
+      local new_energy_counts=""
+      for pair in $energy_counts_str; do
+        local key=$(echo "$pair" | cut -d':' -f1)
+        local count=$(echo "$pair" | cut -d':' -f2)
+        if [[ "$key" == "$energy" ]]; then
+          count=$((count + 1))
+          found=1
+        fi
+        new_energy_counts="$new_energy_counts $key:$count"
+      done
+      if [[ $found -eq 0 ]]; then
+        new_energy_counts="$new_energy_counts $energy:1"
+      fi
+      energy_counts_str="$new_energy_counts"
+      
+    done < <(find "$tasks_path" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  # Calculate completion rate
+  local completion_rate=0
+  if [[ $total_tasks -gt 0 ]]; then
+    completion_rate=$((completed_tasks * 100 / total_tasks))
+  fi
+  
+  # Find most productive context (only if we have tasks)
+  local best_context="unknown"
+  local max_context_count=0
+  if [[ $total_tasks -gt 0 && -n "$context_counts_str" ]]; then
+    for pair in $context_counts_str; do
+      local context=$(echo "$pair" | cut -d':' -f1)
+      local count=$(echo "$pair" | cut -d':' -f2)
+      if [[ "$context" != "unknown" && "$context" != "" && "$context" != "0" ]] && [[ $count -gt $max_context_count ]]; then
+        max_context_count=$count
+        best_context="$context"
+      fi
+    done
+    # If no valid context found, try to find any context (including unknown)
+    if [[ "$best_context" == "unknown" ]]; then
+      for pair in $context_counts_str; do
+        local context=$(echo "$pair" | cut -d':' -f1)
+        local count=$(echo "$pair" | cut -d':' -f2)
+        if [[ $count -gt $max_context_count ]]; then
+          max_context_count=$count
+          best_context="$context"
+        fi
+      done
+    fi
+  fi
+  
+  # Find most productive energy level (only if we have tasks)
+  local best_energy="unknown"
+  local max_energy_count=0
+  if [[ $total_tasks -gt 0 && -n "$energy_counts_str" ]]; then
+    for pair in $energy_counts_str; do
+      local energy=$(echo "$pair" | cut -d':' -f1)
+      local count=$(echo "$pair" | cut -d':' -f2)
+      if [[ "$energy" != "unknown" && "$energy" != "" && "$energy" != "0" ]] && [[ $count -gt $max_energy_count ]]; then
+        max_energy_count=$count
+        best_energy="$energy"
+      fi
+    done
+    # If no valid energy found, try to find any energy (including unknown)
+    if [[ "$best_energy" == "unknown" ]]; then
+      for pair in $energy_counts_str; do
+        local energy=$(echo "$pair" | cut -d':' -f1)
+        local count=$(echo "$pair" | cut -d':' -f2)
+        if [[ $count -gt $max_energy_count ]]; then
+          max_energy_count=$count
+          best_energy="$energy"
+        fi
+      done
+    fi
+  fi
+  
+  # Find peak completion hour (only if we have completions)
+  local peak_completion_hour=0
+  local max_completions=0
+  if [[ $completed_tasks -gt 0 && -n "$time_completion_str" ]]; then
+    for pair in $time_completion_str; do
+      local hour=$(echo "$pair" | cut -d':' -f1)
+      local count=$(echo "$pair" | cut -d':' -f2)
+      if [[ $count -gt $max_completions ]]; then
+        max_completions=$count
+        peak_completion_hour=$hour
+      fi
+    done
+  fi
+  
+  
+  # Save patterns (simplified JSON)
+  {
+    echo "{"
+    echo "  \"tasks\": {"
+    echo "    \"total\": $total_tasks,"
+    echo "    \"completed\": $completed_tasks,"
+    echo "    \"completion_rate\": $completion_rate,"
+    echo "    \"best_context\": \"$best_context\","
+    echo "    \"best_energy\": \"$best_energy\","
+    echo "    \"peak_completion_hour\": $peak_completion_hour"
+    echo "  },"
+    echo "  \"last_updated\": \"$($DATE_CMD +"%Y-%m-%d %H:%M:%S")\""
+    echo "}"
+  } > "$patterns_file"
+  
+  echo "$patterns_file"
+}
+
+# Generate insights from patterns
+generate_insights() {
+  local logging_patterns="${PATTERNS_DIR}/logging_patterns.json"
+  local task_patterns="${PATTERNS_DIR}/task_patterns.json"
+  
+  echo "🔍 Pattern Recognition Insights"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Logging insights
+  if [[ -f "$logging_patterns" ]]; then
+    local peak_hour=$(grep -o '"peak_hour": [0-9]*' "$logging_patterns" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    local most_active_day=$(grep -o '"most_active_day": [0-9]*' "$logging_patterns" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    local avg_entries=$(grep -o '"avg_entries_per_day": [0-9]*' "$logging_patterns" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    
+    local day_names=("Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday")
+    local day_name="${day_names[$most_active_day]}"
+    
+    echo "📝 Logging Patterns:"
+    echo "  • Peak logging hour: ${peak_hour}:00"
+    echo "  • Most active day: $day_name"
+    echo "  • Average entries per day: $avg_entries"
+    echo ""
+  fi
+  
+  # Task insights
+  if [[ -f "$task_patterns" ]]; then
+    local completion_rate=$(grep -o '"completion_rate": [0-9]*' "$task_patterns" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    local best_context=$(grep -o '"best_context": "[^"]*"' "$task_patterns" 2>/dev/null | cut -d'"' -f4 || echo "unknown")
+    local best_energy=$(grep -o '"best_energy": "[^"]*"' "$task_patterns" 2>/dev/null | cut -d'"' -f4 || echo "unknown")
+    local peak_hour=$(grep -o '"peak_completion_hour": [0-9]*' "$task_patterns" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    
+    echo "✅ Task Completion Patterns:"
+    echo "  • Completion rate: ${completion_rate}%"
+    echo "  • Most productive context: $best_context"
+    echo "  • Most productive energy level: $best_energy"
+    echo "  • Peak completion hour: ${peak_hour}:00"
+    echo ""
+  fi
+  
+  # Recommendations
+  echo "💡 Recommendations:"
+  local has_recommendations=false
+  
+  # Use task peak hour if available, otherwise logging peak hour
+  local recommended_hour=""
+  if [[ -f "$task_patterns" ]]; then
+    local task_peak_hour=$(grep -o '"peak_completion_hour": [0-9]*' "$task_patterns" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    if [[ -n "$task_peak_hour" && "$task_peak_hour" != "0" ]]; then
+      recommended_hour="$task_peak_hour"
+    fi
+  fi
+  
+  if [[ -z "$recommended_hour" && -f "$logging_patterns" ]]; then
+    local log_peak_hour=$(grep -o '"peak_hour": [0-9]*' "$logging_patterns" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    if [[ -n "$log_peak_hour" && "$log_peak_hour" != "0" ]]; then
+      recommended_hour="$log_peak_hour"
+    fi
+  fi
+  
+  if [[ -n "$recommended_hour" && "$recommended_hour" != "0" ]]; then
+    echo "  • Schedule important tasks around ${recommended_hour}:00 (your peak time)"
+    has_recommendations=true
+  fi
+  
+  if [[ -n "$best_context" && "$best_context" != "unknown" && "$best_context" != "0" ]]; then
+    echo "  • You're most productive in '$best_context' context"
+    has_recommendations=true
+  fi
+  
+  if [[ -n "$best_energy" && "$best_energy" != "unknown" && "$best_energy" != "0" ]]; then
+    echo "  • You complete most tasks when energy is '$best_energy'"
+    has_recommendations=true
+  fi
+  
+  if [[ "$has_recommendations" == "false" ]]; then
+    echo "  • Keep logging and completing tasks to build patterns"
+    echo "  • Patterns will appear as you use the system more"
+  fi
+  echo ""
+}
+
+# Main function
+main() {
+  case "${1:-all}" in
+    logging)
+      analyze_logging_patterns
+      echo "✓ Logging patterns analyzed"
+      ;;
+    tasks)
+      analyze_task_patterns
+      echo "✓ Task patterns analyzed"
+      ;;
+    insights)
+      generate_insights
+      ;;
+    all|*)
+      echo "Analyzing patterns..."
+      analyze_logging_patterns >/dev/null 2>&1
+      analyze_task_patterns >/dev/null 2>&1
+      echo "✓ Patterns analyzed"
+      echo ""
+      generate_insights
+      ;;
+  esac
+}
+
+main "$@"
+

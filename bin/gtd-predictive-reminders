@@ -1,0 +1,224 @@
+#!/bin/bash
+# GTD Predictive Reminders - Learn when user typically forgets to log
+
+# Load config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+PATTERNS_DIR="${GTD_BASE_DIR}/.patterns"
+mkdir -p "$PATTERNS_DIR"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Analyze when user forgets to log
+analyze_forgetting_patterns() {
+  local patterns_file="${PATTERNS_DIR}/forgetting_patterns.json"
+  
+  # Analyze last 60 days for gaps
+  local gaps_by_hour=()
+  local gaps_by_day=()
+  local last_logged_hour=0
+  
+  # Initialize arrays
+  for i in {0..23}; do
+    gaps_by_hour[$i]=0
+  done
+  for i in {0..6}; do
+    gaps_by_day[$i]=0
+  done
+  
+  # Find days with no logs or late first logs
+  for i in {0..59}; do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+      local day_of_week=$($DATE_CMD -j -f "%Y-%m-%d" "$check_date" +"%w" 2>/dev/null || $DATE_CMD -d "$check_date" +"%w" 2>/dev/null || echo "0")
+      day_of_week=${day_of_week:-0}
+      
+      if [[ ! -f "$log_file" ]]; then
+        # No log file - gap detected
+        gaps_by_day[$day_of_week]=$((${gaps_by_day[$day_of_week]} + 1))
+      else
+        # Check first entry time
+        local first_entry=$(grep "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null | head -1 | cut -d':' -f1)
+        if [[ -n "$first_entry" ]]; then
+          local hour=$(echo "$first_entry" | sed 's/^0//')
+          hour=${hour:-0}
+          
+          # If first entry is after 10 AM, consider it a late start
+          if [[ "$hour" =~ ^[0-9]+$ ]] && [[ $hour -ge 10 ]]; then
+            gaps_by_hour[$hour]=$((${gaps_by_hour[$hour]} + 1))
+          fi
+        fi
+      fi
+    fi
+  done
+  
+  # Find most common gap times
+  local most_gap_hour=0
+  local max_gaps=0
+  for i in {0..23}; do
+    if [[ ${gaps_by_hour[$i]} -gt $max_gaps ]]; then
+      max_gaps=${gaps_by_hour[$i]}
+      most_gap_hour=$i
+    fi
+  done
+  
+  # Find most common gap days
+  local most_gap_day=0
+  local max_day_gaps=0
+  for i in {0..6}; do
+    if [[ ${gaps_by_day[$i]} -gt $max_day_gaps ]]; then
+      max_day_gaps=${gaps_by_day[$i]}
+      most_gap_day=$i
+    fi
+  done
+  
+  # Save patterns
+  cat > "$patterns_file" <<EOF
+{
+  "forgetting": {
+    "most_gap_hour": $most_gap_hour,
+    "most_gap_day": $most_gap_day,
+    "gaps_by_hour": [$(IFS=,; echo "${gaps_by_hour[*]}")],
+    "gaps_by_day": [$(IFS=,; echo "${gaps_by_day[*]}")]
+  },
+  "last_updated": "$($DATE_CMD +"%Y-%m-%d %H:%M:%S")"
+}
+EOF
+  
+  echo "$patterns_file"
+}
+
+# Check if reminder needed based on patterns
+check_if_reminder_needed() {
+  local patterns_file="${PATTERNS_DIR}/forgetting_patterns.json"
+  
+  if [[ ! -f "$patterns_file" ]]; then
+    # No patterns yet, analyze
+    analyze_forgetting_patterns >/dev/null 2>&1
+  fi
+  
+  local current_hour=$($DATE_CMD +"%H" | sed 's/^0//')
+  current_hour=${current_hour:-0}
+  local current_day=$($DATE_CMD +"%w")
+  current_day=${current_day:-0}
+  
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  
+  # Check if already logged today
+  if [[ -f "$log_file" ]]; then
+    local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+    if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ $entry_count -gt 0 ]]; then
+      # Already logged, no reminder needed
+      return 1
+    fi
+  fi
+  
+  # Check if current time matches gap pattern
+  if [[ -f "$patterns_file" ]]; then
+    local most_gap_hour=$(grep -o '"most_gap_hour": [0-9]*' "$patterns_file" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    local most_gap_day=$(grep -o '"most_gap_day": [0-9]*' "$patterns_file" 2>/dev/null | cut -d' ' -f2 || echo "0")
+    
+    # If current hour matches gap hour and current day matches gap day
+    if [[ $current_hour -eq $most_gap_hour ]] && [[ $current_day -eq $most_gap_day ]]; then
+      return 0  # Reminder needed
+    fi
+    
+    # Also check if it's past the gap hour
+    if [[ $current_hour -ge $most_gap_hour ]] && [[ $current_day -eq $most_gap_day ]]; then
+      return 0  # Reminder needed
+    fi
+  fi
+  
+  # Default: check if it's past 10 AM and no log
+  if [[ $current_hour -ge 10 ]]; then
+    return 0  # Reminder needed
+  fi
+  
+  return 1  # No reminder needed
+}
+
+# Generate predictive reminder
+generate_reminder() {
+  if check_if_reminder_needed; then
+    local patterns_file="${PATTERNS_DIR}/forgetting_patterns.json"
+    local most_gap_hour=$(grep -o '"most_gap_hour": [0-9]*' "$patterns_file" 2>/dev/null | cut -d' ' -f2 || echo "10")
+    
+    echo "🔔 Predictive Reminder"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Based on your patterns, you typically forget to log around ${most_gap_hour}:00."
+    echo "It's currently $($DATE_CMD +"%H:%M") and you haven't logged yet today."
+    echo ""
+    echo "💡 Quick log: \`log \"your entry\"\`"
+    echo ""
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Main function
+main() {
+  case "${1:-check}" in
+    analyze)
+      analyze_forgetting_patterns
+      echo "✓ Forgetting patterns analyzed"
+      ;;
+    check)
+      if generate_reminder; then
+        exit 0
+      else
+        exit 1
+      fi
+      ;;
+    *)
+      echo "Usage: gtd-predictive-reminders [analyze|check]"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+
+

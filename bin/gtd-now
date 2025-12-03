@@ -1,0 +1,56 @@
+#!/bin/bash
+# Quick "What should I do now?" - Shows actionable items at a glance
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+echo ""
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}🎯 What Should You Do Now?${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Inbox count
+inbox_count=$(ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | tr -d ' ')
+if [[ $inbox_count -gt 0 ]]; then
+  echo -e "${YELLOW}📥 Inbox: ${inbox_count} item(s) - ${BOLD}Process first!${NC}"
+  echo ""
+fi
+
+# Urgent/Important tasks
+echo -e "${BOLD}🔥 Urgent & Important Tasks:${NC}"
+gtd-task list --priority=urgent_important 2>/dev/null | head -5 || echo "  (none)"
+echo ""
+
+# Tasks due today
+echo -e "${BOLD}📅 Tasks Due Today:${NC}"
+gtd-task list --due=today 2>/dev/null | head -5 || echo "  (none)"
+echo ""
+
+# Next actions (context-based)
+echo -e "${BOLD}💻 Computer Tasks (next 3):${NC}"
+gtd-task list --context=computer 2>/dev/null | head -3 || echo "  (none)"
+echo ""
+
+# Habits due
+if [[ -d ~/Documents/gtd/habits ]]; then
+  due_habits=$(find ~/Documents/gtd/habits -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [[ $due_habits -gt 0 ]]; then
+    echo -e "${BOLD}✅ Habits Due: ${due_habits}${NC}"
+    echo ""
+  fi
+fi
+
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "${BOLD}💡 Quick commands:${NC}"
+echo "  ${GREEN}p${NC}          → Process inbox"
+echo "  ${GREEN}t${NC}          → List all tasks"
+echo "  ${GREEN}w${NC}          → Open wizard"
+echo ""
+
+

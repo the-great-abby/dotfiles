@@ -17,8 +17,18 @@ GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
 AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}"
 PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
 TASKS_PATH="${GTD_BASE_DIR}/tasks"
+ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
 
-mkdir -p "$AREAS_PATH"
+mkdir -p "$AREAS_PATH" "$ARCHIVE_PATH"
+
+# Source selection helper
+SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
+  SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
+fi
+if [[ -f "$SELECT_HELPER" ]]; then
+  source "$SELECT_HELPER"
+fi
 
 TODAY=$(date +"%Y-%m-%d")
 NOW=$(date +"%H:%M")
@@ -513,10 +523,22 @@ review_all_areas() {
       read -p "   " should_merge
       if [[ "$should_merge" == "y" || "$should_merge" == "Y" ]]; then
         echo "   Which area should it merge with?"
-        gtd-area list | grep -v "^$" | grep -v "━━" | grep -v "Areas"
-        read -p "   Area name: " merge_target
-        areas_to_merge+=("$area_slug|$merge_target")
-        echo "   → Marked for merging with: $merge_target"
+        echo ""
+        if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+          merge_target=$(select_from_list "area" "$AREAS_PATH" "name" 2>/dev/null)
+          if [[ -z "$merge_target" ]]; then
+            echo "   ❌ No area selected, skipping merge"
+          else
+            areas_to_merge+=("$area_slug|$merge_target")
+            echo "   → Marked for merging with: $merge_target"
+          fi
+        else
+          read -p "   Area name: " merge_target
+          if [[ -n "$merge_target" ]]; then
+            areas_to_merge+=("$area_slug|$merge_target")
+            echo "   → Marked for merging with: $merge_target"
+          fi
+        fi
       else
         areas_to_archive+=("$area_slug")
         echo "   → Marked for archiving"
@@ -629,6 +651,72 @@ review_all_areas() {
   echo ""
 }
 
+# Archive area
+archive_area() {
+  local area_name="$1"
+  if [[ -z "$area_name" ]]; then
+    echo "Usage: gtd-area archive <area-name>"
+    exit 1
+  fi
+  
+  area_name=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local area_file="${AREAS_PATH}/${area_name}.md"
+  
+  if [[ ! -f "$area_file" ]]; then
+    echo "❌ Area not found: $area_name"
+    exit 1
+  fi
+  
+  # Update status to archived
+  update_frontmatter_value "$area_file" "status" "archived"
+  update_frontmatter_value "$area_file" "archived" "${TODAY}T${NOW}"
+  
+  # Move to archive directory
+  mkdir -p "${ARCHIVE_PATH}/areas"
+  mv "$area_file" "${ARCHIVE_PATH}/areas/"
+  
+  echo "✓ Archived: $area_name"
+  echo "  Moved to: ${ARCHIVE_PATH}/areas/"
+  
+  # Show warning if there are related projects or tasks
+  local project_count=0
+  local task_count=0
+  
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r project_dir; do
+      local readme="${project_dir}/README.md"
+      if [[ -f "$readme" ]]; then
+        local project_area=$(get_frontmatter_value "$readme" "area")
+        if [[ "$project_area" == "$area_name" ]]; then
+          ((project_count++))
+        fi
+      fi
+    done < <(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)
+  fi
+  
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      local task_area=$(get_frontmatter_value "$task_file" "area")
+      if [[ "$task_area" == "$area_name" ]]; then
+        ((task_count++))
+      fi
+    done < <(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null)
+  fi
+  
+  if [[ $project_count -gt 0 || $task_count -gt 0 ]]; then
+    echo ""
+    echo "⚠️  Warning: This area has related items:"
+    if [[ $project_count -gt 0 ]]; then
+      echo "   • $project_count project(s) still linked to this area"
+    fi
+    if [[ $task_count -gt 0 ]]; then
+      echo "   • $task_count task(s) still linked to this area"
+    fi
+    echo ""
+    echo "   Consider reassigning these items to another area before archiving."
+  fi
+}
+
 # Main
 main() {
   case "$1" in
@@ -662,6 +750,10 @@ main() {
     review-all)
       review_all_areas
       ;;
+    archive)
+      shift
+      archive_area "$1"
+      ;;
     --help|-h|"")
       echo "Usage: gtd-area <command> [options]"
       echo ""
@@ -673,6 +765,7 @@ main() {
       echo "  add-project <area> <name>      Add project to area"
       echo "  review [name]                  Review area (or all areas if no name)"
       echo "  review-all                     Review all areas systematically"
+      echo "  archive <name>                 Archive an area"
       echo ""
       echo "Examples:"
       echo "  gtd-area create \"Health\""

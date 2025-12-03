@@ -5,3 +5,4 @@ node_modules/*
 vim/.netrwhist
 vim/bundle/*
 fonts/
+*.pyc

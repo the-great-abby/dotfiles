@@ -222,11 +222,23 @@ Completed successfully.
 EOF
   
   # Log to daily log
-  local area=$(grep "^area:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+  local area=$(grep "^area:" "$habit_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+  local log_message=""
   if [[ -n "$area" ]]; then
-    addInfoToDailyLog "Completed habit: $habit_name (${area} area)" 2>/dev/null || true
+    log_message="Completed habit: $habit_name (${area} area)"
   else
-    addInfoToDailyLog "Completed habit: $habit_name" 2>/dev/null || true
+    log_message="Completed habit: $habit_name"
+  fi
+  
+  # Try gtd-daily-log first (standalone script), then addInfoToDailyLog (zsh function)
+  if command -v gtd-daily-log &>/dev/null; then
+    gtd-daily-log "$log_message" 2>/dev/null || true
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-daily-log" "$log_message" 2>/dev/null || true
+  elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-daily-log" ]]; then
+    "$HOME/code/personal/dotfiles/bin/gtd-daily-log" "$log_message" 2>/dev/null || true
+  elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
+    addInfoToDailyLog "$log_message" 2>/dev/null || true
   fi
   
   echo "✓ Logged: $habit_name"
@@ -264,7 +276,7 @@ list_habits() {
   fi
   
   for habit_file in "${habits[@]}"; do
-    local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
+    local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
     local frequency=$(grep "^frequency:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "unknown")
     local streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
     local longest=$(grep "^longest_streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
@@ -356,7 +368,7 @@ show_dashboard() {
     for habit_file in "${habits[@]}"; do
       local status=$(grep "^status:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
       if [[ "$status" == "active" ]]; then
-        local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
+        local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
         local last_completed=$(grep "^last_completed:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
         local frequency=$(grep "^frequency:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
         
@@ -372,16 +384,28 @@ show_dashboard() {
   # Show top streaks
   echo -e "${GREEN}🔥 Top Streaks:${NC}"
   echo ""
-  local top_habits=($(for habit_file in "${habits[@]}"; do
-    local streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
-    local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
-    echo "${streak}|${habit_name}"
-  done | sort -t'|' -k1 -nr | head -5))
   
-  for habit_info in "${top_habits[@]}"; do
+  # Build array of streak|name pairs, handling spaces properly
+  local top_habits_raw=$(for habit_file in "${habits[@]}"; do
+    local streak=$(grep "^streak:" "$habit_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+    # Use cut -f2- to get everything after the colon (handles names with colons)
+    local habit_name=$(grep "^name:" "$habit_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || basename "$habit_file" .md)
+    echo "${streak}|${habit_name}"
+  done | sort -t'|' -k1 -nr | head -5)
+  
+  # Process each line using mapfile to handle spaces correctly
+  local top_habits_array=()
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    top_habits_array+=("$line")
+  done <<< "$top_habits_raw"
+  
+  for habit_info in "${top_habits_array[@]}"; do
+    [[ -z "$habit_info" ]] && continue
     local streak=$(echo "$habit_info" | cut -d'|' -f1)
-    local habit_name=$(echo "$habit_info" | cut -d'|' -f2)
-    if [[ $streak -gt 0 ]]; then
+    # Use cut -f2- to get everything after the pipe (handles names with pipes - unlikely but safe)
+    local habit_name=$(echo "$habit_info" | cut -d'|' -f2-)
+    if [[ -n "$streak" && "$streak" -gt 0 ]]; then
       echo "  ${streak} days: $habit_name"
     fi
   done

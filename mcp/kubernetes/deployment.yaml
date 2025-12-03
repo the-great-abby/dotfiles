@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gtd-deep-analysis-worker
+  labels:
+    app: gtd-deep-analysis-worker
+    component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gtd-deep-analysis-worker
+  template:
+    metadata:
+      labels:
+        app: gtd-deep-analysis-worker
+    spec:
+      containers:
+      - name: worker
+        image: your-registry/gtd-worker:latest  # Update with your registry
+        imagePullPolicy: Always
+        command: ["python3", "/app/gtd_deep_analysis_worker.py"]
+        env:
+        - name: GTD_DEEP_MODEL_URL
+          value: "http://localhost:1234/v1/chat/completions"  # LM Studio URL (update if needed)
+        - name: GTD_DEEP_MODEL_NAME
+          value: "gpt-oss-20b"  # Model name in LM Studio
+        - name: GTD_RABBITMQ_URL
+          valueFrom:
+            secretKeyRef:
+              name: gtd-secrets
+              key: rabbitmq-url
+        - name: GTD_RABBITMQ_QUEUE
+          value: "gtd_deep_analysis"
+        - name: GTD_USER_NAME
+          value: "Abby"
+        - name: GTD_BASE_DIR
+          value: "/data/gtd"
+        - name: DAILY_LOG_DIR
+          value: "/data/daily_logs"
+        - name: SECOND_BRAIN
+          value: "/data/second_brain"
+        volumeMounts:
+        - name: gtd-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: gtd-data
+        persistentVolumeClaim:
+          claimName: gtd-data-pvc
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gtd-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gtd-secrets
+type: Opaque
+stringData:
+  rabbitmq-url: "amqp://rabbitmq:5672"  # Update with your RabbitMQ service name
+

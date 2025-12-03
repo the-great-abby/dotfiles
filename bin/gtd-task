@@ -53,9 +53,99 @@ ${key}: ${value}
   fi
 }
 
+# Validate and normalize repository URL
+normalize_repo_url() {
+  local url="$1"
+  if [[ -z "$url" ]]; then
+    echo ""
+    return 0
+  fi
+  
+  # Remove trailing slash
+  url="${url%/}"
+  
+  # If it's already a full URL, return as-is
+  if [[ "$url" =~ ^https?:// ]]; then
+    echo "$url"
+    return 0
+  fi
+  
+  # If it's a shorthand like "user/repo", convert to GitHub
+  if [[ "$url" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$ ]]; then
+    echo "https://github.com/$url"
+    return 0
+  fi
+  
+  # Return as-is (might be invalid, but user can fix later)
+  echo "$url"
+}
+
 # Add task
 add_task() {
-  local task_desc="$*"
+  local task_desc=""
+  local context=""
+  local energy=""
+  local priority=""
+  local project=""
+  local repository=""
+  local recurring="false"
+  local frequency=""
+  local non_interactive=false
+  
+  # Parse arguments
+  local remaining_args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --context=*)
+        context="${1#*=}"
+        non_interactive=true
+        shift
+        ;;
+      --energy=*)
+        energy="${1#*=}"
+        non_interactive=true
+        shift
+        ;;
+      --priority=*)
+        priority="${1#*=}"
+        non_interactive=true
+        shift
+        ;;
+      --project=*)
+        project="${1#*=}"
+        non_interactive=true
+        shift
+        ;;
+      --repository=*|--repo=*)
+        repository="${1#*=}"
+        repository=$(normalize_repo_url "$repository")
+        non_interactive=true
+        shift
+        ;;
+      --recurring=*)
+        recurring="${1#*=}"
+        non_interactive=true
+        shift
+        ;;
+      --frequency=*)
+        frequency="${1#*=}"
+        non_interactive=true
+        shift
+        ;;
+      --non-interactive)
+        non_interactive=true
+        shift
+        ;;
+      *)
+        remaining_args+=("$1")
+        shift
+        ;;
+    esac
+  done
+  
+  # Get task description from remaining args
+  task_desc="${remaining_args[*]}"
+  
   if [[ -z "$task_desc" ]]; then
     read -p "Task description: " task_desc
   fi
@@ -64,75 +154,165 @@ add_task() {
   local filename="${timestamp}-task.md"
   local filepath="${TASKS_PATH}/${filename}"
   
-  # Get additional info
-  echo "Creating task: $task_desc"
-  read -p "Is this a recurring task/habit? (y/n): " is_recurring
-  
-  local recurring=""
-  local frequency=""
-  if [[ "$is_recurring" == "y" || "$is_recurring" == "Y" ]]; then
-    echo ""
-    echo "Recurrence frequency:"
-    echo "  1) Daily"
-    echo "  2) Weekly"
-    echo "  3) Monthly"
-    echo "  4) Custom"
-    read -p "Choose (1-4): " freq_choice
-    case "$freq_choice" in
-      1) frequency="daily" ;;
-      2) frequency="weekly" ;;
-      3) frequency="monthly" ;;
-      4)
-        read -p "Custom frequency (e.g., 'every 3 days', 'weekdays'): " frequency
-        ;;
-      *) frequency="daily" ;;
-    esac
-    recurring="true"
-    echo ""
-    echo "💡 Consider creating this as a habit instead: gtd-habit create \"$task_desc\""
-    echo ""
+  # Get additional info (only if not provided via flags)
+  if [[ "$non_interactive" != "true" ]]; then
+    echo "Creating task: $task_desc"
+    read -p "Is this a recurring task/habit? (y/n): " is_recurring
+    
+    if [[ "$is_recurring" == "y" || "$is_recurring" == "Y" ]]; then
+      echo ""
+      echo "Recurrence frequency:"
+      echo "  1) Daily"
+      echo "  2) Weekly"
+      echo "  3) Monthly"
+      echo "  4) Custom"
+      read -p "Choose (1-4): " freq_choice
+      case "$freq_choice" in
+        1) frequency="daily" ;;
+        2) frequency="weekly" ;;
+        3) frequency="monthly" ;;
+        4)
+          read -p "Custom frequency (e.g., 'every 3 days', 'weekdays'): " frequency
+          ;;
+        *) frequency="daily" ;;
+      esac
+      recurring="true"
+      echo ""
+      echo "💡 Consider creating this as a habit instead: gtd-habit create \"$task_desc\""
+      echo ""
+    fi
+  else
+    # Non-interactive mode - use defaults
+    if [[ -z "$recurring" ]]; then
+      recurring="false"
+    fi
+    if [[ -z "$frequency" ]]; then
+      frequency=""
+    fi
   fi
   
-  read -p "Context (home/office/computer/phone/errands): " context
-  read -p "Energy level (low/medium/high/creative/administrative): " energy
-  read -p "Priority (1=urgent&important, 2=not urgent&important, 3=urgent&not important, 4=neither): " priority_choice
+  # Get context (prompt only if not provided)
+  if [[ -z "$context" ]]; then
+    if [[ "$non_interactive" != "true" ]]; then
+      read -p "Context (home/office/computer/phone/errands): " context
+    else
+      context="computer"  # Default for non-interactive
+    fi
+  fi
   
-  case "$priority_choice" in
-    1) priority="urgent_important" ;;
-    2) priority="not_urgent_important" ;;
-    3) priority="urgent_not_important" ;;
-    4) priority="not_urgent_not_important" ;;
-    *) priority="not_urgent_important" ;;
-  esac
+  # Get energy level (prompt only if not provided)
+  if [[ -z "$energy" ]]; then
+    if [[ "$non_interactive" != "true" ]]; then
+      read -p "Energy level (low/medium/high/creative/administrative): " energy
+    else
+      energy="medium"  # Default for non-interactive
+    fi
+  fi
   
-  # Create task file
-  cat > "$filepath" <<EOF
----
-type: task
-status: active
-created: ${TODAY}T${NOW}
-context: ${context:-computer}
-energy: ${energy:-medium}
-priority: ${priority}
-recurring: ${recurring:-false}
-frequency: ${frequency:-}
-tags: []
----
-
-# ${task_desc}
-
-## Next Action
-${task_desc}
-
-## Notes
-
-
-EOF
+  # Get priority (prompt only if not provided)
+  if [[ -z "$priority" ]]; then
+    if [[ "$non_interactive" != "true" ]]; then
+      read -p "Priority (1=urgent&important, 2=not urgent&important, 3=urgent&not important, 4=neither): " priority_choice
+    else
+      priority="not_urgent_important"  # Default for non-interactive
+    fi
+  fi
+  
+  # Convert priority choice to priority value if needed (from interactive prompt)
+  if [[ -z "$priority" && -n "$priority_choice" ]]; then
+    case "$priority_choice" in
+      1) priority="urgent_important" ;;
+      2) priority="not_urgent_important" ;;
+      3) priority="urgent_not_important" ;;
+      4) priority="not_urgent_not_important" ;;
+      *) priority="not_urgent_important" ;;
+    esac
+  fi
+  
+  # Set default priority if still empty
+  if [[ -z "$priority" ]]; then
+    priority="not_urgent_important"
+  fi
+  
+  # Get repository link (prompt only if not provided and in interactive mode)
+  if [[ -z "$repository" && "$non_interactive" != "true" ]]; then
+    echo ""
+    read -p "Repository URL (GitHub/GitLab, or press Enter to skip): " repo_input
+    if [[ -n "$repo_input" ]]; then
+      repository=$(normalize_repo_url "$repo_input")
+    fi
+  fi
+  
+  # Handle project assignment
+  local project_dir=""
+  if [[ -n "$project" ]]; then
+    project=$(echo "$project" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+    project_dir="${PROJECTS_PATH}/${project}"
+    mkdir -p "$project_dir"
+    filepath="${project_dir}/${filename}"
+  fi
+  
+  # Create task file with conditional repository field
+  {
+    echo "---"
+    echo "type: task"
+    echo "status: active"
+    echo "created: ${TODAY}T${NOW}"
+    echo "context: ${context:-computer}"
+    echo "energy: ${energy:-medium}"
+    echo "priority: ${priority}"
+    echo "recurring: ${recurring:-false}"
+    echo "frequency: ${frequency:-}"
+    if [[ -n "$project" ]]; then
+      echo "project: ${project}"
+    fi
+    if [[ -n "$repository" ]]; then
+      echo "repository: ${repository}"
+    fi
+    echo "tags: []"
+    echo "---"
+    echo ""
+    echo "# ${task_desc}"
+    echo ""
+    echo "## Next Action"
+    echo "${task_desc}"
+    echo ""
+    echo "## Notes"
+    echo ""
+    echo ""
+  } > "$filepath"
   
   echo "✓ Created task: $filepath"
   echo "  Context: ${context:-computer}"
   echo "  Energy: ${energy:-medium}"
   echo "  Priority: $priority"
+  if [[ -n "$project" ]]; then
+    echo "  Project: $project"
+  fi
+  if [[ -n "$repository" ]]; then
+    echo "  Repository: $repository"
+  fi
+}
+
+# Find all task files (in tasks directory and project directories)
+find_all_tasks() {
+  local tasks=()
+  
+  # Search in tasks directory
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r -d '' task; do
+      tasks+=("$task")
+    done < <(find "$TASKS_PATH" -type f -name "*.md" -print0 2>/dev/null)
+  fi
+  
+  # Search in project directories (recursively, but exclude README.md)
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r -d '' task; do
+      tasks+=("$task")
+    done < <(find "$PROJECTS_PATH" -type f -name "*.md" ! -name "README.md" -print0 2>/dev/null)
+  fi
+  
+  printf '%s\0' "${tasks[@]}"
 }
 
 # List tasks
@@ -142,6 +322,8 @@ list_tasks() {
   local priority_filter=""
   local project_filter=""
   local status_filter="active"
+  local project_only=false
+  local no_project=false
   
   # Parse filters
   while [[ $# -gt 0 ]]; do
@@ -166,13 +348,25 @@ list_tasks() {
         status_filter="${1#*=}"
         shift
         ;;
+      --project-only)
+        project_only=true
+        shift
+        ;;
+      --no-project)
+        no_project=true
+        shift
+        ;;
       *)
         shift
         ;;
     esac
   done
   
-  local tasks=($(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null))
+  local tasks=()
+  while IFS= read -r -d '' task; do
+    tasks+=("$task")
+  done < <(find_all_tasks)
+  
   local count=0
   
   echo ""
@@ -187,6 +381,12 @@ list_tasks() {
   if [[ -n "$priority_filter" ]]; then
     echo "   Priority: $priority_filter"
   fi
+  if [[ "$project_only" == "true" ]]; then
+    echo "   Filter: Project-related tasks only"
+  fi
+  if [[ "$no_project" == "true" ]]; then
+    echo "   Filter: Tasks without projects only"
+  fi
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
@@ -196,6 +396,15 @@ list_tasks() {
     local energy=$(get_frontmatter_value "$task" "energy")
     local priority=$(get_frontmatter_value "$task" "priority")
     local project=$(get_frontmatter_value "$task" "project")
+    local repository=$(get_frontmatter_value "$task" "repository")
+    
+    # If project not in frontmatter but task is in a project directory, infer it
+    if [[ -z "$project" ]]; then
+      local task_dir=$(dirname "$task")
+      if [[ "$task_dir" != "$TASKS_PATH" ]] && [[ "$task_dir" == "$PROJECTS_PATH"/* ]]; then
+        project=$(basename "$task_dir")
+      fi
+    fi
     
     # Apply filters
     if [[ "$status" != "$status_filter" ]]; then
@@ -213,6 +422,12 @@ list_tasks() {
     if [[ -n "$project_filter" && "$project" != "$project_filter" ]]; then
       continue
     fi
+    if [[ "$project_only" == "true" && -z "$project" ]]; then
+      continue
+    fi
+    if [[ "$no_project" == "true" && -n "$project" ]]; then
+      continue
+    fi
     
     ((count++))
     local task_name=$(head -20 "$task" | grep "^# " | head -1 | sed 's/^# //')
@@ -224,6 +439,9 @@ list_tasks() {
     if [[ -n "$project" ]]; then
       echo "     Project: $project"
     fi
+    if [[ -n "$repository" ]]; then
+      echo "     Repository: $repository"
+    fi
     echo ""
   done
   
@@ -232,6 +450,24 @@ list_tasks() {
   else
     echo "Total: $count task(s)"
   fi
+}
+
+# Find task file by ID (searches both TASKS_PATH and project directories)
+find_task_file() {
+  local task_id="$1"
+  local task_file=""
+  
+  # Search in tasks directory
+  task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+  
+  # If not found, search in project directories
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    if [[ -d "$PROJECTS_PATH" ]]; then
+      task_file=$(find "$PROJECTS_PATH" -name "${task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
+    fi
+  fi
+  
+  echo "$task_file"
 }
 
 # Complete task
@@ -243,7 +479,7 @@ complete_task() {
     exit 1
   fi
   
-  local task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+  local task_file=$(find_task_file "$task_id")
   
   if [[ -z "$task_file" || ! -f "$task_file" ]]; then
     echo "❌ Task not found: $task_id"
@@ -277,7 +513,7 @@ update_task() {
     exit 1
   fi
   
-  local task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+  local task_file=$(find_task_file "$task_id")
   
   if [[ -z "$task_file" || ! -f "$task_file" ]]; then
     echo "❌ Task not found: $task_id"
@@ -351,7 +587,7 @@ move_task() {
     exit 1
   fi
   
-  local task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+  local task_file=$(find_task_file "$task_id")
   
   if [[ -z "$task_file" || ! -f "$task_file" ]]; then
     echo "❌ Task not found: $task_id"
@@ -410,6 +646,8 @@ main() {
       echo "  --priority=<priority>           Filter by priority"
       echo "  --project=<project>             Filter by project"
       echo "  --status=<status>               Filter by status (default: active)"
+      echo "  --project-only                  Show only tasks with projects"
+      echo "  --no-project                    Show only tasks without projects"
       echo ""
       echo "Examples:"
       echo "  gtd-task add \"Fix bug\""

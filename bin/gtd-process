@@ -33,6 +33,15 @@ ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR}"
 # Create directories if they don't exist
 mkdir -p "$INBOX_PATH" "$PROJECTS_PATH" "$AREAS_PATH" "$REFERENCE_PATH" "$SOMEDAY_PATH" "$WAITING_PATH" "$ARCHIVE_PATH"
 
+# Source selection helper
+SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
+  SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
+fi
+if [[ -f "$SELECT_HELPER" ]]; then
+  source "$SELECT_HELPER"
+fi
+
 # Get inbox items
 get_inbox_items() {
   find "$INBOX_PATH" -type f -name "*.md" -maxdepth 1 2>/dev/null | sort
@@ -85,13 +94,59 @@ process_item() {
   echo "📋 Processing: $filename"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   
-  # Show file content
+  # Show file preview and allow viewing full content
   echo ""
-  echo "Content:"
+  echo "Content (preview):"
   head -20 "$file" | tail -15
   echo ""
   
+  # Menu for viewing options
+  while true; do
+    echo "Options:"
+    echo "  1) View full file contents"
+    echo "  2) Open in editor"
+    echo "  3) Continue processing (default)"
+    echo ""
+    read -p "Choose (1-3, or Enter to continue): " view_choice
+    
+    case "$view_choice" in
+      1|"v"|"view")
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Full content of: $filename"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        cat "$file"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        break
+        ;;
+      2|"e"|"edit")
+        if [[ -n "$EDITOR" ]]; then
+          $EDITOR "$file"
+          echo ""
+          echo "Press Enter to continue processing after editing..."
+          read
+        else
+          echo "⚠️  EDITOR environment variable not set"
+          echo "   You can set it with: export EDITOR='vim' (or your preferred editor)"
+        fi
+        break
+        ;;
+      3|""|"c"|"continue")
+        break
+        ;;
+      *)
+        echo "Invalid choice. Please choose 1, 2, or 3 (or press Enter)."
+        ;;
+    esac
+  done
+  
   # GTD Processing Questions
+  echo ""
   echo "1. What is it?"
   read -p "   Description: " description
   
@@ -154,10 +209,27 @@ process_item() {
   read -p "   Yes/No (y/n): " multiple_steps
   
   if [[ "$multiple_steps" == "y" ]]; then
-    # Create project
+    # Create or select project
     echo ""
-    read -p "   Project name: " project_name
-    project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+    echo "   Link to existing project or create new?"
+    if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+      echo ""
+      echo "   Available projects:"
+      existing_project=$(select_from_list "project" "$PROJECTS_PATH" "project" 2>/dev/null)
+      if [[ -n "$existing_project" ]]; then
+        # User selected an existing project
+        project_name=$(echo "$existing_project" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+      else
+        # User wants to create new - ask for name
+        echo ""
+        read -p "   New project name: " project_name
+        project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+      fi
+    else
+      # No existing projects, just ask for name
+      read -p "   Project name: " project_name
+      project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+    fi
     project_dir="${PROJECTS_PATH}/${project_name}"
     mkdir -p "$project_dir"
     

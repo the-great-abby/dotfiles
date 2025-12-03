@@ -155,25 +155,25 @@ get_louiza_morning_message() {
   case "$progress_status" in
     no_log)
       punishment_hint="Consider assigning punishments like: write an accountability letter, process entire inbox, log every hour for rest of day, or complete 3 tasks immediately."
-      prompt="Good morning, Abby. It's a new day and I see NO logging activity yet. This is unacceptable. I'm watching, and I expect to see progress. Scold Abby firmly but constructively. Remind her that tracking everything is non-negotiable. Tell her to use 'addInfoToDailyLog' immediately. Be strict - no excuses. Use phrases like 'we need to talk' or 'this is not acceptable' when scolding, but also encourage with 'good girl' when she does log. Consider assigning a punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
+      prompt="Good morning, ${GTD_USER_NAME:-Abby}. It's a new day and I see NO logging activity yet. This is unacceptable. I'm watching, and I expect to see progress. Scold ${GTD_USER_NAME:-Abby} firmly but constructively. Remind her that tracking everything is non-negotiable. Tell her to use 'addInfoToDailyLog' immediately. Be strict - no excuses. Use phrases like 'we need to talk' or 'this is not acceptable' when scolding, but also encourage with 'good girl' when she does log. Consider assigning a punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
       ;;
     no_entries|old_entries)
       punishment_hint="Consider assigning punishments like: reconstruct the day from memory, process inbox, log every hour, or complete 2 tasks immediately."
-      prompt="Good morning, Abby. I see she started a log file but there are NO entries or the entries are very old. This is sloppy. Scold her firmly. Tell her that starting a log and not using it is worse than not starting at all. Remind her that I'm watching and expect consistent tracking. Be strict but constructive. Consider assigning a punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
+      prompt="Good morning, ${GTD_USER_NAME:-Abby}. I see she started a log file but there are NO entries or the entries are very old. This is sloppy. Scold her firmly. Tell her that starting a log and not using it is worse than not starting at all. Remind her that I'm watching and expect consistent tracking. Be strict but constructive. Consider assigning a punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
       ;;
     low_entries)
       punishment_hint="Consider assigning punishments like: log every hour for rest of day, complete 1 task, or write a reflection on consistency."
-      prompt="Good morning, Abby. She has only 1 entry so far today. That's a start, but it's not enough. Be firm but encouraging. Remind her that I expect to see regular logging throughout the day. Tell her to keep using 'addInfoToDailyLog' frequently. Consider a light punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
+      prompt="Good morning, ${GTD_USER_NAME:-Abby}. She has only 1 entry so far today. That's a start, but it's not enough. Be firm but encouraging. Remind her that I expect to see regular logging throughout the day. Tell her to keep using 'addInfoToDailyLog' frequently. Consider a light punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
       ;;
     good)
       if [[ "$has_log" == "yes" ]]; then
-        prompt="Good morning, Abby! She's already started logging today with multiple entries. That's good - acknowledge this. Give her a motivating message to encourage her to keep recording her progress throughout the day. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Include this GTD reminder: ${gtd_reminder}"
+        prompt="Good morning, ${GTD_USER_NAME:-Abby}! She's already started logging today with multiple entries. That's good - acknowledge this. Give her a motivating message to encourage her to keep recording her progress throughout the day. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Include this GTD reminder: ${gtd_reminder}"
       else
-        prompt="Good morning, Abby! It's a new day. Give her a motivating morning message to encourage her to start logging her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Include this GTD reminder: ${gtd_reminder}"
+        prompt="Good morning, ${GTD_USER_NAME:-Abby}! It's a new day. Give her a motivating morning message to encourage her to start logging her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Include this GTD reminder: ${gtd_reminder}"
       fi
       ;;
     *)
-      prompt="Good morning, Abby. Give her a motivating morning message to encourage her to log her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Include this GTD reminder: ${gtd_reminder}"
+      prompt="Good morning, ${GTD_USER_NAME:-Abby}. Give her a motivating morning message to encourage her to log her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Include this GTD reminder: ${gtd_reminder}"
       ;;
   esac
   
@@ -297,15 +297,26 @@ send_morning_reminder() {
   # Get message from Mistress Louiza
   local reminder_message=$(get_louiza_morning_message "$has_log" "$progress_status")
   
+  # Get streak stats
+  local stats_script="$(dirname "$0")/gtd-log-stats"
+  if [[ ! -f "$stats_script" ]]; then
+    stats_script="gtd-log-stats"
+  fi
+  local current_streak=$("$stats_script" streak 2>/dev/null || echo "0")
+  local streak_info=""
+  if [[ $current_streak -gt 0 ]]; then
+    streak_info=$(printf "\n\n🔥 **Current Streak:** ${current_streak} day(s)")
+  fi
+  
   # Send to Discord if enabled
   if [[ "${GTD_DISCORD_DAILY_REMINDERS:-true}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
     if [[ -n "$reminder_message" ]]; then
-      local discord_message="$reminder_message"
+      local discord_message="$reminder_message${streak_info}"
       if [[ "$has_log" == "yes" && -n "$log_content" ]]; then
         local log_preview=$(echo "$log_content" | head -5)
-        discord_message=$(printf "%s\n\n📝 **Today's Progress So Far:**\n\`\`\`\n%s\n\`\`\`\n\n💡 Keep logging with: \`addInfoToDailyLog \"your entry\"\`" "$reminder_message" "$log_preview")
+        discord_message=$(printf "%s\n\n📝 **Today's Progress So Far:**\n\`\`\`\n%s\n\`\`\`\n\n💡 Keep logging with: \`addInfoToDailyLog \"your entry\"\`" "$discord_message" "$log_preview")
       else
-        discord_message=$(printf "%s\n\n💡 Start logging with: \`addInfoToDailyLog \"your entry\"\`" "$reminder_message")
+        discord_message=$(printf "%s\n\n💡 Start logging with: \`addInfoToDailyLog \"your entry\"\`" "$discord_message")
       fi
       if send_discord_message "Mistress Louiza - Good Morning" "$discord_message"; then
         echo "✓ Sent to Discord" >&2

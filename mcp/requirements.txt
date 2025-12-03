@@ -1,0 +1,11 @@
+# GTD MCP Server Requirements
+
+# Core MCP SDK
+mcp>=0.9.0
+
+# Optional: RabbitMQ for background processing
+pika>=1.3.0
+
+# Standard library should cover the rest
+# (json, pathlib, datetime, etc. are built-in)
+

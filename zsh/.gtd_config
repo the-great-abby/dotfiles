@@ -2,6 +2,12 @@
 GTD_DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1444409779895275571/8B3N-R9u2NJdA8PvNllkRAYI7dllLuUFekiPU__NBIDsHBgDo2L-5tM92oR7cwb6NXS2"
 
 # ============================================================================
+# User Configuration
+# ============================================================================
+# User name used in persona prompts and reminders (default: "Abby")
+GTD_USER_NAME="${GTD_USER_NAME:-Abby}"
+
+# ============================================================================
 # Directory Structure
 # ============================================================================
 # Base directory for GTD system (default: ~/Documents/gtd)
@@ -82,6 +88,23 @@ GTD_PERSONA_TRIGGERS=(
   "slacking|louiza"
   "discipline|louiza"
   "tracking|louiza"
+  "workout|goggins"
+  "exercise|goggins"
+  "fitness|bioneer"
+  "training|bioneer"
+  "run|dean"
+  "running|dean"
+  "cardio|dean"
+  "strength|bioneer"
+  "gym|bioneer"
+  "weight|bioneer"
+  "lifting|bioneer"
+  "endurance|dean"
+  "ultra|dean"
+  "marathon|dean"
+  "mental toughness|goggins"
+  "push|goggins"
+  "hard|goggins"
 )
 
 # ============================================================================

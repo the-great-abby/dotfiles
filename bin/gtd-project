@@ -53,9 +53,54 @@ ${key}: ${value}
   fi
 }
 
+# Validate and normalize repository URL
+normalize_repo_url() {
+  local url="$1"
+  if [[ -z "$url" ]]; then
+    echo ""
+    return 0
+  fi
+  
+  # Remove trailing slash
+  url="${url%/}"
+  
+  # If it's already a full URL, return as-is
+  if [[ "$url" =~ ^https?:// ]]; then
+    echo "$url"
+    return 0
+  fi
+  
+  # If it's a shorthand like "user/repo", convert to GitHub
+  if [[ "$url" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$ ]]; then
+    echo "https://github.com/$url"
+    return 0
+  fi
+  
+  # Return as-is (might be invalid, but user can fix later)
+  echo "$url"
+}
+
 # Create project
 create_project() {
-  local project_name="$*"
+  local project_name=""
+  local repository=""
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repository|--repo)
+        repository="$2"
+        shift 2
+        ;;
+      *)
+        if [[ -z "$project_name" ]]; then
+          project_name="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  
   if [[ -z "$project_name" ]]; then
     read -p "Project name: " project_name
   fi
@@ -70,33 +115,53 @@ create_project() {
   
   mkdir -p "$project_dir"
   
-  # Create README
-  cat > "${project_dir}/README.md" <<EOF
----
-type: project
-status: active
-created: ${TODAY}T${NOW}
-project: ${project_name}
-tags: []
----
-
-# ${project_name}
-
-## Description
-
-
-## Goals
-
-
-## Next Actions
-
-
-## Tasks
-
-EOF
+  # Normalize repository URL if provided
+  if [[ -n "$repository" ]]; then
+    repository=$(normalize_repo_url "$repository")
+  fi
+  
+  # Create README with conditional repository field
+  {
+    echo "---"
+    echo "type: project"
+    echo "status: active"
+    echo "created: ${TODAY}T${NOW}"
+    echo "project: ${project_name}"
+    if [[ -n "$repository" ]]; then
+      echo "repository: ${repository}"
+    fi
+    echo "tags: []"
+    echo "---"
+    echo ""
+    echo "# ${project_name}"
+    echo ""
+    echo "## Description"
+    echo ""
+    echo ""
+    echo "## Goals"
+    echo ""
+    echo ""
+    echo "## Next Actions"
+    echo ""
+    echo ""
+    echo "## Tasks"
+    echo ""
+  } > "${project_dir}/README.md"
   
   echo "✓ Created project: $project_name"
   echo "  Location: $project_dir"
+  
+  # Ask for repository link if not provided via wizard
+  if [[ -z "$repository" ]]; then
+    echo ""
+    echo -n "Repository URL (GitHub/GitLab, or press Enter to skip): "
+    read repo_input
+    if [[ -n "$repo_input" ]]; then
+      repository=$(normalize_repo_url "$repo_input")
+      update_frontmatter_value "${project_dir}/README.md" "repository" "$repository"
+      echo "✓ Added repository: $repository"
+    fi
+  fi
 }
 
 # List projects
@@ -130,8 +195,13 @@ list_projects() {
     local created=$(get_frontmatter_value "$readme" "created")
     local task_count=$(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
     
+    local repository=$(get_frontmatter_value "$readme" "repository")
+    
     echo "[$count] $project_name"
     echo "     Status: $status | Created: $created | Tasks: $task_count"
+    if [[ -n "$repository" ]]; then
+      echo "     Repository: $repository"
+    fi
     echo "     Path: $project_dir"
     echo ""
   done
@@ -165,6 +235,13 @@ view_project() {
   echo "📁 Project: $project_name"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
+  
+  # Show repository link if available
+  local repository=$(get_frontmatter_value "$readme" "repository")
+  if [[ -n "$repository" ]]; then
+    echo "🔗 Repository: $repository"
+    echo ""
+  fi
   
   # Show README
   cat "$readme"
