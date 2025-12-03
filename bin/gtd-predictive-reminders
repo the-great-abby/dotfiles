@@ -69,7 +69,7 @@ analyze_forgetting_patterns() {
     fi
     
     if [[ -n "$check_date" ]]; then
-      local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
       local day_of_week=$($DATE_CMD -j -f "%Y-%m-%d" "$check_date" +"%w" 2>/dev/null || $DATE_CMD -d "$check_date" +"%w" 2>/dev/null || echo "0")
       day_of_week=${day_of_week:-0}
       
@@ -143,7 +143,7 @@ check_if_reminder_needed() {
   current_day=${current_day:-0}
   
   local today=$($DATE_CMD +"%Y-%m-%d")
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   
   # Check if already logged today
   if [[ -f "$log_file" ]]; then

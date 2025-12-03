@@ -68,7 +68,7 @@ calculate_weekly_stats() {
     fi
     
     if [[ -n "$check_date" ]]; then
-      local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
       if [[ -f "$log_file" ]]; then
         local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
         if [[ $entry_count -gt 0 ]]; then

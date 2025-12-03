@@ -74,7 +74,7 @@ sync_to_second_brain() {
   local skipped=0
   
   # Copy all daily logs
-  find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | while read -r log_file; do
+  find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | while read -r log_file; do
     local filename=$(basename "$log_file")
     local sync_file="${sync_dir}/${filename}"
     
@@ -107,7 +107,7 @@ sync_to_second_brain() {
   done
   
   # Also check for files in sync that aren't in local
-  find "$sync_dir" -type f -name "*.txt" -maxdepth 1 | while read -r sync_file; do
+  find "$sync_dir" -type f -name "*.md" -maxdepth 1 | while read -r sync_file; do
     local filename=$(basename "$sync_file")
     local log_file="${DAILY_LOG_DIR}/${filename}"
     
@@ -152,7 +152,7 @@ sync_from_second_brain() {
   local updated=0
   
   # Copy all files from sync to local
-  find "$sync_dir" -type f -name "*.txt" -maxdepth 1 | while read -r sync_file; do
+  find "$sync_dir" -type f -name "*.md" -maxdepth 1 | while read -r sync_file; do
     local filename=$(basename "$sync_file")
     local log_file="${DAILY_LOG_DIR}/${filename}"
     
@@ -197,7 +197,7 @@ sync_both_ways() {
   mkdir -p "$DAILY_LOG_DIR"
   
   # Sync local → Second Brain
-  find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | while read -r log_file; do
+  find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | while read -r log_file; do
     local filename=$(basename "$log_file")
     local sync_file="${sync_dir}/${filename}"
     
@@ -216,7 +216,7 @@ sync_both_ways() {
   done
   
   # Sync Second Brain → local
-  find "$sync_dir" -type f -name "*.txt" -maxdepth 1 | while read -r sync_file; do
+  find "$sync_dir" -type f -name "*.md" -maxdepth 1 | while read -r sync_file; do
     local filename=$(basename "$sync_file")
     local log_file="${DAILY_LOG_DIR}/${filename}"
     
@@ -253,7 +253,7 @@ show_status() {
   
   echo "📁 Local daily logs:"
   if [[ -d "$DAILY_LOG_DIR" ]]; then
-    local local_count=$(find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | wc -l | tr -d ' ')
+    local local_count=$(find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | wc -l | tr -d ' ')
     echo "   Location: $DAILY_LOG_DIR"
     echo "   Count: ${local_count} log(s)"
   else
@@ -263,7 +263,7 @@ show_status() {
   echo ""
   echo "☁️  Synced daily logs:"
   if [[ -d "$sync_dir" ]]; then
-    local sync_count=$(find "$sync_dir" -type f -name "*.txt" -maxdepth 1 | wc -l | tr -d ' ')
+    local sync_count=$(find "$sync_dir" -type f -name "*.md" -maxdepth 1 | wc -l | tr -d ' ')
     echo "   Location: $sync_dir"
     echo "   Count: ${sync_count} log(s)"
   else

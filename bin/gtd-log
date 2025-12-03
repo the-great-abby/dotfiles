@@ -31,7 +31,7 @@ DATE_CMD=$(get_date_cmd)
 # View today's log
 view_today() {
   local today=$($DATE_CMD +"%Y-%m-%d")
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   
   if [[ ! -f "$log_file" ]]; then
     echo "📝 No daily log found for today ($today)"
@@ -66,7 +66,7 @@ view_today() {
 # View specific date
 view_date() {
   local date="$1"
-  local log_file="${DAILY_LOG_DIR}/${date}.txt"
+  local log_file="${DAILY_LOG_DIR}/${date}.md"
   
   if [[ ! -f "$log_file" ]]; then
     echo "❌ No daily log found for $date"
@@ -100,7 +100,7 @@ list_logs() {
     return 1
   fi
   
-  local logs=($(find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | sort -r | head -$limit))
+  local logs=($(find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | sort -r | head -$limit))
   local count=${#logs[@]}
   
   if [[ $count -eq 0 ]]; then
@@ -109,7 +109,7 @@ list_logs() {
   fi
   
   for log in "${logs[@]}"; do
-    local filename=$(basename "$log" .txt)
+    local filename=$(basename "$log" .md)
     local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log" 2>/dev/null || echo "0")
     local size=$(stat -f%z "$log" 2>/dev/null || stat -c%s "$log" 2>/dev/null || echo "0")
     local size_kb=$((size / 1024))
@@ -147,12 +147,12 @@ search_logs() {
   fi
   
   local matches=0
-  local logs=($(find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | sort -r))
+  local logs=($(find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | sort -r))
   
   for log in "${logs[@]}"; do
     if grep -qi "$pattern" "$log" 2>/dev/null; then
       ((matches++))
-      local filename=$(basename "$log" .txt)
+      local filename=$(basename "$log" .md)
       echo "📅 $filename"
       echo "   Matches:"
       grep -i "$pattern" "$log" 2>/dev/null | head -3 | sed 's/^/     /'
@@ -187,10 +187,10 @@ show_recent() {
     return 1
   fi
   
-  local logs=($(find "$DAILY_LOG_DIR" -type f -name "*.txt" -maxdepth 1 | sort -r | head -5))
+  local logs=($(find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | sort -r | head -5))
   
   for log in "${logs[@]}"; do
-    local filename=$(basename "$log" .txt)
+    local filename=$(basename "$log" .md)
     local recent_entries=$(grep "^[0-9][0-9]:[0-9][0-9] -" "$log" 2>/dev/null | tail -$limit)
     
     if [[ -n "$recent_entries" ]]; then

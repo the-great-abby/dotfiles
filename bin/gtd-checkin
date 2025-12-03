@@ -174,7 +174,7 @@ morning_checkin() {
   fi
   
   # Save to daily log
-  local log_file="${DAILY_LOG_DIR}/${TODAY}.txt"
+  local log_file="${DAILY_LOG_DIR}/${TODAY}.md"
   mkdir -p "$DAILY_LOG_DIR"
   
   if [[ ! -f "$log_file" ]]; then
@@ -331,7 +331,7 @@ evening_checkin() {
   echo ""
   
   # Save to daily log
-  local log_file="${DAILY_LOG_DIR}/${TODAY}.txt"
+  local log_file="${DAILY_LOG_DIR}/${TODAY}.md"
   mkdir -p "$DAILY_LOG_DIR"
   
   if [[ ! -f "$log_file" ]]; then
@@ -391,7 +391,7 @@ EOF
       read tomorrow_plan
       if [[ -n "$tomorrow_plan" ]]; then
         local tomorrow=$($DATE_CMD -v+1d +"%Y-%m-%d" 2>/dev/null || $DATE_CMD -d "tomorrow" +"%Y-%m-%d" 2>/dev/null || echo "")
-        local tomorrow_log="${DAILY_LOG_DIR}/${tomorrow}.txt"
+        local tomorrow_log="${DAILY_LOG_DIR}/${tomorrow}.md"
         mkdir -p "$DAILY_LOG_DIR"
         if [[ ! -f "$tomorrow_log" ]]; then
           echo "# Daily Log - $tomorrow" > "$tomorrow_log"

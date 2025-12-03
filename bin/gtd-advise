@@ -212,7 +212,7 @@ get_daily_log_content() {
   case "$date_range" in
     today)
       local today=$($date_cmd +"%Y-%m-%d")
-      local log_file="${log_dir}/${today}.txt"
+      local log_file="${log_dir}/${today}.md"
       if [[ -f "$log_file" ]]; then
         cat "$log_file"
       else
@@ -232,7 +232,7 @@ get_daily_log_content() {
           local timestamp=$(($($date_cmd +%s) - (i * 86400)))
           date=$($date_cmd -r $timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
         fi
-        local log_file="${log_dir}/${date}.txt"
+        local log_file="${log_dir}/${date}.md"
         if [[ -f "$log_file" ]]; then
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "# Daily Log - $date"
@@ -253,7 +253,7 @@ get_daily_log_content() {
           local timestamp=$(($($date_cmd +%s) - (i * 86400)))
           date=$($date_cmd -r $timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
         fi
-        local log_file="${log_dir}/${date}.txt"
+        local log_file="${log_dir}/${date}.md"
         if [[ -f "$log_file" ]]; then
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "# Daily Log - $date"
@@ -267,9 +267,9 @@ get_daily_log_content() {
       # All logs
       echo "# All Daily Logs"
       echo ""
-      local logs=($(find "$log_dir" -type f -name "*.txt" -maxdepth 1 | sort))
+      local logs=($(find "$log_dir" -type f -name "*.md" -maxdepth 1 | sort))
       for log_file in "${logs[@]}"; do
-        local date=$(basename "$log_file" .txt)
+        local date=$(basename "$log_file" .md)
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "# Daily Log - $date"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -280,7 +280,7 @@ get_daily_log_content() {
     *)
       # Specific date (YYYY-MM-DD format)
       if [[ "$date_range" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-        local log_file="${log_dir}/${date_range}.txt"
+        local log_file="${log_dir}/${date_range}.md"
         if [[ -f "$log_file" ]]; then
           cat "$log_file"
         else

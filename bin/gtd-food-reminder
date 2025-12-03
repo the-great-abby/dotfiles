@@ -52,7 +52,7 @@ get_today() {
 # Check for food entries in daily log
 check_food_entries() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   
   if [[ ! -f "$log_file" ]]; then
     echo "no_log"
@@ -248,7 +248,7 @@ send_food_reminder() {
   # Check for food entries
   local food_status=$(check_food_entries)
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   local recent_entries=""
   
   if [[ -f "$log_file" ]]; then

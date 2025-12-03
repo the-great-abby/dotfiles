@@ -464,7 +464,7 @@ system_status() {
   DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
   if [[ -d "$DAILY_LOG_DIR" ]]; then
     today=$(date +"%Y-%m-%d")
-    if [[ -f "${DAILY_LOG_DIR}/${today}.txt" ]]; then
+    if [[ -f "${DAILY_LOG_DIR}/${today}.md" ]]; then
       echo -e "  ${GREEN}✓${NC} Today's log exists"
     else
       echo -e "  ${YELLOW}⚠${NC} No log for today yet"

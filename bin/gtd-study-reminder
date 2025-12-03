@@ -57,7 +57,7 @@ check_recent_study() {
   local today=$(get_today)
   
   # Check daily log for study entries
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   if [[ -f "$log_file" ]]; then
     # Look for study-related entries (K8s, Kubernetes, Study, etc.)
     local study_entries=$(grep -iE "(k8s|kubernetes|study|learned|practiced).*study|study.*(k8s|kubernetes)" "$log_file" 2>/dev/null | wc -l | tr -d ' ')

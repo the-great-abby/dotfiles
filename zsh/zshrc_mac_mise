@@ -123,7 +123,7 @@ _daily_log_command_counter() {
       date_cmd="/bin/date"
     fi
     local today=$($date_cmd +"%Y-%m-%d")
-    local log_file="${log_dir}/${today}.txt"
+    local log_file="${log_dir}/${today}.md"
     
     # Get GTD inbox count if it exists
     # Try to load GTD config for base dir
@@ -426,7 +426,7 @@ addInfoToDailyLog() {
   fi
   local today=$($date_cmd +"%Y-%m-%d")
   local current_time=$($date_cmd +"%H:%M")
-  local log_file="${log_dir}/${today}.txt"
+  local log_file="${log_dir}/${today}.md"
   
   # Find the helper script - try multiple locations
   local helper_script=""

@@ -43,7 +43,7 @@ if [[ -n "$log_entry" ]]; then
     log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
     today=$(date +"%Y-%m-%d")
     current_time=$(date +"%H:%M")
-    log_file="${log_dir}/${today}.txt"
+    log_file="${log_dir}/${today}.md"
     mkdir -p "$log_dir"
     if [[ ! -f "$log_file" ]]; then
       echo "# Daily Log - $today" > "$log_file"

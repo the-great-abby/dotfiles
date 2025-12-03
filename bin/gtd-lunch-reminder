@@ -52,7 +52,7 @@ get_today() {
 # Get today's daily log content
 get_todays_log() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   
   if [[ -f "$log_file" ]]; then
     cat "$log_file"
@@ -65,7 +65,7 @@ get_todays_log() {
 # Get log stats
 get_log_stats() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   
   if [[ ! -f "$log_file" ]]; then
     echo "No entries yet"
@@ -84,7 +84,7 @@ get_log_stats() {
 # Check for lack of progress (for lunch time)
 check_lunch_progress() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   
   # Check if no log exists
   if [[ ! -f "$log_file" ]]; then

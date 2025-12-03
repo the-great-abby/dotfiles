@@ -39,7 +39,7 @@ get_date_cmd() {
 DATE_CMD=$(get_date_cmd)
 today=$($DATE_CMD +"%Y-%m-%d")
 current_time=$($DATE_CMD +"%H:%M")
-log_file="${DAILY_LOG_DIR}/${today}.txt"
+log_file="${DAILY_LOG_DIR}/${today}.md"
 
 # Expand $HOME if present in path
 log_file="${log_file//\$HOME/$HOME}"

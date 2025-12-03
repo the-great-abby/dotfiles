@@ -37,7 +37,7 @@ calculate_streak() {
   local max_days_to_check=365  # Safety limit
   
   while [[ $days_checked -lt $max_days_to_check ]]; do
-    local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+    local log_file="${DAILY_LOG_DIR}/${check_date}.md"
     
     if [[ -f "$log_file" ]]; then
       # Check if file has at least one entry (not just header)
@@ -97,7 +97,7 @@ calculate_longest_streak() {
   local today=$($DATE_CMD +"%Y-%m-%d")
   
   # Get all log files, sorted by date (newest first)
-  local logs=($(find "$DAILY_LOG_DIR" -name "*.txt" -type f | sort -r))
+  local logs=($(find "$DAILY_LOG_DIR" -name "*.md" -type f | sort -r))
   
   for log_file in "${logs[@]}"; do
     local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
@@ -120,7 +120,7 @@ calculate_longest_streak() {
 # Get today's entry count
 get_todays_entry_count() {
   local today=$($DATE_CMD +"%Y-%m-%d")
-  local log_file="${DAILY_LOG_DIR}/${today}.txt"
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
   
   if [[ -f "$log_file" ]]; then
     grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0"
@@ -132,7 +132,7 @@ get_todays_entry_count() {
 # Get total days logged
 get_total_days_logged() {
   local count=0
-  local logs=($(find "$DAILY_LOG_DIR" -name "*.txt" -type f))
+  local logs=($(find "$DAILY_LOG_DIR" -name "*.md" -type f))
   
   for log_file in "${logs[@]}"; do
     local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
@@ -180,7 +180,7 @@ get_weekly_stats() {
     fi
     
     if [[ -n "$check_date" ]]; then
-      local log_file="${DAILY_LOG_DIR}/${check_date}.txt"
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
       if [[ -f "$log_file" ]]; then
         local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
         entry_count=${entry_count:-0}
