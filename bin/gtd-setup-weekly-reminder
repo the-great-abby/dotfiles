@@ -1,6 +1,15 @@
 #!/bin/bash
 # GTD Weekly Reminder Setup Script
 
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
 # Get the script directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

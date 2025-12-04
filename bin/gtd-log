@@ -1,6 +1,15 @@
 #!/bin/bash
 # GTD Log Command - View daily logs
 
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
 # Load daily log config
 DAILY_LOG_CONFIG="$HOME/.daily_log_config"
 if [[ ! -f "$DAILY_LOG_CONFIG" && -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then

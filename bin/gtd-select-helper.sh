@@ -7,6 +7,15 @@
 #   selected=$(select_from_list "projects" "$PROJECTS_PATH" "project")
 #   echo "Selected: $selected"
 
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
 # Select from a list of items (projects, areas, notes, etc.)
 # Arguments:
 #   $1: item_type (for display purposes)

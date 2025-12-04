@@ -1,6 +1,17 @@
+# Source common environment (PATH setup) - must be FIRST, before anything else
+# This ensures basic commands (grep, mkdir, git, rm, etc.) are always available
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
 # CRITICAL: Set system paths FIRST, before anything else
 # This ensures basic commands (grep, mkdir, git, rm, etc.) are always available
 # macOS system binaries are in /usr/bin and /bin
+# Note: common_env.sh already sets up PATH, but keeping this for compatibility
 # Initialize PATH with system paths if it's empty or doesn't contain them
 if [[ -z "$PATH" ]] || [[ ":$PATH:" != *":/usr/bin:"* ]]; then
   export PATH="/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"

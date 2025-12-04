@@ -1,6 +1,15 @@
 #!/bin/bash
 # Evening routine - Wrap up your day
 
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
 # Colors
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'

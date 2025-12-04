@@ -5,6 +5,15 @@
 # Returns selected item name via stdout
 # Exit codes: 0 = success, 1 = cancelled/no match, 2 = error
 
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
 ITEM_TYPE="${1:-item}"
 SEARCH_PATH="${2:-}"
 DISPLAY_FORMAT="${3:-name}"  # name, file, full

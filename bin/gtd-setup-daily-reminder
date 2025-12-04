@@ -29,6 +29,16 @@ fi
 # Create LaunchAgents directory if it doesn't exist
 mkdir -p "$HOME/Library/LaunchAgents"
 
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
+
 # Load config to get review time
 GTD_CONFIG_FILE="$HOME/.gtd_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then

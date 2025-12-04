@@ -2,6 +2,16 @@
 # GTD Morning Context - Collect morning metrics automatically
 # Usage: gtd-morning-context [--no-prompt]
 
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
+
 # Load configs
 DAILY_LOG_CONFIG="$HOME/.daily_log_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
