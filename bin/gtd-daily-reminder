@@ -92,7 +92,15 @@ get_log_stats() {
     return
   fi
   
-  local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  # Count entries - try multiple patterns to catch different formats
+  local entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]+-[[:space:]]+" "$log_file" 2>/dev/null || echo "0")
+  if [[ "$entry_count" == "0" ]]; then
+    entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
+  fi
+  if [[ "$entry_count" == "0" ]]; then
+    entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | wc -l | tr -d ' ' || echo "0")
+  fi
+  
   local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null || echo "0")
   
   echo "Entries: $entry_count"
@@ -112,8 +120,14 @@ check_evening_progress() {
     return
   fi
   
-  # Check entry count
-  local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  # Check entry count - use same improved pattern
+  local entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]+-[[:space:]]+" "$log_file" 2>/dev/null || echo "0")
+  if [[ "$entry_count" == "0" ]]; then
+    entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
+  fi
+  if [[ "$entry_count" == "0" ]]; then
+    entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | wc -l | tr -d ' ' || echo "0")
+  fi
   
   if [[ $entry_count -eq 0 ]]; then
     echo "no_entries"
@@ -127,7 +141,13 @@ check_evening_progress() {
   fi
   
   # Check if last entry is recent (within last 4 hours for evening)
-  local last_entry_time=$(grep "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
+  local last_entry_time=$(grep -E "^[0-9]{1,2}:[0-9]{2}[[:space:]]+-[[:space:]]+" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
+  if [[ -z "$last_entry_time" ]]; then
+    last_entry_time=$(grep -E "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
+  fi
+  if [[ -z "$last_entry_time" ]]; then
+    last_entry_time=$(grep -E "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | tail -1 | cut -d' ' -f1 | cut -d':' -f1-2)
+  fi
   if [[ -z "$last_entry_time" ]]; then
     echo "no_entries"
     return

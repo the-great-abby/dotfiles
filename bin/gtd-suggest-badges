@@ -144,35 +144,44 @@ suggest_badges_from_logs() {
 Here are the log entries I've reviewed:
 ${log_content}
 
-Based on these logs, please suggest 2-3 custom badges that would be meaningful and achievable. For each badge suggestion, provide:
-1. Badge name (short, catchy)
-2. Description (what pattern or achievement it recognizes)
-3. Challenge requirement (what they need to do to earn it - be specific with numbers/metrics)
-4. Maintenance requirement (what they need to maintain to keep it - optional, can be same as challenge)
-5. XP reward (suggested amount, typically 25-200 XP)
-6. Why this badge matters (what pattern you noticed)
+Based on these logs, please suggest 2-3 custom badges that would be meaningful and achievable. 
 
-Format your response as JSON with this structure:
+IMPORTANT: Respond with ONLY valid JSON, no additional text before or after. Use this exact structure:
+
 {
   \"suggestions\": [
     {
       \"name\": \"Badge Name\",
-      \"description\": \"What it recognizes\",
-      \"challenge_requirement\": {\"metric\": \"value\"},
-      \"maintenance_requirement\": {\"metric\": \"value\"},
+      \"description\": \"What pattern or achievement it recognizes\",
+      \"challenge_requirement\": {\"daily_logging_streak\": 7},
+      \"maintenance_requirement\": {\"daily_logging_streak\": 3},
       \"xp_reward\": 50,
       \"reason\": \"Why this pattern matters\"
     }
   ]
 }
 
+For challenge_requirement and maintenance_requirement, use one of these metric keys:
+- daily_logging_streak (number of days)
+- task_streak (number of days)
+- exercise_streak (number of days)
+- review_streak (number of days)
+- tasks_completed (total count)
+- habits_completed (total count)
+- projects_completed (total count)
+- exercise_sessions (total count)
+- reviews_completed (total count)
+- wizard_uses (total count)
+
 Focus on patterns that are:
-- Specific and measurable
+- Specific and measurable (use actual numbers)
 - Meaningful to their personal growth
 - Achievable but challenging
 - Based on actual patterns in the logs
 
-Be creative but practical. Look for patterns like: specific activities they do regularly, themes in their entries, habits they're building, or goals they're working toward."
+Look for patterns like: specific activities they do regularly, themes in their entries, habits they're building, or goals they're working toward.
+
+Respond with ONLY the JSON object, nothing else."
 
   # Get suggestions from a persona (use hank for practical suggestions, or louiza for accountability)
   local persona="${2:-hank}"
@@ -188,7 +197,80 @@ Be creative but practical. Look for patterns like: specific activities they do r
   fi
   
   # Try to extract JSON from the response
-  local json_suggestions=$(echo "$suggestions" | grep -oP '\{.*"suggestions".*\}' | head -1 || echo "")
+  # Use Python to extract JSON (more reliable than grep -P which isn't available on macOS)
+  local json_suggestions=$(echo "$suggestions" | python3 <<PYTHON_EXTRACT
+import json
+import re
+import sys
+
+text = sys.stdin.read()
+
+# First, try to find JSON in code blocks (```json ... ```)
+code_block_pattern = r'```(?:json)?\s*(\{.*?"suggestions".*?\})\s*```'
+code_match = re.search(code_block_pattern, text, re.DOTALL | re.IGNORECASE)
+
+if code_match:
+    try:
+        json_str = code_match.group(1).strip()
+        # Clean up any extra whitespace/newlines
+        json_str = re.sub(r'\n\s*\n', '\n', json_str)
+        # Validate it's valid JSON
+        json.loads(json_str)
+        print(json_str)
+        sys.exit(0)
+    except Exception as e:
+        pass
+
+# If that doesn't work, try to find JSON object with "suggestions" key
+# Look for { ... "suggestions": [...] ... }
+json_pattern = r'\{[^{}]*"suggestions"\s*:\s*\[.*?\][^{}]*\}'
+match = re.search(json_pattern, text, re.DOTALL)
+
+if match:
+    try:
+        json_str = match.group(0)
+        # Try to clean it up
+        json_str = re.sub(r'\n\s*\n', '\n', json_str)
+        json.loads(json_str)
+        print(json_str)
+        sys.exit(0)
+    except:
+        pass
+
+# Last resort: try to find any JSON-like structure
+# Look for opening { and try to find matching }
+try:
+    start = text.find('{"suggestions"')
+    if start != -1:
+        # Find the matching closing brace
+        brace_count = 0
+        in_string = False
+        escape_next = False
+        for i in range(start, len(text)):
+            char = text[i]
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_str = text[start:i+1]
+                        json.loads(json_str)
+                        print(json_str)
+                        sys.exit(0)
+except:
+    pass
+PYTHON_EXTRACT
+)
   
   if [[ -z "$json_suggestions" ]]; then
     # If no JSON found, try to parse the text response
@@ -197,6 +279,9 @@ Be creative but practical. Look for patterns like: specific activities they do r
     echo ""
     echo "💡 You can manually create badges based on these suggestions using:"
     echo "   gtd-gamify custom-badge create"
+    echo ""
+    echo "Or review and approve AI suggestions with:"
+    echo "   gtd-gamify custom-badge review"
     return 0
   fi
   

@@ -529,6 +529,146 @@ print(f"   It will now be tracked alongside other badges!")
 PYTHON_SCRIPT
 }
 
+# Manually create a custom badge
+create_custom_badge() {
+  echo ""
+  echo "🎖️  Create Custom Badge"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  echo -n "Badge name: "
+  read badge_name
+  if [[ -z "$badge_name" ]]; then
+    echo "❌ Badge name required"
+    return 1
+  fi
+  
+  echo -n "Description: "
+  read badge_description
+  if [[ -z "$badge_description" ]]; then
+    echo "❌ Description required"
+    return 1
+  fi
+  
+  echo ""
+  echo "Available metrics:"
+  echo "  1) daily_logging_streak (days)"
+  echo "  2) task_streak (days)"
+  echo "  3) exercise_streak (days)"
+  echo "  4) review_streak (days)"
+  echo "  5) tasks_completed (count)"
+  echo "  6) habits_completed (count)"
+  echo "  7) projects_completed (count)"
+  echo "  8) exercise_sessions (count)"
+  echo "  9) reviews_completed (count)"
+  echo "  10) wizard_uses (count)"
+  echo ""
+  
+  echo -n "Challenge metric (1-10 or name): "
+  read challenge_metric_choice
+  local challenge_metric=""
+  local challenge_value=""
+  
+  case "$challenge_metric_choice" in
+    1) challenge_metric="daily_logging_streak" ;;
+    2) challenge_metric="task_streak" ;;
+    3) challenge_metric="exercise_streak" ;;
+    4) challenge_metric="review_streak" ;;
+    5) challenge_metric="tasks_completed" ;;
+    6) challenge_metric="habits_completed" ;;
+    7) challenge_metric="projects_completed" ;;
+    8) challenge_metric="exercise_sessions" ;;
+    9) challenge_metric="reviews_completed" ;;
+    10) challenge_metric="wizard_uses" ;;
+    *)
+      # Try to use as-is
+      challenge_metric="$challenge_metric_choice"
+      ;;
+  esac
+  
+  if [[ -z "$challenge_metric" ]]; then
+    echo "❌ Invalid metric"
+    return 1
+  fi
+  
+  echo -n "Challenge requirement value: "
+  read challenge_value
+  if [[ -z "$challenge_value" ]] || ! [[ "$challenge_value" =~ ^[0-9]+$ ]]; then
+    echo "❌ Invalid value (must be a number)"
+    return 1
+  fi
+  
+  echo -n "Maintenance requirement value (or same as challenge): "
+  read maintenance_value
+  if [[ -z "$maintenance_value" ]]; then
+    maintenance_value="$challenge_value"
+  elif ! [[ "$maintenance_value" =~ ^[0-9]+$ ]]; then
+    echo "❌ Invalid value, using challenge value"
+    maintenance_value="$challenge_value"
+  fi
+  
+  echo -n "Recovery streak (days to regain if lost, default 7): "
+  read recovery_streak
+  recovery_streak=${recovery_streak:-7}
+  if ! [[ "$recovery_streak" =~ ^[0-9]+$ ]]; then
+    recovery_streak=7
+  fi
+  
+  echo -n "XP reward (default 50): "
+  read xp_reward
+  xp_reward=${xp_reward:-50}
+  if ! [[ "$xp_reward" =~ ^[0-9]+$ ]]; then
+    xp_reward=50
+  fi
+  
+  # Create badge ID from name
+  local badge_id=$(echo "$badge_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__*/_/g' | sed 's/^_\|_$//g')
+  
+  python3 <<PYTHON_SCRIPT
+import json
+import sys
+from datetime import datetime
+
+with open("$GAMIFICATION_FILE", "r") as f:
+    data = json.load(f)
+
+if "custom_badges" not in data:
+    data["custom_badges"] = {}
+
+# Check if badge already exists
+if "$badge_id" in data["custom_badges"]:
+    print(f"⚠️  Badge with ID '$badge_id' already exists")
+    response = input("Overwrite? (y/n): ")
+    if response.lower() != 'y':
+        print("Cancelled")
+        sys.exit(1)
+
+# Create badge
+data["custom_badges"]["$badge_id"] = {
+    "name": "$badge_name",
+    "description": "$badge_description",
+    "challenge_requirement": {"$challenge_metric": int("$challenge_value")},
+    "maintenance_requirement": {"$challenge_metric": int("$maintenance_value")},
+    "recovery_streak": int("$recovery_streak"),
+    "xp_bonus": int("$xp_reward"),
+    "created_date": datetime.now().isoformat(),
+    "suggested_by": "manual",
+    "custom": True
+}
+
+# Save
+with open("$GAMIFICATION_FILE", "w") as f:
+    json.dump(data, f, indent=2)
+
+print(f"✅ Created custom badge: $badge_name")
+print(f"   Badge ID: $badge_id")
+print(f"   Challenge: $challenge_metric >= $challenge_value")
+print(f"   Maintenance: $challenge_metric >= $maintenance_value")
+print(f"   XP Reward: $xp_reward")
+print(f"   It will now be tracked alongside other badges!")
+PYTHON_SCRIPT
+}
+
 # Reject a custom badge suggestion
 reject_custom_badge() {
   local suggestion_num="${1:-}"
@@ -1171,6 +1311,9 @@ main() {
         reject)
           reject_custom_badge "${2:-}"
           ;;
+        create)
+          create_custom_badge
+          ;;
         *)
           echo "Usage: gtd-gamify custom-badge [command]"
           echo ""
@@ -1179,6 +1322,7 @@ main() {
           echo "  review                     Review pending badge suggestions"
           echo "  approve <number>           Approve a badge suggestion"
           echo "  reject <number>           Reject a badge suggestion"
+          echo "  create                     Manually create a custom badge"
           ;;
       esac
       ;;

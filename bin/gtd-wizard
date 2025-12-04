@@ -51,6 +51,96 @@ NC='\033[0m'
 # Clear screen
 clear
 
+# Menu navigation stack (for back navigation)
+declare -a MENU_STACK=()
+
+# Push menu onto stack
+push_menu() {
+  MENU_STACK+=("$1")
+}
+
+# Pop menu from stack (go back)
+pop_menu() {
+  if [[ ${#MENU_STACK[@]} -gt 0 ]]; then
+    unset 'MENU_STACK[${#MENU_STACK[@]}-1]'
+  fi
+}
+
+# Get current menu level
+get_menu_level() {
+  echo ${#MENU_STACK[@]}
+}
+
+# Show breadcrumb navigation
+show_breadcrumb() {
+  if [[ ${#MENU_STACK[@]} -gt 0 ]]; then
+    echo -e "${YELLOW}← Back to: ${MENU_STACK[-1]}${NC}"
+    echo ""
+  fi
+}
+
+# Helper function to select from a numbered list
+select_from_numbered_list() {
+  local items=("$@")
+  local item_count=${#items[@]}
+  
+  if [[ $item_count -eq 0 ]]; then
+    echo "No items to select from" >&2
+    return 1
+  fi
+  
+  # Display numbered list
+  echo ""
+  for i in "${!items[@]}"; do
+    local num=$((i + 1))
+    echo -e "  ${GREEN}${num})${NC} ${items[$i]}"
+  done
+  echo ""
+  
+  # Get user input
+  read -p "Select item (number): " user_input
+  
+  if [[ -z "$user_input" ]]; then
+    return 1
+  fi
+  
+  # Check if it's a number
+  if [[ "$user_input" =~ ^[0-9]+$ ]]; then
+    local selected_index=$((user_input - 1))
+    if [[ $selected_index -ge 0 && $selected_index -lt $item_count ]]; then
+      echo "${items[$selected_index]}"
+      return 0
+    else
+      echo "❌ Invalid number. Please select 1-$item_count" >&2
+      return 1
+    fi
+  else
+    # Try to match by name
+    for i in "${!items[@]}"; do
+      if [[ "${items[$i]}" == *"$user_input"* ]]; then
+        echo "${items[$i]}"
+        return 0
+      fi
+    done
+    echo "❌ No match found" >&2
+    return 1
+  fi
+}
+
+# Helper to get MOC list as array
+get_moc_list() {
+  local moc_output=""
+  if command -v gtd-brain-moc &>/dev/null; then
+    moc_output=$(gtd-brain-moc list 2>/dev/null)
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+    moc_output=$("$HOME/code/dotfiles/bin/gtd-brain-moc" list 2>/dev/null)
+  fi
+  
+  # Extract MOC names from output (look for lines that look like MOC names)
+  # This is a simple extraction - may need to be improved based on actual output format
+  echo "$moc_output" | grep -E "^[A-Za-z]" | grep -v "^#" | grep -v "^$" | head -20 || echo ""
+}
+
 # Main menu
 show_main_menu() {
   echo ""
@@ -219,26 +309,32 @@ process_wizard() {
   read
 }
 
-# Task wizard
+# Task wizard (with submenu loop)
 task_wizard() {
-  clear
-  echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}✅ Task Management Wizard${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-  echo "What would you like to do?"
-  echo ""
-  echo "  1) Add a new task"
-  echo "  2) List tasks"
-  echo "  3) Complete a task"
-  echo "  4) Update a task"
-  echo "  5) Move task to project"
-  echo ""
-  echo -n "Choose: "
-  read task_choice
+  push_menu "Main Menu"
   
-  case "$task_choice" in
+  while true; do
+    clear
+    show_breadcrumb
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}✅ Task Management Wizard${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "What would you like to do?"
+    echo ""
+    echo "  1) Add a new task"
+    echo "  2) List tasks"
+    echo "  3) Complete a task"
+    echo "  4) Update a task"
+    echo "  5) Move task to project"
+    echo ""
+    echo -e "${YELLOW}0)${NC} Back to Main Menu"
+    echo ""
+    echo -n "Choose: "
+    read task_choice
+    
+    case "$task_choice" in
     1)
       echo ""
       echo -n "Task description: "
@@ -285,6 +381,9 @@ task_wizard() {
           gtd-task add "$task_desc"
         fi
       fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
     2)
       echo ""
@@ -315,6 +414,9 @@ task_wizard() {
           gtd-task list
           ;;
       esac
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
     3)
       echo ""
@@ -323,6 +425,9 @@ task_wizard() {
       echo -n "Task number to complete: "
       read task_num
       gtd-task complete "$task_num"
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
     4)
       echo ""
@@ -333,6 +438,9 @@ task_wizard() {
       echo -n "New description: "
       read new_desc
       gtd-task update "$task_num" "$new_desc"
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
     5)
       echo ""
@@ -367,15 +475,22 @@ task_wizard() {
           gtd-task move "$task_id" "$project_input"
         fi
       fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    0|"")
+      pop_menu
+      return 0
       ;;
     *)
       echo "Invalid choice"
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
   esac
-  
-  echo ""
-  echo "Press Enter to continue..."
-  read
+  done
 }
 
 # Area wizard
@@ -1478,77 +1593,253 @@ AI_BACKEND=\"$new_backend\"
   read
 }
 
-# MOC wizard
+# MOC wizard (with submenu loop)
 moc_wizard() {
-  clear
-  echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}🗺️  Maps of Content (MOC) Wizard${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-  echo "What would you like to do?"
-  echo ""
-  echo "  1) Create a new MOC"
-  echo "  2) List all MOCs"
-  echo "  3) View a MOC"
-  echo "  4) Add note to MOC"
-  echo "  5) Auto-populate MOC from tags"
-  echo ""
-  echo -n "Choose: "
-  read moc_choice
+  push_menu "Main Menu"
   
-  case "$moc_choice" in
-    1)
-      echo ""
-      echo -n "MOC topic: "
-      read topic
-      echo -n "Description (optional): "
-      read desc
-      gtd-brain-moc create "$topic" "$desc"
-      ;;
-    2)
-      gtd-brain-moc list
-      ;;
-    3)
-      echo ""
-      gtd-brain-moc list
-      echo ""
-      echo -n "MOC topic to view (or number/partial name): "
-      read topic
-      if [[ -n "$topic" ]]; then
-        gtd-brain-moc view "$topic"
-      fi
-      ;;
-    4)
-      echo ""
-      gtd-brain-moc list
-      echo ""
-      echo -n "MOC topic: "
-      read topic
-      echo -n "Note path: "
-      read note_path
-      echo -n "Category (Projects/Areas/Resources/Archives): "
-      read category
-      gtd-brain-moc add "$topic" "$note_path" "${category:-Resources}"
-      ;;
-    5)
-      echo ""
-      gtd-brain-moc list
-      echo ""
-      echo -n "MOC topic: "
-      read topic
-      echo -n "Tag to search for (optional, uses topic if empty): "
-      read tag
-      gtd-brain-moc auto "$topic" "$tag"
-      ;;
-    *)
-      echo "Invalid choice"
-      ;;
-  esac
-  
-  echo ""
-  echo "Press Enter to continue..."
-  read
+  while true; do
+    clear
+    show_breadcrumb
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}🗺️  Maps of Content (MOC) Wizard${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "What would you like to do?"
+    echo ""
+    echo "  1) Create a new MOC"
+    echo "  2) List all MOCs"
+    echo "  3) View a MOC"
+    echo "  4) Add note to MOC"
+    echo "  5) Auto-populate MOC from tags"
+    echo ""
+    echo -e "${YELLOW}0)${NC} Back to Main Menu"
+    echo ""
+    echo -n "Choose: "
+    read moc_choice
+    
+    case "$moc_choice" in
+      1)
+        echo ""
+        echo -n "MOC topic: "
+        read topic
+        if [[ -z "$topic" ]]; then
+          echo "❌ Topic required"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+        fi
+        echo -n "Description (optional): "
+        read desc
+        if command -v gtd-brain-moc &>/dev/null; then
+          gtd-brain-moc create "$topic" "$desc"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-brain-moc" create "$topic" "$desc"
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      2)
+        echo ""
+        if command -v gtd-brain-moc &>/dev/null; then
+          gtd-brain-moc list
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-brain-moc" list
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      3)
+        echo ""
+        # Get MOC list and show as numbered selection
+        local moc_list_output=""
+        if command -v gtd-brain-moc &>/dev/null; then
+          moc_list_output=$(gtd-brain-moc list 2>/dev/null)
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+          moc_list_output=$("$HOME/code/dotfiles/bin/gtd-brain-moc" list 2>/dev/null)
+        fi
+        
+        # Extract MOC names from the list output
+        # Format is: "• Topic Name" followed by "  Notes: X | Last updated: Y"
+        local moc_names=()
+        while IFS= read -r line; do
+          # Skip empty lines, headers, and metadata lines
+          [[ -z "$line" ]] && continue
+          [[ "$line" == *"━━"* ]] && continue
+          [[ "$line" == *"MOC"* && "$line" == *"List"* ]] && continue
+          [[ "$line" == *"Found"* && "$line" == *"MOC"* ]] && continue
+          [[ "$line" == *"Notes:"* ]] && continue
+          # Extract MOC name from lines starting with "•" or bullet points
+          if [[ "$line" =~ ^[[:space:]]*[•\-\*][[:space:]]*(.*) ]]; then
+            local moc_name="${BASH_REMATCH[1]}"
+            # Remove bold formatting if present
+            moc_name=$(echo "$moc_name" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+            if [[ -n "$moc_name" && "$moc_name" != "MOC" ]]; then
+              moc_names+=("$moc_name")
+            fi
+          fi
+        done <<< "$moc_list_output"
+        
+        if [[ ${#moc_names[@]} -eq 0 ]]; then
+          # Fallback: show raw list and ask for input
+          echo "$moc_list_output"
+          echo ""
+          echo -n "MOC topic to view (or number/partial name): "
+          read topic
+        else
+          # Use numbered selection
+          local selected_moc=$(select_from_numbered_list "${moc_names[@]}")
+          if [[ -n "$selected_moc" ]]; then
+            topic="$selected_moc"
+          else
+            echo "❌ No MOC selected"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            continue
+          fi
+        fi
+        
+        if [[ -n "$topic" ]]; then
+          if command -v gtd-brain-moc &>/dev/null; then
+            gtd-brain-moc view "$topic"
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-brain-moc" view "$topic"
+          fi
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      4)
+        echo ""
+        # Get MOC list and show as numbered selection
+        local moc_list_output=""
+        if command -v gtd-brain-moc &>/dev/null; then
+          moc_list_output=$(gtd-brain-moc list 2>/dev/null)
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+          moc_list_output=$("$HOME/code/dotfiles/bin/gtd-brain-moc" list 2>/dev/null)
+        fi
+        
+        # Extract MOC names from the list output
+        local moc_names=()
+        while IFS= read -r line; do
+          [[ -z "$line" ]] && continue
+          [[ "$line" == *"━━"* ]] && continue
+          [[ "$line" == *"MOC"* && "$line" == *"List"* ]] && continue
+          [[ "$line" == *"Found"* && "$line" == *"MOC"* ]] && continue
+          [[ "$line" == *"Notes:"* ]] && continue
+          if [[ "$line" =~ ^[[:space:]]*[•\-\*][[:space:]]*(.*) ]]; then
+            local moc_name="${BASH_REMATCH[1]}"
+            moc_name=$(echo "$moc_name" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+            if [[ -n "$moc_name" && "$moc_name" != "MOC" ]]; then
+              moc_names+=("$moc_name")
+            fi
+          fi
+        done <<< "$moc_list_output"
+        
+        if [[ ${#moc_names[@]} -eq 0 ]]; then
+          echo "$moc_list_output"
+          echo ""
+          echo -n "MOC topic: "
+          read topic
+        else
+          local selected_moc=$(select_from_numbered_list "${moc_names[@]}")
+          if [[ -n "$selected_moc" ]]; then
+            topic="$selected_moc"
+          else
+            echo "❌ No MOC selected"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            continue
+          fi
+        fi
+        
+        echo -n "Note path: "
+        read note_path
+        echo -n "Category (Projects/Areas/Resources/Archives): "
+        read category
+        if command -v gtd-brain-moc &>/dev/null; then
+          gtd-brain-moc add "$topic" "$note_path" "${category:-Resources}"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-brain-moc" add "$topic" "$note_path" "${category:-Resources}"
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      5)
+        echo ""
+        # Get MOC list and show as numbered selection
+        local moc_list_output=""
+        if command -v gtd-brain-moc &>/dev/null; then
+          moc_list_output=$(gtd-brain-moc list 2>/dev/null)
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+          moc_list_output=$("$HOME/code/dotfiles/bin/gtd-brain-moc" list 2>/dev/null)
+        fi
+        
+        # Extract MOC names from the list output
+        local moc_names=()
+        while IFS= read -r line; do
+          [[ -z "$line" ]] && continue
+          [[ "$line" == *"━━"* ]] && continue
+          [[ "$line" == *"MOC"* && "$line" == *"List"* ]] && continue
+          [[ "$line" == *"Found"* && "$line" == *"MOC"* ]] && continue
+          [[ "$line" == *"Notes:"* ]] && continue
+          if [[ "$line" =~ ^[[:space:]]*[•\-\*][[:space:]]*(.*) ]]; then
+            local moc_name="${BASH_REMATCH[1]}"
+            moc_name=$(echo "$moc_name" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+            if [[ -n "$moc_name" && "$moc_name" != "MOC" ]]; then
+              moc_names+=("$moc_name")
+            fi
+          fi
+        done <<< "$moc_list_output"
+        
+        if [[ ${#moc_names[@]} -eq 0 ]]; then
+          echo "$moc_list_output"
+          echo ""
+          echo -n "MOC topic: "
+          read topic
+        else
+          local selected_moc=$(select_from_numbered_list "${moc_names[@]}")
+          if [[ -n "$selected_moc" ]]; then
+            topic="$selected_moc"
+          else
+            echo "❌ No MOC selected"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            continue
+          fi
+        fi
+        
+        echo -n "Tag to search for (optional, uses topic if empty): "
+        read tag
+        if command -v gtd-brain-moc &>/dev/null; then
+          gtd-brain-moc auto "$topic" "$tag"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-moc" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-brain-moc" auto "$topic" "$tag"
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      0|"")
+        pop_menu
+        return 0
+        ;;
+      *)
+        echo "Invalid choice"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+    esac
+  done
 }
 
 # Express wizard
