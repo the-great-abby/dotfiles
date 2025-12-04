@@ -88,6 +88,15 @@ get_xp_for_activity() {
     health_log)
       echo "5"
       ;;
+    wizard_use)
+      echo "1"  # 1 XP for using wizard
+      ;;
+    wizard_action)
+      echo "2"  # 2 XP for completing a wizard action
+      ;;
+    wizard_productive)
+      echo "5"  # 5 XP for productive wizard actions (capture, task, etc.)
+      ;;
     *)
       echo "10"  # Default
       ;;
@@ -145,6 +154,8 @@ try:
         stats["daily_logs"] = stats.get("daily_logs", 0) + 1
     elif activity_type.startswith("exercise"):
         stats["exercise_sessions"] = stats.get("exercise_sessions", 0) + 1
+    elif activity_type.startswith("wizard"):
+        stats["wizard_uses"] = stats.get("wizard_uses", 0) + 1
     
     with open("$GAMIFICATION_FILE", "w") as f:
         json.dump(data, f, indent=2)

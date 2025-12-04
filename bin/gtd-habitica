@@ -102,6 +102,8 @@ setup_habitica() {
     "$HABITICA_API_URL/user" \
     -H "x-api-user: $user_id" \
     -H "x-api-key: $api_token" \
+    -H "x-client: GTD-System" \
+    -H "x-client-version: 1.0.0" \
     -H "Content-Type: application/json")
   
   http_code=$(echo "$response" | tail -n1)
@@ -148,23 +150,30 @@ habitica_api() {
   local api_token=$(python3 -c "import json; print(json.load(open('$HABITICA_CONFIG'))['api_token'])" 2>/dev/null)
   
   if [[ -z "$user_id" ]] || [[ -z "$api_token" ]]; then
-    echo -e "${RED}Error: Could not read Habitica credentials${NC}"
+    echo -e "${RED}Error: Could not read Habitica credentials${NC}" >&2
     return 1
   fi
   
   local url="$HABITICA_API_URL/$endpoint"
-  local curl_cmd="curl -s -X $method"
+  
+  # Build curl command with proper header formatting
+  local curl_args=(
+    -s
+    -X "$method"
+    -H "x-api-user: $user_id"
+    -H "x-api-key: $api_token"
+    -H "x-client: GTD-System"
+    -H "x-client-version: 1.0.0"
+    -H "Content-Type: application/json"
+  )
   
   if [[ -n "$data" ]]; then
-    curl_cmd="$curl_cmd -d '$data'"
+    curl_args+=(-d "$data")
   fi
   
-  curl_cmd="$curl_cmd -H 'x-api-user: $user_id'"
-  curl_cmd="$curl_cmd -H 'x-api-key: $api_token'"
-  curl_cmd="$curl_cmd -H 'Content-Type: application/json'"
-  curl_cmd="$curl_cmd '$url'"
+  curl_args+=("$url")
   
-  eval "$curl_cmd"
+  curl "${curl_args[@]}"
 }
 
 # Sync GTD tasks to Habitica

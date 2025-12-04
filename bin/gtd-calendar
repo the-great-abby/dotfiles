@@ -1,16 +1,6 @@
 #!/bin/bash
 # GTD Calendar Integration - Google Calendar (personal) and Office 365 (work)
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
-fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
 # Load config
 GTD_CONFIG_FILE="$HOME/.gtd_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
@@ -87,6 +77,17 @@ add_google_event() {
   fi
   
   eval "$cmd" 2>/dev/null
+  
+  # Award XP for adding calendar event (gamification)
+  if [[ $? -eq 0 ]]; then
+    if command -v gtd-gamify-award &>/dev/null; then
+      gtd-gamify-award task "" "Added calendar event: $title" 2>/dev/null || true
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-gamify-award" task "" "Added calendar event: $title" 2>/dev/null || true
+    elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+      "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" task "" "Added calendar event: $title" 2>/dev/null || true
+    fi
+  fi
 }
 
 # Get Office 365 events (requires Microsoft Graph API or similar)
@@ -271,12 +272,30 @@ sync_task_to_calendar() {
       if check_gcalcli; then
         add_google_event "$title" "$event_time" "60" "$description" "$GOOGLE_CALENDAR_NAME"
         echo "✓ Added to Google Calendar: $title"
+        
+        # Award XP for syncing task to calendar (gamification)
+        if command -v gtd-gamify-award &>/dev/null; then
+          gtd-gamify-award task "" "Synced task to calendar: $title" 2>/dev/null || true
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-gamify-award" task "" "Synced task to calendar: $title" 2>/dev/null || true
+        elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+          "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" task "" "Synced task to calendar: $title" 2>/dev/null || true
+        fi
       fi
       ;;
     office365)
       echo "Office 365 sync requires Microsoft Graph API implementation"
       echo "Task: $title"
       echo "Time: $event_time"
+      
+      # Award XP for syncing task to calendar (gamification)
+      if command -v gtd-gamify-award &>/dev/null; then
+        gtd-gamify-award task "" "Synced task to calendar: $title" 2>/dev/null || true
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify-award" task "" "Synced task to calendar: $title" 2>/dev/null || true
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" task "" "Synced task to calendar: $title" 2>/dev/null || true
+      fi
       ;;
     *)
       echo "Error: Unknown calendar type: $calendar_type"

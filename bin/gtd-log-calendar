@@ -12,7 +12,6 @@ if [[ -f "$COMMON_ENV" ]]; then
   source "$COMMON_ENV"
 fi
 
-
 # Load config
 DAILY_LOG_CONFIG="$HOME/.daily_log_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
@@ -85,6 +84,15 @@ else
   fi
   echo "${current_time} - ${entry}" >> "$log_file"
   echo "✓ Added: ${current_time} - ${entry}"
+fi
+
+# Award XP for logging calendar event (gamification)
+if command -v gtd-gamify-award &>/dev/null; then
+  gtd-gamify-award health_log "" "Logged calendar event" 2>/dev/null || true
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-gamify-award" health_log "" "Logged calendar event" 2>/dev/null || true
+elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+  "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" health_log "" "Logged calendar event" 2>/dev/null || true
 fi
 
 exit 0

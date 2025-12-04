@@ -11,7 +11,6 @@ if [[ -f "$COMMON_ENV" ]]; then
   source "$COMMON_ENV"
 fi
 
-
 # Load config if available
 DAILY_LOG_CONFIG="$HOME/.daily_log_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
@@ -87,6 +86,32 @@ echo "${current_time} - ${log_entry}" >> "$log_file" || {
 }
 
 echo "✓ Added: ${current_time} - ${log_entry}"
+
+# Check if this is a workout/exercise entry and award XP (gamification)
+if echo "$log_entry" | grep -qiE "workout|exercise|kettlebell|walk|run|weight|lifting|gym|fitness|training|cardio|strength|squat|deadlift|press|swing|snatch|clean|row|bike|cycling|yoga|stretch|active|movement"; then
+	# Determine if it's intense exercise (running, intense training) or normal
+	local exercise_type="exercise"
+	if echo "$log_entry" | grep -qiE "run|running|sprint|intense|hard|heavy|cardio"; then
+		exercise_type="exercise_intense"
+	fi
+	
+	if command -v gtd-gamify-award &>/dev/null; then
+		gtd-gamify-award "$exercise_type" "" "Logged exercise: $log_entry" "exercise" 2>/dev/null || true
+	elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+		"$HOME/code/dotfiles/bin/gtd-gamify-award" "$exercise_type" "" "Logged exercise: $log_entry" "exercise" 2>/dev/null || true
+	elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+		"$HOME/code/personal/dotfiles/bin/gtd-gamify-award" "$exercise_type" "" "Logged exercise: $log_entry" "exercise" 2>/dev/null || true
+	fi
+else
+	# Award XP for logging health data (non-exercise)
+	if command -v gtd-gamify-award &>/dev/null; then
+		gtd-gamify-award health_log "" "Logged health data" 2>/dev/null || true
+	elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+		"$HOME/code/dotfiles/bin/gtd-gamify-award" health_log "" "Logged health data" 2>/dev/null || true
+	elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+		"$HOME/code/personal/dotfiles/bin/gtd-gamify-award" health_log "" "Logged health data" 2>/dev/null || true
+	fi
+fi
 
 # Trigger auto-suggestions in background (same as gtd-daily-log)
 AUTO_SUGGEST_SCRIPT="$HOME/code/dotfiles/mcp/gtd_auto_suggest.py"

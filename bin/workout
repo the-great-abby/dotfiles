@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
 today=$(date +"%Y-%m-%d")
 file="$SECOND_BRAIN"'/04-areas/fitness/workout-'"$today".md
 day_file="$SECOND_BRAIN/daily_notes/${today}.md"
@@ -46,6 +55,15 @@ if [ ! -f "$file" ]; then
 	echo "File does not exist, creating new workout."
 	new_note
 	echo "- [[workout-${today}]]" >>"${day_file}"
+	
+	# Award XP for creating workout (gamification)
+	if command -v gtd-gamify-award &>/dev/null; then
+		gtd-gamify-award exercise "" "Created workout log" "exercise" 2>/dev/null || true
+	elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+		"$HOME/code/dotfiles/bin/gtd-gamify-award" exercise "" "Created workout log" "exercise" 2>/dev/null || true
+	elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+		"$HOME/code/personal/dotfiles/bin/gtd-gamify-award" exercise "" "Created workout log" "exercise" 2>/dev/null || true
+	fi
 fi
 
 # Open the note at the bottom of the file in insert mode and run NoNeckPain to make it center

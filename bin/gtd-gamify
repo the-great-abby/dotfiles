@@ -89,13 +89,14 @@ init_gamification() {
     "monthly": null
   },
   "quests_completed": [],
-  "stats": {
+    "stats": {
     "tasks_completed": 0,
     "habits_completed": 0,
     "projects_completed": 0,
     "reviews_completed": 0,
     "daily_logs": 0,
-    "exercise_sessions": 0
+    "exercise_sessions": 0,
+    "wizard_uses": 0
   }
 }
 EOF
@@ -288,6 +289,7 @@ projects_completed = stats.get("projects_completed", 0)
 reviews_completed = stats.get("reviews_completed", 0)
 daily_logs = stats.get("daily_logs", 0)
 exercise_sessions = stats.get("exercise_sessions", 0)
+wizard_uses = stats.get("wizard_uses", 0)
 
 daily_logging_streak = streaks.get("daily_logging", 0)
 task_streak = streaks.get("task_completion", 0)
@@ -335,6 +337,12 @@ achievements = [
     ("first_exercise", "Getting Active", "Logged your first exercise", 15, exercise_sessions >= 1),
     ("ten_exercises", "Fitness Enthusiast", "Logged 10 exercise sessions", 50, exercise_sessions >= 10),
     ("fifty_exercises", "Fitness Champion", "Logged 50 exercise sessions", 200, exercise_sessions >= 50),
+    
+    ("first_wizard", "Wizard Starter", "Used wizard for the first time", 5, wizard_uses >= 1),
+    ("wizard_10", "Wizard Apprentice", "Used wizard 10 times", 25, wizard_uses >= 10),
+    ("wizard_50", "Wizard Regular", "Used wizard 50 times", 75, wizard_uses >= 50),
+    ("wizard_100", "Wizard Master", "Used wizard 100 times", 150, wizard_uses >= 100),
+    ("wizard_500", "Wizard Legend", "Used wizard 500 times", 500, wizard_uses >= 500),
 ]
 
 new_achievements = []
@@ -448,6 +456,7 @@ print(f"   Projects Completed: {stats.get('projects_completed', 0)}")
 print(f"   Reviews Completed: {stats.get('reviews_completed', 0)}")
 print(f"   Daily Logs: {stats.get('daily_logs', 0)}")
 print(f"   Exercise Sessions: {stats.get('exercise_sessions', 0)}")
+print(f"   Wizard Uses: {stats.get('wizard_uses', 0)}")
 print()
 
 print(f"🏆 Achievements")

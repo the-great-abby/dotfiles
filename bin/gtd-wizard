@@ -818,6 +818,65 @@ log_wizard() {
   fi
   
   echo ""
+  echo "Would you like AI feedback on this log entry?"
+  echo "  1) Yes, get feedback from a random persona"
+  echo "  2) Yes, choose a specific persona"
+  echo "  3) No, skip feedback"
+  echo ""
+  echo -n "Choose: "
+  read feedback_choice
+  
+  case "$feedback_choice" in
+    1)
+      echo ""
+      echo "Getting feedback from a random persona..."
+      echo ""
+      if command -v gtd-advise &>/dev/null; then
+        gtd-advise --random "I just logged this: $log_entry. What are your thoughts?"
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-advise" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-advise" --random "I just logged this: $log_entry. What are your thoughts?"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-advise" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-advise" --random "I just logged this: $log_entry. What are your thoughts?"
+      else
+        echo "⚠️  gtd-advise command not found. Skipping feedback."
+      fi
+      ;;
+    2)
+      echo ""
+      if command -v gtd-advise &>/dev/null; then
+        gtd-advise --list
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-advise" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-advise" --list
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-advise" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-advise" --list
+      fi
+      echo ""
+      echo -n "Persona name: "
+      read persona
+      if [[ -n "$persona" ]]; then
+        echo ""
+        echo "Getting feedback from $persona..."
+        echo ""
+        if command -v gtd-advise &>/dev/null; then
+          gtd-advise "$persona" "I just logged this: $log_entry. What are your thoughts?"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-advise" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-advise" "$persona" "I just logged this: $log_entry. What are your thoughts?"
+        elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-advise" ]]; then
+          "$HOME/code/personal/dotfiles/bin/gtd-advise" "$persona" "I just logged this: $log_entry. What are your thoughts?"
+        else
+          echo "⚠️  gtd-advise command not found. Skipping feedback."
+        fi
+      fi
+      ;;
+    3|"")
+      # Skip feedback
+      ;;
+    *)
+      echo "Invalid choice. Skipping feedback."
+      ;;
+  esac
+  
+  echo ""
   echo "Press Enter to continue..."
   read
 }
@@ -4197,47 +4256,76 @@ gamification_wizard() {
   esac
 }
 
+# Award XP for wizard usage (gamification)
+award_wizard_xp() {
+  local action_type="${1:-wizard_use}"  # wizard_use, wizard_action, wizard_productive
+  local reason="${2:-Used GTD wizard}"
+  
+  if command -v gtd-gamify-award &>/dev/null; then
+    gtd-gamify-award "$action_type" "" "$reason" 2>/dev/null || true
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-gamify-award" "$action_type" "" "$reason" 2>/dev/null || true
+  elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+    "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" "$action_type" "" "$reason" 2>/dev/null || true
+  fi
+}
+
 # Main loop
 main() {
+  # Award XP for opening wizard (first time in this session)
+  award_wizard_xp "wizard_use" "Opened GTD wizard"
+  
   while true; do
     show_main_menu
     read choice
     
     case "$choice" in
       1)
+        award_wizard_xp "wizard_productive" "Used wizard: Capture"
         capture_wizard
         ;;
       2)
+        award_wizard_xp "wizard_productive" "Used wizard: Process inbox"
         process_wizard
         ;;
       3)
+        award_wizard_xp "wizard_productive" "Used wizard: Manage tasks"
         task_wizard
         ;;
       4)
+        award_wizard_xp "wizard_productive" "Used wizard: Manage projects"
         project_wizard
         ;;
       5)
+        award_wizard_xp "wizard_action" "Used wizard: Manage areas"
         area_wizard
         ;;
       6)
+        award_wizard_xp "wizard_productive" "Used wizard: Review"
         review_wizard
         ;;
       7)
+        award_wizard_xp "wizard_action" "Used wizard: Sync with Second Brain"
         sync_wizard
         ;;
       8)
+        award_wizard_xp "wizard_action" "Used wizard: Manage MOCs"
         moc_wizard
         ;;
       9)
+        award_wizard_xp "wizard_productive" "Used wizard: Express phase"
         express_wizard
         ;;
       10)
+        award_wizard_xp "wizard_action" "Used wizard: Templates"
         template_wizard
         ;;
       11)
+        award_wizard_xp "wizard_action" "Used wizard: Get advice"
         advice_wizard
         ;;
       12)
+        award_wizard_xp "wizard_action" "Used wizard: Learn GTD"
         clear
         gtd-learn
         echo ""
@@ -4245,51 +4333,67 @@ main() {
         read
         ;;
       13)
+        award_wizard_xp "wizard_action" "Used wizard: Learn Second Brain"
         learn_second_brain_wizard
         ;;
       14)
+        award_wizard_xp "wizard_action" "Used wizard: Life vision"
         life_vision_wizard
         ;;
       15)
+        award_wizard_xp "wizard_productive" "Used wizard: Daily log"
         log_wizard
         ;;
       16)
+        award_wizard_xp "wizard_action" "Used wizard: Search"
         search_wizard
         ;;
       17)
+        award_wizard_xp "wizard_action" "Used wizard: System status"
         status_wizard
         ;;
       18)
+        award_wizard_xp "wizard_productive" "Used wizard: Habits"
         habit_wizard
         ;;
       19)
+        award_wizard_xp "wizard_productive" "Used wizard: Check-in"
         checkin_wizard
         ;;
       20)
+        award_wizard_xp "wizard_action" "Used wizard: Learn Kubernetes"
         k8s_wizard
         ;;
       21)
+        award_wizard_xp "wizard_action" "Used wizard: Learn Greek"
         greek_wizard
         ;;
       22)
+        award_wizard_xp "wizard_action" "Used wizard: Diagrams"
         diagram_wizard
         ;;
       23)
+        award_wizard_xp "wizard_productive" "Used wizard: Zettelkasten"
         zettelkasten_wizard
         ;;
       24)
+        award_wizard_xp "wizard_action" "Used wizard: AI suggestions"
         ai_suggestions_wizard
         ;;
       25)
+        award_wizard_xp "wizard_action" "Used wizard: Goal tracking"
         goal_tracking_wizard
         ;;
       26)
+        award_wizard_xp "wizard_action" "Used wizard: Energy audit"
         energy_audit_wizard
         ;;
       27)
+        award_wizard_xp "wizard_action" "Used wizard: Configuration"
         config_wizard
         ;;
       28)
+        award_wizard_xp "wizard_action" "Used wizard: Gamification"
         gamification_wizard
         ;;
       0)

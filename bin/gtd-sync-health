@@ -11,7 +11,6 @@ if [[ -f "$COMMON_ENV" ]]; then
   source "$COMMON_ENV"
 fi
 
-
 # Load config if available
 DAILY_LOG_CONFIG="$HOME/.daily_log_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
@@ -118,6 +117,17 @@ sync_health_data() {
   if run_health_shortcut "$HEALTH_SYNC_SHORTCUT"; then
     echo "✓ Health data sync triggered via Shortcuts"
     echo "  Check your daily log in a few seconds"
+    
+    # Award XP for syncing health data (gamification)
+    # Note: Actual exercise XP will be awarded when health data is logged via gtd-healthkit-log
+    if command -v gtd-gamify-award &>/dev/null; then
+      gtd-gamify-award health_log "" "Synced health data" 2>/dev/null || true
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-gamify-award" health_log "" "Synced health data" 2>/dev/null || true
+    elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+      "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" health_log "" "Synced health data" 2>/dev/null || true
+    fi
+    
     return 0
   else
     echo "⚠️  Could not run Shortcuts shortcut: $HEALTH_SYNC_SHORTCUT"
