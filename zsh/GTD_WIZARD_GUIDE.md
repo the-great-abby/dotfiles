@@ -30,7 +30,7 @@ make gtd-status    # Show system status
 
 ## 🎯 Wizard Menu Options
 
-The wizard provides 22 main options:
+The wizard provides 28 main options:
 
 ### 1. 📥 Capture Something to Inbox
 Guides you through capturing different types of items:
@@ -116,6 +116,16 @@ Guides you through capturing different types of items:
 - List notes in inbox
 - List notes in Zettelkasten directory
 - Process inbox (move to organized location)
+
+### 28. 🎮 Gamification & Habitica
+- View gamification dashboard (level, XP, streaks, achievements)
+- Check achievements unlocked
+- View streaks (logging, tasks, reviews, exercise)
+- View statistics (tasks, habits, projects completed)
+- Award XP manually
+- Setup Habitica integration
+- Sync GTD ↔ Habitica
+- Check Habitica sync status
 
 ## 💡 Example Workflows
 

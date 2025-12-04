@@ -25,10 +25,19 @@ GTD_DAILY_LOGS_DIR="daily-logs"
 GTD_WEEKLY_REVIEWS_DIR="weekly-reviews"
 
 # ============================================================================
-# LM Studio Configuration for Multiple Personas
+# AI Backend Configuration for Multiple Personas
 # ============================================================================
+# AI backend to use: "lmstudio" or "ollama" (default: "lmstudio")
+AI_BACKEND="lmstudio"
+
+# LM Studio Configuration (used when AI_BACKEND="lmstudio")
 LM_STUDIO_URL="http://localhost:1234/v1/chat/completions"
 LM_STUDIO_CHAT_MODEL="google/gemma-3-1b"
+
+# Ollama Configuration (used when AI_BACKEND="ollama")
+# Ollama default port is 11434, uses OpenAI-compatible API
+OLLAMA_URL="http://localhost:11434/v1/chat/completions"
+OLLAMA_CHAT_MODEL="gemma2:1b"
 #LM_STUDIO_EMBEDDING_MODEL="nomic-embed-text-v1.5"
 
 #LM_STUDIO_CHAT_MODEL="Qwen2.5-7B-Instruct-MLX-8bit"

@@ -1,6 +1,14 @@
 # Daily Log Configuration
-# LM Studio API endpoint
+# AI backend to use: "lmstudio" or "ollama" (default: "lmstudio")
+AI_BACKEND="lmstudio"
+
+# LM Studio API endpoint (used when AI_BACKEND="lmstudio")
 LM_STUDIO_URL="http://localhost:1234/v1/chat/completions"
+
+# Ollama Configuration (used when AI_BACKEND="ollama")
+# Ollama default port is 11434, uses OpenAI-compatible API
+OLLAMA_URL="http://localhost:11434/v1/chat/completions"
+OLLAMA_CHAT_MODEL="gemma2:1b"
 
 # Daily log directory (default: ~/Documents/daily_logs)
 DAILY_LOG_DIR="$HOME/Documents/daily_logs"

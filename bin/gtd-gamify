@@ -1,0 +1,486 @@
+#!/bin/bash
+# Universal GTD Gamification System
+# Tracks XP, levels, achievements, streaks, and quests for all GTD activities
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+GAMIFICATION_DIR="${GTD_BASE_DIR}/.gtd/gamification"
+GAMIFICATION_FILE="${GAMIFICATION_DIR}/gamification.json"
+STATS_FILE="${GAMIFICATION_DIR}/stats.json"
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Initialize gamification system
+init_gamification() {
+  mkdir -p "$GAMIFICATION_DIR"
+  
+  if [[ ! -f "$GAMIFICATION_FILE" ]]; then
+    cat > "$GAMIFICATION_FILE" <<EOF
+{
+  "xp": 0,
+  "level": 1,
+  "total_xp": 0,
+  "created": "$($DATE_CMD -Iseconds)",
+  "last_updated": "$($DATE_CMD -Iseconds)",
+  "achievements": [],
+  "achievements_unlocked": [],
+  "streaks": {
+    "daily_logging": 0,
+    "task_completion": 0,
+    "review": 0,
+    "exercise": 0
+  },
+  "longest_streaks": {
+    "daily_logging": 0,
+    "task_completion": 0,
+    "review": 0,
+    "exercise": 0
+  },
+  "last_activity": {
+    "daily_logging": null,
+    "task_completion": null,
+    "review": null,
+    "exercise": null
+  },
+  "quests": {
+    "daily": null,
+    "weekly": null,
+    "monthly": null
+  },
+  "quests_completed": [],
+  "stats": {
+    "tasks_completed": 0,
+    "habits_completed": 0,
+    "projects_completed": 0,
+    "reviews_completed": 0,
+    "daily_logs": 0,
+    "exercise_sessions": 0
+  }
+}
+EOF
+  fi
+  
+  if [[ ! -f "$STATS_FILE" ]]; then
+    cat > "$STATS_FILE" <<EOF
+{
+  "daily_xp": {},
+  "weekly_xp": {},
+  "monthly_xp": {},
+  "activity_history": []
+}
+EOF
+  fi
+}
+
+# Get gamification data
+get_gamification_data() {
+  if [[ ! -f "$GAMIFICATION_FILE" ]]; then
+    init_gamification
+  fi
+  cat "$GAMIFICATION_FILE"
+}
+
+# Save gamification data
+save_gamification_data() {
+  local data="$1"
+  echo "$data" > "$GAMIFICATION_FILE"
+  # Update last_updated timestamp
+  local updated=$($DATE_CMD -Iseconds)
+  data=$(echo "$data" | sed "s/\"last_updated\": \"[^\"]*\"/\"last_updated\": \"$updated\"/")
+  echo "$data" > "$GAMIFICATION_FILE"
+}
+
+# Calculate XP needed for level
+calculate_xp_for_level() {
+  local level=$1
+  if [[ $level -le 10 ]]; then
+    echo $((level * 100))
+  else
+    # Exponential: level 10 = 1000, level 11 = 1200, level 12 = 1440, etc.
+    local base=1000
+    local multiplier=1
+    for ((i=10; i<$level; i++)); do
+      multiplier=$((multiplier * 12 / 10))
+    done
+    echo $((base * multiplier))
+  fi
+}
+
+# Award XP
+award_xp() {
+  local amount="$1"
+  local reason="$2"
+  local activity_type="${3:-general}"
+  
+  local data=$(get_gamification_data)
+  local current_xp=$(echo "$data" | grep -o '"xp": [0-9]*' | grep -o '[0-9]*' || echo "0")
+  local total_xp=$(echo "$data" | grep -o '"total_xp": [0-9]*' | grep -o '[0-9]*' || echo "0")
+  local current_level=$(echo "$data" | grep -o '"level": [0-9]*' | grep -o '[0-9]*' || echo "1")
+  
+  local new_xp=$((current_xp + amount))
+  local new_total_xp=$((total_xp + amount))
+  
+  # Calculate level
+  local new_level=$current_level
+  local xp_for_current_level=$(calculate_xp_for_level $current_level)
+  local xp_for_next_level=$(calculate_xp_for_level $((current_level + 1)))
+  
+  if [[ $new_total_xp -ge $xp_for_next_level ]]; then
+    new_level=$((current_level + 1))
+  fi
+  
+  # Update data
+  data=$(echo "$data" | sed "s/\"xp\": $current_xp/\"xp\": $new_xp/")
+  data=$(echo "$data" | sed "s/\"total_xp\": $total_xp/\"total_xp\": $new_total_xp/")
+  data=$(echo "$data" | sed "s/\"level\": $current_level/\"level\": $new_level/")
+  
+  save_gamification_data "$data"
+  
+  # Track daily XP
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local stats_data=$(cat "$STATS_FILE")
+  local daily_xp=$(echo "$stats_data" | grep -o "\"$today\": [0-9]*" | grep -o '[0-9]*' || echo "0")
+  local new_daily_xp=$((daily_xp + amount))
+  
+  if echo "$stats_data" | grep -q "\"$today\""; then
+    stats_data=$(echo "$stats_data" | sed "s/\"$today\": $daily_xp/\"$today\": $new_daily_xp/")
+  else
+    stats_data=$(echo "$stats_data" | sed "s/\"daily_xp\": {/\"daily_xp\": {\n    \"$today\": $new_daily_xp,/")
+  fi
+  echo "$stats_data" > "$STATS_FILE"
+  
+  # Check for level up
+  if [[ $new_level -gt $current_level ]]; then
+    echo ""
+    echo -e "${BOLD}${GREEN}🎉 LEVEL UP! You're now Level $new_level!${NC}"
+    echo ""
+    check_achievements
+  else
+    echo -e "${GREEN}+${amount} XP${NC} (${reason})"
+  fi
+  
+  return 0
+}
+
+# Update streak
+update_streak() {
+  local streak_type="$1"  # daily_logging, task_completion, review, exercise
+  local data=$(get_gamification_data)
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local yesterday=$($DATE_CMD -v-1d +"%Y-%m-%d" 2>/dev/null || $DATE_CMD -d "yesterday" +"%Y-%m-%d" 2>/dev/null || echo "")
+  
+  local last_date=$(echo "$data" | grep -o "\"$streak_type\": \"[^\"]*\"" | cut -d'"' -f4 || echo "")
+  local current_streak=$(echo "$data" | grep -o "\"$streak_type\": [0-9]*" | grep -o '[0-9]*' || echo "0")
+  local longest_streak=$(echo "$data" | grep -o "\"$streak_type\": [0-9]*" | grep -o '[0-9]*' || echo "0")
+  
+  # Fix: Get streaks from correct location
+  current_streak=$(echo "$data" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('streaks', {}).get('$streak_type', 0))" 2>/dev/null || echo "0")
+  longest_streak=$(echo "$data" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('longest_streaks', {}).get('$streak_type', 0))" 2>/dev/null || echo "0")
+  last_date=$(echo "$data" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('last_activity', {}).get('$streak_type') or '')" 2>/dev/null || echo "")
+  
+  local new_streak=$current_streak
+  
+  if [[ "$last_date" == "$today" ]]; then
+    # Already done today, no change
+    new_streak=$current_streak
+  elif [[ "$last_date" == "$yesterday" ]] || [[ -z "$last_date" ]]; then
+    # Continue streak
+    new_streak=$((current_streak + 1))
+  else
+    # Streak broken, reset to 1
+    new_streak=1
+  fi
+  
+  if [[ $new_streak -gt $longest_streak ]]; then
+    longest_streak=$new_streak
+  fi
+  
+  # Update using Python for proper JSON handling
+  python3 <<EOF
+import json
+import sys
+from datetime import datetime
+
+with open("$GAMIFICATION_FILE", "r") as f:
+    data = json.load(f)
+
+if "streaks" not in data:
+    data["streaks"] = {}
+if "longest_streaks" not in data:
+    data["longest_streaks"] = {}
+if "last_activity" not in data:
+    data["last_activity"] = {}
+
+data["streaks"]["$streak_type"] = $new_streak
+data["longest_streaks"]["$streak_type"] = $longest_streak
+data["last_activity"]["$streak_type"] = "$today"
+
+with open("$GAMIFICATION_FILE", "w") as f:
+    json.dump(data, f, indent=2)
+EOF
+  
+  echo "$new_streak"
+}
+
+# Check and unlock achievements
+check_achievements() {
+  local data=$(get_gamification_data)
+  
+  # Use Python for proper JSON parsing
+  python3 <<'PYTHON_SCRIPT'
+import json
+import sys
+from datetime import datetime
+
+with open(sys.argv[1], "r") as f:
+    data = json.load(f)
+
+level = data.get("level", 1)
+total_xp = data.get("total_xp", 0)
+stats = data.get("stats", {})
+streaks = data.get("streaks", {})
+unlocked = data.get("achievements_unlocked", [])
+
+tasks_completed = stats.get("tasks_completed", 0)
+habits_completed = stats.get("habits_completed", 0)
+projects_completed = stats.get("projects_completed", 0)
+reviews_completed = stats.get("reviews_completed", 0)
+daily_logs = stats.get("daily_logs", 0)
+exercise_sessions = stats.get("exercise_sessions", 0)
+
+daily_logging_streak = streaks.get("daily_logging", 0)
+task_streak = streaks.get("task_completion", 0)
+review_streak = streaks.get("review", 0)
+exercise_streak = streaks.get("exercise", 0)
+
+achievements = [
+    ("first_task", "First Task", "Completed your first task", 5, tasks_completed >= 1),
+    ("ten_tasks", "Getting Started", "Completed 10 tasks", 25, tasks_completed >= 10),
+    ("fifty_tasks", "Productive", "Completed 50 tasks", 50, tasks_completed >= 50),
+    ("hundred_tasks", "Task Master", "Completed 100 tasks", 100, tasks_completed >= 100),
+    ("five_hundred_tasks", "Productivity Legend", "Completed 500 tasks", 250, tasks_completed >= 500),
+    ("thousand_tasks", "Task Champion", "Completed 1000 tasks", 500, tasks_completed >= 1000),
+    
+    ("first_habit", "Habit Forming", "Completed your first habit", 10, habits_completed >= 1),
+    ("hundred_habits", "Habit Master", "Completed 100 habits", 75, habits_completed >= 100),
+    ("five_hundred_habits", "Habit Legend", "Completed 500 habits", 200, habits_completed >= 500),
+    
+    ("first_project", "Project Starter", "Completed your first project", 50, projects_completed >= 1),
+    ("five_projects", "Project Manager", "Completed 5 projects", 100, projects_completed >= 5),
+    ("ten_projects", "Project Master", "Completed 10 projects", 200, projects_completed >= 10),
+    ("twenty_five_projects", "Project Legend", "Completed 25 projects", 500, projects_completed >= 25),
+    
+    ("first_review", "Reflective", "Completed your first review", 25, reviews_completed >= 1),
+    ("seven_reviews", "Weekly Warrior", "Completed 7 reviews", 50, reviews_completed >= 7),
+    ("thirty_reviews", "Review Master", "Completed 30 reviews", 150, reviews_completed >= 30),
+    
+    ("log_streak_3", "Building Habit", "3-day logging streak", 20, daily_logging_streak >= 3),
+    ("log_streak_7", "Week Warrior", "7-day logging streak", 50, daily_logging_streak >= 7),
+    ("log_streak_30", "Month Master", "30-day logging streak", 200, daily_logging_streak >= 30),
+    ("log_streak_100", "Centurion", "100-day logging streak", 500, daily_logging_streak >= 100),
+    ("log_streak_365", "Year Warrior", "365-day logging streak", 1000, daily_logging_streak >= 365),
+    
+    ("task_streak_7", "Task Streak", "7-day task completion streak", 50, task_streak >= 7),
+    ("task_streak_30", "Task Master", "30-day task completion streak", 200, task_streak >= 30),
+    
+    ("exercise_streak_7", "Fitness Week", "7-day exercise streak", 75, exercise_streak >= 7),
+    ("exercise_streak_30", "Fitness Month", "30-day exercise streak", 300, exercise_streak >= 30),
+    
+    ("level_5", "Halfway There", "Reached level 5", 100, level >= 5),
+    ("level_10", "Double Digits", "Reached level 10", 250, level >= 10),
+    ("level_25", "Quarter Century", "Reached level 25", 750, level >= 25),
+    ("level_50", "Golden Level", "Reached level 50", 2000, level >= 50),
+    
+    ("first_exercise", "Getting Active", "Logged your first exercise", 15, exercise_sessions >= 1),
+    ("ten_exercises", "Fitness Enthusiast", "Logged 10 exercise sessions", 50, exercise_sessions >= 10),
+    ("fifty_exercises", "Fitness Champion", "Logged 50 exercise sessions", 200, exercise_sessions >= 50),
+]
+
+new_achievements = []
+for achievement_id, name, desc, xp, should_unlock in achievements:
+    if should_unlock and achievement_id not in unlocked:
+        unlocked.append(achievement_id)
+        new_achievements.append((achievement_id, name, desc, xp))
+
+# Award XP for all new achievements first
+total_achievement_xp = sum(xp for _, _, _, xp in new_achievements)
+if total_achievement_xp > 0:
+    data["total_xp"] = data.get("total_xp", 0) + total_achievement_xp
+    data["xp"] = data.get("xp", 0) + total_achievement_xp
+
+# Check for level up
+def xp_for_level(lvl):
+    if lvl <= 10:
+        return lvl * 100
+    else:
+        base = 1000
+        multiplier = 1
+        for i in range(10, lvl):
+            multiplier = multiplier * 12 // 10
+        return base * multiplier
+
+current_level = data.get("level", 1)
+xp_for_next = xp_for_level(current_level + 1)
+leveled_up = False
+if data["total_xp"] >= xp_for_next:
+    data["level"] = current_level + 1
+    leveled_up = True
+
+# Save updated data
+data["achievements_unlocked"] = unlocked
+with open(sys.argv[1], "w") as f:
+    json.dump(data, f, indent=2)
+
+# Print achievements
+if new_achievements:
+    for achievement_id, name, desc, xp in new_achievements:
+        print(f"\n🏆 ACHIEVEMENT UNLOCKED: {name}")
+        print(f"   {desc}")
+        print(f"   +{xp} XP bonus!")
+        print("")
+
+# Print level up if it happened
+if leveled_up:
+    print(f"\n🎉 LEVEL UP! You're now Level {data['level']}!\n")
+PYTHON_SCRIPT
+  "$GAMIFICATION_FILE" "$0"
+}
+
+# Show dashboard
+show_dashboard() {
+  local data=$(get_gamification_data)
+  
+  # Use Python for proper JSON parsing
+  python3 <<'PYTHON_SCRIPT'
+import json
+import sys
+from datetime import datetime
+
+with open(sys.argv[1], "r") as f:
+    data = json.load(f)
+
+xp = data.get("xp", 0)
+total_xp = data.get("total_xp", 0)
+level = data.get("level", 1)
+stats = data.get("stats", {})
+streaks = data.get("streaks", {})
+unlocked = data.get("achievements_unlocked", [])
+
+# Calculate XP needed for next level
+def xp_for_level(lvl):
+    if lvl <= 10:
+        return lvl * 100
+    else:
+        base = 1000
+        multiplier = 1
+        for i in range(10, lvl):
+            multiplier = multiplier * 12 // 10
+        return base * multiplier
+
+xp_for_current = xp_for_level(level)
+xp_for_next = xp_for_level(level + 1)
+xp_progress = total_xp - xp_for_current
+xp_needed = xp_for_next - total_xp
+progress_pct = int((xp_progress / (xp_for_next - xp_for_current)) * 100) if xp_for_next > xp_for_current else 100
+
+print("\n" + "="*60)
+print("🎮 GTD GAMIFICATION DASHBOARD".center(60))
+print("="*60)
+print()
+print(f"📊 Level & Progress")
+print(f"   Level {level} | Total XP: {total_xp:,}")
+print(f"   Progress to Level {level + 1}: {xp_progress}/{xp_for_next - xp_for_current} ({progress_pct}%)")
+print(f"   XP needed for next level: {xp_needed:,}")
+print()
+
+print(f"🔥 Streaks")
+print(f"   Daily Logging: {streaks.get('daily_logging', 0)} days (Longest: {data.get('longest_streaks', {}).get('daily_logging', 0)})")
+print(f"   Task Completion: {streaks.get('task_completion', 0)} days (Longest: {data.get('longest_streaks', {}).get('task_completion', 0)})")
+print(f"   Reviews: {streaks.get('review', 0)} days (Longest: {data.get('longest_streaks', {}).get('review', 0)})")
+print(f"   Exercise: {streaks.get('exercise', 0)} days (Longest: {data.get('longest_streaks', {}).get('exercise', 0)})")
+print()
+
+print(f"📈 Statistics")
+print(f"   Tasks Completed: {stats.get('tasks_completed', 0)}")
+print(f"   Habits Completed: {stats.get('habits_completed', 0)}")
+print(f"   Projects Completed: {stats.get('projects_completed', 0)}")
+print(f"   Reviews Completed: {stats.get('reviews_completed', 0)}")
+print(f"   Daily Logs: {stats.get('daily_logs', 0)}")
+print(f"   Exercise Sessions: {stats.get('exercise_sessions', 0)}")
+print()
+
+print(f"🏆 Achievements")
+print(f"   Unlocked: {len(unlocked)}/{30}")  # Approximate total
+print()
+
+PYTHON_SCRIPT
+  "$GAMIFICATION_FILE"
+  
+  read -p "Press Enter to continue..."
+}
+
+# Main function
+main() {
+  init_gamification
+  
+  case "${1:-dashboard}" in
+    award)
+      award_xp "${2:-10}" "${3:-Activity}" "${4:-general}"
+      check_achievements
+      ;;
+    streak)
+      update_streak "${2:-daily_logging}"
+      ;;
+    achievements)
+      check_achievements
+      ;;
+    dashboard|stats)
+      show_dashboard
+      ;;
+    *)
+      echo "Usage: gtd-gamify [command]"
+      echo ""
+      echo "Commands:"
+      echo "  dashboard    Show full gamification dashboard"
+      echo "  stats        Same as dashboard"
+      echo "  award <xp> <reason> [type]  Award XP manually"
+      echo "  streak <type>  Update streak (daily_logging, task_completion, review, exercise)"
+      echo "  achievements  Check and unlock achievements"
+      ;;
+  esac
+}
+
+main "$@"
+

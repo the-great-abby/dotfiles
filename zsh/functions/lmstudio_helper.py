@@ -18,6 +18,7 @@ def read_config():
             config_path = dotfiles_path
     
     config = {
+        "backend": "lmstudio",  # Default to lmstudio for backward compatibility
         "url": "http://localhost:1234/v1/chat/completions",
         "chat_model": "",
         "embedding_model": "",
@@ -34,15 +35,21 @@ def read_config():
                     key, value = line.split('=', 1)
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
-                    if key == "LM_STUDIO_URL":
-                        config["url"] = value
+                    if key == "AI_BACKEND":
+                        config["backend"] = value.lower()
+                    elif key == "LM_STUDIO_URL":
+                        config["lmstudio_url"] = value
                     elif key == "LM_STUDIO_CHAT_MODEL":
-                        config["chat_model"] = value
+                        config["lmstudio_model"] = value
                     elif key == "LM_STUDIO_EMBEDDING_MODEL":
                         config["embedding_model"] = value
                     elif key == "LM_STUDIO_MODEL":
                         # Legacy support - map to chat_model
-                        config["chat_model"] = value
+                        config["lmstudio_model"] = value
+                    elif key == "OLLAMA_URL":
+                        config["ollama_url"] = value
+                    elif key == "OLLAMA_CHAT_MODEL":
+                        config["ollama_model"] = value
                     elif key == "DAILY_LOG_DIR":
                         config["log_dir"] = value
                     elif key == "NAME":
@@ -52,6 +59,19 @@ def read_config():
                             config["max_tokens"] = int(value)
                         except ValueError:
                             pass  # Keep default if invalid
+    
+    # Set URL and model based on backend
+    backend = config.get("backend", "lmstudio").lower()
+    if backend == "ollama":
+        config["url"] = config.get("ollama_url", "http://localhost:11434/v1/chat/completions")
+        if not config.get("chat_model"):
+            config["chat_model"] = config.get("ollama_model", "")
+        config["backend_name"] = "Ollama"
+    else:  # Default to lmstudio
+        config["url"] = config.get("lmstudio_url", "http://localhost:1234/v1/chat/completions")
+        if not config.get("chat_model"):
+            config["chat_model"] = config.get("lmstudio_model", "")
+        config["backend_name"] = "LM Studio"
     
     return config
 
@@ -67,10 +87,11 @@ def get_daily_goal(daily_log_content):
                     return lines[j].strip()
     return None
 
-def check_lm_studio_server(config):
-    """Check if LM Studio server is accessible and if a model is loaded."""
+def check_ai_server(config):
+    """Check if AI server (LM Studio or Ollama) is accessible and if a model is loaded."""
     import urllib.request
     
+    backend_name = config.get("backend_name", "AI server")
     # Extract base URL (remove /v1/chat/completions)
     base_url = config["url"].replace("/v1/chat/completions", "")
     
@@ -85,19 +106,25 @@ def check_lm_studio_server(config):
             else:
                 return False, "Server is running but no models are available"
     except urllib.error.URLError as e:
-        return False, f"Could not connect to LM Studio server at {base_url}. Make sure LM Studio is running and the local server is started."
+        return False, f"Could not connect to {backend_name} server at {base_url}. Make sure {backend_name} is running and the server is started."
     except Exception as e:
         return False, f"Error checking server: {e}"
 
 def call_lm_studio(config, daily_log_content):
-    """Call LM Studio API with the daily log content."""
+    """Call AI backend (LM Studio or Ollama) API with the daily log content."""
     import urllib.request
     import urllib.parse
     
+    backend_name = config.get("backend_name", "AI server")
+    backend = config.get("backend", "lmstudio").lower()
+    
     # First, check if server is accessible
-    server_ok, server_msg = check_lm_studio_server(config)
+    server_ok, server_msg = check_ai_server(config)
     if not server_ok:
-        return (f"⚠️  {server_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Load a model (click on a model and click 'Load')\n3. Make sure the local server is running (check the 'Server' tab)", 1)
+        if backend == "ollama":
+            return (f"⚠️  {server_msg}\n\nTo fix this:\n1. Make sure Ollama is running (run 'ollama serve')\n2. Pull a model if needed (e.g., 'ollama pull gemma2:1b')\n3. Check that the model is available (run 'ollama list')", 1)
+        else:
+            return (f"⚠️  {server_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Load a model (click on a model and click 'Load')\n3. Make sure the local server is running (check the 'Server' tab)", 1)
     
     # Check if goal exists
     goal = get_daily_goal(daily_log_content)
@@ -160,16 +187,25 @@ I haven't clearly defined my goal for today yet. Can you ask me what I'd like to
             if 'error' in result:
                 error_msg = result['error'].get('message', 'Unknown error')
                 if 'model' in error_msg.lower() and ('load' in error_msg.lower() or 'not found' in error_msg.lower()):
-                    return (f"⚠️  Model not loaded in LM Studio.\n\nError: {error_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Go to the 'Chat' or 'Models' tab\n3. Click on a model and click 'Load' to load it\n4. Wait for the model to finish loading\n5. Try again", 1)
-                return (f"⚠️  LM Studio returned an error: {error_msg}", 1)
+                    if backend == "ollama":
+                        return (f"⚠️  Model not available in Ollama.\n\nError: {error_msg}\n\nTo fix this:\n1. Pull the model (e.g., 'ollama pull gemma2:1b')\n2. Check available models (run 'ollama list')\n3. Make sure the model name in config matches an available model", 1)
+                    else:
+                        return (f"⚠️  Model not loaded in LM Studio.\n\nError: {error_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Go to the 'Chat' or 'Models' tab\n3. Click on a model and click 'Load' to load it\n4. Wait for the model to finish loading\n5. Try again", 1)
+                return (f"⚠️  {backend_name} returned an error: {error_msg}", 1)
             if 'choices' in result and len(result['choices']) > 0:
                 return (result['choices'][0]['message']['content'], 0)
             else:
                 return ("Hmm, I got a response but it's not quite right. Yep.", 1)
     except urllib.error.URLError as e:
         if "timed out" in str(e).lower() or "timeout" in str(e).lower():
-            return (f"⚠️  Connection to LM Studio timed out.\n\nThis usually means:\n1. No model is loaded in LM Studio (open LM Studio, load a model)\n2. The model is still loading (wait for it to finish)\n3. The server isn't responding (check the 'Server' tab in LM Studio)\n\nServer URL: {config['url']}", 1)
-        return (f"⚠️  Could not connect to LM Studio: {e}\n\nMake sure:\n1. LM Studio is running\n2. The local server is started (check the 'Server' tab)\n3. A model is loaded\n\nServer URL: {config['url']}", 1)
+            if backend == "ollama":
+                return (f"⚠️  Connection to Ollama timed out.\n\nThis usually means:\n1. No model is available in Ollama (run 'ollama pull <model>')\n2. The model is still loading (wait for it to finish)\n3. The server isn't responding (check 'ollama serve' is running)\n\nServer URL: {config['url']}", 1)
+            else:
+                return (f"⚠️  Connection to LM Studio timed out.\n\nThis usually means:\n1. No model is loaded in LM Studio (open LM Studio, load a model)\n2. The model is still loading (wait for it to finish)\n3. The server isn't responding (check the 'Server' tab in LM Studio)\n\nServer URL: {config['url']}", 1)
+        if backend == "ollama":
+            return (f"⚠️  Could not connect to Ollama: {e}\n\nMake sure:\n1. Ollama is running (run 'ollama serve')\n2. A model is available (run 'ollama list')\n\nServer URL: {config['url']}", 1)
+        else:
+            return (f"⚠️  Could not connect to LM Studio: {e}\n\nMake sure:\n1. LM Studio is running\n2. The local server is started (check the 'Server' tab)\n3. A model is loaded\n\nServer URL: {config['url']}", 1)
     except Exception as e:
         return (f"⚠️  Well, that didn't work out: {e}", 1)
 

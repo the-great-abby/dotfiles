@@ -1,0 +1,153 @@
+#!/bin/bash
+# Helper script to award XP from other GTD commands
+# Usage: gtd-gamify-award <activity_type> [amount] [reason] [streak_type]
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+GAMIFICATION_DIR="${GTD_BASE_DIR}/.gtd/gamification"
+GAMIFICATION_FILE="${GAMIFICATION_DIR}/gamification.json"
+
+# Default XP values by activity type
+get_xp_for_activity() {
+  local activity_type="$1"
+  local amount="${2:-}"
+  
+  # If amount is provided, use it
+  if [[ -n "$amount" ]] && [[ "$amount" =~ ^[0-9]+$ ]]; then
+    echo "$amount"
+    return
+  fi
+  
+  # Otherwise use defaults
+  case "$activity_type" in
+    task)
+      echo "25"  # Default task XP
+      ;;
+    task_high_priority|task_urgent)
+      echo "50"
+      ;;
+    task_low_priority)
+      echo "10"
+      ;;
+    habit_daily)
+      echo "15"
+      ;;
+    habit_weekly)
+      echo "25"
+      ;;
+    habit_monthly)
+      echo "50"
+      ;;
+    project_small)
+      echo "100"
+      ;;
+    project_medium)
+      echo "250"
+      ;;
+    project_large)
+      echo "500"
+      ;;
+    daily_log)
+      echo "5"
+      ;;
+    review_daily)
+      echo "50"
+      ;;
+    review_weekly)
+      echo "75"
+      ;;
+    review_monthly)
+      echo "100"
+      ;;
+    exercise)
+      echo "20"
+      ;;
+    exercise_intense)
+      echo "40"
+      ;;
+    health_log)
+      echo "5"
+      ;;
+    *)
+      echo "10"  # Default
+      ;;
+  esac
+}
+
+# Main function
+main() {
+  local activity_type="${1:-general}"
+  local custom_amount="${2:-}"
+  local reason="${3:-$activity_type}"
+  local streak_type="${4:-}"
+  
+  # Skip if gamification file doesn't exist (system not initialized)
+  if [[ ! -f "$GAMIFICATION_FILE" ]]; then
+    return 0  # Silently skip if gamification not set up
+  fi
+  
+  # Get XP amount
+  local xp_amount=$(get_xp_for_activity "$activity_type" "$custom_amount")
+  
+  # Award XP (silently, no output)
+  "$(dirname "$0")/gtd-gamify" award "$xp_amount" "$reason" "$activity_type" > /dev/null 2>&1
+  
+  # Update streak if provided
+  if [[ -n "$streak_type" ]]; then
+    "$(dirname "$0")/gtd-gamify" streak "$streak_type" > /dev/null 2>&1
+  fi
+  
+  # Update stats
+  python3 <<EOF
+import json
+import sys
+
+try:
+    with open("$GAMIFICATION_FILE", "r") as f:
+        data = json.load(f)
+    
+    if "stats" not in data:
+        data["stats"] = {}
+    
+    stats = data["stats"]
+    activity_type = "$activity_type"
+    
+    # Update relevant stats based on activity type
+    if activity_type.startswith("task"):
+        stats["tasks_completed"] = stats.get("tasks_completed", 0) + 1
+    elif activity_type.startswith("habit"):
+        stats["habits_completed"] = stats.get("habits_completed", 0) + 1
+    elif activity_type.startswith("project"):
+        stats["projects_completed"] = stats.get("projects_completed", 0) + 1
+    elif activity_type.startswith("review"):
+        stats["reviews_completed"] = stats.get("reviews_completed", 0) + 1
+    elif activity_type == "daily_log":
+        stats["daily_logs"] = stats.get("daily_logs", 0) + 1
+    elif activity_type.startswith("exercise"):
+        stats["exercise_sessions"] = stats.get("exercise_sessions", 0) + 1
+    
+    with open("$GAMIFICATION_FILE", "w") as f:
+        json.dump(data, f, indent=2)
+except:
+    pass
+EOF
+  
+  # Check achievements (silently)
+  "$(dirname "$0")/gtd-gamify" achievements > /dev/null 2>&1
+  
+  return 0
+}
+
+main "$@"
+

@@ -240,6 +240,7 @@ def read_config():
     ]
     
     config = {
+        "backend": "lmstudio",  # Default to lmstudio for backward compatibility
         "url": "http://localhost:1234/v1/chat/completions",
         "chat_model": "",
         "name": "",
@@ -247,6 +248,7 @@ def read_config():
         "timeout": 60  # Default 60 seconds for local systems
     }
     
+    # First pass: read all config values
     for config_path in config_paths:
         if config_path.exists():
             with open(config_path, 'r') as f:
@@ -256,10 +258,16 @@ def read_config():
                         key, value = line.split('=', 1)
                         key = key.strip()
                         value = value.strip().strip('"').strip("'")
-                        if key == "LM_STUDIO_URL":
-                            config["url"] = value
+                        if key == "AI_BACKEND":
+                            config["backend"] = value.lower()
+                        elif key == "LM_STUDIO_URL":
+                            config["lmstudio_url"] = value
                         elif key == "LM_STUDIO_CHAT_MODEL":
-                            config["chat_model"] = value
+                            config["lmstudio_model"] = value
+                        elif key == "OLLAMA_URL":
+                            config["ollama_url"] = value
+                        elif key == "OLLAMA_CHAT_MODEL":
+                            config["ollama_model"] = value
                         elif key == "NAME" or key == "GTD_USER_NAME":
                             config["name"] = value
                         elif key == "MAX_TOKENS":
@@ -274,12 +282,24 @@ def read_config():
                                 pass
             break
     
+    # Second pass: set URL and model based on backend
+    backend = config.get("backend", "lmstudio").lower()
+    if backend == "ollama":
+        config["url"] = config.get("ollama_url", "http://localhost:11434/v1/chat/completions")
+        config["chat_model"] = config.get("ollama_model", "")
+        config["backend_name"] = "Ollama"
+    else:  # Default to lmstudio
+        config["url"] = config.get("lmstudio_url", "http://localhost:1234/v1/chat/completions")
+        config["chat_model"] = config.get("lmstudio_model", "")
+        config["backend_name"] = "LM Studio"
+    
     return config
 
-def check_lm_studio_server(config):
-    """Check if LM Studio server is accessible."""
+def check_ai_server(config):
+    """Check if AI server (LM Studio or Ollama) is accessible."""
     import urllib.request
     
+    backend_name = config.get("backend_name", "AI server")
     base_url = config["url"].replace("/v1/chat/completions", "")
     
     try:
@@ -292,23 +312,28 @@ def check_lm_studio_server(config):
             else:
                 return False, "Server is running but no models are available"
     except urllib.error.URLError as e:
-        return False, f"Could not connect to LM Studio server at {base_url}"
+        return False, f"Could not connect to {backend_name} server at {base_url}"
     except Exception as e:
         return False, f"Error checking server: {e}"
 
 def call_persona(config, persona_key, content, context=""):
-    """Call LM Studio with a specific persona."""
+    """Call AI backend (LM Studio or Ollama) with a specific persona."""
     import urllib.request
     
     if persona_key not in PERSONAS:
         return (f"Unknown persona: {persona_key}. Available: {', '.join(PERSONAS.keys())}", 1)
     
     persona = PERSONAS[persona_key]
+    backend_name = config.get("backend_name", "AI server")
+    backend = config.get("backend", "lmstudio").lower()
     
     # Check server
-    server_ok, server_msg = check_lm_studio_server(config)
+    server_ok, server_msg = check_ai_server(config)
     if not server_ok:
-        return (f"⚠️  {server_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Load a model\n3. Make sure the local server is running", 1)
+        if backend == "ollama":
+            return (f"⚠️  {server_msg}\n\nTo fix this:\n1. Make sure Ollama is running (run 'ollama serve')\n2. Pull a model if needed (e.g., 'ollama pull gemma2:1b')", 1)
+        else:
+            return (f"⚠️  {server_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Load a model\n3. Make sure the local server is running", 1)
     
     # Get user name
     user_name = config.get("name", "").strip()
@@ -376,7 +401,10 @@ def call_persona(config, persona_key, content, context=""):
     except urllib.error.URLError as e:
         # Connection is closed when exception is raised
         if "timed out" in str(e).lower():
-            return (f"⚠️  Connection timed out after {timeout}s. The request was cancelled and connection closed.\n\nThis usually means:\n- No model is loaded in LM Studio\n- The model is still loading\n- The model is processing but taking too long\n\nMake sure a model is loaded in LM Studio.", 1)
+            if backend == "ollama":
+                return (f"⚠️  Connection timed out after {timeout}s. The request was cancelled and connection closed.\n\nThis usually means:\n- No model is loaded in Ollama\n- The model is still loading\n- The model is processing but taking too long\n\nMake sure a model is available in Ollama (run 'ollama list' to check).", 1)
+            else:
+                return (f"⚠️  Connection timed out after {timeout}s. The request was cancelled and connection closed.\n\nThis usually means:\n- No model is loaded in LM Studio\n- The model is still loading\n- The model is processing but taking too long\n\nMake sure a model is loaded in LM Studio.", 1)
         return (f"⚠️  Could not connect: {e}", 1)
     except Exception as e:
         return (f"⚠️  Error: {e}", 1)

@@ -86,6 +86,8 @@ show_main_menu() {
   echo -e "${GREEN}24)${NC} 🤖 AI Suggestions & MCP Tools"
   echo -e "${GREEN}25)${NC} 🎯 Goal Tracking & Progress"
   echo -e "${GREEN}26)${NC} ⚡ Energy Audit (drains & boosts)"
+  echo -e "${GREEN}27)${NC} ⚙️  Configuration & Setup"
+  echo -e "${GREEN}28)${NC} 🎮 Gamification & Habitica"
   echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
@@ -1098,6 +1100,317 @@ status_wizard() {
       
       local tasks_count=$(find ~/Documents/gtd/tasks -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
       echo -e "${BOLD}Active Tasks:${NC} ${tasks_count}"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Configuration wizard
+config_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}⚙️  Configuration & Setup${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to configure?"
+  echo ""
+  echo "  1) 🤖 Switch AI Backend (LM Studio ↔ Ollama)"
+  echo "  2) 🔍 Check AI Backend Status"
+  echo "  3) 📋 View Current Configuration"
+  echo "  4) 📖 Installation Instructions"
+  echo ""
+  echo -n "Choose: "
+  read config_choice
+  
+  case "$config_choice" in
+    1)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🤖 Switch AI Backend${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Find config files
+      GTD_CONFIG="$HOME/.gtd_config"
+      DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+      
+      if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+        GTD_CONFIG="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+      elif [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+        GTD_CONFIG="$HOME/code/dotfiles/zsh/.gtd_config"
+      fi
+      
+      if [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+        DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+      elif [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+        DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+      fi
+      
+      # Read current backend
+      current_backend="lmstudio"
+      if [[ -f "$GTD_CONFIG" ]]; then
+        if grep -q '^AI_BACKEND=' "$GTD_CONFIG" 2>/dev/null; then
+          current_backend=$(grep '^AI_BACKEND=' "$GTD_CONFIG" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]')
+        fi
+      elif [[ -f "$DAILY_LOG_CONFIG" ]]; then
+        if grep -q '^AI_BACKEND=' "$DAILY_LOG_CONFIG" 2>/dev/null; then
+          current_backend=$(grep '^AI_BACKEND=' "$DAILY_LOG_CONFIG" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]')
+        fi
+      fi
+      
+      echo -e "Current backend: ${BOLD}${current_backend}${NC}"
+      echo ""
+      echo "Which backend would you like to use?"
+      echo ""
+      echo "  1) LM Studio (default: http://localhost:1234)"
+      echo "  2) Ollama (default: http://localhost:11434)"
+      echo ""
+      echo -n "Choose: "
+      read backend_choice
+      
+      new_backend=""
+      case "$backend_choice" in
+        1)
+          new_backend="lmstudio"
+          ;;
+        2)
+          new_backend="ollama"
+          ;;
+        *)
+          echo "❌ Invalid choice"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          return
+          ;;
+      esac
+      
+      if [[ "$current_backend" == "$new_backend" ]]; then
+        echo ""
+        echo "✅ Already using $new_backend. No changes needed."
+      else
+        echo ""
+        echo "Switching to $new_backend..."
+        
+        # Update GTD config
+        if [[ -f "$GTD_CONFIG" ]]; then
+          if grep -q '^AI_BACKEND=' "$GTD_CONFIG" 2>/dev/null; then
+            # Update existing line
+            if [[ "$(uname)" == "Darwin" ]]; then
+              sed -i '' "s/^AI_BACKEND=.*/AI_BACKEND=\"$new_backend\"/" "$GTD_CONFIG"
+            else
+              sed -i "s/^AI_BACKEND=.*/AI_BACKEND=\"$new_backend\"/" "$GTD_CONFIG"
+            fi
+          else
+            # Add new line after the AI Backend Configuration comment
+            if grep -q '# AI Backend Configuration' "$GTD_CONFIG" 2>/dev/null; then
+              if [[ "$(uname)" == "Darwin" ]]; then
+                sed -i '' "/# AI Backend Configuration/a\\
+AI_BACKEND=\"$new_backend\"
+" "$GTD_CONFIG"
+              else
+                sed -i "/# AI Backend Configuration/a AI_BACKEND=\"$new_backend\"" "$GTD_CONFIG"
+              fi
+            else
+              # Add at the beginning of LM Studio section
+              if [[ "$(uname)" == "Darwin" ]]; then
+                sed -i '' "/^# ============================================================================$/a\\
+# AI backend to use: \"lmstudio\" or \"ollama\" (default: \"lmstudio\")\\
+AI_BACKEND=\"$new_backend\"
+" "$GTD_CONFIG"
+              else
+                sed -i "/^# ============================================================================$/a # AI backend to use: \"lmstudio\" or \"ollama\" (default: \"lmstudio\")\nAI_BACKEND=\"$new_backend\"" "$GTD_CONFIG"
+              fi
+            fi
+          fi
+          echo "✅ Updated $GTD_CONFIG"
+        fi
+        
+        # Update daily log config
+        if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+          if grep -q '^AI_BACKEND=' "$DAILY_LOG_CONFIG" 2>/dev/null; then
+            # Update existing line
+            if [[ "$(uname)" == "Darwin" ]]; then
+              sed -i '' "s/^AI_BACKEND=.*/AI_BACKEND=\"$new_backend\"/" "$DAILY_LOG_CONFIG"
+            else
+              sed -i "s/^AI_BACKEND=.*/AI_BACKEND=\"$new_backend\"/" "$DAILY_LOG_CONFIG"
+            fi
+          else
+            # Add after first line or at top
+            if [[ "$(uname)" == "Darwin" ]]; then
+              sed -i '' "1a\\
+AI_BACKEND=\"$new_backend\"
+" "$DAILY_LOG_CONFIG"
+            else
+              sed -i "1i AI_BACKEND=\"$new_backend\"" "$DAILY_LOG_CONFIG"
+            fi
+          fi
+          echo "✅ Updated $DAILY_LOG_CONFIG"
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✅ Successfully switched to $new_backend!${NC}"
+        echo ""
+        echo "Note: You may need to restart your terminal or reload your config for changes to take effect."
+      fi
+      ;;
+    2)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🔍 AI Backend Status${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Check current backend
+      GTD_CONFIG="$HOME/.gtd_config"
+      if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+        GTD_CONFIG="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+      elif [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+        GTD_CONFIG="$HOME/code/dotfiles/zsh/.gtd_config"
+      fi
+      
+      current_backend="lmstudio"
+      if [[ -f "$GTD_CONFIG" ]]; then
+        if grep -q '^AI_BACKEND=' "$GTD_CONFIG" 2>/dev/null; then
+          current_backend=$(grep '^AI_BACKEND=' "$GTD_CONFIG" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]')
+        fi
+      fi
+      
+      echo -e "${BOLD}Configured Backend:${NC} $current_backend"
+      echo ""
+      
+      # Check LM Studio
+      echo -e "${BOLD}LM Studio:${NC}"
+      if curl -s "http://localhost:1234/v1/models" >/dev/null 2>&1; then
+        echo -e "  ${GREEN}✅ Running${NC}"
+        models=$(curl -s "http://localhost:1234/v1/models" 2>/dev/null | python3 -c "import sys, json; data=json.load(sys.stdin); print(', '.join([m.get('id', 'unknown')[:30] for m in data.get('data', [])[:3]]))" 2>/dev/null || echo "unknown")
+        echo "  Models: $models"
+      else
+        echo -e "  ${RED}❌ Not running${NC}"
+      fi
+      echo ""
+      
+      # Check Ollama
+      echo -e "${BOLD}Ollama:${NC}"
+      if curl -s "http://localhost:11434/v1/models" >/dev/null 2>&1; then
+        echo -e "  ${GREEN}✅ Running${NC}"
+        models=$(curl -s "http://localhost:11434/v1/models" 2>/dev/null | python3 -c "import sys, json; data=json.load(sys.stdin); print(', '.join([m.get('id', 'unknown')[:30] for m in data.get('data', [])[:3]]))" 2>/dev/null || echo "unknown")
+        echo "  Models: $models"
+      else
+        echo -e "  ${RED}❌ Not running${NC}"
+        if command -v ollama &>/dev/null; then
+          echo "  → Ollama is installed but not running. Start with: ollama serve"
+        else
+          echo "  → Ollama is not installed"
+        fi
+      fi
+      echo ""
+      
+      if [[ "$current_backend" == "ollama" ]]; then
+        if ! curl -s "http://localhost:11434/v1/models" >/dev/null 2>&1; then
+          echo -e "${YELLOW}⚠️  Warning:${NC} You're configured to use Ollama, but it's not running."
+          echo "  Start it with: ollama serve"
+        fi
+      else
+        if ! curl -s "http://localhost:1234/v1/models" >/dev/null 2>&1; then
+          echo -e "${YELLOW}⚠️  Warning:${NC} You're configured to use LM Studio, but it's not running."
+          echo "  Open LM Studio and start the local server."
+        fi
+      fi
+      ;;
+    3)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📋 Current Configuration${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      GTD_CONFIG="$HOME/.gtd_config"
+      DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+      
+      if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+        GTD_CONFIG="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+      elif [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+        GTD_CONFIG="$HOME/code/dotfiles/zsh/.gtd_config"
+      fi
+      
+      if [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+        DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+      elif [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+        DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+      fi
+      
+      echo -e "${BOLD}GTD Config:${NC} $GTD_CONFIG"
+      if [[ -f "$GTD_CONFIG" ]]; then
+        echo -e "  ${GREEN}✅ Found${NC}"
+        if grep -q '^AI_BACKEND=' "$GTD_CONFIG" 2>/dev/null; then
+          backend=$(grep '^AI_BACKEND=' "$GTD_CONFIG" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+          echo "  AI_BACKEND: $backend"
+        fi
+        if grep -q '^LM_STUDIO_URL=' "$GTD_CONFIG" 2>/dev/null; then
+          url=$(grep '^LM_STUDIO_URL=' "$GTD_CONFIG" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+          echo "  LM_STUDIO_URL: $url"
+        fi
+        if grep -q '^OLLAMA_URL=' "$GTD_CONFIG" 2>/dev/null; then
+          url=$(grep '^OLLAMA_URL=' "$GTD_CONFIG" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+          echo "  OLLAMA_URL: $url"
+        fi
+      else
+        echo -e "  ${RED}❌ Not found${NC}"
+      fi
+      echo ""
+      
+      echo -e "${BOLD}Daily Log Config:${NC} $DAILY_LOG_CONFIG"
+      if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+        echo -e "  ${GREEN}✅ Found${NC}"
+        if grep -q '^AI_BACKEND=' "$DAILY_LOG_CONFIG" 2>/dev/null; then
+          backend=$(grep '^AI_BACKEND=' "$DAILY_LOG_CONFIG" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+          echo "  AI_BACKEND: $backend"
+        fi
+      else
+        echo -e "  ${RED}❌ Not found${NC}"
+      fi
+      ;;
+    4)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📖 Installation Instructions${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo -e "${BOLD}LM Studio:${NC}"
+      echo "  1. Download from: https://lmstudio.ai/"
+      echo "  2. Install and open LM Studio"
+      echo "  3. Download a model (Search tab → Download)"
+      echo "  4. Load the model (Chat tab → Select model → Load)"
+      echo "  5. Start local server (Server tab → Start Server)"
+      echo "  6. Default port: 1234"
+      echo ""
+      echo -e "${BOLD}Ollama:${NC}"
+      echo "  1. Install:"
+      echo "     macOS: brew install ollama"
+      echo "     Linux: curl -fsSL https://ollama.com/install.sh | sh"
+      echo "  2. Start server: ollama serve"
+      echo "  3. Pull a model: ollama pull gemma2:1b"
+      echo "  4. List models: ollama list"
+      echo "  5. Default port: 11434"
+      echo ""
+      echo -e "${BOLD}Switching Backends:${NC}"
+      echo "  Use option 1 in this menu to switch between backends"
+      echo "  Or edit config files directly:"
+      echo "    ~/.gtd_config"
+      echo "    ~/.daily_log_config"
+      echo "  Set: AI_BACKEND=\"lmstudio\" or AI_BACKEND=\"ollama\""
+      ;;
+    *)
+      echo "Invalid choice"
       ;;
   esac
   
@@ -3687,6 +4000,203 @@ energy_audit_wizard() {
   read
 }
 
+# Gamification wizard
+gamification_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🎮 Gamification & Habitica${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) 📊 View Gamification Dashboard"
+  echo "  2) 🏆 Check Achievements"
+  echo "  3) 🔥 View Streaks"
+  echo "  4) 📈 View Statistics"
+  echo "  5) 🎯 Award XP Manually"
+  echo "  6) 🎮 Habitica Integration"
+  echo ""
+  echo -n "Choose: "
+  read gamify_choice
+  
+  case "$gamify_choice" in
+    1)
+      echo ""
+      if command -v gtd-gamify &>/dev/null; then
+        gtd-gamify dashboard
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify" dashboard
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-gamify" dashboard
+      else
+        echo "❌ gtd-gamify command not found"
+        echo ""
+        echo "Gamification system not installed. See zsh/GAMIFICATION_QUICK_START.md for setup."
+      fi
+      ;;
+    2)
+      echo ""
+      if command -v gtd-gamify &>/dev/null; then
+        gtd-gamify achievements
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify" achievements
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-gamify" achievements
+      else
+        echo "❌ gtd-gamify command not found"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    3)
+      echo ""
+      echo -e "${BOLD}Streak Information:${NC}"
+      echo ""
+      if command -v gtd-gamify &>/dev/null; then
+        gtd-gamify dashboard | grep -A 10 "Streaks"
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify" dashboard | grep -A 10 "Streaks"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-gamify" dashboard | grep -A 10 "Streaks"
+      else
+        echo "❌ gtd-gamify command not found"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    4)
+      echo ""
+      echo -e "${BOLD}Statistics:${NC}"
+      echo ""
+      if command -v gtd-gamify &>/dev/null; then
+        gtd-gamify dashboard | grep -A 10 "Statistics"
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify" dashboard | grep -A 10 "Statistics"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-gamify" dashboard | grep -A 10 "Statistics"
+      else
+        echo "❌ gtd-gamify command not found"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    5)
+      echo ""
+      echo -n "XP Amount: "
+      read xp_amount
+      if [[ -z "$xp_amount" ]] || ! [[ "$xp_amount" =~ ^[0-9]+$ ]]; then
+        echo "❌ Invalid XP amount"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 1
+      fi
+      
+      echo -n "Reason: "
+      read reason
+      reason=${reason:-"Manual award"}
+      
+      echo -n "Activity Type (optional): "
+      read activity_type
+      activity_type=${activity_type:-"general"}
+      
+      if command -v gtd-gamify &>/dev/null; then
+        gtd-gamify award "$xp_amount" "$reason" "$activity_type"
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify" award "$xp_amount" "$reason" "$activity_type"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-gamify" award "$xp_amount" "$reason" "$activity_type"
+      else
+        echo "❌ gtd-gamify command not found"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    6)
+      echo ""
+      echo "Habitica Integration:"
+      echo ""
+      echo "  1) Setup Habitica Integration"
+      echo "  2) Sync GTD → Habitica"
+      echo "  3) Sync Habitica → GTD"
+      echo "  4) Check Sync Status"
+      echo ""
+      echo -n "Choose: "
+      read habitica_choice
+      
+      case "$habitica_choice" in
+        1)
+          echo ""
+          if command -v gtd-habitica &>/dev/null; then
+            gtd-habitica setup
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-habitica" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-habitica" setup
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-habitica" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-habitica" setup
+          else
+            echo "❌ gtd-habitica command not found"
+          fi
+          ;;
+        2)
+          echo ""
+          echo "Syncing GTD to Habitica..."
+          if command -v gtd-habitica &>/dev/null; then
+            gtd-habitica sync
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-habitica" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-habitica" sync
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-habitica" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-habitica" sync
+          else
+            echo "❌ gtd-habitica command not found"
+          fi
+          ;;
+        3)
+          echo ""
+          echo "Syncing Habitica to GTD..."
+          if command -v gtd-habitica &>/dev/null; then
+            gtd-habitica sync-back
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-habitica" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-habitica" sync-back
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-habitica" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-habitica" sync-back
+          else
+            echo "❌ gtd-habitica command not found"
+          fi
+          ;;
+        4)
+          echo ""
+          if command -v gtd-habitica &>/dev/null; then
+            gtd-habitica status
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-habitica" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-habitica" status
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-habitica" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-habitica" status
+          else
+            echo "❌ gtd-habitica command not found"
+          fi
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    *)
+      echo "Invalid choice"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+  esac
+}
+
 # Main loop
 main() {
   while true; do
@@ -3775,6 +4285,12 @@ main() {
         ;;
       26)
         energy_audit_wizard
+        ;;
+      27)
+        config_wizard
+        ;;
+      28)
+        gamification_wizard
         ;;
       0)
         clear
