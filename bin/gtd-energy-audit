@@ -1,0 +1,253 @@
+#!/bin/bash
+# GTD Energy Audit - Track what drains vs energizes you
+# Usage: gtd-energy-audit [log|analyze|report] [activity] [impact] [note]
+
+# Load configs
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+ENERGY_AUDIT_DIR="${GTD_BASE_DIR}/.energy_audit"
+mkdir -p "$ENERGY_AUDIT_DIR"
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+today=$($DATE_CMD +"%Y-%m-%d")
+current_time=$($DATE_CMD +"%H:%M")
+
+# Log energy impact
+log_energy_impact() {
+  local activity="$1"
+  local impact_type="$2"  # "drain" or "boost"
+  local impact_value="$3"  # -5 to +5
+  local note="$4"
+  
+  if [[ -z "$activity" || -z "$impact_type" ]]; then
+    echo "❌ Activity and impact type required"
+    echo "Usage: gtd-energy-audit log \"Activity\" [drain|boost] [-5 to +5] [note]"
+    return 1
+  fi
+    
+  # Validate impact
+  if [[ -z "$impact_value" ]]; then
+    # Default values
+    if [[ "$impact_type" == "drain" ]]; then
+      impact_value="-2"
+    else
+      impact_value="+2"
+    fi
+  fi
+  
+  # Validate impact range
+  if ! [[ "$impact_value" =~ ^[+-]?[0-9]+$ ]]; then
+    echo "❌ Impact must be a number between -5 and +5"
+    return 1
+  fi
+  
+  local abs_value=${impact_value#-}
+  if [[ $abs_value -gt 5 ]]; then
+    echo "❌ Impact must be between -5 and +5"
+    return 1
+  fi
+  
+  # Log to energy audit file
+  local audit_file="${ENERGY_AUDIT_DIR}/energy_log.jsonl"
+  echo "{\"date\":\"$today\",\"time\":\"$current_time\",\"activity\":\"$activity\",\"type\":\"$impact_type\",\"impact\":$impact_value,\"note\":\"${note:-}\"}" >> "$audit_file"
+  
+  # Also log to daily log
+  local log_entry="Energy ${impact_type}: ${activity} (${impact_value})"
+  if [[ -n "$note" ]]; then
+    log_entry="${log_entry} - ${note}"
+  fi
+  
+  if command -v gtd-daily-log &>/dev/null; then
+    gtd-daily-log "$log_entry"
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-daily-log" "$log_entry"
+  fi
+  
+  echo "✓ Energy impact logged: ${activity} (${impact_value})"
+}
+
+# Analyze energy patterns
+analyze_energy() {
+  local audit_file="${ENERGY_AUDIT_DIR}/energy_log.jsonl"
+  
+  if [[ ! -f "$audit_file" ]]; then
+    echo "No energy audit data yet. Start logging:"
+    echo "  gtd-energy-audit log \"Meeting\" drain -2"
+    echo "  gtd-energy-audit log \"Workout\" boost +3"
+    return 1
+  fi
+  
+  echo "⚡ Energy Audit Analysis"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Use Python for JSON parsing
+  python3 <<PYTHON_EOF
+import json
+import sys
+from collections import defaultdict
+
+try:
+    drains = defaultdict(list)
+    boosts = defaultdict(list)
+    total_drain = 0
+    total_boost = 0
+    drain_count = 0
+    boost_count = 0
+    
+    with open("$audit_file", "r") as f:
+        for line in f:
+            try:
+                entry = json.loads(line.strip())
+                activity = entry.get("activity", "")
+                impact_type = entry.get("type", "")
+                impact = entry.get("impact", 0)
+                
+                if impact_type == "drain":
+                    drains[activity].append(impact)
+                    total_drain += abs(impact)
+                    drain_count += 1
+                elif impact_type == "boost":
+                    boosts[activity].append(impact)
+                    total_boost += impact
+                    boost_count += 1
+            except:
+                continue
+    
+    print("📉 Energy Drains:")
+    if drains:
+        # Sort by average impact (most draining first)
+        drain_avgs = {}
+        for activity, impacts in drains.items():
+            avg = sum(impacts) / len(impacts)
+            drain_avgs[activity] = (avg, len(impacts))
+        
+        for activity, (avg, count) in sorted(drain_avgs.items(), key=lambda x: x[1][0]):
+            print(f"   • {activity}: {avg:.1f} (logged {count} times)")
+    else:
+        print("   No drains logged yet")
+    print("")
+    
+    print("📈 Energy Boosts:")
+    if boosts:
+        # Sort by average impact (most boosting first)
+        boost_avgs = {}
+        for activity, impacts in boosts.items():
+            avg = sum(impacts) / len(impacts)
+            boost_avgs[activity] = (avg, len(impacts))
+        
+        for activity, (avg, count) in sorted(boost_avgs.items(), key=lambda x: x[1][0], reverse=True):
+            print(f"   • {activity}: +{avg:.1f} (logged {count} times)")
+    else:
+        print("   No boosts logged yet")
+    print("")
+    
+    if drain_count > 0 or boost_count > 0:
+        print("💡 Recommendations:")
+        if drains:
+            top_drain = max(drain_avgs.items(), key=lambda x: x[1][0])[0] if drain_avgs else None
+            if top_drain:
+                print(f"   • Reduce or optimize: {top_drain}")
+        if boosts:
+            top_boost = max(boost_avgs.items(), key=lambda x: x[1][0])[0] if boost_avgs else None
+            if top_boost:
+                print(f"   • Increase: {top_boost}")
+        print("")
+    
+except Exception as e:
+    print(f"Error analyzing energy data: {e}")
+    sys.exit(1)
+PYTHON_EOF
+}
+
+# Generate report
+generate_report() {
+  local days="${1:-30}"
+  
+  echo "⚡ Energy Audit Report (Last $days days)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  analyze_energy
+}
+
+# Main function
+case "${1:-}" in
+  log)
+    shift
+    log_energy_impact "$@"
+    ;;
+  analyze)
+    analyze_energy
+    ;;
+  report)
+    generate_report "${2:-30}"
+    ;;
+  --help|-h)
+    cat <<EOF
+Usage: gtd-energy-audit [command] [args...]
+
+Commands:
+  log <activity> [drain|boost] [impact] [note]
+    Log energy impact of an activity
+    Impact: -5 (major drain) to +5 (major boost)
+    
+  analyze
+    Analyze energy patterns
+    
+  report [days]
+    Generate energy report (default: 30 days)
+    
+Examples:
+  gtd-energy-audit log "Long meeting" drain -3 "Felt exhausted"
+  gtd-energy-audit log "Kettlebell workout" boost +4 "Felt energized"
+  gtd-energy-audit analyze
+  gtd-energy-audit report 7
+EOF
+    ;;
+  "")
+    analyze_energy
+    ;;
+  *)
+    echo "Unknown command: $1"
+    echo "Use 'gtd-energy-audit --help' for usage"
+    exit 1
+    ;;
+esac
+
+exit 0
+

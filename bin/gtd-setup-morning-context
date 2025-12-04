@@ -1,0 +1,103 @@
+#!/bin/bash
+# Setup automatic morning context collection
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+MORNING_TIME="${GTD_MORNING_REMINDER_TIME:-08:00}"  # 8:00 AM default
+
+# Parse time
+MORNING_HOUR=$(echo "$MORNING_TIME" | cut -d':' -f1)
+MORNING_MIN=$(echo "$MORNING_TIME" | cut -d':' -f2)
+
+# Script paths
+CONTEXT_SCRIPT="$HOME/code/dotfiles/bin/gtd-morning-context"
+if [[ ! -f "$CONTEXT_SCRIPT" ]]; then
+  CONTEXT_SCRIPT="$HOME/code/personal/dotfiles/bin/gtd-morning-context"
+fi
+
+if [[ ! -f "$CONTEXT_SCRIPT" ]]; then
+  echo "❌ Error: Morning context script not found at $CONTEXT_SCRIPT"
+  exit 1
+fi
+
+# Plist destination
+PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.morning-context.plist"
+
+# Create plist
+TEMP_PLIST=$(mktemp)
+cat > "$TEMP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.abby.gtd.morning-context</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$CONTEXT_SCRIPT</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>$MORNING_HOUR</integer>
+        <key>Minute</key>
+        <integer>$MORNING_MIN</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-morning-context.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-morning-context.error.log</string>
+</dict>
+</plist>
+EOF
+
+# Copy to destination
+cp "$TEMP_PLIST" "$PLIST_DEST"
+rm "$TEMP_PLIST"
+
+echo "✓ Created plist file: $PLIST_DEST"
+echo ""
+
+# Check if already loaded
+if launchctl list | grep -q "com.abby.gtd.morning-context"; then
+  echo "🔄 Unloading existing launch agent..."
+  launchctl unload "$PLIST_DEST" 2>/dev/null || true
+fi
+
+# Load the launch agent
+echo "🚀 Loading launch agent..."
+if launchctl load "$PLIST_DEST" 2>/dev/null; then
+  echo "✓ Morning context collection installed and activated!"
+  echo ""
+  echo "📅 Collection Schedule:"
+  echo "   Time: ${MORNING_HOUR}:$(printf "%02d" $MORNING_MIN) (daily)"
+  echo ""
+  echo "💡 To change the time, edit GTD_MORNING_REMINDER_TIME in:"
+  echo "   $GTD_CONFIG_FILE"
+  echo ""
+  echo "   Then reload with:"
+  echo "   launchctl unload $PLIST_DEST"
+  echo "   launchctl load $PLIST_DEST"
+  echo ""
+  echo "🧪 Test manually:"
+  echo "   gtd-morning-context"
+  echo ""
+else
+  echo "❌ Error: Failed to load launch agent"
+  echo "   Check the plist file for errors"
+  exit 1
+fi
+

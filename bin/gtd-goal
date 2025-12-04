@@ -1,0 +1,348 @@
+#!/bin/bash
+# GTD Goal Tracking - Track goals with progress measurement
+# Usage: gtd-goal [create|progress|list|dashboard|complete] [goal_name] [args...]
+
+# Load configs
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+GOALS_DIR="${GTD_BASE_DIR}/goals"
+mkdir -p "$GOALS_DIR"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+today=$($DATE_CMD +"%Y-%m-%d")
+
+# Create a goal
+create_goal() {
+  local goal_name="$1"
+  local deadline="$2"
+  local area="$3"
+  local description="$4"
+  
+  if [[ -z "$goal_name" ]]; then
+    echo "❌ Goal name required"
+    echo "Usage: gtd-goal create \"Goal Name\" [--deadline YYYY-MM-DD] [--area area-name] [--description \"description\"]"
+    return 1
+  fi
+  
+  local goal_file="${GOALS_DIR}/${goal_name// /_}.md"
+  
+  # Check if goal already exists
+  if [[ -f "$goal_file" ]]; then
+    echo "⚠️  Goal already exists: $goal_name"
+    read -p "Update existing goal? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      return 1
+    fi
+  fi
+  
+  # Create goal file
+  cat > "$goal_file" <<EOF
+---
+name: $goal_name
+status: active
+progress: 0
+created: $today
+deadline: ${deadline:-}
+area: ${area:-}
+description: ${description:-}
+---
+
+# Goal: $goal_name
+
+**Status:** Active
+**Progress:** 0%
+**Created:** $today
+${deadline:+**Deadline:** $deadline}
+${area:+**Area:** $area}
+
+${description:+## Description
+$description}
+
+## Progress Updates
+
+EOF
+  
+  echo "✓ Goal created: $goal_name"
+  if [[ -n "$deadline" ]]; then
+    echo "  Deadline: $deadline"
+  fi
+  if [[ -n "$area" ]]; then
+    echo "  Area: $area"
+  fi
+}
+
+# Update goal progress
+update_progress() {
+  local goal_name="$1"
+  local progress="$2"
+  local note="$3"
+  
+  if [[ -z "$goal_name" || -z "$progress" ]]; then
+    echo "❌ Goal name and progress required"
+    echo "Usage: gtd-goal progress \"Goal Name\" [0-100] [note]"
+    return 1
+  fi
+  
+  # Validate progress
+  if ! [[ "$progress" =~ ^[0-9]+$ ]] || [[ "$progress" -lt 0 ]] || [[ "$progress" -gt 100 ]]; then
+    echo "❌ Progress must be a number between 0 and 100"
+    return 1
+  fi
+  
+  local goal_file="${GOALS_DIR}/${goal_name// /_}.md"
+  
+  if [[ ! -f "$goal_file" ]]; then
+    echo "❌ Goal not found: $goal_name"
+    return 1
+  fi
+  
+  # Update progress in frontmatter
+  local temp_file=$(mktemp)
+  awk -v progress="$progress" -v today="$today" -v note="$note" '
+    /^progress:/ { print "progress: " progress; next }
+    /^status: active$/ && progress == 100 { print "status: completed"; next }
+    /^## Progress Updates$/ { 
+      print; 
+      print ""; 
+      print "### " today " - " progress "%"; 
+      if (note != "") print note; 
+      print ""; 
+      next 
+    }
+    { print }
+  ' "$goal_file" > "$temp_file"
+  mv "$temp_file" "$goal_file"
+  
+  # Also update progress in frontmatter properly
+  sed -i.bak "s/^progress:.*/progress: $progress/" "$goal_file"
+  if [[ "$progress" -eq 100 ]]; then
+    sed -i.bak "s/^status:.*/status: completed/" "$goal_file"
+    echo "🎉 Goal completed: $goal_name"
+  fi
+  rm -f "${goal_file}.bak"
+  
+  # Add progress update to daily log
+  local log_entry="Goal Progress: $goal_name - ${progress}%"
+  if [[ -n "$note" ]]; then
+    log_entry="${log_entry} - ${note}"
+  fi
+  
+  if command -v gtd-daily-log &>/dev/null; then
+    gtd-daily-log "$log_entry"
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-daily-log" "$log_entry"
+  fi
+  
+  echo "✓ Progress updated: $goal_name - ${progress}%"
+}
+
+# List goals
+list_goals() {
+  local status_filter="${1:-}"
+  
+  echo "🎯 Goals"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local count=0
+  for goal_file in "$GOALS_DIR"/*.md; do
+    [[ ! -f "$goal_file" ]] && continue
+    
+    local name=$(grep "^name:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    local status=$(grep "^status:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    local progress=$(grep "^progress:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    local deadline=$(grep "^deadline:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    local area=$(grep "^area:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    
+    if [[ -z "$status_filter" || "$status" == "$status_filter" ]]; then
+      ((count++))
+      echo -e "${count}. ${name}"
+      echo "   Progress: ${progress}%"
+      echo "   Status: ${status}"
+      if [[ -n "$deadline" ]]; then
+        echo "   Deadline: ${deadline}"
+      fi
+      if [[ -n "$area" ]]; then
+        echo "   Area: ${area}"
+      fi
+      echo ""
+    fi
+  done
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No goals found."
+    echo ""
+    echo "Create a goal:"
+    echo "  gtd-goal create \"Goal Name\" --deadline \"2025-12-31\""
+  fi
+}
+
+# Goal dashboard
+goal_dashboard() {
+  echo "🎯 Goal Dashboard"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local active_count=0
+  local completed_count=0
+  local total_progress=0
+  local active_goals=0
+  
+  for goal_file in "$GOALS_DIR"/*.md; do
+    [[ ! -f "$goal_file" ]] && continue
+    
+    local name=$(grep "^name:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    local status=$(grep "^status:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    local progress=$(grep "^progress:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    local deadline=$(grep "^deadline:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
+    
+    if [[ "$status" == "active" ]]; then
+      ((active_count++))
+      total_progress=$((total_progress + progress))
+      active_goals=$((active_goals + 1))
+      
+      # Progress bar
+      local filled=$((progress / 5))
+      local empty=$((20 - filled))
+      local bar=""
+      for ((i=0; i<filled; i++)); do bar="${bar}█"; done
+      for ((i=0; i<empty; i++)); do bar="${bar}░"; done
+      
+      echo "📌 $name"
+      echo "   [$bar] ${progress}%"
+      if [[ -n "$deadline" ]]; then
+        echo "   Deadline: ${deadline}"
+      fi
+      echo ""
+    elif [[ "$status" == "completed" ]]; then
+      ((completed_count++))
+    fi
+  done
+  
+  if [[ $active_goals -gt 0 ]]; then
+    local avg_progress=$((total_progress / active_goals))
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📊 Summary:"
+    echo "   Active Goals: $active_count"
+    echo "   Completed Goals: $completed_count"
+    echo "   Average Progress: ${avg_progress}%"
+    echo ""
+  else
+    echo "No active goals. Create one:"
+    echo "  gtd-goal create \"Goal Name\""
+  fi
+}
+
+# Main function
+case "${1:-}" in
+  create)
+    shift
+    local goal_name=""
+    local deadline=""
+    local area=""
+    local description=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --deadline)
+          deadline="$2"
+          shift 2
+          ;;
+        --area)
+          area="$2"
+          shift 2
+          ;;
+        --description)
+          description="$2"
+          shift 2
+          ;;
+        *)
+          if [[ -z "$goal_name" ]]; then
+            goal_name="$1"
+          fi
+          shift
+          ;;
+      esac
+    done
+    
+    create_goal "$goal_name" "$deadline" "$area" "$description"
+    ;;
+  progress|update)
+    shift
+    local goal_name="$1"
+    local progress="$2"
+    local note="${3:-}"
+    update_progress "$goal_name" "$progress" "$note"
+    ;;
+  list)
+    list_goals "${2:-}"
+    ;;
+  dashboard)
+    goal_dashboard
+    ;;
+  complete)
+    shift
+    update_progress "$1" "100" "Goal completed!"
+    ;;
+  --help|-h)
+    cat <<EOF
+Usage: gtd-goal [command] [args...]
+
+Commands:
+  create <name> [--deadline YYYY-MM-DD] [--area area] [--description "desc"]
+    Create a new goal
+    
+  progress <name> <0-100> [note]
+    Update goal progress
+    
+  list [active|completed]
+    List all goals (or filter by status)
+    
+  dashboard
+    Show goal dashboard with progress bars
+    
+  complete <name>
+    Mark goal as complete (100%)
+    
+Examples:
+  gtd-goal create "Master Kubernetes" --deadline "2025-06-30" --area "work-career"
+  gtd-goal progress "Master Kubernetes" 60 "Completed CKA exam prep"
+  gtd-goal dashboard
+  gtd-goal list active
+EOF
+    ;;
+  "")
+    goal_dashboard
+    ;;
+  *)
+    echo "Unknown command: $1"
+    echo "Use 'gtd-goal --help' for usage"
+    exit 1
+    ;;
+esac
+
+exit 0
+

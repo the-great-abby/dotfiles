@@ -1,0 +1,64 @@
+#!/bin/bash
+# Test script to debug weather shortcut
+
+echo "🔍 Testing Weather Shortcut..."
+echo ""
+
+# Check if shortcuts command exists
+if ! command -v shortcuts &>/dev/null; then
+  echo "❌ Shortcuts CLI not found"
+  echo "   Install it or use manual weather entry"
+  exit 1
+fi
+
+echo "✓ Shortcuts CLI found"
+echo ""
+
+# List all shortcuts
+echo "📋 Available shortcuts:"
+shortcuts list 2>/dev/null | head -10
+echo ""
+
+# Try common weather shortcut names
+for shortcut_name in "Get Weather" "Log Weather" "Weather" "Get Current Weather"; do
+  echo "🧪 Testing shortcut: '$shortcut_name'"
+  output=$(shortcuts run "$shortcut_name" 2>&1)
+  exit_code=$?
+  
+  if [[ $exit_code -eq 0 && -n "$output" && "$output" != "null" ]]; then
+    echo "   ✅ Success! Output: '$output'"
+    echo ""
+    echo "   Parsing test:"
+    weather_data="$output"
+    temp_part=$(echo "$weather_data" | grep -oE '[0-9]+°[CF]' | head -1)
+    if [[ -n "$temp_part" ]]; then
+      temperature=$(echo "$temp_part" | grep -oE '[0-9]+')
+      unit=$(echo "$temp_part" | grep -oE '°[CF]')
+      condition=$(echo "$weather_data" | sed "s/.*${temp_part}[[:space:]]*and[[:space:]]*//" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      echo "   Temperature: $temperature"
+      echo "   Unit: $unit"
+      echo "   Condition: $condition"
+      echo ""
+      echo "✅ This shortcut will work with gtd-log-weather!"
+      exit 0
+    else
+      echo "   ⚠️  Output format not recognized"
+    fi
+  else
+    echo "   ❌ Not found or error (exit code: $exit_code)"
+    if [[ -n "$output" ]]; then
+      echo "   Output: '$output'"
+    fi
+  fi
+  echo ""
+done
+
+echo "❌ No working weather shortcut found"
+echo ""
+echo "💡 Solutions:"
+echo "   1. Make sure your shortcut is named exactly: 'Get Weather'"
+echo "   2. Or rename it to: 'Log Weather' or 'Weather'"
+echo "   3. Or use manual entry: gtd-log-weather 'Partly Cloudy' '10' 'F'"
+
+exit 1
+

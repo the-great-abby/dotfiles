@@ -1,0 +1,70 @@
+#!/bin/bash
+# GTD Morning Context - Collect morning metrics automatically
+# Usage: gtd-morning-context [--no-prompt]
+
+# Load configs
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+PROMPT_MOOD=true
+if [[ "$1" == "--no-prompt" ]]; then
+  PROMPT_MOOD=false
+fi
+
+echo "🌅 Collecting Morning Context..."
+echo ""
+
+# 1. Fetch weather automatically
+echo "🌤️  Fetching weather..."
+if command -v gtd-log-weather &>/dev/null; then
+  gtd-log-weather >/dev/null 2>&1
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-log-weather" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-log-weather" >/dev/null 2>&1
+fi
+echo ""
+
+# 2. Get today's calendar events
+echo "📅 Fetching today's calendar..."
+if command -v gtd-log-calendar &>/dev/null; then
+  gtd-log-calendar >/dev/null 2>&1
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-log-calendar" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-log-calendar" >/dev/null 2>&1
+fi
+echo ""
+
+# 3. Prompt for mood (if enabled)
+if [[ "$PROMPT_MOOD" == "true" ]]; then
+  echo "😊 Logging morning mood..."
+  if command -v gtd-log-mood &>/dev/null; then
+    gtd-log-mood
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-log-mood" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-log-mood"
+  fi
+  echo ""
+fi
+
+echo "✅ Morning context collected!"
+echo ""
+echo "💡 Next: Run 'gtd-checkin morning' for full morning check-in"
+
+exit 0
+

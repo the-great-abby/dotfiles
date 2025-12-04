@@ -1,15 +1,6 @@
 #!/bin/bash
-# GTD Daily Log Command - Add entry to daily log
-# Standalone script version of addInfoToDailyLog function
-
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
-fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
+# GTD HealthKit Log Helper - Called by Shortcuts to log HealthKit data
+# Usage: gtd-healthkit-log "entry text" [timestamp]
 
 # Load config if available
 DAILY_LOG_CONFIG="$HOME/.daily_log_config"
@@ -28,11 +19,12 @@ DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 
 # Get the log entry
 if [[ -z "$1" ]]; then
-  echo "Usage: gtd-daily-log \"Your log entry here\""
+  echo "Usage: gtd-healthkit-log \"Your log entry here\" [HH:MM]"
   exit 1
 fi
 
 log_entry="$1"
+provided_time="$2"
 
 # Get date command
 get_date_cmd() {
@@ -47,7 +39,14 @@ get_date_cmd() {
 
 DATE_CMD=$(get_date_cmd)
 today=$($DATE_CMD +"%Y-%m-%d")
-current_time=$($DATE_CMD +"%H:%M")
+
+# Use provided time or current time
+if [[ -n "$provided_time" ]]; then
+  current_time="$provided_time"
+else
+  current_time=$($DATE_CMD +"%H:%M")
+fi
+
 log_file="${DAILY_LOG_DIR}/${today}.md"
 
 # Expand $HOME if present in path
@@ -79,56 +78,32 @@ echo "${current_time} - ${log_entry}" >> "$log_file" || {
 
 echo "✓ Added: ${current_time} - ${log_entry}"
 
-# Check for milestones (run in background to not slow down logging)
-MILESTONE_SCRIPT="$(dirname "$0")/gtd-milestone-celebration"
-if [[ -f "$MILESTONE_SCRIPT" ]]; then
-  "$MILESTONE_SCRIPT" >/dev/null 2>&1 &
-fi
-
-# Auto-suggestions from log entry (run in background to not slow down logging)
+# Trigger auto-suggestions in background (same as gtd-daily-log)
 AUTO_SUGGEST_SCRIPT="$HOME/code/dotfiles/mcp/gtd_auto_suggest.py"
 if [[ ! -f "$AUTO_SUGGEST_SCRIPT" ]]; then
   AUTO_SUGGEST_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_auto_suggest.py"
 fi
 
 if [[ -f "$AUTO_SUGGEST_SCRIPT" ]]; then
-  # Helper script to extract banter
-  EXTRACT_BANTER="$HOME/code/dotfiles/mcp/extract_banter.py"
-  if [[ ! -f "$EXTRACT_BANTER" ]]; then
-    EXTRACT_BANTER="$HOME/code/personal/dotfiles/mcp/extract_banter.py"
-  fi
-  
-  # Run auto-suggestions in background and save banter
+  # Run auto-suggestions in background
   (
     result=$(python3 "$AUTO_SUGGEST_SCRIPT" entry "$log_entry" 2>&1)
+    EXTRACT_BANTER="$HOME/code/dotfiles/mcp/extract_banter.py"
+    if [[ ! -f "$EXTRACT_BANTER" ]]; then
+      EXTRACT_BANTER="$HOME/code/personal/dotfiles/mcp/extract_banter.py"
+    fi
+    
     if [[ -f "$EXTRACT_BANTER" ]]; then
       banter=$(echo "$result" | python3 "$EXTRACT_BANTER" 2>/dev/null)
     else
-      # Fallback: try simple extraction
       banter=$(echo "$result" | grep -o '"banter":\s*"[^"]*"' | cut -d'"' -f4)
     fi
     
     if [[ -n "$banter" && "$banter" != "None" && "$banter" != "null" ]]; then
-      # Save banter to display after a brief delay
       echo "$banter" > "${log_file}.banter.$$"
-    fi
-  ) &
-  
-  # Display banter after processing (non-blocking, appears ~1-2 seconds later)
-  (
-    sleep 2
-    banter_file="${log_file}.banter.$$"
-    if [[ -f "$banter_file" ]]; then
-      banter=$(cat "$banter_file" 2>/dev/null | head -1)
-      if [[ -n "$banter" && "$banter" != "None" && "$banter" != "null" ]]; then
-        echo ""
-        echo "💬 $banter"
-      fi
-      rm -f "$banter_file" 2>/dev/null
     fi
   ) &
 fi
 
 exit 0
-
 

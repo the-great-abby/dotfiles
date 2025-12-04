@@ -25,7 +25,21 @@ if [[ $inbox_count -gt 0 ]]; then
   fi
 fi
 
-# 2. Daily log
+# 2. Sync Apple Health data (if available)
+if command -v gtd-sync-health &>/dev/null || [[ -f "$HOME/code/dotfiles/bin/gtd-sync-health" ]] || [[ -f "$HOME/code/personal/dotfiles/bin/gtd-sync-health" ]]; then
+  echo ""
+  echo -e "${CYAN}📊 Syncing Apple Health data...${NC}"
+  if command -v gtd-sync-health &>/dev/null; then
+    gtd-sync-health
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-sync-health" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-sync-health"
+  elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-sync-health" ]]; then
+    "$HOME/code/personal/dotfiles/bin/gtd-sync-health"
+  fi
+  echo ""
+fi
+
+# 3. Daily log
 echo ""
 read -p "Evening log entry: " log_entry
 if [[ -n "$log_entry" ]]; then
@@ -54,7 +68,19 @@ if [[ -n "$log_entry" ]]; then
   fi
 fi
 
-# 3. Quick review
+# 4. Evening Summary
+if command -v gtd-evening-summary &>/dev/null || [[ -f "$HOME/code/dotfiles/bin/gtd-evening-summary" ]]; then
+  echo ""
+  echo -e "${CYAN}📊 Creating evening summary...${NC}"
+  if command -v gtd-evening-summary &>/dev/null; then
+    gtd-evening-summary
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-evening-summary" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-evening-summary"
+  fi
+  echo ""
+fi
+
+# 5. Quick review
 echo ""
 read -p "Quick daily review? (y/n) " -n 1 -r
 echo

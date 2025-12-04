@@ -1,0 +1,374 @@
+#!/bin/bash
+# GTD Metric Correlations - Analyze relationships between different metrics
+# Usage: gtd-metric-correlations [--days N]
+
+# Load configs
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+DAYS_TO_ANALYZE="${1:-30}"
+
+# Parse --days argument
+if [[ "$1" == "--days" && -n "$2" ]]; then
+  DAYS_TO_ANALYZE="$2"
+elif [[ "$1" =~ ^[0-9]+$ ]]; then
+  DAYS_TO_ANALYZE="$1"
+fi
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+echo "🔍 Cross-Metric Correlation Analysis"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Analyzing last $DAYS_TO_ANALYZE days..."
+echo ""
+
+# Analyze correlations
+analyze_weather_mood() {
+  local sunny_moods=()
+  local rainy_moods=()
+  local cloudy_moods=()
+  local sunny_count=0
+  local rainy_count=0
+  local cloudy_count=0
+  
+  # Analyze last N days
+  for i in $(seq 0 $((DAYS_TO_ANALYZE - 1))); do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
+      if [[ -f "$log_file" ]]; then
+        # Get weather
+        local weather=$(grep -iE "^[0-9][0-9]:[0-9][0-9] - Weather:" "$log_file" 2>/dev/null | tail -1 | sed 's/.*Weather: //' | cut -d',' -f1 | tr '[:upper:]' '[:lower:]')
+        
+        # Get mood entries
+        local mood_entries=$(grep -iE "^[0-9][0-9]:[0-9][0-9] - Mood:" "$log_file" 2>/dev/null)
+        
+        if [[ -n "$weather" && -n "$mood_entries" ]]; then
+          # Extract mood number (e.g., "Mood: 8/10" -> 8)
+          local mood=$(echo "$mood_entries" | tail -1 | grep -oE '[0-9]+/10' | cut -d'/' -f1)
+          
+          if [[ -n "$mood" && "$mood" =~ ^[0-9]+$ ]]; then
+            if echo "$weather" | grep -qiE "sunny|clear|bright"; then
+              sunny_moods+=("$mood")
+              sunny_count=$((sunny_count + 1))
+            elif echo "$weather" | grep -qiE "rain|storm|drizzle|wet"; then
+              rainy_moods+=("$mood")
+              rainy_count=$((rainy_count + 1))
+            elif echo "$weather" | grep -qiE "cloud|overcast|grey|gray"; then
+              cloudy_moods+=("$mood")
+              cloudy_count=$((cloudy_count + 1))
+            fi
+          fi
+        fi
+      fi
+    fi
+  done
+  
+  # Calculate averages
+  local sunny_avg=0
+  local rainy_avg=0
+  local cloudy_avg=0
+  
+  if [[ ${#sunny_moods[@]} -gt 0 ]]; then
+    local sum=0
+    for mood in "${sunny_moods[@]}"; do
+      sum=$((sum + mood))
+    done
+    sunny_avg=$((sum / ${#sunny_moods[@]}))
+  fi
+  
+  if [[ ${#rainy_moods[@]} -gt 0 ]]; then
+    local sum=0
+    for mood in "${rainy_moods[@]}"; do
+      sum=$((sum + mood))
+    done
+    rainy_avg=$((sum / ${#rainy_moods[@]}))
+  fi
+  
+  if [[ ${#cloudy_moods[@]} -gt 0 ]]; then
+    local sum=0
+    for mood in "${cloudy_moods[@]}"; do
+      sum=$((sum + mood))
+    done
+    cloudy_avg=$((sum / ${#cloudy_moods[@]}))
+  fi
+  
+  # Display results
+  if [[ $sunny_count -gt 0 || $rainy_count -gt 0 || $cloudy_count -gt 0 ]]; then
+    echo "📊 Weather → Mood Correlation:"
+    if [[ $sunny_count -gt 0 ]]; then
+      echo "   • Sunny days ($sunny_count): Average mood ${sunny_avg}/10"
+    fi
+    if [[ $cloudy_count -gt 0 ]]; then
+      echo "   • Cloudy days ($cloudy_count): Average mood ${cloudy_avg}/10"
+    fi
+    if [[ $rainy_count -gt 0 ]]; then
+      echo "   • Rainy days ($rainy_count): Average mood ${rainy_avg}/10"
+    fi
+    
+    # Calculate correlation
+    if [[ $sunny_count -gt 0 && $rainy_count -gt 0 ]]; then
+      local diff=$((sunny_avg - rainy_avg))
+      if [[ $diff -gt 0 ]]; then
+        echo "   💡 Insight: You're ${diff} points happier on sunny days!"
+      elif [[ $diff -lt 0 ]]; then
+        echo "   💡 Insight: You're $((diff * -1)) points happier on rainy days!"
+      else
+        echo "   💡 Insight: Weather doesn't significantly affect your mood"
+      fi
+    fi
+    echo ""
+  fi
+}
+
+analyze_exercise_energy() {
+  local workout_energies=()
+  local no_workout_energies=()
+  local workout_count=0
+  local no_workout_count=0
+  
+  # Analyze last N days
+  for i in $(seq 0 $((DAYS_TO_ANALYZE - 1))); do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
+      if [[ -f "$log_file" ]]; then
+        # Check for workout
+        local has_workout=false
+        if grep -qiE "workout|exercise|kettlebell|walk|run|weight|lifting|gym|fitness|training" "$log_file" 2>/dev/null; then
+          has_workout=true
+        fi
+        
+        # Get energy from mood entries
+        local energy=$(grep -iE "^[0-9][0-9]:[0-9][0-9] - Mood:" "$log_file" 2>/dev/null | tail -1 | grep -oiE "energy: (high|medium|low)" | cut -d' ' -f2 | tr '[:upper:]' '[:lower:]')
+        
+        if [[ -n "$energy" ]]; then
+          if [[ "$has_workout" == "true" ]]; then
+            workout_energies+=("$energy")
+            workout_count=$((workout_count + 1))
+          else
+            no_workout_energies+=("$energy")
+            no_workout_count=$((no_workout_count + 1))
+          fi
+        fi
+      fi
+    fi
+  done
+  
+  # Count energy levels
+  local workout_high=0
+  local workout_medium=0
+  local workout_low=0
+  local no_workout_high=0
+  local no_workout_medium=0
+  local no_workout_low=0
+  
+  for energy in "${workout_energies[@]}"; do
+    case "$energy" in
+      high) workout_high=$((workout_high + 1)) ;;
+      medium) workout_medium=$((workout_medium + 1)) ;;
+      low) workout_low=$((workout_low + 1)) ;;
+    esac
+  done
+  
+  for energy in "${no_workout_energies[@]}"; do
+    case "$energy" in
+      high) no_workout_high=$((no_workout_high + 1)) ;;
+      medium) no_workout_medium=$((no_workout_medium + 1)) ;;
+      low) no_workout_low=$((no_workout_low + 1)) ;;
+    esac
+  done
+  
+  # Display results
+  if [[ $workout_count -gt 0 || $no_workout_count -gt 0 ]]; then
+    echo "📊 Exercise → Energy Correlation:"
+    if [[ $workout_count -gt 0 ]]; then
+      local workout_high_pct=0
+      local workout_medium_pct=0
+      local workout_low_pct=0
+      if [[ $workout_count -gt 0 ]]; then
+        workout_high_pct=$((workout_high * 100 / workout_count))
+        workout_medium_pct=$((workout_medium * 100 / workout_count))
+        workout_low_pct=$((workout_low * 100 / workout_count))
+      fi
+      echo "   • Days with workout ($workout_count):"
+      echo "     - High energy: ${workout_high_pct}%"
+      echo "     - Medium energy: ${workout_medium_pct}%"
+      echo "     - Low energy: ${workout_low_pct}%"
+    fi
+    if [[ $no_workout_count -gt 0 ]]; then
+      local no_workout_high_pct=0
+      local no_workout_medium_pct=0
+      local no_workout_low_pct=0
+      if [[ $no_workout_count -gt 0 ]]; then
+        no_workout_high_pct=$((no_workout_high * 100 / no_workout_count))
+        no_workout_medium_pct=$((no_workout_medium * 100 / no_workout_count))
+        no_workout_low_pct=$((no_workout_low * 100 / no_workout_count))
+      fi
+      echo "   • Days without workout ($no_workout_count):"
+      echo "     - High energy: ${no_workout_high_pct}%"
+      echo "     - Medium energy: ${no_workout_medium_pct}%"
+      echo "     - Low energy: ${no_workout_low_pct}%"
+    fi
+    
+    # Calculate correlation
+    if [[ $workout_count -gt 0 && $no_workout_count -gt 0 ]]; then
+      local workout_high_pct=0
+      local no_workout_high_pct=0
+      if [[ $workout_count -gt 0 ]]; then
+        workout_high_pct=$((workout_high * 100 / workout_count))
+      fi
+      if [[ $no_workout_count -gt 0 ]]; then
+        no_workout_high_pct=$((no_workout_high * 100 / no_workout_count))
+      fi
+      local diff=$((workout_high_pct - no_workout_high_pct))
+      if [[ $diff -gt 10 ]]; then
+        echo "   💡 Insight: You report high energy ${diff}% more often after workouts!"
+      elif [[ $diff -lt -10 ]]; then
+        echo "   💡 Insight: You report high energy $((diff * -1))% less often without workouts"
+      else
+        echo "   💡 Insight: Exercise doesn't significantly affect your energy levels"
+      fi
+    fi
+    echo ""
+  fi
+}
+
+analyze_mood_productivity() {
+  local high_mood_tasks=0
+  local high_mood_days=0
+  local low_mood_tasks=0
+  local low_mood_days=0
+  
+  # Analyze last N days
+  for i in $(seq 0 $((DAYS_TO_ANALYZE - 1))); do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
+      if [[ -f "$log_file" ]]; then
+        # Get mood
+        local mood=$(grep -iE "^[0-9][0-9]:[0-9][0-9] - Mood:" "$log_file" 2>/dev/null | tail -1 | grep -oE '[0-9]+/10' | cut -d'/' -f1)
+        
+        # Count tasks completed (simplified - look for task completion mentions)
+        local tasks_completed=$(grep -ciE "completed.*task|finished.*task|done.*task|task.*complete" "$log_file" 2>/dev/null || echo "0")
+        # Ensure it's a number
+        if [[ ! "$tasks_completed" =~ ^[0-9]+$ ]]; then
+          tasks_completed=0
+        fi
+        
+        if [[ -n "$mood" && "$mood" =~ ^[0-9]+$ ]]; then
+          if [[ $mood -ge 7 ]]; then
+            high_mood_tasks=$((high_mood_tasks + tasks_completed))
+            high_mood_days=$((high_mood_days + 1))
+          elif [[ $mood -le 5 ]]; then
+            low_mood_tasks=$((low_mood_tasks + tasks_completed))
+            low_mood_days=$((low_mood_days + 1))
+          fi
+        fi
+      fi
+    fi
+  done
+  
+  # Display results
+  if [[ $high_mood_days -gt 0 || $low_mood_days -gt 0 ]]; then
+    echo "📊 Mood → Productivity Correlation:"
+    if [[ $high_mood_days -gt 0 ]]; then
+      local high_avg=0
+      if [[ $high_mood_days -gt 0 ]]; then
+        high_avg=$((high_mood_tasks / high_mood_days))
+      fi
+      echo "   • High mood days (7+, $high_mood_days days): Average ${high_avg} tasks completed"
+    fi
+    if [[ $low_mood_days -gt 0 ]]; then
+      local low_avg=0
+      if [[ $low_mood_days -gt 0 ]]; then
+        low_avg=$((low_mood_tasks / low_mood_days))
+      fi
+      echo "   • Low mood days (5-, $low_mood_days days): Average ${low_avg} tasks completed"
+    fi
+    
+    # Calculate correlation
+    if [[ $high_mood_days -gt 0 && $low_mood_days -gt 0 ]]; then
+      local high_avg=0
+      local low_avg=0
+      if [[ $high_mood_days -gt 0 ]]; then
+        high_avg=$((high_mood_tasks / high_mood_days))
+      fi
+      if [[ $low_mood_days -gt 0 ]]; then
+        low_avg=$((low_mood_tasks / low_mood_days))
+      fi
+      local diff=$((high_avg - low_avg))
+      if [[ $diff -gt 0 ]]; then
+        echo "   💡 Insight: You complete ${diff} more tasks when mood is high!"
+      elif [[ $diff -lt 0 ]]; then
+        echo "   💡 Insight: You complete $((diff * -1)) fewer tasks when mood is low"
+      else
+        echo "   💡 Insight: Mood doesn't significantly affect task completion"
+      fi
+    fi
+    echo ""
+  fi
+}
+
+# Run analyses
+analyze_weather_mood
+analyze_exercise_energy
+analyze_mood_productivity
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "💡 Tip: Log mood, weather, and exercise consistently for better insights!"
+echo ""
+
+exit 0
+

@@ -245,6 +245,19 @@ evening_checkin() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   
+  # Sync Apple Health data (if available)
+  if command -v gtd-sync-health &>/dev/null || [[ -f "$HOME/code/dotfiles/bin/gtd-sync-health" ]] || [[ -f "$HOME/code/personal/dotfiles/bin/gtd-sync-health" ]]; then
+    echo -e "${CYAN}📊 Syncing Apple Health data...${NC}"
+    if command -v gtd-sync-health &>/dev/null; then
+      gtd-sync-health
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-sync-health" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-sync-health"
+    elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-sync-health" ]]; then
+      "$HOME/code/personal/dotfiles/bin/gtd-sync-health"
+    fi
+    echo ""
+  fi
+  
   # Evening questions
   echo -e "${BOLD}💭 Evening Reflection${NC}"
   echo ""

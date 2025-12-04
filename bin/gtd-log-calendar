@@ -1,0 +1,81 @@
+#!/bin/bash
+# GTD Calendar Logger - Log calendar events to daily log
+# Usage: gtd-log-calendar [summary]
+# Or call without args to fetch from calendar
+
+# Load config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+today=$($DATE_CMD +"%Y-%m-%d")
+current_time=$($DATE_CMD +"%H:%M")
+
+# Parse arguments or prompt
+if [[ -n "$1" ]]; then
+  summary="$1"
+else
+  # Try to get calendar events via Shortcuts
+  if command -v shortcuts &>/dev/null; then
+    # Try to run a Shortcuts shortcut named "Get Today's Calendar"
+    calendar_data=$(shortcuts run "Get Today's Calendar" 2>/dev/null || echo "")
+    if [[ -n "$calendar_data" ]]; then
+      summary="$calendar_data"
+    fi
+  fi
+  
+  # If still no data, prompt
+  if [[ -z "$summary" ]]; then
+    echo "📅 Calendar Event Logger"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    read -p "Event summary (e.g., 'Meeting: Sprint Planning (1.5 hours)'): " summary
+    echo ""
+  fi
+fi
+
+# Format entry
+entry="Calendar: ${summary}"
+
+# Use gtd-healthkit-log or gtd-daily-log
+if command -v gtd-healthkit-log &>/dev/null; then
+  gtd-healthkit-log "$entry" "$current_time"
+elif command -v gtd-daily-log &>/dev/null; then
+  gtd-daily-log "$entry"
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-daily-log" "$entry"
+else
+  # Fallback
+  log_file="${DAILY_LOG_DIR}/${today}.md"
+  mkdir -p "$(dirname "$log_file")"
+  if [[ ! -f "$log_file" ]]; then
+    echo "# Daily Log - $today" > "$log_file"
+    echo "" >> "$log_file"
+  fi
+  echo "${current_time} - ${entry}" >> "$log_file"
+  echo "✓ Added: ${current_time} - ${entry}"
+fi
+
+exit 0
+

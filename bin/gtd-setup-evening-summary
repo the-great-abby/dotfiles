@@ -1,0 +1,122 @@
+#!/bin/bash
+# Setup automatic evening summary
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+DAILY_REVIEW_TIME="${GTD_DAILY_REVIEW_TIME:-18:00}"  # 6:00 PM default
+EVENING_SUMMARY_ENABLED="${GTD_EVENING_SUMMARY_ENABLED:-true}"
+
+# Parse time
+REVIEW_HOUR=$(echo "$DAILY_REVIEW_TIME" | cut -d':' -f1)
+REVIEW_MIN=$(echo "$DAILY_REVIEW_TIME" | cut -d':' -f2)
+
+# Evening summary runs 5 minutes before evening review (or 5:55 PM if review is 6:00 PM)
+SUMMARY_MIN=$((REVIEW_MIN - 5))
+SUMMARY_HOUR=$REVIEW_HOUR
+
+# Handle minute rollover
+if [[ $SUMMARY_MIN -lt 0 ]]; then
+  SUMMARY_MIN=$((60 + SUMMARY_MIN))
+  SUMMARY_HOUR=$((SUMMARY_HOUR - 1))
+  if [[ $SUMMARY_HOUR -lt 0 ]]; then
+    SUMMARY_HOUR=23
+  fi
+fi
+
+# Script paths
+SUMMARY_SCRIPT="$HOME/code/dotfiles/bin/gtd-evening-summary"
+if [[ ! -f "$SUMMARY_SCRIPT" ]]; then
+  SUMMARY_SCRIPT="$HOME/code/personal/dotfiles/bin/gtd-evening-summary"
+fi
+
+if [[ ! -f "$SUMMARY_SCRIPT" ]]; then
+  echo "❌ Error: Evening summary script not found at $SUMMARY_SCRIPT"
+  exit 1
+fi
+
+# Plist destination
+PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.evening-summary.plist"
+
+# Create plist
+TEMP_PLIST=$(mktemp)
+cat > "$TEMP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.abby.gtd.evening-summary</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$SUMMARY_SCRIPT</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>$SUMMARY_HOUR</integer>
+        <key>Minute</key>
+        <integer>$SUMMARY_MIN</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-evening-summary.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-evening-summary.error.log</string>
+</dict>
+</plist>
+EOF
+
+# Copy to destination
+cp "$TEMP_PLIST" "$PLIST_DEST"
+rm "$TEMP_PLIST"
+
+echo "✓ Created plist file: $PLIST_DEST"
+echo ""
+
+# Check if already loaded
+if launchctl list | grep -q "com.abby.gtd.evening-summary"; then
+  echo "🔄 Unloading existing launch agent..."
+  launchctl unload "$PLIST_DEST" 2>/dev/null || true
+fi
+
+# Load the launch agent
+echo "🚀 Loading launch agent..."
+if launchctl load "$PLIST_DEST" 2>/dev/null; then
+  echo "✓ Evening summary installed and activated!"
+  echo ""
+  echo "📅 Summary Schedule:"
+  echo "   Time: ${SUMMARY_HOUR}:$(printf "%02d" $SUMMARY_MIN) (5 minutes before evening review at $DAILY_REVIEW_TIME)"
+  echo ""
+  echo "💡 To change the time, edit GTD_DAILY_REVIEW_TIME in:"
+  echo "   $GTD_CONFIG_FILE"
+  echo ""
+  echo "   Then reload with:"
+  echo "   launchctl unload $PLIST_DEST"
+  echo "   launchctl load $PLIST_DEST"
+  echo ""
+  echo "🧪 Test the summary:"
+  echo "   gtd-evening-summary --no-discord  # Test without Discord"
+  echo "   gtd-evening-summary                # Test with Discord"
+  echo ""
+  echo "📋 Make sure you have:"
+  echo "   1. Created Shortcuts shortcuts (see EVENING_SUMMARY_SHORTCUTS.md)"
+  echo "   2. Set GTD_DISCORD_WEBHOOK_URL for Discord notifications"
+  echo ""
+else
+  echo "❌ Error: Failed to load launch agent"
+  echo "   Check the plist file for errors"
+  exit 1
+fi
+

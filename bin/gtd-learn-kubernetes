@@ -30,6 +30,8 @@ fi
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+MAGENTA='\033[0;35m'
+BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m'
 
@@ -205,12 +207,34 @@ track_study_session() {
   fi
 }
 
+# Get gamification stats for menu
+get_gamification_stats() {
+  if [[ -f "${K8S_STUDY_DIR}/gamification.json" ]]; then
+    local data=$(cat "${K8S_STUDY_DIR}/gamification.json")
+    local level=$(echo "$data" | grep -o '"level": [0-9]*' | grep -o '[0-9]*')
+    local xp=$(echo "$data" | grep -o '"total_xp": [0-9]*' | grep -o '[0-9]*')
+    local streak=$(echo "$data" | grep -o '"study_streak": [0-9]*' | grep -o '[0-9]*')
+    echo "$level|$xp|$streak"
+  else
+    echo "1|0|0"
+  fi
+}
+
 # Show lesson menu
 show_k8s_menu() {
   clear
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "${BOLD}${CYAN}☸️  Kubernetes/CKA Learning with Mistress Louiza${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  
+  # Show gamification stats
+  local stats=$(get_gamification_stats)
+  local level=$(echo "$stats" | cut -d'|' -f1)
+  local xp=$(echo "$stats" | cut -d'|' -f2)
+  local streak=$(echo "$stats" | cut -d'|' -f3)
+  
+  echo ""
+  echo -e "${BOLD}🎮 Level ${level}${NC} | ${GREEN}${xp} XP${NC} | ${YELLOW}🔥 ${streak} day streak${NC}"
   echo ""
   echo -e "${BOLD}What would you like to learn?${NC}"
   echo ""
@@ -226,6 +250,9 @@ show_k8s_menu() {
   echo -e "${GREEN}10)${NC} Practice Exercise"
   echo -e "${GREEN}11)${NC} Study Progress"
   echo -e "${GREEN}12)${NC} Custom Topic"
+  echo -e "${MAGENTA}13)${NC} 🎮 Gamification Dashboard"
+  echo -e "${BLUE}14)${NC} ⌨️  Typing Simulator (Practice kubectl commands)"
+  echo -e "${YELLOW}15)${NC} ⚡ Quick Study (Low-energy activities)"
   echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
@@ -312,6 +339,33 @@ main() {
           echo -n "What Kubernetes topic would you like to learn about? "
           read topic
           ;;
+        13)
+          if command -v gtd-cka-gamification &>/dev/null; then
+            gtd-cka-gamification dashboard
+          else
+            echo "Gamification system not found"
+            read -p "Press Enter to continue..."
+          fi
+          continue
+          ;;
+        14)
+          if command -v gtd-cka-typing &>/dev/null; then
+            gtd-cka-typing
+          else
+            echo "Typing simulator not found"
+            read -p "Press Enter to continue..."
+          fi
+          continue
+          ;;
+        15)
+          if command -v gtd-cka-quick &>/dev/null; then
+            gtd-cka-quick
+          else
+            echo "Quick study not found"
+            read -p "Press Enter to continue..."
+          fi
+          continue
+          ;;
         0)
           echo ""
           echo "Goodbye! Keep studying, baby girl. You've got this! ☸️"
@@ -352,6 +406,13 @@ main() {
         if [[ "$duration" =~ ^[0-9]+$ ]]; then
           track_study_session "$topic" "$duration"
           echo -e "${GREEN}✓${NC} Study session tracked"
+          
+          # Award XP and track lesson
+          if command -v gtd-cka-gamification &>/dev/null; then
+            echo ""
+            local xp_gain=$(gtd-cka-gamification lesson "$topic" "$duration" 2>&1)
+            echo -e "${GREEN}${xp_gain}${NC}"
+          fi
         fi
         echo ""
         
@@ -394,10 +455,17 @@ main() {
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       echo ""
       
-      # Save to study notes
-      local note_file=$(create_study_note "$topic" "$lesson")
-      echo -e "${GREEN}✓${NC} Study note saved: $(basename "$note_file")"
-      echo ""
+        # Save to study notes
+        local note_file=$(create_study_note "$topic" "$lesson")
+        echo -e "${GREEN}✓${NC} Study note saved: $(basename "$note_file")"
+        echo ""
+        
+        # Track lesson (non-interactive mode, default duration)
+        if command -v gtd-cka-gamification &>/dev/null; then
+          local xp_gain=$(gtd-cka-gamification lesson "$topic" "15" 2>&1)
+          echo -e "${GREEN}${xp_gain}${NC}"
+          echo ""
+        fi
     else
       echo "⚠️  Could not get lesson. Check LM Studio connection."
       exit 1

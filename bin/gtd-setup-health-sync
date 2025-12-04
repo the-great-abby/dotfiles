@@ -1,0 +1,126 @@
+#!/bin/bash
+# Setup automatic evening health sync
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+DAILY_REVIEW_TIME="${GTD_DAILY_REVIEW_TIME:-18:00}"  # 6:00 PM default
+HEALTH_SYNC_ENABLED="${GTD_HEALTH_SYNC_ENABLED:-true}"
+
+# Parse time
+REVIEW_HOUR=$(echo "$DAILY_REVIEW_TIME" | cut -d':' -f1)
+REVIEW_MIN=$(echo "$DAILY_REVIEW_TIME" | cut -d':' -f2)
+
+# Health sync runs 10 minutes before evening review (or 5:50 PM if review is 6:00 PM)
+SYNC_MIN=$((REVIEW_MIN - 10))
+SYNC_HOUR=$REVIEW_HOUR
+
+# Handle minute rollover
+if [[ $SYNC_MIN -lt 0 ]]; then
+  SYNC_MIN=$((60 + SYNC_MIN))
+  SYNC_HOUR=$((SYNC_HOUR - 1))
+  if [[ $SYNC_HOUR -lt 0 ]]; then
+    SYNC_HOUR=23
+  fi
+fi
+
+# Script paths
+SYNC_SCRIPT="$HOME/code/dotfiles/bin/gtd-sync-health"
+if [[ ! -f "$SYNC_SCRIPT" ]]; then
+  SYNC_SCRIPT="$HOME/code/personal/dotfiles/bin/gtd-sync-health"
+fi
+
+if [[ ! -f "$SYNC_SCRIPT" ]]; then
+  echo "❌ Error: Health sync script not found at $SYNC_SCRIPT"
+  exit 1
+fi
+
+# Plist destination
+PLIST_DEST="$HOME/Library/LaunchAgents/com.abby.gtd.health-sync.plist"
+PLIST_SOURCE="$HOME/code/dotfiles/zsh/com.abby.gtd.health-sync.plist"
+if [[ ! -f "$PLIST_SOURCE" ]]; then
+  PLIST_SOURCE="$HOME/code/personal/dotfiles/zsh/com.abby.gtd.health-sync.plist"
+fi
+
+# Create plist
+TEMP_PLIST=$(mktemp)
+cat > "$TEMP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.abby.gtd.health-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$SYNC_SCRIPT</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>$SYNC_HOUR</integer>
+        <key>Minute</key>
+        <integer>$SYNC_MIN</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-health-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-health-sync.error.log</string>
+</dict>
+</plist>
+EOF
+
+# Copy to destination
+cp "$TEMP_PLIST" "$PLIST_DEST"
+rm "$TEMP_PLIST"
+
+echo "✓ Created plist file: $PLIST_DEST"
+echo ""
+
+# Check if already loaded
+if launchctl list | grep -q "com.abby.gtd.health-sync"; then
+  echo "🔄 Unloading existing launch agent..."
+  launchctl unload "$PLIST_DEST" 2>/dev/null || true
+fi
+
+# Load the launch agent
+echo "🚀 Loading launch agent..."
+if launchctl load "$PLIST_DEST" 2>/dev/null; then
+  echo "✓ Evening health sync installed and activated!"
+  echo ""
+  echo "📅 Sync Schedule:"
+  echo "   Time: ${SYNC_HOUR}:$(printf "%02d" $SYNC_MIN) (10 minutes before evening review at $DAILY_REVIEW_TIME)"
+  echo ""
+  echo "💡 To change the time, edit GTD_DAILY_REVIEW_TIME in:"
+  echo "   $GTD_CONFIG_FILE"
+  echo ""
+  echo "   Then reload with:"
+  echo "   launchctl unload $PLIST_DEST"
+  echo "   launchctl load $PLIST_DEST"
+  echo ""
+  echo "🧪 Test the sync:"
+  echo "   gtd-sync-health"
+  echo ""
+  echo "📋 Make sure you have:"
+  echo "   1. Created a Shortcuts shortcut for health logging"
+  echo "   2. Named it 'Log Daily Health Summary' (or set GTD_HEALTH_SYNC_SHORTCUT)"
+  echo "   See: zsh/APPLE_HEALTH_SHORTCUTS_SETUP.md"
+  echo ""
+else
+  echo "❌ Error: Failed to load launch agent"
+  echo "   Check the plist file for errors"
+  exit 1
+fi
+

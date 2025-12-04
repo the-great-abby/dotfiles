@@ -1,0 +1,157 @@
+#!/bin/bash
+# GTD Health Sync - Sync Apple Health data to daily log
+# Can be called manually, from evening routine, or via automation
+
+# Load config if available
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Default values
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+today=$($DATE_CMD +"%Y-%m-%d")
+current_time=$($DATE_CMD +"%H:%M")
+
+# Check if Shortcuts is available and can run health sync shortcut
+SHORTCUTS_CMD="shortcuts"
+HEALTH_SYNC_SHORTCUT="Log Daily Health Summary"  # Default shortcut name
+
+# Try to find the shortcut name from config or use default
+if [[ -n "${GTD_HEALTH_SYNC_SHORTCUT:-}" ]]; then
+  HEALTH_SYNC_SHORTCUT="${GTD_HEALTH_SYNC_SHORTCUT}"
+fi
+
+# Function to run Shortcuts shortcut
+run_health_shortcut() {
+  local shortcut_name="$1"
+  
+  # Try to run the shortcut via Shortcuts CLI
+  if command -v "$SHORTCUTS_CMD" &>/dev/null; then
+    # macOS Shortcuts CLI (available on macOS 12+)
+    if "$SHORTCUTS_CMD" run "$shortcut_name" &>/dev/null; then
+      return 0
+    fi
+  fi
+  
+  # Alternative: Use osascript to run shortcut
+  if command -v osascript &>/dev/null; then
+    osascript -e "tell application \"Shortcuts Events\" to run shortcut \"$shortcut_name\"" &>/dev/null
+    if [[ $? -eq 0 ]]; then
+      return 0
+    fi
+  fi
+  
+  return 1
+}
+
+# Function to check if health data already logged today
+health_already_logged() {
+  local log_file="${DAILY_LOG_DIR}/${today}.md"
+  
+  if [[ ! -f "$log_file" ]]; then
+    return 1  # No log file, not logged
+  fi
+  
+  # Check for health summary entries
+  if grep -qiE "Apple Watch.*Daily Summary|Apple Watch.*steps.*calories|Health.*Summary" "$log_file" 2>/dev/null; then
+    return 0  # Already logged
+  fi
+  
+  return 1  # Not logged
+}
+
+# Main sync function
+sync_health_data() {
+  local force="${1:-false}"
+  
+  # Check if already logged (unless forced)
+  if [[ "$force" != "true" ]] && health_already_logged; then
+    echo "ℹ️  Health data already logged today. Use --force to sync again."
+    return 0
+  fi
+  
+  echo "🔄 Syncing Apple Health data to daily log..."
+  
+  # Try to run the Shortcuts shortcut
+  if run_health_shortcut "$HEALTH_SYNC_SHORTCUT"; then
+    echo "✓ Health data sync triggered via Shortcuts"
+    echo "  Check your daily log in a few seconds"
+    return 0
+  else
+    echo "⚠️  Could not run Shortcuts shortcut: $HEALTH_SYNC_SHORTCUT"
+    echo ""
+    echo "💡 Make sure you have:"
+    echo "   1. Created a Shortcuts shortcut named: '$HEALTH_SYNC_SHORTCUT'"
+    echo "   2. The shortcut logs health data using: gtd-healthkit-log"
+    echo ""
+    echo "   See: zsh/APPLE_HEALTH_SHORTCUTS_SETUP.md for setup instructions"
+    echo ""
+    echo "   Or set a custom shortcut name in .gtd_config:"
+    echo "   GTD_HEALTH_SYNC_SHORTCUT=\"Your Shortcut Name\""
+    return 1
+  fi
+}
+
+# Parse arguments
+case "${1:-}" in
+  --force|-f)
+    sync_health_data "true"
+    ;;
+  --help|-h)
+    echo "Usage: gtd-sync-health [--force]"
+    echo ""
+    echo "Syncs Apple Health data to your daily log."
+    echo ""
+    echo "Options:"
+    echo "  --force, -f    Force sync even if already logged today"
+    echo "  --help, -h     Show this help message"
+    echo ""
+    echo "Configuration:"
+    echo "  Set GTD_HEALTH_SYNC_SHORTCUT in .gtd_config to use a custom shortcut name"
+    echo ""
+    echo "See: zsh/APPLE_HEALTH_SHORTCUTS_SETUP.md for setup instructions"
+    ;;
+  "")
+    sync_health_data "false"
+    ;;
+  *)
+    echo "Unknown option: $1"
+    echo "Use --help for usage information"
+    exit 1
+    ;;
+esac
+
+exit 0
+

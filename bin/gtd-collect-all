@@ -1,0 +1,98 @@
+#!/bin/bash
+# GTD Collect All - Batch collection of all available metrics
+# Usage: gtd-collect-all [--skip-health] [--skip-calendar] [--skip-weather]
+
+# Load configs
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+SKIP_HEALTH=false
+SKIP_CALENDAR=false
+SKIP_WEATHER=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --skip-health)
+      SKIP_HEALTH=true
+      ;;
+    --skip-calendar)
+      SKIP_CALENDAR=true
+      ;;
+    --skip-weather)
+      SKIP_WEATHER=true
+      ;;
+    --help|-h)
+      echo "Usage: gtd-collect-all [--skip-health] [--skip-calendar] [--skip-weather]"
+      echo ""
+      echo "Collects all available metrics in one go."
+      echo ""
+      echo "Options:"
+      echo "  --skip-health     Skip health data sync"
+      echo "  --skip-calendar   Skip calendar events"
+      echo "  --skip-weather    Skip weather"
+      exit 0
+      ;;
+  esac
+done
+
+echo "📊 Collecting All Metrics..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# 1. Weather
+if [[ "$SKIP_WEATHER" != "true" ]]; then
+  echo "🌤️  Weather..."
+  if command -v gtd-log-weather &>/dev/null; then
+    gtd-log-weather
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-log-weather" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-log-weather"
+  fi
+  echo ""
+fi
+
+# 2. Calendar
+if [[ "$SKIP_CALENDAR" != "true" ]]; then
+  echo "📅 Calendar events..."
+  if command -v gtd-log-calendar &>/dev/null; then
+    gtd-log-calendar
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-log-calendar" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-log-calendar"
+  fi
+  echo ""
+fi
+
+# 3. Health
+if [[ "$SKIP_HEALTH" != "true" ]]; then
+  echo "💪 Health data..."
+  if command -v gtd-sync-health &>/dev/null; then
+    gtd-sync-health
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-sync-health" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-sync-health"
+  fi
+  echo ""
+fi
+
+# 4. Mood (always prompt)
+echo "😊 Mood & Energy..."
+if command -v gtd-log-mood &>/dev/null; then
+  gtd-log-mood
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-log-mood" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-log-mood"
+fi
+echo ""
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ All metrics collected!"
+echo ""
+echo "💡 Run 'gtd-evening-summary' to see everything together"
+
+exit 0
+

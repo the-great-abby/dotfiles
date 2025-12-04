@@ -1,0 +1,185 @@
+#!/bin/bash
+# GTD Weather Logger - Log weather to daily log
+# Usage: gtd-log-weather [condition] [temperature] [unit]
+# Or call without args to fetch automatically (requires Shortcuts or manual input)
+
+# Load config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+today=$($DATE_CMD +"%Y-%m-%d")
+current_time=$($DATE_CMD +"%H:%M")
+
+# Parse arguments or fetch automatically
+if [[ -n "$1" && -n "$2" ]]; then
+  condition="$1"
+  temperature="$2"
+  unit="${3:-°F}"
+else
+  # Try to get weather automatically
+  weather_fetched=false
+  
+  # Method 1: Try Shortcuts (if shortcut exists)
+  if command -v shortcuts &>/dev/null; then
+    # Try common shortcut names
+    for shortcut_name in "Get Weather" "Log Weather" "Weather"; do
+      weather_data=$(shortcuts run "$shortcut_name" 2>/dev/null || echo "")
+      if [[ -n "$weather_data" && "$weather_data" != "null" ]]; then
+        # Try to parse different formats:
+        # Format 1: "10°F and Partly Cloudy" (temperature first, then condition)
+        # Format 2: "Partly Cloudy, 10°F" (condition first, then temperature)
+        # Format 3: "10°F, Partly Cloudy" (temperature first, comma-separated)
+        
+        # Check if it starts with temperature (number followed by degree symbol)
+        if echo "$weather_data" | grep -qE '^[0-9]+°[CF]'; then
+          # Format: "10°F and Partly Cloudy" or "10°F, Partly Cloudy"
+          temp_part=$(echo "$weather_data" | grep -oE '[0-9]+°[CF]' | head -1)
+          temperature=$(echo "$temp_part" | grep -oE '[0-9]+')
+          unit=$(echo "$temp_part" | grep -oE '°[CF]')
+          # Extract condition (everything after temperature and "and")
+          # Handle format: "10°F and Partly Cloudy"
+          condition=$(echo "$weather_data" | sed "s/.*${temp_part}[[:space:]]*and[[:space:]]*//" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          if [[ -z "$condition" ]]; then
+            # Try alternative: might be "10°F, Partly Cloudy" (comma-separated)
+            condition=$(echo "$weather_data" | sed "s/.*${temp_part}[[:space:]]*,[[:space:]]*//" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          fi
+          if [[ -z "$condition" ]]; then
+            # Try alternative: might be "10°F Partly Cloudy" (no and/comma, just space)
+            condition=$(echo "$weather_data" | sed "s/${temp_part}[[:space:]]*//" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          fi
+        elif echo "$weather_data" | grep -qE ','; then
+          # Format: "Condition, Temperature" (comma-separated)
+          condition=$(echo "$weather_data" | cut -d',' -f1 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          temp_part=$(echo "$weather_data" | cut -d',' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          temperature=$(echo "$temp_part" | grep -oE '[0-9]+' | head -1)
+          unit=$(echo "$temp_part" | grep -oE '°[CF]' || echo "°F")
+        else
+          # Try to extract both from any format
+          temp_part=$(echo "$weather_data" | grep -oE '[0-9]+°[CF]' | head -1)
+          if [[ -n "$temp_part" ]]; then
+            temperature=$(echo "$temp_part" | grep -oE '[0-9]+')
+            unit=$(echo "$temp_part" | grep -oE '°[CF]')
+            # Try to find condition (remove temperature and common words)
+            condition=$(echo "$weather_data" | sed "s/${temp_part}//" | sed 's/and//' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          fi
+        fi
+        
+        if [[ -n "$condition" && -n "$temperature" ]]; then
+          weather_fetched=true
+          break  # Found working shortcut, stop trying others
+        fi
+      fi
+    done
+  fi
+  
+  # Method 2: Try macOS WeatherKit via osascript (macOS 13+)
+  if [[ "$weather_fetched" == "false" ]] && command -v osascript &>/dev/null; then
+    weather_data=$(osascript -e 'tell application "Weather" to get current weather' 2>/dev/null || echo "")
+    if [[ -n "$weather_data" && "$weather_data" != "missing value" ]]; then
+      # Try to parse weather data
+      condition=$(echo "$weather_data" | cut -d',' -f1 | sed 's/^[[:space:]]*//')
+      temp_part=$(echo "$weather_data" | grep -oE '[0-9]+' | head -1)
+      if [[ -n "$temp_part" ]]; then
+        temperature="$temp_part"
+        unit="°F"  # Default to Fahrenheit
+        weather_fetched=true
+      fi
+    fi
+  fi
+  
+  # Method 3: Try curl with wttr.in (simple weather service)
+  if [[ "$weather_fetched" == "false" ]] && command -v curl &>/dev/null; then
+    # Get location (try to get from system or use default)
+    location="${WEATHER_LOCATION:-}"
+    if [[ -z "$location" ]]; then
+      # Try to get city from system
+      location=$(scselect 2>/dev/null | grep -i "current" | head -1 | awk '{print $NF}' || echo "")
+    fi
+    
+    # Default to a simple location query
+    if [[ -z "$location" ]]; then
+      location=""
+    fi
+    
+    # Fetch weather (wttr.in format: condition and temperature)
+    weather_response=$(curl -s --max-time 3 "wttr.in/${location}?format=%C+%t" 2>/dev/null || echo "")
+    if [[ -n "$weather_response" && ! "$weather_response" =~ "ERROR" && ! "$weather_response" =~ "Sorry" ]]; then
+      # Parse: "Sunny +72°F" or "Cloudy +68°F"
+      condition=$(echo "$weather_response" | sed 's/+[0-9]*°[CF].*//' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      temp_part=$(echo "$weather_response" | grep -oE '\+?[0-9]+°[CF]' | head -1)
+      if [[ -n "$temp_part" ]]; then
+        temperature=$(echo "$temp_part" | grep -oE '[0-9]+')
+        unit=$(echo "$temp_part" | grep -oE '°[CF]')
+        if [[ -n "$condition" && -n "$temperature" ]]; then
+          weather_fetched=true
+        fi
+      fi
+    fi
+  fi
+  
+  # If still no data, prompt user
+  if [[ "$weather_fetched" == "false" ]]; then
+    echo "🌤️  Weather Logger"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Could not fetch weather automatically. Please enter manually:"
+    echo ""
+    read -p "Condition (e.g., Sunny, Cloudy): " condition
+    read -p "Temperature: " temperature
+    read -p "Unit (F/C, default F): " unit_input
+    unit="${unit_input:-°F}"
+    if [[ ! "$unit" =~ ° ]]; then
+      unit="°${unit}"
+    fi
+    echo ""
+  else
+    echo "🌤️  Fetched weather: ${condition}, ${temperature}${unit}"
+  fi
+fi
+
+# Format entry
+entry="Weather: ${condition}, ${temperature}${unit}"
+
+# Use gtd-healthkit-log or gtd-daily-log
+if command -v gtd-healthkit-log &>/dev/null; then
+  gtd-healthkit-log "$entry" "$current_time"
+elif command -v gtd-daily-log &>/dev/null; then
+  gtd-daily-log "$entry"
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-daily-log" "$entry"
+else
+  # Fallback
+  log_file="${DAILY_LOG_DIR}/${today}.md"
+  mkdir -p "$(dirname "$log_file")"
+  if [[ ! -f "$log_file" ]]; then
+    echo "# Daily Log - $today" > "$log_file"
+    echo "" >> "$log_file"
+  fi
+  echo "${current_time} - ${entry}" >> "$log_file"
+  echo "✓ Added: ${current_time} - ${entry}"
+fi
+
+exit 0
+

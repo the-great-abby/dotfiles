@@ -199,6 +199,213 @@ EOF
   echo ""
 }
 
+# Create Greek study plan
+create_greek_plan() {
+  local project_name="greek-language-learning"
+  local project_dir="${GTD_BASE_DIR}/1-projects/${project_name}"
+  
+  mkdir -p "$project_dir"
+  
+  # Create project README
+  cat > "${project_dir}/README.md" <<EOF
+# Greek Language Learning
+
+**Goal:** Learn to read and understand Greek (the language)
+
+**Status:** Active
+
+## Learning Objectives
+- Learn the Greek alphabet (24 letters)
+- Develop reading skills in Greek
+- Build vocabulary
+- Understand Greek grammar basics
+- Develop reading comprehension
+
+## Study Plan
+
+### Phase 1: Alphabet & Basics (Weeks 1-2)
+- [ ] Learn Greek alphabet (24 letters)
+- [ ] Practice recognizing letters
+- [ ] Learn basic pronunciation
+- [ ] Practice writing Greek letters
+- [ ] Start reading simple words
+
+### Phase 2: Reading Fundamentals (Weeks 3-4)
+- [ ] Build basic vocabulary
+- [ ] Practice reading simple sentences
+- [ ] Learn word recognition strategies
+- [ ] Practice reading aloud
+- [ ] Start understanding basic word structure
+
+### Phase 3: Grammar & Comprehension (Weeks 5-8)
+- [ ] Learn Greek grammar basics
+- [ ] Understand noun cases
+- [ ] Learn verb conjugations
+- [ ] Practice reading comprehension
+- [ ] Build more vocabulary
+- [ ] Read simple texts
+
+### Phase 4: Advanced Reading (Weeks 9-12)
+- [ ] Read increasingly complex texts
+- [ ] Expand vocabulary significantly
+- [ ] Master grammar concepts
+- [ ] Develop fluency in reading
+- [ ] Understand nuanced meanings
+
+## Daily Study Routine
+1. Study for 30-60 minutes daily
+2. Practice reading Greek text
+3. Review vocabulary
+4. Log progress: \`addInfoToDailyLog "Greek Study: [topic]"\`
+5. Create tasks for practice exercises
+6. Track habit: \`gtd-habit log "Greek Study"\`
+7. Review weekly progress
+
+## Resources
+- Study notes in: \${STUDY_DIR}/greek/notes/
+- Practice exercises in: \${STUDY_DIR}/greek/practice/
+- Progress tracking in: \${STUDY_DIR}/greek/progress/
+
+## Commands
+- Learn: \`gtd-learn-greek [topic]\`
+- Track: \`addInfoToDailyLog "Greek Study: [topic]"\`
+- Habit: \`gtd-habit log "Greek Study"\`
+- Study plan: \`gtd-study-plan greek\`
+- Review: \`gtd-review weekly\`
+
+## Topics Covered
+1. Greek Alphabet (24 letters)
+2. Reading Greek
+3. Vocabulary Building
+4. Grammar Basics
+5. Verbs & Conjugation
+6. Nouns & Cases
+7. Reading Comprehension
+8. Pronunciation
+
+Created: $($DATE_CMD)
+EOF
+
+  # Create initial tasks directly (non-interactive)
+  echo "Creating initial study tasks..."
+  
+  local tasks_path="${GTD_BASE_DIR}/tasks"
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local now=$($DATE_CMD +"%H:%M")
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  
+  mkdir -p "$tasks_path"
+  
+  # Task 1: Learn Greek alphabet
+  local task1_file="${tasks_path}/${timestamp}-learn-greek-alphabet.md"
+  cat > "$task1_file" <<EOF
+---
+type: task
+status: active
+created: ${today}T${now}
+context: computer
+energy: medium
+priority: not_urgent_important
+project: ${project_name}
+tags: []
+---
+
+# Learn Greek alphabet (24 letters)
+
+## Next Action
+Study the Greek alphabet and practice recognizing letters
+
+## Notes
+
+EOF
+  echo "✓ Created task: Learn Greek alphabet (24 letters)"
+  
+  # Task 2: Practice reading
+  local task2_file="${tasks_path}/${timestamp}-practice-reading-greek.md"
+  cat > "$task2_file" <<EOF
+---
+type: task
+status: active
+created: ${today}T${now}
+context: computer
+energy: medium
+priority: not_urgent_important
+project: ${project_name}
+tags: []
+---
+
+# Practice reading Greek daily
+
+## Next Action
+Practice reading Greek text daily
+
+## Notes
+
+EOF
+  echo "✓ Created task: Practice reading Greek daily"
+  
+  # Task 3: Build vocabulary
+  local task3_file="${tasks_path}/${timestamp}-build-greek-vocabulary.md"
+  cat > "$task3_file" <<EOF
+---
+type: task
+status: active
+created: ${today}T${now}
+context: computer
+energy: low
+priority: not_urgent_important
+project: ${project_name}
+tags: []
+---
+
+# Build Greek vocabulary
+
+## Next Action
+Learn new Greek words and practice vocabulary
+
+## Notes
+
+EOF
+  echo "✓ Created task: Build Greek vocabulary"
+  
+  # Task 4: Setup habit
+  local task4_file="${tasks_path}/${timestamp}-setup-greek-study-habit.md"
+  cat > "$task4_file" <<EOF
+---
+type: task
+status: active
+created: ${today}T${now}
+context: computer
+energy: low
+priority: not_urgent_important
+project: ${project_name}
+tags: []
+---
+
+# Setup Greek study habit
+
+## Next Action
+Run: gtd-greek-setup-habit to create habit tracking
+
+## Notes
+
+EOF
+  echo "✓ Created task: Setup Greek study habit"
+  
+  echo ""
+  echo "✅ Greek Language Learning Study Plan Created!"
+  echo ""
+  echo "Project: ${project_name}"
+  echo "Location: ${project_dir}"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Review the plan: cat ${project_dir}/README.md"
+  echo "  2. Setup habit: gtd-greek-setup-habit"
+  echo "  3. Start learning: gtd-learn-greek"
+  echo "  4. Track progress: addInfoToDailyLog \"Greek Study: [topic]\""
+  echo ""
+}
+
 # Show usage
 show_usage() {
   cat <<EOF
@@ -208,9 +415,11 @@ Create a study plan integrated with your GTD system.
 
 Topics:
   cka, kubernetes    - Create CKA exam preparation plan
+  greek              - Create Greek language learning plan
 
 Examples:
   gtd-study-plan cka
+  gtd-study-plan greek
 
 This will:
   • Create a GTD project for your study
@@ -226,6 +435,9 @@ case "$1" in
   cka|kubernetes|k8s)
     create_cka_plan
     ;;
+  greek)
+    create_greek_plan
+    ;;
   --help|-h)
     show_usage
     exit 0
@@ -233,6 +445,7 @@ case "$1" in
   *)
     echo "Available study plans:"
     echo "  gtd-study-plan cka    - CKA exam preparation"
+    echo "  gtd-study-plan greek  - Greek language learning"
     echo ""
     show_usage
     exit 1
