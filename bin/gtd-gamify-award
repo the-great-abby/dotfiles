@@ -163,8 +163,9 @@ except:
     pass
 EOF
   
-  # Check achievements (silently)
+  # Check achievements and badges (silently)
   "$(dirname "$0")/gtd-gamify" achievements > /dev/null 2>&1
+  "$(dirname "$0")/gtd-gamify" badges > /dev/null 2>&1 || true
   
   return 0
 }

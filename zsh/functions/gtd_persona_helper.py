@@ -344,6 +344,16 @@ def call_persona(config, persona_key, content, context=""):
         # CRITICAL: Make it absolutely clear who the user is and that other names in content are NOT the user
         system_prompt += f"\n\nCRITICAL: You are speaking to {user_name} (the person whose log/journal this is). ALWAYS address them as {user_name}. If the content mentions other people's names (like colleagues, friends, or recipients), those are OTHER PEOPLE - do NOT confuse them with {user_name}. {user_name} is the person writing the log, not anyone mentioned in it. Always use {user_name}'s name when addressing them directly."
     
+    # Add goal and badge awareness instruction to system prompt
+    system_prompt += "\n\nIMPORTANT CONTEXT AWARENESS:\n"
+    system_prompt += "- If the content includes active goals, review them and reference relevant goals when providing advice. Help remind them of their goals, celebrate progress toward goals, and suggest how their current activities relate to their goals. Be specific about which goals are relevant to what they're discussing.\n"
+    system_prompt += "- If the content includes badge status, pay attention to:\n"
+    system_prompt += "  * Earned badges: Celebrate these achievements and encourage maintaining them\n"
+    system_prompt += "  * Close to earning: Motivate them to complete the challenge and earn the badge\n"
+    system_prompt += "  * At risk of losing: Urgently remind them to maintain their progress to keep the badge\n"
+    system_prompt += "  * Lost badges: Encourage them to rebuild streaks to regain lost badges\n"
+    system_prompt += "  Be specific about which badges are relevant and provide actionable advice to help them earn, maintain, or recover badges."
+    
     user_prompt = content
     if context:
         user_prompt = f"Context: {context}\n\n{user_prompt}"

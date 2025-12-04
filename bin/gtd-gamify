@@ -54,6 +54,7 @@ DATE_CMD=$(get_date_cmd)
 # Initialize gamification system
 init_gamification() {
   mkdir -p "$GAMIFICATION_DIR"
+  chmod 755 "$GAMIFICATION_DIR" 2>/dev/null || true
   
   if [[ ! -f "$GAMIFICATION_FILE" ]]; then
     cat > "$GAMIFICATION_FILE" <<EOF
@@ -65,6 +66,11 @@ init_gamification() {
   "last_updated": "$($DATE_CMD -Iseconds)",
   "achievements": [],
   "achievements_unlocked": [],
+  "badges": {},
+  "badges_lost": [],
+  "badges_recovered": [],
+  "custom_badges": {},
+  "badge_suggestions": [],
   "streaks": {
     "daily_logging": 0,
     "task_completion": 0,
@@ -100,6 +106,8 @@ init_gamification() {
   }
 }
 EOF
+    # Ensure file has proper permissions
+    chmod 644 "$GAMIFICATION_FILE" 2>/dev/null || true
   fi
   
   if [[ ! -f "$STATS_FILE" ]]; then
@@ -111,6 +119,8 @@ EOF
   "activity_history": []
 }
 EOF
+    # Ensure stats file has proper permissions
+    chmod 644 "$STATS_FILE" 2>/dev/null || true
   fi
 }
 
@@ -125,11 +135,60 @@ get_gamification_data() {
 # Save gamification data
 save_gamification_data() {
   local data="$1"
-  echo "$data" > "$GAMIFICATION_FILE"
+  
+  # Ensure directory exists with proper permissions
+  mkdir -p "$GAMIFICATION_DIR"
+  chmod 755 "$GAMIFICATION_DIR" 2>/dev/null || true
+  
   # Update last_updated timestamp
   local updated=$($DATE_CMD -Iseconds)
   data=$(echo "$data" | sed "s/\"last_updated\": \"[^\"]*\"/\"last_updated\": \"$updated\"/")
-  echo "$data" > "$GAMIFICATION_FILE"
+  
+  # Use Python for atomic JSON write (prevents corruption)
+  # Write data to temp file first, then Python reads it
+  local temp_input="${GAMIFICATION_FILE}.input.$$"
+  echo "$data" > "$temp_input" 2>/dev/null || {
+    echo "Error: Could not write to temp input file" >&2
+    return 1
+  }
+  
+  python3 <<PYTHON_SAVE
+import json
+import os
+
+file_path = "$GAMIFICATION_FILE"
+temp_input = "$temp_input"
+temp_file = f"{file_path}.tmp.{os.getpid()}"
+
+try:
+    # Read JSON from temp input file
+    with open(temp_input, 'r') as f:
+        data = json.load(f)
+    
+    # Write to temp file first
+    with open(temp_file, 'w') as f:
+        json.dump(data, f, indent=2)
+    
+    # Atomic move
+    os.replace(temp_file, file_path)
+    
+    # Set permissions
+    os.chmod(file_path, 0o644)
+    
+    # Clean up temp input file
+    if os.path.exists(temp_input):
+        os.remove(temp_input)
+except Exception as e:
+    # Clean up temp files on error
+    if os.path.exists(temp_file):
+        os.remove(temp_file)
+    if os.path.exists(temp_input):
+        os.remove(temp_input)
+    raise
+PYTHON_SAVE
+  
+  # Clean up temp input if Python didn't
+  rm -f "$temp_input" 2>/dev/null || true
 }
 
 # Calculate XP needed for level
@@ -199,6 +258,8 @@ award_xp() {
     check_achievements
   else
     echo -e "${GREEN}+${amount} XP${NC} (${reason})"
+    # Check badges after awarding XP (but don't show output unless something changes)
+    check_badges > /dev/null 2>&1 || true
   fi
   
   return 0
@@ -269,12 +330,12 @@ check_achievements() {
   local data=$(get_gamification_data)
   
   # Use Python for proper JSON parsing
-  python3 <<'PYTHON_SCRIPT'
+  python3 <<PYTHON_SCRIPT
 import json
 import sys
 from datetime import datetime
 
-with open(sys.argv[1], "r") as f:
+with open("$GAMIFICATION_FILE", "r") as f:
     data = json.load(f)
 
 level = data.get("level", 1)
@@ -282,6 +343,9 @@ total_xp = data.get("total_xp", 0)
 stats = data.get("stats", {})
 streaks = data.get("streaks", {})
 unlocked = data.get("achievements_unlocked", [])
+badges = data.get("badges", {})
+badges_lost = data.get("badges_lost", [])
+badges_recovered = data.get("badges_recovered", [])
 
 tasks_completed = stats.get("tasks_completed", 0)
 habits_completed = stats.get("habits_completed", 0)
@@ -377,7 +441,7 @@ if data["total_xp"] >= xp_for_next:
 
 # Save updated data
 data["achievements_unlocked"] = unlocked
-with open(sys.argv[1], "w") as f:
+with open("$GAMIFICATION_FILE", "w") as f:
     json.dump(data, f, indent=2)
 
 # Print achievements
@@ -392,7 +456,572 @@ if new_achievements:
 if leveled_up:
     print(f"\n🎉 LEVEL UP! You're now Level {data['level']}!\n")
 PYTHON_SCRIPT
-  "$GAMIFICATION_FILE" "$0"
+  
+  # Now check badges (earnable/loseable) - function defined below
+  check_badges
+}
+
+# Approve a custom badge suggestion
+approve_custom_badge() {
+  local suggestion_num="${1:-}"
+  
+  if [[ -z "$suggestion_num" ]] || ! [[ "$suggestion_num" =~ ^[0-9]+$ ]]; then
+    echo "❌ Please provide a suggestion number"
+    echo "   Use 'gtd-gamify custom-badge review' to see suggestions"
+    return 1
+  fi
+  
+  python3 <<PYTHON_SCRIPT
+import json
+import sys
+from datetime import datetime
+
+with open("$GAMIFICATION_FILE", "r") as f:
+    data = json.load(f)
+
+suggestions = data.get("badge_suggestions", [])
+pending = [s for s in suggestions if s.get("status") == "pending"]
+
+if not pending:
+    print("❌ No pending suggestions")
+    sys.exit(1)
+
+if int("$suggestion_num") < 1 or int("$suggestion_num") > len(pending):
+    print(f"❌ Invalid suggestion number. Choose 1-{len(pending)}")
+    sys.exit(1)
+
+suggestion = pending[int("$suggestion_num") - 1]
+
+# Create badge ID from name
+badge_id = suggestion.get("name", "").lower().replace(" ", "_").replace("-", "_")
+badge_id = "".join(c for c in badge_id if c.isalnum() or c == "_")
+
+# Add to custom badges
+if "custom_badges" not in data:
+    data["custom_badges"] = {}
+
+data["custom_badges"][badge_id] = {
+    "name": suggestion.get("name"),
+    "description": suggestion.get("description"),
+    "challenge_requirement": suggestion.get("challenge_requirement", {}),
+    "maintenance_requirement": suggestion.get("maintenance_requirement", {}),
+    "recovery_streak": suggestion.get("recovery_streak", 7),
+    "xp_bonus": suggestion.get("xp_reward", 50),
+    "created_date": datetime.now().isoformat(),
+    "suggested_by": suggestion.get("suggested_by", "unknown"),
+    "custom": True
+}
+
+# Mark suggestion as approved
+for i, s in enumerate(data["badge_suggestions"]):
+    if s == suggestion:
+        data["badge_suggestions"][i]["status"] = "approved"
+        data["badge_suggestions"][i]["approved_date"] = datetime.now().isoformat()
+        break
+
+# Save
+with open("$GAMIFICATION_FILE", "w") as f:
+    json.dump(data, f, indent=2)
+
+print(f"✅ Approved badge: {suggestion.get('name')}")
+print(f"   Badge ID: {badge_id}")
+print(f"   It will now be tracked alongside other badges!")
+PYTHON_SCRIPT
+}
+
+# Reject a custom badge suggestion
+reject_custom_badge() {
+  local suggestion_num="${1:-}"
+  
+  if [[ -z "$suggestion_num" ]] || ! [[ "$suggestion_num" =~ ^[0-9]+$ ]]; then
+    echo "❌ Please provide a suggestion number"
+    echo "   Use 'gtd-gamify custom-badge review' to see suggestions"
+    return 1
+  fi
+  
+  python3 <<PYTHON_SCRIPT
+import json
+import sys
+from datetime import datetime
+
+with open("$GAMIFICATION_FILE", "r") as f:
+    data = json.load(f)
+
+suggestions = data.get("badge_suggestions", [])
+pending = [s for s in suggestions if s.get("status") == "pending"]
+
+if not pending:
+    print("❌ No pending suggestions")
+    sys.exit(1)
+
+if int("$suggestion_num") < 1 or int("$suggestion_num") > len(pending):
+    print(f"❌ Invalid suggestion number. Choose 1-{len(pending)}")
+    sys.exit(1)
+
+suggestion = pending[int("$suggestion_num") - 1]
+
+# Mark suggestion as rejected
+for i, s in enumerate(data["badge_suggestions"]):
+    if s == suggestion:
+        data["badge_suggestions"][i]["status"] = "rejected"
+        data["badge_suggestions"][i]["rejected_date"] = datetime.now().isoformat()
+        break
+
+# Save
+with open("$GAMIFICATION_FILE", "w") as f:
+    json.dump(data, f, indent=2)
+
+print(f"❌ Rejected badge suggestion: {suggestion.get('name')}")
+PYTHON_SCRIPT
+}
+
+# Check and manage badges (earnable/loseable with streak recovery)
+check_badges() {
+  python3 <<PYTHON_SCRIPT
+import json
+import sys
+from datetime import datetime, timedelta
+
+with open("$GAMIFICATION_FILE", "r") as f:
+    data = json.load(f)
+
+stats = data.get("stats", {})
+streaks = data.get("streaks", {})
+badges = data.get("badges", {})
+badges_lost = data.get("badges_lost", [])
+badges_recovered = data.get("badges_recovered", [])
+
+tasks_completed = stats.get("tasks_completed", 0)
+habits_completed = stats.get("habits_completed", 0)
+projects_completed = stats.get("projects_completed", 0)
+reviews_completed = stats.get("reviews_completed", 0)
+daily_logs = stats.get("daily_logs", 0)
+exercise_sessions = stats.get("exercise_sessions", 0)
+wizard_uses = stats.get("wizard_uses", 0)
+
+daily_logging_streak = streaks.get("daily_logging", 0)
+task_streak = streaks.get("task_completion", 0)
+review_streak = streaks.get("review", 0)
+exercise_streak = streaks.get("exercise", 0)
+
+# Badge definitions: (id, name, description, challenge_requirement, maintenance_requirement, recovery_streak, xp_bonus)
+# challenge_requirement: what you need to EARN the badge
+# maintenance_requirement: what you need to MAINTAIN the badge (or lose it)
+# recovery_streak: streak needed to regain a lost badge
+badge_definitions = [
+    # Logging badges
+    ("daily_logger", "Daily Logger", "Log every day for 7 days", {"daily_logging_streak": 7}, {"daily_logging_streak": 3}, 7, 50),
+    ("consistent_logger", "Consistent Logger", "Log every day for 30 days", {"daily_logging_streak": 30}, {"daily_logging_streak": 7}, 14, 200),
+    ("dedicated_logger", "Dedicated Logger", "Log every day for 100 days", {"daily_logging_streak": 100}, {"daily_logging_streak": 14}, 21, 500),
+    
+    # Task badges
+    ("task_warrior", "Task Warrior", "Complete tasks for 7 days straight", {"task_streak": 7}, {"task_streak": 3}, 7, 50),
+    ("task_master", "Task Master", "Complete tasks for 30 days straight", {"task_streak": 30}, {"task_streak": 7}, 14, 200),
+    ("task_champion", "Task Champion", "Complete 100 tasks", {"tasks_completed": 100}, {"task_streak": 3}, 7, 250),
+    
+    # Exercise badges
+    ("fitness_starter", "Fitness Starter", "Exercise for 7 days straight", {"exercise_streak": 7}, {"exercise_streak": 3}, 7, 75),
+    ("fitness_enthusiast", "Fitness Enthusiast", "Exercise for 30 days straight", {"exercise_streak": 30}, {"exercise_streak": 7}, 14, 300),
+    ("fitness_champion", "Fitness Champion", "Complete 50 exercise sessions", {"exercise_sessions": 50}, {"exercise_streak": 3}, 7, 200),
+    
+    # Review badges
+    ("reflective", "Reflective", "Complete 7 reviews", {"reviews_completed": 7}, {"review_streak": 3}, 7, 50),
+    ("weekly_reviewer", "Weekly Reviewer", "Complete reviews for 7 weeks straight", {"review_streak": 7}, {"review_streak": 3}, 7, 100),
+    
+    # Habit badges
+    ("habit_builder", "Habit Builder", "Complete 100 habits", {"habits_completed": 100}, {"habits_completed": 10}, 7, 75),
+    
+    # Project badges
+    ("project_manager", "Project Manager", "Complete 5 projects", {"projects_completed": 5}, {"projects_completed": 1}, 7, 100),
+    ("project_master", "Project Master", "Complete 10 projects", {"projects_completed": 10}, {"projects_completed": 2}, 14, 200),
+    
+    # Wizard badges
+    ("wizard_user", "Wizard User", "Use wizard 50 times", {"wizard_uses": 50}, {"wizard_uses": 5}, 7, 75),
+    ("wizard_master", "Wizard Master", "Use wizard 100 times", {"wizard_uses": 100}, {"wizard_uses": 10}, 14, 150),
+]
+
+# Add custom badges to badge definitions
+custom_badges = data.get("custom_badges", {})
+for badge_id, badge_data in custom_badges.items():
+    if badge_data.get("custom", False):
+        name = badge_data.get("name", badge_id)
+        desc = badge_data.get("description", "")
+        challenge_req = badge_data.get("challenge_requirement", {})
+        maintenance_req = badge_data.get("maintenance_requirement", challenge_req)
+        recovery_streak = badge_data.get("recovery_streak", 7)
+        xp_bonus = badge_data.get("xp_bonus", 50)
+        badge_definitions.append((badge_id, name, desc, challenge_req, maintenance_req, recovery_streak, xp_bonus))
+
+def check_requirement(req_dict, current_stats):
+    """Check if current stats meet requirement"""
+    for key, value in req_dict.items():
+        if key == "daily_logging_streak":
+            if current_stats["daily_logging_streak"] < value:
+                return False
+        elif key == "task_streak":
+            if current_stats["task_streak"] < value:
+                return False
+        elif key == "exercise_streak":
+            if current_stats["exercise_streak"] < value:
+                return False
+        elif key == "review_streak":
+            if current_stats["review_streak"] < value:
+                return False
+        elif key == "tasks_completed":
+            if current_stats["tasks_completed"] < value:
+                return False
+        elif key == "habits_completed":
+            if current_stats["habits_completed"] < value:
+                return False
+        elif key == "projects_completed":
+            if current_stats["projects_completed"] < value:
+                return False
+        elif key == "exercise_sessions":
+            if current_stats["exercise_sessions"] < value:
+                return False
+        elif key == "reviews_completed":
+            if current_stats["reviews_completed"] < value:
+                return False
+        elif key == "wizard_uses":
+            if current_stats["wizard_uses"] < value:
+                return False
+    return True
+
+current_stats = {
+    "daily_logging_streak": daily_logging_streak,
+    "task_streak": task_streak,
+    "exercise_streak": exercise_streak,
+    "review_streak": review_streak,
+    "tasks_completed": tasks_completed,
+    "habits_completed": habits_completed,
+    "projects_completed": projects_completed,
+    "exercise_sessions": exercise_sessions,
+    "reviews_completed": reviews_completed,
+    "wizard_uses": wizard_uses,
+}
+
+new_badges = []
+lost_badges = []
+recovered_badges = []
+
+for badge_id, name, desc, challenge_req, maintenance_req, recovery_streak, xp_bonus in badge_definitions:
+    badge_status = badges.get(badge_id, {})
+    is_earned = badge_status.get("earned", False)
+    is_lost = badge_id in badges_lost
+    
+    # Check if challenge requirement is met (earn badge)
+    if not is_earned and not is_lost:
+        if check_requirement(challenge_req, current_stats):
+            badges[badge_id] = {
+                "name": name,
+                "description": desc,
+                "earned": True,
+                "earned_date": datetime.now().isoformat(),
+                "maintenance_requirement": maintenance_req,
+                "recovery_streak": recovery_streak,
+                "xp_bonus": xp_bonus
+            }
+            new_badges.append((badge_id, name, desc, xp_bonus))
+    
+    # Check if maintenance requirement is met (keep badge)
+    elif is_earned and not is_lost:
+        if not check_requirement(maintenance_req, current_stats):
+            # Badge lost!
+            badges[badge_id]["earned"] = False
+            badges_lost.append(badge_id)
+            lost_badges.append((badge_id, name))
+    
+    # Check if recovery streak is met (regain lost badge)
+    elif is_lost:
+        # Determine which streak to check based on badge type
+        recovery_streak_met = False
+        if "logging" in badge_id or "logger" in badge_id:
+            recovery_streak_met = daily_logging_streak >= recovery_streak
+        elif "task" in badge_id:
+            recovery_streak_met = task_streak >= recovery_streak
+        elif "exercise" in badge_id or "fitness" in badge_id:
+            recovery_streak_met = exercise_streak >= recovery_streak
+        elif "review" in badge_id:
+            recovery_streak_met = review_streak >= recovery_streak
+        else:
+            # For non-streak badges, check if challenge requirement is met again
+            recovery_streak_met = check_requirement(challenge_req, current_stats)
+        
+        if recovery_streak_met:
+            # Badge recovered!
+            badges[badge_id]["earned"] = True
+            badges[badge_id]["recovered_date"] = datetime.now().isoformat()
+            if badge_id in badges_lost:
+                badges_lost.remove(badge_id)
+            if badge_id not in badges_recovered:
+                badges_recovered.append(badge_id)
+            recovered_badges.append((badge_id, name, desc, xp_bonus))
+
+# Award XP for new and recovered badges
+total_badge_xp = sum(xp for _, _, _, xp in new_badges) + sum(xp for _, _, _, xp in recovered_badges)
+if total_badge_xp > 0:
+    data["total_xp"] = data.get("total_xp", 0) + total_badge_xp
+    data["xp"] = data.get("xp", 0) + total_badge_xp
+
+# Save updated data
+data["badges"] = badges
+data["badges_lost"] = badges_lost
+data["badges_recovered"] = badges_recovered
+with open("$GAMIFICATION_FILE", "w") as f:
+    json.dump(data, f, indent=2)
+
+# Print new badges
+if new_badges:
+    for badge_id, name, desc, xp in new_badges:
+        print(f"\n🎖️  BADGE EARNED: {name}")
+        print(f"   {desc}")
+        print(f"   +{xp} XP bonus!")
+        print(f"   ⚠️  Maintain your progress to keep this badge!")
+        print("")
+
+# Print lost badges
+if lost_badges:
+    for badge_id, name in lost_badges:
+        print(f"\n⚠️  BADGE LOST: {name}")
+        print(f"   Build a streak to regain this badge!")
+        print("")
+
+# Print recovered badges
+if recovered_badges:
+    for badge_id, name, desc, xp in recovered_badges:
+        print(f"\n🔄 BADGE RECOVERED: {name}")
+        print(f"   {desc}")
+        print(f"   +{xp} XP bonus!")
+        print(f"   You earned it back through your streak!")
+        print("")
+PYTHON_SCRIPT
+}
+
+# Show badge progress
+show_badge_progress() {
+  local data=$(get_gamification_data)
+  
+  python3 <<PYTHON_SCRIPT
+import json
+import sys
+
+with open("$GAMIFICATION_FILE", "r") as f:
+    data = json.load(f)
+
+stats = data.get("stats", {})
+streaks = data.get("streaks", {})
+badges = data.get("badges", {})
+badges_lost = data.get("badges_lost", [])
+
+tasks_completed = stats.get("tasks_completed", 0)
+habits_completed = stats.get("habits_completed", 0)
+projects_completed = stats.get("projects_completed", 0)
+reviews_completed = stats.get("reviews_completed", 0)
+daily_logs = stats.get("daily_logs", 0)
+exercise_sessions = stats.get("exercise_sessions", 0)
+wizard_uses = stats.get("wizard_uses", 0)
+
+daily_logging_streak = streaks.get("daily_logging", 0)
+task_streak = streaks.get("task_completion", 0)
+review_streak = streaks.get("review", 0)
+exercise_streak = streaks.get("exercise", 0)
+
+current_stats = {
+    "daily_logging_streak": daily_logging_streak,
+    "task_streak": task_streak,
+    "exercise_streak": exercise_streak,
+    "review_streak": review_streak,
+    "tasks_completed": tasks_completed,
+    "habits_completed": habits_completed,
+    "projects_completed": projects_completed,
+    "exercise_sessions": exercise_sessions,
+    "reviews_completed": reviews_completed,
+    "wizard_uses": wizard_uses,
+}
+
+badge_definitions = [
+    ("daily_logger", "Daily Logger", "Log every day for 7 days", {"daily_logging_streak": 7}, {"daily_logging_streak": 3}, 7, 50),
+    ("consistent_logger", "Consistent Logger", "Log every day for 30 days", {"daily_logging_streak": 30}, {"daily_logging_streak": 7}, 14, 200),
+    ("dedicated_logger", "Dedicated Logger", "Log every day for 100 days", {"daily_logging_streak": 100}, {"daily_logging_streak": 14}, 21, 500),
+    ("task_warrior", "Task Warrior", "Complete tasks for 7 days straight", {"task_streak": 7}, {"task_streak": 3}, 7, 50),
+    ("task_master", "Task Master", "Complete tasks for 30 days straight", {"task_streak": 30}, {"task_streak": 7}, 14, 200),
+    ("task_champion", "Task Champion", "Complete 100 tasks", {"tasks_completed": 100}, {"task_streak": 3}, 7, 250),
+    ("fitness_starter", "Fitness Starter", "Exercise for 7 days straight", {"exercise_streak": 7}, {"exercise_streak": 3}, 7, 75),
+    ("fitness_enthusiast", "Fitness Enthusiast", "Exercise for 30 days straight", {"exercise_streak": 30}, {"exercise_streak": 7}, 14, 300),
+    ("fitness_champion", "Fitness Champion", "Complete 50 exercise sessions", {"exercise_sessions": 50}, {"exercise_streak": 3}, 7, 200),
+    ("reflective", "Reflective", "Complete 7 reviews", {"reviews_completed": 7}, {"review_streak": 3}, 7, 50),
+    ("weekly_reviewer", "Weekly Reviewer", "Complete reviews for 7 weeks straight", {"review_streak": 7}, {"review_streak": 3}, 7, 100),
+    ("habit_builder", "Habit Builder", "Complete 100 habits", {"habits_completed": 100}, {"habits_completed": 10}, 7, 75),
+    ("project_manager", "Project Manager", "Complete 5 projects", {"projects_completed": 5}, {"projects_completed": 1}, 7, 100),
+    ("project_master", "Project Master", "Complete 10 projects", {"projects_completed": 10}, {"projects_completed": 2}, 14, 200),
+    ("wizard_user", "Wizard User", "Use wizard 50 times", {"wizard_uses": 50}, {"wizard_uses": 5}, 7, 75),
+    ("wizard_master", "Wizard Master", "Use wizard 100 times", {"wizard_uses": 100}, {"wizard_uses": 10}, 14, 150),
+]
+
+def get_requirement_value(req_dict):
+    """Get the value from requirement dict"""
+    for key, value in req_dict.items():
+        return key, value
+    return None, None
+
+def get_current_value(key, stats):
+    """Get current value for a requirement key"""
+    if key == "daily_logging_streak":
+        return stats["daily_logging_streak"]
+    elif key == "task_streak":
+        return stats["task_streak"]
+    elif key == "exercise_streak":
+        return stats["exercise_streak"]
+    elif key == "review_streak":
+        return stats["review_streak"]
+    elif key == "tasks_completed":
+        return stats["tasks_completed"]
+    elif key == "habits_completed":
+        return stats["habits_completed"]
+    elif key == "projects_completed":
+        return stats["projects_completed"]
+    elif key == "exercise_sessions":
+        return stats["exercise_sessions"]
+    elif key == "reviews_completed":
+        return stats["reviews_completed"]
+    elif key == "wizard_uses":
+        return stats["wizard_uses"]
+    return 0
+
+def format_progress_bar(current, required, width=20):
+    """Create a progress bar"""
+    if required == 0:
+        return "█" * width
+    filled = int((current / required) * width) if required > 0 else 0
+    filled = min(filled, width)
+    empty = width - filled
+    return "█" * filled + "░" * empty
+
+earned_badges = []
+close_to_earning = []
+at_risk = []
+lost_badges = []
+not_started = []
+
+for badge_id, name, desc, challenge_req, maintenance_req, recovery_streak, xp_bonus in badge_definitions:
+    badge_status = badges.get(badge_id, {})
+    is_earned = badge_status.get("earned", False)
+    is_lost = badge_id in badges_lost
+    
+    if is_earned and not is_lost:
+        earned_badges.append((name, desc, xp_bonus))
+        # Check maintenance
+        maint_key, maint_value = get_requirement_value(maintenance_req)
+        if maint_key:
+            current = get_current_value(maint_key, current_stats)
+            progress = (current / maint_value * 100) if maint_value > 0 else 100
+            if progress < 100:
+                at_risk.append((name, desc, maint_key, current, maint_value, progress))
+    elif is_lost:
+        lost_badges.append((name, desc, recovery_streak))
+    else:
+        # Not earned - check progress
+        chall_key, chall_value = get_requirement_value(challenge_req)
+        if chall_key:
+            current = get_current_value(chall_key, current_stats)
+            progress = (current / chall_value * 100) if chall_value > 0 else 0
+            if progress >= 50:
+                close_to_earning.append((name, desc, chall_key, current, chall_value, progress, xp_bonus))
+            elif progress > 0:
+                not_started.append((name, desc, chall_key, current, chall_value, progress, xp_bonus))
+
+print("\n" + "="*70)
+print("🎖️  BADGE PROGRESS".center(70))
+print("="*70)
+print()
+
+if earned_badges:
+    print("✅ EARNED BADGES")
+    print("-" * 70)
+    for name, desc, xp in earned_badges:
+        print(f"  🎖️  {name}")
+        print(f"     {desc}")
+        print(f"     Reward: +{xp} XP")
+        print()
+    print()
+
+if at_risk:
+    print("⚠️  BADGES AT RISK (Need to maintain!)")
+    print("-" * 70)
+    for name, desc, key, current, required, progress in at_risk:
+        bar = format_progress_bar(current, required)
+        print(f"  ⚠️  {name}")
+        print(f"     {desc}")
+        print(f"     [{bar}] {current}/{required} ({progress:.0f}%)")
+        print(f"     ⚠️  Maintain progress to keep this badge!")
+        print()
+    print()
+
+if close_to_earning:
+    print("📈 CLOSE TO EARNING (50%+ progress)")
+    print("-" * 70)
+    for name, desc, key, current, required, progress, xp in close_to_earning:
+        bar = format_progress_bar(current, required)
+        remaining = max(0, required - current)
+        print(f"  🎯 {name}")
+        print(f"     {desc}")
+        print(f"     [{bar}] {current}/{required} ({progress:.0f}%)")
+        print(f"     {remaining} more needed - Reward: +{xp} XP")
+        print()
+    print()
+
+if not_started:
+    print("📊 IN PROGRESS")
+    print("-" * 70)
+    for name, desc, key, current, required, progress, xp in not_started:
+        bar = format_progress_bar(current, required)
+        remaining = max(0, required - current)
+        print(f"  📊 {name}")
+        print(f"     {desc}")
+        print(f"     [{bar}] {current}/{required} ({progress:.0f}%)")
+        print(f"     {remaining} more needed - Reward: +{xp} XP")
+        print()
+    print()
+
+if lost_badges:
+    print("❌ LOST BADGES (Can be regained with streaks)")
+    print("-" * 70)
+    for name, desc, recovery_streak in lost_badges:
+        print(f"  ✗ {name}")
+        print(f"     {desc}")
+        print(f"     Recover with: {recovery_streak}-day streak")
+        print()
+    print()
+
+# Show badges not started
+not_started_badges = []
+for badge_id, name, desc, challenge_req, maintenance_req, recovery_streak, xp_bonus in badge_definitions:
+    badge_status = badges.get(badge_id, {})
+    is_earned = badge_status.get("earned", False)
+    is_lost = badge_id in badges_lost
+    
+    if not is_earned and not is_lost:
+        chall_key, chall_value = get_requirement_value(challenge_req)
+        if chall_key:
+            current = get_current_value(chall_key, current_stats)
+            if current == 0:
+                not_started_badges.append((name, desc, chall_key, chall_value, xp_bonus))
+
+if not_started_badges:
+    print("🔒 NOT STARTED")
+    print("-" * 70)
+    for name, desc, key, required, xp in not_started_badges:
+        print(f"  🔒 {name}")
+        print(f"     {desc}")
+        print(f"     Requirement: {required} {key.replace('_', ' ')}")
+        print(f"     Reward: +{xp} XP")
+        print()
+    print()
+
+print("="*70)
+PYTHON_SCRIPT
+  
+  read -p "Press Enter to continue..."
 }
 
 # Show dashboard
@@ -400,12 +1029,12 @@ show_dashboard() {
   local data=$(get_gamification_data)
   
   # Use Python for proper JSON parsing
-  python3 <<'PYTHON_SCRIPT'
+  python3 <<PYTHON_SCRIPT
 import json
 import sys
 from datetime import datetime
 
-with open(sys.argv[1], "r") as f:
+with open("$GAMIFICATION_FILE", "r") as f:
     data = json.load(f)
 
 xp = data.get("xp", 0)
@@ -463,8 +1092,29 @@ print(f"🏆 Achievements")
 print(f"   Unlocked: {len(unlocked)}/{30}")  # Approximate total
 print()
 
+# Show badges
+badges = data.get("badges", {})
+badges_lost = data.get("badges_lost", [])
+badges_recovered = data.get("badges_recovered", [])
+
+earned_badges = [b for b_id, b in badges.items() if b.get("earned", False) and b_id not in badges_lost]
+lost_badges_list = [badges.get(b_id, {}).get("name", b_id) for b_id in badges_lost if b_id in badges]
+
+print(f"🎖️  Badges")
+print(f"   Earned: {len(earned_badges)}")
+if earned_badges:
+    for b_id, b in badges.items():
+        if b.get("earned", False) and b_id not in badges_lost:
+            print(f"      ✓ {b.get('name', b_id)}")
+if lost_badges_list:
+    print(f"   Lost: {len(lost_badges_list)}")
+    for badge_name in lost_badges_list[:5]:  # Show first 5
+        print(f"      ✗ {badge_name}")
+    if len(lost_badges_list) > 5:
+        print(f"      ... and {len(lost_badges_list) - 5} more")
+print()
+
 PYTHON_SCRIPT
-  "$GAMIFICATION_FILE"
   
   read -p "Press Enter to continue..."
 }
@@ -484,6 +1134,54 @@ main() {
     achievements)
       check_achievements
       ;;
+    badges)
+      check_badges
+      ;;
+    badge-progress|badges-progress|progress)
+      show_badge_progress
+      ;;
+    custom-badge)
+      shift
+      case "${1:-}" in
+        suggest|analyze)
+          if command -v gtd-suggest-badges &>/dev/null; then
+            gtd-suggest-badges suggest "${2:-week}" "${3:-hank}"
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-suggest-badges" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-suggest-badges" suggest "${2:-week}" "${3:-hank}"
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-suggest-badges" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-suggest-badges" suggest "${2:-week}" "${3:-hank}"
+          else
+            echo "❌ gtd-suggest-badges not found"
+          fi
+          ;;
+        review)
+          if command -v gtd-suggest-badges &>/dev/null; then
+            gtd-suggest-badges review
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-suggest-badges" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-suggest-badges" review
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-suggest-badges" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-suggest-badges" review
+          else
+            echo "❌ gtd-suggest-badges not found"
+          fi
+          ;;
+        approve)
+          approve_custom_badge "${2:-}"
+          ;;
+        reject)
+          reject_custom_badge "${2:-}"
+          ;;
+        *)
+          echo "Usage: gtd-gamify custom-badge [command]"
+          echo ""
+          echo "Commands:"
+          echo "  suggest [range] [persona]  Have AI analyze logs and suggest badges"
+          echo "  review                     Review pending badge suggestions"
+          echo "  approve <number>           Approve a badge suggestion"
+          echo "  reject <number>           Reject a badge suggestion"
+          ;;
+      esac
+      ;;
     dashboard|stats)
       show_dashboard
       ;;
@@ -491,11 +1189,15 @@ main() {
       echo "Usage: gtd-gamify [command]"
       echo ""
       echo "Commands:"
-      echo "  dashboard    Show full gamification dashboard"
-      echo "  stats        Same as dashboard"
+      echo "  dashboard       Show full gamification dashboard"
+      echo "  stats           Same as dashboard"
+      echo "  badge-progress  Show detailed badge progress and status"
+      echo "  progress        Same as badge-progress"
       echo "  award <xp> <reason> [type]  Award XP manually"
-      echo "  streak <type>  Update streak (daily_logging, task_completion, review, exercise)"
-      echo "  achievements  Check and unlock achievements"
+      echo "  streak <type>   Update streak (daily_logging, task_completion, review, exercise)"
+      echo "  achievements    Check and unlock achievements"
+      echo "  badges          Check and manage badges (earnable/loseable)"
+      echo "  custom-badge    Manage AI-suggested custom badges"
       ;;
   esac
 }

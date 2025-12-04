@@ -111,6 +111,238 @@ list_personas() {
   echo ""
 }
 
+# Get badge status and progress for advisors
+get_badge_status() {
+  local gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  local gamification_file="${gtd_base}/.gtd/gamification/gamification.json"
+  
+  if [[ ! -f "$gamification_file" ]]; then
+    return 1
+  fi
+  
+  # Use Python to get badge information
+  python3 <<PYTHON_SCRIPT
+import json
+import sys
+
+try:
+    with open("$gamification_file", "r") as f:
+        data = json.load(f)
+    
+    badges = data.get("badges", {})
+    badges_lost = data.get("badges_lost", [])
+    stats = data.get("stats", {})
+    streaks = data.get("streaks", {})
+    
+    tasks_completed = stats.get("tasks_completed", 0)
+    habits_completed = stats.get("habits_completed", 0)
+    projects_completed = stats.get("projects_completed", 0)
+    reviews_completed = stats.get("reviews_completed", 0)
+    daily_logs = stats.get("daily_logs", 0)
+    exercise_sessions = stats.get("exercise_sessions", 0)
+    wizard_uses = stats.get("wizard_uses", 0)
+    
+    daily_logging_streak = streaks.get("daily_logging", 0)
+    task_streak = streaks.get("task_completion", 0)
+    review_streak = streaks.get("review", 0)
+    exercise_streak = streaks.get("exercise", 0)
+    
+    current_stats = {
+        "daily_logging_streak": daily_logging_streak,
+        "task_streak": task_streak,
+        "exercise_streak": exercise_streak,
+        "review_streak": review_streak,
+        "tasks_completed": tasks_completed,
+        "habits_completed": habits_completed,
+        "projects_completed": projects_completed,
+        "exercise_sessions": exercise_sessions,
+        "reviews_completed": reviews_completed,
+        "wizard_uses": wizard_uses,
+    }
+    
+    # Badge definitions (same as in gtd-gamify)
+    badge_definitions = [
+        ("daily_logger", "Daily Logger", "Log every day for 7 days", {"daily_logging_streak": 7}, {"daily_logging_streak": 3}, 7),
+        ("consistent_logger", "Consistent Logger", "Log every day for 30 days", {"daily_logging_streak": 30}, {"daily_logging_streak": 7}, 14),
+        ("dedicated_logger", "Dedicated Logger", "Log every day for 100 days", {"daily_logging_streak": 100}, {"daily_logging_streak": 14}, 21),
+        ("task_warrior", "Task Warrior", "Complete tasks for 7 days straight", {"task_streak": 7}, {"task_streak": 3}, 7),
+        ("task_master", "Task Master", "Complete tasks for 30 days straight", {"task_streak": 30}, {"task_streak": 7}, 14),
+        ("task_champion", "Task Champion", "Complete 100 tasks", {"tasks_completed": 100}, {"task_streak": 3}, 7),
+        ("fitness_starter", "Fitness Starter", "Exercise for 7 days straight", {"exercise_streak": 7}, {"exercise_streak": 3}, 7),
+        ("fitness_enthusiast", "Fitness Enthusiast", "Exercise for 30 days straight", {"exercise_streak": 30}, {"exercise_streak": 7}, 14),
+        ("fitness_champion", "Fitness Champion", "Complete 50 exercise sessions", {"exercise_sessions": 50}, {"exercise_streak": 3}, 7),
+        ("reflective", "Reflective", "Complete 7 reviews", {"reviews_completed": 7}, {"review_streak": 3}, 7),
+        ("weekly_reviewer", "Weekly Reviewer", "Complete reviews for 7 weeks straight", {"review_streak": 7}, {"review_streak": 3}, 7),
+        ("habit_builder", "Habit Builder", "Complete 100 habits", {"habits_completed": 100}, {"habits_completed": 10}, 7),
+        ("project_manager", "Project Manager", "Complete 5 projects", {"projects_completed": 5}, {"projects_completed": 1}, 7),
+        ("project_master", "Project Master", "Complete 10 projects", {"projects_completed": 10}, {"projects_completed": 2}, 14),
+        ("wizard_user", "Wizard User", "Use wizard 50 times", {"wizard_uses": 50}, {"wizard_uses": 5}, 7),
+        ("wizard_master", "Wizard Master", "Use wizard 100 times", {"wizard_uses": 100}, {"wizard_uses": 10}, 14),
+    ]
+    
+    def check_requirement(req_dict, stats):
+        for key, value in req_dict.items():
+            if key == "daily_logging_streak":
+                if stats["daily_logging_streak"] < value:
+                    return False, stats["daily_logging_streak"], value
+            elif key == "task_streak":
+                if stats["task_streak"] < value:
+                    return False, stats["task_streak"], value
+            elif key == "exercise_streak":
+                if stats["exercise_streak"] < value:
+                    return False, stats["exercise_streak"], value
+            elif key == "review_streak":
+                if stats["review_streak"] < value:
+                    return False, stats["review_streak"], value
+            elif key == "tasks_completed":
+                if stats["tasks_completed"] < value:
+                    return False, stats["tasks_completed"], value
+            elif key == "habits_completed":
+                if stats["habits_completed"] < value:
+                    return False, stats["habits_completed"], value
+            elif key == "projects_completed":
+                if stats["projects_completed"] < value:
+                    return False, stats["projects_completed"], value
+            elif key == "exercise_sessions":
+                if stats["exercise_sessions"] < value:
+                    return False, stats["exercise_sessions"], value
+            elif key == "reviews_completed":
+                if stats["reviews_completed"] < value:
+                    return False, stats["reviews_completed"], value
+            elif key == "wizard_uses":
+                if stats["wizard_uses"] < value:
+                    return False, stats["wizard_uses"], value
+        return True, None, None
+    
+    earned_badges = []
+    close_to_earning = []
+    close_to_losing = []
+    lost_badges = []
+    
+    for badge_id, name, desc, challenge_req, maintenance_req, recovery_streak in badge_definitions:
+        badge_status = badges.get(badge_id, {})
+        is_earned = badge_status.get("earned", False)
+        is_lost = badge_id in badges_lost
+        
+        if is_earned and not is_lost:
+            earned_badges.append((name, desc))
+            # Check if close to losing
+            met, current, required = check_requirement(maintenance_req, current_stats)
+            if not met:
+                # Calculate how close
+                if current is not None and required is not None:
+                    progress = (current / required * 100) if required > 0 else 0
+                    if progress >= 50:  # At least 50% of way there
+                        close_to_losing.append((name, desc, current, required, progress))
+                    elif progress < 50:
+                        lost_badges.append((name, desc))
+        elif is_lost:
+            lost_badges.append((name, desc))
+        else:
+            # Not earned yet - check if close
+            met, current, required = check_requirement(challenge_req, current_stats)
+            if not met and current is not None and required is not None:
+                progress = (current / required * 100) if required > 0 else 0
+                if progress >= 50:  # At least 50% of way there
+                    close_to_earning.append((name, desc, current, required, progress))
+    
+    # Output
+    if earned_badges or close_to_earning or close_to_losing or lost_badges:
+        print("")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("# Badge Status")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("")
+        
+        if earned_badges:
+            print("🎖️  Earned Badges:")
+            for name, desc in earned_badges:
+                print(f"   ✓ {name} - {desc}")
+            print("")
+        
+        if close_to_earning:
+            print("📈 Close to Earning:")
+            for name, desc, current, required, progress in close_to_earning:
+                print(f"   🎯 {name} - {desc}")
+                print(f"      Progress: {current}/{required} ({progress:.0f}%)")
+            print("")
+        
+        if close_to_losing:
+            print("⚠️  At Risk of Losing:")
+            for name, desc, current, required, progress in close_to_losing:
+                print(f"   ⚠️  {name} - {desc}")
+                print(f"      Current: {current}/{required} ({progress:.0f}%) - Need to maintain!")
+            print("")
+        
+        if lost_badges:
+            print("❌ Lost Badges (can be regained with streaks):")
+            for name, desc in lost_badges:
+                print(f"   ✗ {name} - {desc}")
+            print("")
+except Exception as e:
+    pass
+PYTHON_SCRIPT
+}
+
+# Get active goals from goals directory
+get_active_goals() {
+  local gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  local goals_dir="${gtd_base}/goals"
+  
+  if [[ ! -d "$goals_dir" ]]; then
+    return 1
+  fi
+  
+  local goals_output=""
+  local goal_count=0
+  
+  # Check all goal files
+  local goal_files=($(find "$goals_dir" -type f -name "*.md" 2>/dev/null | sort))
+  
+  for goal_file in "${goal_files[@]}"; do
+    local status=$(grep "^status:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+    if [[ "$status" != "active" ]]; then
+      continue
+    fi
+    
+    local name=$(grep "^name:" "$goal_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || basename "$goal_file" .md)
+    local progress=$(grep "^progress:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "0")
+    local deadline=$(grep "^deadline:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+    local area=$(grep "^area:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "")
+    local description=$(grep "^description:" "$goal_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+    
+    if [[ -n "$name" ]]; then
+      ((goal_count++))
+      if [[ -n "$goals_output" ]]; then
+        goals_output="${goals_output}\n"
+      fi
+      goals_output="${goals_output}🎯 ${name}"
+      if [[ -n "$progress" ]]; then
+        goals_output="${goals_output} (${progress}% complete)"
+      fi
+      if [[ -n "$deadline" ]]; then
+        goals_output="${goals_output} - Deadline: ${deadline}"
+      fi
+      if [[ -n "$area" ]]; then
+        goals_output="${goals_output} - Area: ${area}"
+      fi
+      if [[ -n "$description" ]]; then
+        goals_output="${goals_output}\n   ${description}"
+      fi
+    fi
+  done
+  
+  if [[ $goal_count -gt 0 ]]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "# Active Goals"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo -e "$goals_output"
+    echo ""
+  fi
+}
+
 # Get habit tracker data for a specific date
 get_habit_tracker_data() {
   local target_date="${1:-today}"  # today or YYYY-MM-DD format
@@ -338,10 +570,12 @@ advise_single() {
     fi
   fi
   
-  # If daily log requested, load it and include habit tracker data
+  # If daily log requested, load it and include habit tracker data, goals, and badges
   if [[ "$use_daily_log" == "true" ]]; then
     local log_content=$(get_daily_log_content "$date_range")
     local habit_data=""
+    local goals_data=""
+    local badge_data=""
     
     # Get habit tracker data (for today or specific date)
     if [[ "$date_range" == "today" ]]; then
@@ -350,13 +584,51 @@ advise_single() {
       habit_data=$(get_habit_tracker_data "$date_range")
     fi
     
+    # Get active goals (always include for context)
+    goals_data=$(get_active_goals)
+    
+    # Get badge status (always include for context)
+    badge_data=$(get_badge_status)
+    
     if [[ $? -eq 0 ]]; then
-      # Combine daily log and habit tracker data
-      if [[ -n "$habit_data" ]]; then
-        content=$(printf "Review my daily log and habit tracker status:\n\n%s\n%s\n\n%s" "$log_content" "$habit_data" "$content")
-      else
-        content=$(printf "Review my daily log:\n\n%s\n\n%s" "$log_content" "$content")
+      # Combine daily log, habit tracker data, goals, and badges
+      local context_parts=""
+      context_parts="${log_content}"
+      
+      if [[ -n "$goals_data" ]]; then
+        context_parts="${context_parts}\n${goals_data}"
       fi
+      
+      if [[ -n "$badge_data" ]]; then
+        context_parts="${context_parts}\n${badge_data}"
+      fi
+      
+      if [[ -n "$habit_data" ]]; then
+        context_parts="${context_parts}\n${habit_data}"
+      fi
+      
+      content=$(printf "Review my daily log and provide advice:\n\n%s\n\n%s" "$context_parts" "$content")
+    fi
+  else
+    # Even if not reviewing daily log, include goals and badges for context when providing feedback
+    # This helps advisors remind about goals and badges related to log entries
+    local goals_data=$(get_active_goals)
+    local badge_data=$(get_badge_status)
+    
+    local context_parts=""
+    if [[ -n "$goals_data" ]]; then
+      context_parts="${goals_data}"
+    fi
+    if [[ -n "$badge_data" ]]; then
+      if [[ -n "$context_parts" ]]; then
+        context_parts="${context_parts}\n${badge_data}"
+      else
+        context_parts="${badge_data}"
+      fi
+    fi
+    
+    if [[ -n "$context_parts" ]]; then
+      content=$(printf "Here's my current status for context:\n%s\n\n%s" "$context_parts" "$content")
     fi
   fi
   
@@ -384,7 +656,7 @@ advise_all() {
     fi
   fi
   
-  # If daily log requested, load it (default to today) and include habit tracker data
+  # If daily log requested, load it (default to today) and include habit tracker data, goals, and badges
   if [[ "$use_daily_log" == "true" ]]; then
     local date_range="today"
     # Check if content specifies a range
@@ -397,6 +669,8 @@ advise_all() {
     fi
     local log_content=$(get_daily_log_content "$date_range")
     local habit_data=""
+    local goals_data=""
+    local badge_data=""
     
     # Get habit tracker data (for today or specific date)
     if [[ "$date_range" == "today" ]]; then
@@ -405,13 +679,50 @@ advise_all() {
       habit_data=$(get_habit_tracker_data "$date_range")
     fi
     
+    # Get active goals (always include for context)
+    goals_data=$(get_active_goals)
+    
+    # Get badge status (always include for context)
+    badge_data=$(get_badge_status)
+    
     if [[ $? -eq 0 ]]; then
-      # Combine daily log and habit tracker data
-      if [[ -n "$habit_data" ]]; then
-        content=$(printf "Review my daily log and habit tracker status:\n\n%s\n%s\n\n%s" "$log_content" "$habit_data" "$content")
-      else
-        content=$(printf "Review my daily log:\n\n%s\n\n%s" "$log_content" "$content")
+      # Combine daily log, habit tracker data, goals, and badges
+      local context_parts=""
+      context_parts="${log_content}"
+      
+      if [[ -n "$goals_data" ]]; then
+        context_parts="${context_parts}\n${goals_data}"
       fi
+      
+      if [[ -n "$badge_data" ]]; then
+        context_parts="${context_parts}\n${badge_data}"
+      fi
+      
+      if [[ -n "$habit_data" ]]; then
+        context_parts="${context_parts}\n${habit_data}"
+      fi
+      
+      content=$(printf "Review my daily log and provide advice:\n\n%s\n\n%s" "$context_parts" "$content")
+    fi
+  else
+    # Even if not reviewing daily log, include goals and badges for context
+    local goals_data=$(get_active_goals)
+    local badge_data=$(get_badge_status)
+    
+    local context_parts=""
+    if [[ -n "$goals_data" ]]; then
+      context_parts="${goals_data}"
+    fi
+    if [[ -n "$badge_data" ]]; then
+      if [[ -n "$context_parts" ]]; then
+        context_parts="${context_parts}\n${badge_data}"
+      else
+        context_parts="${badge_data}"
+      fi
+    fi
+    
+    if [[ -n "$context_parts" ]]; then
+      content=$(printf "Here's my current status for context:\n%s\n\n%s" "$context_parts" "$content")
     fi
   fi
   

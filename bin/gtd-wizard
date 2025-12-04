@@ -4070,11 +4070,13 @@ gamification_wizard() {
   echo "What would you like to do?"
   echo ""
   echo "  1) 📊 View Gamification Dashboard"
-  echo "  2) 🏆 Check Achievements"
-  echo "  3) 🔥 View Streaks"
-  echo "  4) 📈 View Statistics"
-  echo "  5) 🎯 Award XP Manually"
-  echo "  6) 🎮 Habitica Integration"
+  echo "  2) 🎖️  View Badge Progress"
+  echo "  3) 🏆 Check Achievements"
+  echo "  4) 🔥 View Streaks"
+  echo "  5) 📈 View Statistics"
+  echo "  6) 🎯 Award XP Manually"
+  echo "  7) 🤖 AI Badge Suggestions"
+  echo "  8) 🎮 Habitica Integration"
   echo ""
   echo -n "Choose: "
   read gamify_choice
@@ -4097,6 +4099,20 @@ gamification_wizard() {
     2)
       echo ""
       if command -v gtd-gamify &>/dev/null; then
+        gtd-gamify badge-progress
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify" badge-progress
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-gamify" badge-progress
+      else
+        echo "❌ gtd-gamify command not found"
+        echo ""
+        echo "Gamification system not installed. See zsh/GAMIFICATION_QUICK_START.md for setup."
+      fi
+      ;;
+    3)
+      echo ""
+      if command -v gtd-gamify &>/dev/null; then
         gtd-gamify achievements
       elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
         "$HOME/code/dotfiles/bin/gtd-gamify" achievements
@@ -4109,7 +4125,7 @@ gamification_wizard() {
       echo "Press Enter to continue..."
       read
       ;;
-    3)
+    4)
       echo ""
       echo -e "${BOLD}Streak Information:${NC}"
       echo ""
@@ -4126,7 +4142,7 @@ gamification_wizard() {
       echo "Press Enter to continue..."
       read
       ;;
-    4)
+    5)
       echo ""
       echo -e "${BOLD}Statistics:${NC}"
       echo ""
@@ -4176,7 +4192,69 @@ gamification_wizard() {
       echo "Press Enter to continue..."
       read
       ;;
-    6)
+    7)
+      echo ""
+      echo "🤖 AI Badge Suggestions:"
+      echo ""
+      echo "  1) Analyze logs and suggest badges (week)"
+      echo "  2) Analyze logs and suggest badges (month)"
+      echo "  3) Review pending badge suggestions"
+      echo ""
+      echo -n "Choose: "
+      read badge_suggest_choice
+      
+      case "$badge_suggest_choice" in
+        1)
+          echo ""
+          if command -v gtd-gamify &>/dev/null; then
+            gtd-gamify custom-badge suggest week hank
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-gamify" custom-badge suggest week hank
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-gamify" custom-badge suggest week hank
+          else
+            echo "❌ gtd-gamify not found"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        2)
+          echo ""
+          if command -v gtd-gamify &>/dev/null; then
+            gtd-gamify custom-badge suggest month hank
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-gamify" custom-badge suggest month hank
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-gamify" custom-badge suggest month hank
+          else
+            echo "❌ gtd-gamify not found"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        3)
+          echo ""
+          if command -v gtd-gamify &>/dev/null; then
+            gtd-gamify custom-badge review
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-gamify" custom-badge review
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-gamify" custom-badge review
+          else
+            echo "❌ gtd-gamify not found"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      ;;
+    8)
       echo ""
       echo "Habitica Integration:"
       echo ""

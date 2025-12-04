@@ -1,0 +1,313 @@
+#!/bin/bash
+# Suggest custom badges based on log entry patterns
+# Uses AI advisors to analyze logs and propose badges
+
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+GAMIFICATION_DIR="${GTD_BASE_DIR}/.gtd/gamification"
+GAMIFICATION_FILE="${GAMIFICATION_DIR}/gamification.json"
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
+# Find persona helper
+PERSONA_HELPER=""
+POSSIBLE_PATHS=(
+  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+  if [[ -f "$path" ]]; then
+    PERSONA_HELPER="$path"
+    break
+  fi
+done
+
+if [[ -z "$PERSONA_HELPER" || ! -f "$PERSONA_HELPER" ]]; then
+  echo "❌ Persona helper not found"
+  exit 1
+fi
+
+# Find python
+PYTHON_CMD=""
+if [[ -f "/opt/homebrew/bin/python3" ]]; then
+  PYTHON_CMD="/opt/homebrew/bin/python3"
+elif command -v python3 &>/dev/null; then
+  PYTHON_CMD="python3"
+else
+  echo "❌ python3 not found"
+  exit 1
+fi
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Analyze logs and suggest badges
+suggest_badges_from_logs() {
+  local date_range="${1:-week}"  # week, month, all
+  
+  # Get log content
+  local log_content=""
+  case "$date_range" in
+    week)
+      # Last 7 days
+      local today=$($DATE_CMD +"%Y-%m-%d")
+      for i in {0..6}; do
+        local date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || $DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+        if [[ -z "$date" ]]; then
+          local timestamp=$(($($DATE_CMD +%s) - (i * 86400)))
+          date=$($DATE_CMD -r $timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+        local log_file="${DAILY_LOG_DIR}/${date}.md"
+        if [[ -f "$log_file" ]]; then
+          log_content="${log_content}\n\n# ${date}\n$(cat "$log_file")"
+        fi
+      done
+      ;;
+    month)
+      # Last 30 days
+      local today=$($DATE_CMD +"%Y-%m-%d")
+      for i in {0..29}; do
+        local date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || $DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+        if [[ -z "$date" ]]; then
+          local timestamp=$(($($DATE_CMD +%s) - (i * 86400)))
+          date=$($DATE_CMD -r $timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+        local log_file="${DAILY_LOG_DIR}/${date}.md"
+        if [[ -f "$log_file" ]]; then
+          log_content="${log_content}\n\n# ${date}\n$(cat "$log_file")"
+        fi
+      done
+      ;;
+    all)
+      # All logs
+      local logs=($(find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | sort -r | head -50))
+      for log_file in "${logs[@]}"; do
+        local date=$(basename "$log_file" .md)
+        log_content="${log_content}\n\n# ${date}\n$(cat "$log_file")"
+      done
+      ;;
+  esac
+  
+  if [[ -z "$log_content" ]]; then
+    echo "❌ No log entries found for analysis"
+    return 1
+  fi
+  
+  echo "🔍 Analyzing logs for badge patterns..."
+  echo ""
+  
+  # Use AI advisor to analyze and suggest badges
+  local analysis_prompt="I've been analyzing your daily logs and I want to suggest some custom badges based on patterns I've noticed. 
+
+Here are the log entries I've reviewed:
+${log_content}
+
+Based on these logs, please suggest 2-3 custom badges that would be meaningful and achievable. For each badge suggestion, provide:
+1. Badge name (short, catchy)
+2. Description (what pattern or achievement it recognizes)
+3. Challenge requirement (what they need to do to earn it - be specific with numbers/metrics)
+4. Maintenance requirement (what they need to maintain to keep it - optional, can be same as challenge)
+5. XP reward (suggested amount, typically 25-200 XP)
+6. Why this badge matters (what pattern you noticed)
+
+Format your response as JSON with this structure:
+{
+  \"suggestions\": [
+    {
+      \"name\": \"Badge Name\",
+      \"description\": \"What it recognizes\",
+      \"challenge_requirement\": {\"metric\": \"value\"},
+      \"maintenance_requirement\": {\"metric\": \"value\"},
+      \"xp_reward\": 50,
+      \"reason\": \"Why this pattern matters\"
+    }
+  ]
+}
+
+Focus on patterns that are:
+- Specific and measurable
+- Meaningful to their personal growth
+- Achievable but challenging
+- Based on actual patterns in the logs
+
+Be creative but practical. Look for patterns like: specific activities they do regularly, themes in their entries, habits they're building, or goals they're working toward."
+
+  # Get suggestions from a persona (use hank for practical suggestions, or louiza for accountability)
+  local persona="${2:-hank}"
+  
+  echo "Asking ${persona} to analyze patterns..."
+  echo ""
+  
+  local suggestions=$($PYTHON_CMD "$PERSONA_HELPER" "$persona" "$analysis_prompt" 2>/dev/null)
+  
+  if [[ -z "$suggestions" ]]; then
+    echo "❌ Could not get badge suggestions from advisor"
+    return 1
+  fi
+  
+  # Try to extract JSON from the response
+  local json_suggestions=$(echo "$suggestions" | grep -oP '\{.*"suggestions".*\}' | head -1 || echo "")
+  
+  if [[ -z "$json_suggestions" ]]; then
+    # If no JSON found, try to parse the text response
+    echo "📝 Raw suggestions from ${persona}:"
+    echo "$suggestions"
+    echo ""
+    echo "💡 You can manually create badges based on these suggestions using:"
+    echo "   gtd-gamify custom-badge create"
+    return 0
+  fi
+  
+  # Save suggestions
+  python3 <<PYTHON_SCRIPT
+import json
+import sys
+from datetime import datetime
+
+try:
+    # Parse suggestions
+    suggestions_data = json.loads('''$json_suggestions''')
+    
+    # Load existing gamification data
+    with open("$GAMIFICATION_FILE", "r") as f:
+        data = json.load(f)
+    
+    if "badge_suggestions" not in data:
+        data["badge_suggestions"] = []
+    
+    # Add new suggestions with timestamp
+    for suggestion in suggestions_data.get("suggestions", []):
+        suggestion["suggested_date"] = datetime.now().isoformat()
+        suggestion["suggested_by"] = "$persona"
+        suggestion["status"] = "pending"
+        data["badge_suggestions"].append(suggestion)
+    
+    # Save
+    with open("$GAMIFICATION_FILE", "w") as f:
+        json.dump(data, f, indent=2)
+    
+    print(f"✅ Saved {len(suggestions_data.get('suggestions', []))} badge suggestion(s)")
+    print("")
+    print("Review suggestions with: gtd-gamify custom-badge review")
+    
+except Exception as e:
+    print(f"⚠️  Could not parse suggestions as JSON: {e}")
+    print("")
+    print("Raw response:")
+    print("$suggestions")
+PYTHON_SCRIPT
+}
+
+# Review badge suggestions
+review_suggestions() {
+  python3 <<PYTHON_SCRIPT
+import json
+import sys
+
+try:
+    with open("$GAMIFICATION_FILE", "r") as f:
+        data = json.load(f)
+    
+    suggestions = data.get("badge_suggestions", [])
+    pending = [s for s in suggestions if s.get("status") == "pending"]
+    
+    if not pending:
+        print("✅ No pending badge suggestions")
+        return
+    
+    print("\n" + "="*70)
+    print("🎖️  PENDING BADGE SUGGESTIONS".center(70))
+    print("="*70)
+    print()
+    
+    for i, suggestion in enumerate(pending, 1):
+        print(f"{i}. {suggestion.get('name', 'Unnamed Badge')}")
+        print(f"   Description: {suggestion.get('description', 'No description')}")
+        print(f"   Challenge: {suggestion.get('challenge_requirement', {})}")
+        print(f"   Maintenance: {suggestion.get('maintenance_requirement', {})}")
+        print(f"   XP Reward: {suggestion.get('xp_reward', 0)}")
+        print(f"   Reason: {suggestion.get('reason', 'No reason provided')}")
+        print(f"   Suggested by: {suggestion.get('suggested_by', 'unknown')}")
+        print(f"   Date: {suggestion.get('suggested_date', 'unknown')}")
+        print()
+    
+    print("="*70)
+    print()
+    print("To approve a suggestion, use:")
+    print("  gtd-gamify custom-badge approve <number>")
+    print()
+    print("To reject a suggestion, use:")
+    print("  gtd-gamify custom-badge reject <number>")
+    print()
+    
+except Exception as e:
+    print(f"❌ Error: {e}")
+PYTHON_SCRIPT
+}
+
+# Main
+case "${1:-suggest}" in
+  suggest|analyze)
+    suggest_badges_from_logs "${2:-week}" "${3:-hank}"
+    ;;
+  review)
+    review_suggestions
+    ;;
+  *)
+    echo "Usage: gtd-suggest-badges [command]"
+    echo ""
+    echo "Commands:"
+    echo "  suggest [range] [persona]  Analyze logs and suggest badges"
+    echo "                            range: week (default), month, all"
+    echo "                            persona: hank (default), louiza, david, etc."
+    echo "  review                     Review pending badge suggestions"
+    echo ""
+    echo "Examples:"
+    echo "  gtd-suggest-badges suggest week hank"
+    echo "  gtd-suggest-badges suggest month louiza"
+    echo "  gtd-suggest-badges review"
+    ;;
+esac
+
