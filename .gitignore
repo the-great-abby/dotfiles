@@ -8,3 +8,4 @@ fonts/
 *.pyc
 *venv*
 credentials.json
+.google_health/credentials.json
