@@ -259,10 +259,11 @@ merge_conflict() {
   local obsidian_file="$2"
   local conflict_type="${3:-content}"
   
-  echo "⚠️  Conflict detected: $conflict_type"
-  echo "   Local: $local_file"
-  echo "   Obsidian: $obsidian_file"
-  echo ""
+  # Send conflict message to stderr (won't be captured)
+  echo "⚠️  Conflict detected: $conflict_type" >&2
+  echo "   Local: $local_file" >&2
+  echo "   Obsidian: $obsidian_file" >&2
+  echo "" >&2
   
   python3 <<EOF
 import json
@@ -279,23 +280,34 @@ obsidian_content = obsidian_file.read_text() if obsidian_file.exists() else ""
 
 # Simple merge strategy: combine unique entries
 if conflict_type == "daily_log":
+    import re
     # For daily logs, merge entries by time
     local_lines = local_content.split('\n')
     obsidian_lines = obsidian_content.split('\n')
     
-    # Extract time-stamped entries from both
+    # Extract time-stamped entries from both (format: HH:MM - entry)
     local_entries = {}
     obsidian_entries = {}
     
+    # Extract from local file
     for line in local_lines:
-        if ':' in line and line[0:2].isdigit() and line[2] == ':':
-            time_key = line[:5]  # HH:MM
-            local_entries[time_key] = line
+        line = line.strip()
+        # Match time-stamped entries: HH:MM - entry
+        match = re.match(r'^(\d{2}:\d{2})\s+-\s+(.+)$', line)
+        if match:
+            time_key = match.group(1)  # HH:MM
+            entry_text = match.group(2)
+            local_entries[time_key] = f"{time_key} - {entry_text}"
     
+    # Extract from Obsidian file (might be in code blocks or sections)
     for line in obsidian_lines:
-        if ':' in line and line[0:2].isdigit() and line[2] == ':':
-            time_key = line[:5]
-            obsidian_entries[time_key] = line
+        line = line.strip()
+        # Match time-stamped entries: HH:MM - entry
+        match = re.match(r'^(\d{2}:\d{2})\s+-\s+(.+)$', line)
+        if match:
+            time_key = match.group(1)  # HH:MM
+            entry_text = match.group(2)
+            obsidian_entries[time_key] = f"{time_key} - {entry_text}"
     
     # Merge: Obsidian entries take precedence for same time, but add unique ones
     merged_entries = dict(local_entries)
@@ -303,9 +315,23 @@ if conflict_type == "daily_log":
         if time_key not in merged_entries or obsidian_file.stat().st_mtime > local_file.stat().st_mtime:
             merged_entries[time_key] = entry
     
-    # Reconstruct content
-    header = local_content.split('\n')[0] if local_content else obsidian_content.split('\n')[0]
-    merged_content = header + "\n\n" + "\n".join(sorted(merged_entries.values()))
+    # Get header (first line, usually the date)
+    header = ""
+    if local_content:
+        first_line = local_content.split('\n')[0].strip()
+        if first_line and not re.match(r'^\d{2}:\d{2}', first_line):
+            header = first_line
+    elif obsidian_content:
+        first_line = obsidian_content.split('\n')[0].strip()
+        if first_line and not re.match(r'^\d{2}:\d{2}', first_line):
+            header = first_line
+    
+    # Reconstruct content with sorted entries
+    sorted_entries = sorted(merged_entries.values())
+    if header:
+        merged_content = header + "\n\n" + "\n".join(sorted_entries)
+    else:
+        merged_content = "\n".join(sorted_entries)
     
     print(merged_content)
 else:
@@ -431,9 +457,14 @@ sync_daily_logs_bidirectional() {
         if [[ $note_mtime -gt $log_mtime ]]; then
           # Obsidian is newer - need to merge
           echo "🔄 Merging changes from Obsidian: $date"
-          merged_content=$(merge_conflict "$log_file" "$note_file" "daily_log")
-          echo "$merged_content" > "$log_file"
-          ((synced++))
+          merged_content=$(merge_conflict "$log_file" "$note_file" "daily_log" "true")
+          if [[ -n "$merged_content" ]]; then
+            echo "$merged_content" > "$log_file"
+            echo "  ✓ Merged log entries successfully"
+            ((synced++))
+          else
+            echo "  ⚠️  Merge failed, keeping local version"
+          fi
         elif [[ $log_mtime -gt $note_mtime ]]; then
           # Local is newer - sync to Obsidian
           echo "📤 Syncing to Obsidian: $date"

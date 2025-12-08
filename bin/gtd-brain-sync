@@ -209,53 +209,21 @@ sync_daily_logs() {
     return 0  # Don't fail, just skip
   fi
   
-  local synced=0
-  local updated=0
-  local pulled=0
+  # Sync local → Second Brain using rsync
+  # --update: only update if source is newer (preserves newer files in destination)
+  # --exclude: skip banter files, backups, and .txt files (we only sync .md)
+  rsync -av --update \
+    --exclude='*.banter.*' \
+    --exclude='*.backup.*' \
+    --exclude='*.txt' \
+    "${DAILY_LOG_DIR}/" "${sync_dir}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
   
-  # Sync local → Second Brain
-  find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 2>/dev/null | while read -r log_file; do
-    local filename=$(basename "$log_file")
-    local sync_file="${sync_dir}/${filename}"
-    
-    if [[ ! -f "$sync_file" ]]; then
-      cp "$log_file" "$sync_file"
-      echo "  ✓ Synced: $filename → Second Brain"
-      ((synced++))
-    else
-      # Compare modification times
-      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
-      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
-      
-      if [[ $log_mtime -gt $sync_mtime ]]; then
-        cp "$log_file" "$sync_file"
-        echo "  ✓ Updated: $filename → Second Brain"
-        ((updated++))
-      fi
-    fi
-  done
-  
-  # Sync Second Brain → local (pull any new logs from other computers)
-  find "$sync_dir" -type f -name "*.md" -maxdepth 1 2>/dev/null | while read -r sync_file; do
-    local filename=$(basename "$sync_file")
-    local log_file="${DAILY_LOG_DIR}/${filename}"
-    
-    if [[ ! -f "$log_file" ]]; then
-      cp "$sync_file" "$log_file"
-      echo "  ✓ Pulled: $filename ← Second Brain"
-      ((pulled++))
-    else
-      # Check if sync version is newer
-      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
-      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
-      
-      if [[ $sync_mtime -gt $log_mtime ]]; then
-        cp "$sync_file" "$log_file"
-        echo "  ✓ Updated: $filename ← Second Brain"
-        ((pulled++))
-      fi
-    fi
-  done
+  # Sync Second Brain → local (pull new/updated files)
+  # --update: only update if source is newer (preserves newer local files)
+  rsync -av --update \
+    --exclude='*.banter.*' \
+    --exclude='*.backup.*' \
+    "${sync_dir}/" "${DAILY_LOG_DIR}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
   
   echo "  ✓ Daily logs synced to: ${sync_dir}"
   echo "    (Will sync automatically via Obsidian to other computers)"

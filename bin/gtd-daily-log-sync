@@ -79,61 +79,21 @@ sync_to_second_brain() {
     return 1
   fi
   
-  local synced=0
-  local updated=0
-  local skipped=0
+  # Push local → Second Brain (only update if local is newer)
+  echo "Pushing local logs to Second Brain..."
+  rsync -av --update \
+    --exclude='*.banter.*' \
+    --exclude='*.backup.*' \
+    --exclude='*.txt' \
+    "${DAILY_LOG_DIR}/" "${sync_dir}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
   
-  # Copy all daily logs
-  find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | while read -r log_file; do
-    local filename=$(basename "$log_file")
-    local sync_file="${sync_dir}/${filename}"
-    
-    # Check if file exists and is newer
-    if [[ -f "$sync_file" ]]; then
-      # Compare modification times
-      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
-      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
-      
-      if [[ $log_mtime -gt $sync_mtime ]]; then
-        # Local is newer, copy to sync
-        cp "$log_file" "$sync_file"
-        echo "✓ Updated: $filename"
-        ((updated++))
-      elif [[ $sync_mtime -gt $log_mtime ]]; then
-        # Sync is newer, copy to local
-        cp "$sync_file" "$log_file"
-        echo "✓ Pulled: $filename (newer in Second Brain)"
-        ((updated++))
-      else
-        # Same, skip
-        ((skipped++))
-      fi
-    else
-      # New file, copy to sync
-      cp "$log_file" "$sync_file"
-      echo "✓ Synced: $filename"
-      ((synced++))
-    fi
-  done
+  # Also pull any new files from Second Brain (in case other computer added files)
+  echo "Pulling new files from Second Brain..."
+  rsync -av --update \
+    --exclude='*.banter.*' \
+    --exclude='*.backup.*' \
+    "${sync_dir}/" "${DAILY_LOG_DIR}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
   
-  # Also check for files in sync that aren't in local
-  find "$sync_dir" -type f -name "*.md" -maxdepth 1 | while read -r sync_file; do
-    local filename=$(basename "$sync_file")
-    local log_file="${DAILY_LOG_DIR}/${filename}"
-    
-    if [[ ! -f "$log_file" ]]; then
-      # File exists in sync but not local, pull it
-      cp "$sync_file" "$log_file"
-      echo "✓ Pulled: $filename (from Second Brain)"
-      ((synced++))
-    fi
-  done
-  
-  echo ""
-  echo "📊 Sync Summary:"
-  echo "  Synced: ${synced}"
-  echo "  Updated: ${updated}"
-  echo "  Skipped: ${skipped}"
   echo ""
   echo "✓ Daily logs synced to: ${sync_dir}"
   echo ""
@@ -158,37 +118,13 @@ sync_from_second_brain() {
   
   mkdir -p "$DAILY_LOG_DIR"
   
-  local pulled=0
-  local updated=0
+  # Pull from Second Brain → local (only update if sync is newer)
+  echo "Pulling logs from Second Brain..."
+  rsync -av --update \
+    --exclude='*.banter.*' \
+    --exclude='*.backup.*' \
+    "${sync_dir}/" "${DAILY_LOG_DIR}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
   
-  # Copy all files from sync to local
-  find "$sync_dir" -type f -name "*.md" -maxdepth 1 | while read -r sync_file; do
-    local filename=$(basename "$sync_file")
-    local log_file="${DAILY_LOG_DIR}/${filename}"
-    
-    if [[ ! -f "$log_file" ]]; then
-      # New file, copy it
-      cp "$sync_file" "$log_file"
-      echo "✓ Pulled: $filename"
-      ((pulled++))
-    else
-      # File exists, check which is newer
-      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
-      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
-      
-      if [[ $sync_mtime -gt $log_mtime ]]; then
-        # Sync is newer, update local
-        cp "$sync_file" "$log_file"
-        echo "✓ Updated: $filename"
-        ((updated++))
-      fi
-    fi
-  done
-  
-  echo ""
-  echo "📊 Pull Summary:"
-  echo "  Pulled: ${pulled}"
-  echo "  Updated: ${updated}"
   echo ""
   echo "✓ Daily logs pulled from: ${sync_dir}"
   echo ""
@@ -206,43 +142,23 @@ sync_both_ways() {
   mkdir -p "$sync_dir"
   mkdir -p "$DAILY_LOG_DIR"
   
-  # Sync local → Second Brain
-  find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 | while read -r log_file; do
-    local filename=$(basename "$log_file")
-    local sync_file="${sync_dir}/${filename}"
-    
-    if [[ ! -f "$sync_file" ]]; then
-      cp "$log_file" "$sync_file"
-      echo "✓ Synced: $filename → Second Brain"
-    else
-      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
-      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
-      
-      if [[ $log_mtime -gt $sync_mtime ]]; then
-        cp "$log_file" "$sync_file"
-        echo "✓ Updated: $filename → Second Brain"
-      fi
-    fi
-  done
+  # Sync local → Second Brain using rsync
+  # --update: only update if source is newer (preserves newer files in destination)
+  # --exclude: skip banter files and backups
+  echo "Syncing local → Second Brain..."
+  rsync -av --update \
+    --exclude='*.banter.*' \
+    --exclude='*.backup.*' \
+    --exclude='*.txt' \
+    "${DAILY_LOG_DIR}/" "${sync_dir}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
   
   # Sync Second Brain → local
-  find "$sync_dir" -type f -name "*.md" -maxdepth 1 | while read -r sync_file; do
-    local filename=$(basename "$sync_file")
-    local log_file="${DAILY_LOG_DIR}/${filename}"
-    
-    if [[ ! -f "$log_file" ]]; then
-      cp "$sync_file" "$log_file"
-      echo "✓ Pulled: $filename ← Second Brain"
-    else
-      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
-      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
-      
-      if [[ $sync_mtime -gt $log_mtime ]]; then
-        cp "$sync_file" "$log_file"
-        echo "✓ Updated: $filename ← Second Brain"
-      fi
-    fi
-  done
+  # --update: only update if source is newer (preserves newer local files)
+  echo "Syncing Second Brain → local..."
+  rsync -av --update \
+    --exclude='*.banter.*' \
+    --exclude='*.backup.*' \
+    "${sync_dir}/" "${DAILY_LOG_DIR}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
   
   echo ""
   echo "✓ Two-way sync complete!"
