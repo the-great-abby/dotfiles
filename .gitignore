@@ -7,3 +7,4 @@ vim/bundle/*
 fonts/
 *.pyc
 *venv*
+credentials.json
