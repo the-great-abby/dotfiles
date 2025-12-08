@@ -2,16 +2,6 @@
 # Greek Language Learning with Mistress Louiza as Instructor
 # Integrated with GTD system for tracking progress
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
-fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
 # Load GTD config
 GTD_CONFIG_FILE="$HOME/.gtd_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
@@ -96,17 +86,92 @@ get_date_cmd() {
 
 DATE_CMD=$(get_date_cmd)
 
+# Gather study data for critique
+gather_greek_study_data() {
+  local topic="$1"
+  
+  # Default paths
+  SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  PROJECTS_PATH="${PROJECTS_PATH:-$GTD_BASE_DIR/1-projects}"
+  
+  local study_data=""
+  
+  # Study notes count and recent topics
+  local notes_count=$(find "${GREEK_STUDY_DIR}/notes" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$notes_count" -gt 0 ]]; then
+    study_data="${study_data}\nGreek Study Notes: ${notes_count} notes created"
+    local recent_topics=$(find "${GREEK_STUDY_DIR}/notes" -type f -name "*.md" -exec basename {} \; 2>/dev/null | sed 's/^[0-9]*-//' | sed 's/\.md$//' | head -5 | tr '\n' ', ' | sed 's/, $//')
+    if [[ -n "$recent_topics" ]]; then
+      study_data="${study_data} (recent: ${recent_topics})"
+    fi
+  fi
+  
+  # Progress tracking
+  local progress_files=$(find "${GREEK_STUDY_DIR}/progress" -type f -name "*.txt" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$progress_files" -gt 0 ]]; then
+    study_data="${study_data}\nStudy Sessions Tracked: ${progress_files} days with logged sessions"
+  fi
+  
+  # Second Brain notes related to Greek
+  if [[ -d "$SECOND_BRAIN" ]]; then
+    local greek_notes=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/.obsidian/*" -exec grep -l -i "greek\|ελληνικ\|hellenic" {} \; 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$greek_notes" -gt 0 ]]; then
+      study_data="${study_data}\nSecond Brain Notes: ${greek_notes} notes mentioning Greek"
+    fi
+  fi
+  
+  # GTD projects related to Greek
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    local greek_projects=$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 -exec basename {} \; 2>/dev/null | grep -i "greek\|hellenic" | wc -l | tr -d ' ')
+    if [[ "$greek_projects" -gt 0 ]]; then
+      local project_names=$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 -exec basename {} \; 2>/dev/null | grep -i "greek\|hellenic" | tr '\n' ', ' | sed 's/, $//')
+      study_data="${study_data}\nGTD Projects: ${greek_projects} Greek-related projects (${project_names})"
+    fi
+  fi
+  
+  # Sample note content for quality analysis (if topic-specific)
+  if [[ -n "$topic" && "$notes_count" -gt 0 ]]; then
+    local topic_notes=$(find "${GREEK_STUDY_DIR}/notes" -type f -name "*${topic}*" -o -name "*.md" 2>/dev/null | head -3)
+    if [[ -n "$topic_notes" ]]; then
+      study_data="${study_data}\nNotes on '${topic}': Found ${#topic_notes} related notes"
+    fi
+  fi
+  
+  echo -e "$study_data"
+}
+
 # Get lesson from Mistress Louiza
 get_greek_lesson() {
   local topic="$1"
   local context="$2"  # beginner, intermediate, advanced
+  local critique_mode="${3:-false}"  # true = include study data for critique
+  
+  # Gather study data if in critique mode
+  local study_data=""
+  if [[ "$critique_mode" == "true" ]]; then
+    study_data=$(gather_greek_study_data "$topic")
+  fi
   
   # Create comprehensive prompt for Louiza as Greek language instructor
   local prompt=""
   
+  if [[ "$critique_mode" == "true" && -n "$study_data" ]]; then
+    prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s Greek language instructor. ${GTD_USER_NAME:-Abby} wants personalized critique and feedback on her actual Greek study progress and note-taking. I've provided her actual study data below. Analyze it critically and provide specific, actionable feedback on how well she's studying Greek, taking notes, and tracking progress. Be firm but encouraging. Point out what's working well and what needs improvement. Give specific recommendations based on what you see in her data. Use your characteristic style.
+
+${GTD_USER_NAME:-Abby}'s Current Greek Study Data:
+${study_data}
+
+"
+  fi
+  
   case "$topic" in
     basics|introduction|intro|alphabet)
-      prompt="You are Mistress Louiza, and you are ${GTD_USER_NAME:-Abby}'s Greek language instructor. Give her a comprehensive introduction to the Greek language. Explain the Greek alphabet (24 letters), how to read Greek script, pronunciation basics, and fundamental concepts. Be encouraging but firm. Use your characteristic style. Reference Greek language experts or resources when you need to explain something in more detail, but you remain the primary instructor. Make it practical with examples showing Greek text alongside transliteration. Explain how this integrates with her GTD system - she can track her study progress with 'addInfoToDailyLog' and create study tasks with 'gtd-task add'."
+      if [[ "$critique_mode" == "true" && -n "$study_data" ]]; then
+        prompt="${prompt}Based on her actual study data above, critique her Greek learning approach, especially for basics and alphabet. How many notes has she taken? Is she tracking progress? Give specific feedback on her study habits and recommend improvements. Then provide targeted guidance on Greek basics and alphabet."
+      else
+        prompt="${prompt}You are Mistress Louiza, and you are ${GTD_USER_NAME:-Abby}'s Greek language instructor. Give her a comprehensive introduction to the Greek language. Explain the Greek alphabet (24 letters), how to read Greek script, pronunciation basics, and fundamental concepts. Be encouraging but firm. Use your characteristic style. Reference Greek language experts or resources when you need to explain something in more detail, but you remain the primary instructor. Make it practical with examples showing Greek text alongside transliteration. Explain how this integrates with her GTD system - she can track her study progress with 'addInfoToDailyLog' and create study tasks with 'gtd-task add'."
+      fi
       ;;
     reading|read)
       prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s Greek language instructor. Teach her how to read Greek. Focus on recognizing Greek letters, reading words, understanding basic word structure, and building reading comprehension. Include examples with Greek text. Be practical and encouraging. Explain how to practice reading and track progress in her GTD system."
@@ -136,7 +201,11 @@ get_greek_lesson() {
       prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s Greek language instructor. Give her a hands-on practice exercise. Create a realistic reading or comprehension exercise she can practice with. Include Greek text, questions, or exercises to complete. Explain what to do and how to verify understanding. Be practical. After she completes it, she should log it with 'addInfoToDailyLog \"Completed Greek practice: [topic]\"'. Show her how to track practice sessions in her GTD system."
       ;;
     *)
-      prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s Greek language instructor helping her learn to read and understand Greek. Teach her about: ${topic}. Be comprehensive, practical, and encouraging but firm. Include Greek text with transliteration and translations when showing examples. Reference Greek language experts or resources when you need to explain something in more detail, but you remain the primary instructor. Use your characteristic style. Explain how to track study progress in her GTD system with 'addInfoToDailyLog' and 'gtd-task add'."
+      if [[ "$critique_mode" == "true" && -n "$study_data" ]]; then
+        prompt="${prompt}Based on her actual study data above, critique her Greek learning for: ${topic}. Analyze her notes, progress tracking, and study habits. Give specific feedback and recommendations. Then provide targeted guidance on ${topic}."
+      else
+        prompt="${prompt}You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s Greek language instructor helping her learn to read and understand Greek. Teach her about: ${topic}. Be comprehensive, practical, and encouraging but firm. Include Greek text with transliteration and translations when showing examples. Reference Greek language experts or resources when you need to explain something in more detail, but you remain the primary instructor. Use your characteristic style. Explain how to track study progress in her GTD system with 'addInfoToDailyLog' and 'gtd-task add'."
+      fi
       ;;
   esac
   
@@ -177,6 +246,110 @@ get_greek_lesson() {
   fi
   
   return 1
+}
+
+# Handle Q&A session after a lesson or critique
+handle_qa_session() {
+  local topic="$1"
+  local is_critique="${2:-false}"
+  
+  # Ask if student wants to ask questions
+  if [[ "$is_critique" == "true" ]]; then
+    echo -e "${BOLD}Do you have any questions about this critique?${NC}"
+  else
+    echo -e "${BOLD}Do you have any questions about this topic?${NC}"
+  fi
+  echo -e "${GREEN}y${NC} - Ask questions"
+  echo -e "${GREEN}n${NC} - Continue"
+  echo ""
+  read -p "Choice: " ask_questions
+  echo ""
+  
+  if [[ "$ask_questions" != "y" && "$ask_questions" != "Y" ]]; then
+    return 0
+  fi
+  
+  # Q&A session loop
+  while true; do
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    if [[ "$is_critique" == "true" ]]; then
+      echo -e "${BOLD}💬 Ask Mistress Louiza about the critique on: ${topic}${NC}"
+    else
+      echo -e "${BOLD}💬 Ask Mistress Louiza about: ${topic}${NC}"
+    fi
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${YELLOW}Type your question (or 'done' to finish asking questions):${NC}"
+    echo ""
+    read -p "❓ Question: " student_question
+    
+    if [[ -z "$student_question" ]]; then
+      echo "Please enter a question or 'done' to continue."
+      echo ""
+      continue
+    fi
+    
+    # Check if student is done
+    if [[ "$student_question" == "done" || "$student_question" == "Done" || "$student_question" == "DONE" ]]; then
+      echo ""
+      echo "✓ Finished asking questions."
+      echo ""
+      break
+    fi
+    
+    # Get answer from Mistress Louiza with context
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}👑 Answer from Mistress Louiza${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
+    echo ""
+    
+    local question_prompt=""
+    if [[ "$is_critique" == "true" ]]; then
+      question_prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s Greek language instructor. ${GTD_USER_NAME:-Abby} just received personalized critique on: ${topic}. Now she has a question about the critique: '${student_question}'. Answer her question in detail, referencing the critique you just gave her about ${topic}. Be helpful, encouraging, and use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Reference other experts if needed, but you remain the primary instructor."
+    else
+      question_prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s Greek language instructor. ${GTD_USER_NAME:-Abby} just learned about: ${topic}. Now she has a question: '${student_question}'. Answer her question in detail, referencing what you just taught her about ${topic}. Be helpful, encouraging, and use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Reference other experts if needed, but you remain the primary instructor."
+    fi
+    
+    local answer=$("$PYTHON_CMD" "$PERSONA_HELPER" "louiza" "$question_prompt" "greek_instructor" 2>&1)
+    
+    if [[ -n "$answer" ]]; then
+      # Extract message (same extraction logic as lesson)
+      local answer_text=$(echo "$answer" | awk '
+        /^━+$/ {
+          if (in_section) {
+            exit
+          }
+          in_section = 1
+          next
+        }
+        in_section && !/^💬/ && !/^━/ {
+          print
+        }
+      ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      
+      # Clean up
+      answer_text=$(echo "$answer_text" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+      answer_text=$(echo "$answer_text" | sed 's/\*\*//g')
+      answer_text=$(echo "$answer_text" | awk 'NF || prev_nf; {prev_nf=NF}')
+      
+      if [[ -n "$answer_text" && ${#answer_text} -gt 10 ]]; then
+        echo "$answer_text" | sed 's/^/   /'
+        echo ""
+      else
+        echo "   I'm here to help, baby girl. Could you rephrase your question?"
+        echo ""
+      fi
+    else
+      echo "   ⚠️  Could not get answer. Check LM Studio connection."
+      echo ""
+    fi
+    
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+  done
 }
 
 # Create study note
@@ -247,6 +420,11 @@ show_greek_menu() {
   echo -e "${GREEN}11)${NC} Study Progress"
   echo -e "${GREEN}12)${NC} Custom Topic"
   echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}📊 Personalized Critique${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}13)${NC} Get Personalized Critique on My Greek Study"
+  echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
   echo -n "Choose: "
@@ -306,12 +484,16 @@ show_progress() {
 # Main function
 main() {
   local topic="$1"
+  local critique_mode="false"
   
   if [[ -z "$topic" ]]; then
     # Interactive mode
     while true; do
       show_greek_menu
       read choice
+      
+      # Reset critique mode for each lesson
+      critique_mode="false"
       
       case "$choice" in
         1) topic="basics" ;;
@@ -332,6 +514,115 @@ main() {
           echo ""
           echo -n "What Greek topic would you like to learn about? "
           read topic
+          ;;
+        13)
+          # Personalized critique mode
+          echo ""
+          echo -e "${BOLD}📊 Personalized Greek Study Critique${NC}"
+          echo ""
+          echo "Mistress Louiza will analyze your actual Greek study progress and provide"
+          echo "personalized feedback. This includes:"
+          echo "  • Your study notes and topics covered"
+          echo "  • Your study session tracking"
+          echo "  • Your Second Brain notes related to Greek"
+          echo "  • Your GTD projects for Greek learning"
+          echo "  • How well you're tracking and organizing your learning"
+          echo ""
+          
+          # Build dynamic topic list from notes
+          local topic_map=()
+          local topic_index=1
+          
+          # Always include "Overall study critique" as option 1
+          topic_map[1]=""
+          echo -e "${GREEN}  ${topic_index})${NC} Overall study critique"
+          ((topic_index++))
+          
+          # Extract unique topics from note filenames
+          if [[ -d "${GREEK_STUDY_DIR}/notes" ]]; then
+            local found_topics=$(find "${GREEK_STUDY_DIR}/notes" -type f -name "*.md" -exec basename {} \; 2>/dev/null | \
+              sed 's/^[0-9]*-//' | sed 's/\.md$//' | \
+              tr '[:upper:]' '[:lower:]' | \
+              sed 's/-/ /g' | sed 's/_/ /g' | \
+              awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1' | \
+              sort -u)
+            
+            # Map common topic names to their canonical form
+            declare -A topic_canonical=(
+              ["Basics"]="basics"
+              ["Alphabet"]="basics"
+              ["Reading"]="reading"
+              ["Comprehension"]="reading"
+              ["Vocabulary"]="vocabulary"
+              ["Grammar"]="grammar"
+              ["Practice"]="practice"
+              ["Exercises"]="practice"
+            )
+            
+            # Process found topics and add to menu
+            local seen_canonical=()
+            seen_canonical[""]=1  # Mark overall as seen
+            
+            while IFS= read -r found_topic; do
+              [[ -z "$found_topic" ]] && continue
+              
+              # Get canonical form
+              local canonical="${topic_canonical[$found_topic]:-}"
+              if [[ -z "$canonical" ]]; then
+                # If not in map, use lowercase with hyphens
+                canonical=$(echo "$found_topic" | tr '[:upper:]' '[:lower:]' | sed 's/ /-/g')
+              fi
+              
+              # Skip if we've already added this canonical topic
+              if [[ -n "${seen_canonical[$canonical]:-}" ]]; then
+                continue
+              fi
+              
+              seen_canonical[$canonical]=1
+              topic_map[$topic_index]="$canonical"
+              echo -e "${GREEN}  ${topic_index})${NC} ${found_topic}"
+              ((topic_index++))
+            done <<< "$found_topics"
+          fi
+          
+          # Always include important topics that might not have notes yet
+          local important_topics=("basics" "reading" "vocabulary" "grammar" "practice")
+          local important_labels=("Basics & Alphabet" "Reading & Comprehension" "Vocabulary" "Grammar" "Practice & Exercises")
+          
+          for i in "${!important_topics[@]}"; do
+            local imp_topic="${important_topics[$i]}"
+            local imp_label="${important_labels[$i]}"
+            
+            # Check if already added
+            local already_added=0
+            for idx in "${!topic_map[@]}"; do
+              if [[ "${topic_map[$idx]}" == "$imp_topic" ]]; then
+                already_added=1
+                break
+              fi
+            done
+            
+            if [[ $already_added -eq 0 ]]; then
+              topic_map[$topic_index]="$imp_topic"
+              echo -e "${GREEN}  ${topic_index})${NC} ${imp_label}"
+              ((topic_index++))
+            fi
+          done
+          
+          echo ""
+          local max_choice=$((topic_index - 1))
+          read -p "Choice (1-${max_choice}): " critique_topic
+          
+          # Map selection to topic
+          if [[ "$critique_topic" =~ ^[0-9]+$ ]] && [[ "$critique_topic" -ge 1 ]] && [[ "$critique_topic" -le $max_choice ]]; then
+            topic="${topic_map[$critique_topic]}"
+          else
+            echo "Invalid choice, using overall study critique"
+            topic=""
+          fi
+          
+          # Set critique mode flag
+          critique_mode="true"
           ;;
         0)
           echo ""
@@ -354,17 +645,45 @@ main() {
       echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
       echo ""
       
-      local lesson=$(get_greek_lesson "$topic" "")
+      # Get lesson
+      if [[ "$critique_mode" == "true" ]]; then
+        echo ""
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${CYAN}📊 Gathering your Greek study data for critique...${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+      fi
+      
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}👑 Lesson from Mistress Louiza${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
+      echo ""
+      
+      local lesson=$(get_greek_lesson "$topic" "" "$critique_mode")
       
       if [[ -n "$lesson" ]]; then
+        if [[ "$critique_mode" == "true" ]]; then
+          echo -e "${BOLD}${YELLOW}📊 Personalized Critique from Mistress Louiza:${NC}"
+          echo ""
+        fi
         echo "$lesson" | sed 's/^/   /'
         echo ""
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
         
-        # Save to study notes
+        # Q&A session (especially important for critiques)
+        handle_qa_session "$topic" "$critique_mode"
+        
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        
+        # Save to study notes (always save automatically)
         local note_file=$(create_study_note "$topic" "$lesson")
         echo -e "${GREEN}✓${NC} Study note saved: $(basename "$note_file")"
+        echo ""
+        echo -e "${CYAN}💡 Note: This note can be reviewed by Mistress Louiza during personalized critique${NC}"
         echo ""
         
         # Track study session

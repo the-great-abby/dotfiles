@@ -1,16 +1,6 @@
 #!/bin/bash
 # GTD Diagram Generator - Create diagrams with AI (Mermaid, PlantUML, Graphviz/DOT, or Text)
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
-fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
 # Load config
 GTD_CONFIG_FILE="$HOME/.gtd_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
@@ -23,19 +13,36 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
-# Find persona helper
-PERSONA_HELPER=""
+# Find deep model helper (for better diagram generation)
+DEEP_MODEL_HELPER=""
 POSSIBLE_PATHS=(
-  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
-  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/dotfiles/bin/gtd_deep_model_helper.py"
+  "$HOME/code/personal/dotfiles/bin/gtd_deep_model_helper.py"
 )
 
 for path in "${POSSIBLE_PATHS[@]}"; do
   if [[ -f "$path" ]]; then
-    PERSONA_HELPER="$path"
+    DEEP_MODEL_HELPER="$path"
     break
   fi
 done
+
+# Fallback to persona helper if deep model helper not found
+if [[ -z "$DEEP_MODEL_HELPER" ]]; then
+  # Find persona helper as fallback
+  PERSONA_HELPER=""
+  POSSIBLE_PATHS=(
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+  )
+  
+  for path in "${POSSIBLE_PATHS[@]}"; do
+    if [[ -f "$path" ]]; then
+      PERSONA_HELPER="$path"
+      break
+    fi
+  done
+fi
 
 # Find python
 PYTHON_CMD=""
@@ -57,7 +64,7 @@ DIAGRAM_TYPES=("flowchart" "mindmap" "sequence" "gantt" "class" "state" "er" "jo
 
 # Output formats
 OUTPUT_FORMATS=("mermaid" "plantuml" "dot" "text")
-DEFAULT_FORMAT="mermaid"
+DEFAULT_FORMAT="dot"
 
 # Clean and validate Mermaid code
 clean_mermaid_code() {
@@ -372,33 +379,70 @@ Output ONLY the PlantUML code, no explanations outside the code block."
       if [[ "$diagram_type" == "mindmap" ]]; then
         echo "Create a Graphviz DOT graph for a mindmap: ${description}
 
-Use simple graph syntax (not digraph).
-Use -- to connect nodes.
-Format it as a code block with three backticks and dot at the start.
+CRITICAL SYNTAX REQUIREMENTS FOR VALID DOT CODE:
+- MUST use 'graph G {' to start (not 'digraph')
+- Use -- for undirected edges (not ->)
+- ALL node IDs must be simple: letters, numbers, underscore ONLY (Node1, ProjectA, Task_1)
+- NO spaces, NO colons, NO brackets, NO special characters in node IDs
+- ALL node labels go in [label=\"Display Text\"] attribute
+- Define ALL nodes FIRST, then add edges
+- Edge syntax: NodeID1 -- NodeID2 (simple, no labels on edges)
+- NEVER put text directly after -- like 'Node1 -- Text Here' - this is INVALID
+- If displaying text from data, put it in the node label, use simple ID
 
-Example:
+STEP-BY-STEP PROCESS:
+1. Create simple node IDs (Project1, Task1, Area1, etc.)
+2. Define each node with [label=\"Actual Display Text\"]
+3. Connect nodes using only IDs: NodeID1 -- NodeID2
+
+INVALID SYNTAX (DO NOT USE):
+- ActiveProjects -- Pathfinder Quest: [Name]  ❌ (colons, brackets, spaces)
+- Project -- \"Project Name\"  ❌ (quotes after --)
+- Node1 -- Label Text  ❌ (text after --)
+
+VALID SYNTAX:
 \`\`\`dot
 graph G {
+  Root [label=\"Root Topic\"]
+  Branch1 [label=\"Branch 1\"]
+  Branch2 [label=\"Branch 2\"]
+  Leaf1 [label=\"Leaf 1\"]
+  Leaf2 [label=\"Leaf 2\"]
   Root -- Branch1
   Root -- Branch2
   Branch1 -- Leaf1
   Branch1 -- Leaf2
-  Branch2 -- Leaf3
 }
 \`\`\`
+
+WHEN USING REAL DATA:
+- Simplify project/task names: \"Pathfinder Quest\" becomes NodeID \"Proj1\" with label \"Pathfinder Quest\"
+- Use simple sequential IDs: Proj1, Proj2, Task1, Task2, Area1, Area2
+- Put the actual names/descriptions ONLY in the label attribute
 
 Output ONLY the DOT code, no explanations outside the code block."
       elif [[ "$diagram_type" == "flowchart" ]]; then
         echo "Create a Graphviz DOT digraph for a flowchart: ${description}
 
-Use digraph syntax.
-Use -> for directed edges.
-Use node labels in quotes if they contain spaces.
-Format it as a code block with three backticks and dot at the start.
+CRITICAL SYNTAX REQUIREMENTS:
+- MUST use 'digraph G {' to start (not 'graph')
+- Use -> for directed edges (not --)
+- Node labels with spaces MUST be in quotes: [label=\"Node Name\"]
+- Node IDs must be simple alphanumeric (Start, Process1, Decision, etc.)
+- Edge labels use [label=\"text\"] syntax
+- Valid node shapes: box, ellipse, diamond, circle (use shape= attribute)
+- DO NOT use: 'circle [label=...]' - use proper syntax like 'Node1 [shape=circle, label=\"Text\"]'
+- DO NOT use invalid attributes like 'style reference', 'angle', etc.
+- Keep syntax simple and valid
+- Format it as a code block with three backticks and dot at the start.
 
-Example:
+Example valid syntax:
 \`\`\`dot
 digraph G {
+  Start [label=\"Start\"]
+  Process1 [label=\"Process Step\"]
+  Decision [shape=diamond, label=\"Decision?\"]
+  End [label=\"End\"]
   Start -> Process1
   Process1 -> Decision
   Decision -> End [label=\"Yes\"]
@@ -524,7 +568,8 @@ extract_code() {
   # Try to extract code block
   if echo "$response" | grep -q "$code_block_start"; then
     # Extract content between code block markers
-    local extracted=$(echo "$response" | sed -n "/$code_block_start/,/```/p" | sed '1d;$d')
+    # Use single quotes for the backtick pattern to avoid command substitution
+    local extracted=$(echo "$response" | sed -n "/$code_block_start/,/\`\`\`/p" | sed '1d;$d')
     if [[ -n "$extracted" && ${#extracted} -ge 10 ]]; then
       echo "$extracted"
       return 0
@@ -532,7 +577,7 @@ extract_code() {
   fi
   
   # If that didn't work, try extracting everything after the format keyword
-  local extracted=$(echo "$response" | sed "s/.*$code_block_start//" | sed 's/```.*//' | sed '/^$/d')
+  local extracted=$(echo "$response" | sed "s/.*$code_block_start//" | sed 's/\`\`\`.*//' | sed '/^$/d')
   if [[ -n "$extracted" && ${#extracted} -ge 10 ]]; then
     echo "$extracted"
     return 0
@@ -574,9 +619,20 @@ generate_diagram() {
   local prompt
   prompt=$(generate_prompt "$output_format" "$diagram_type" "$description")
 
-  # Use persona helper with a diagram-focused persona
+  # Use deep model helper for better visual/diagram generation
+  # The deep model (GPT-OSS 20b) handles visual information better
   local ai_response
-  ai_response=$("$PYTHON_CMD" "$PERSONA_HELPER" "tim" "$prompt" "diagram_generation" 2>&1)
+  if [[ -n "$DEEP_MODEL_HELPER" && -f "$DEEP_MODEL_HELPER" ]]; then
+    echo "🤖 Using deep analysis model for better diagram generation..." >&2
+    local system_prompt="You are an expert at creating visual diagrams and mindmaps. You understand diagram syntax perfectly and generate correct, well-structured diagrams. Pay special attention to proper syntax and structure. For DOT/Graphviz: use simple node IDs (alphanumeric only), define nodes first with [label=\"...\"], connect with simple edges (Node1 -- Node2). Never use colons, brackets, or text directly in edges."
+    ai_response=$("$PYTHON_CMD" "$DEEP_MODEL_HELPER" "$prompt" "$system_prompt" 2>&1)
+  elif [[ -n "$PERSONA_HELPER" && -f "$PERSONA_HELPER" ]]; then
+    echo "⚠️  Using persona helper (deep model helper not found)..." >&2
+    ai_response=$("$PYTHON_CMD" "$PERSONA_HELPER" "tim" "$prompt" "diagram_generation" 2>&1)
+  else
+    echo "❌ No AI helper found. Cannot generate diagram." >&2
+    exit 1
+  fi
   
   # Extract code from AI response
   local diagram_code
@@ -752,6 +808,16 @@ stop
       } > "$filepath"
       ;;
     dot)
+      # Save pure DOT code (no markdown) so it can be directly rendered
+      {
+        echo "// ${description}"
+        echo "// Created: $(date +"%Y-%m-%d %H:%M")"
+        echo "// Type: ${diagram_type}"
+        echo ""
+        echo "${diagram_code}"
+      } > "$filepath"
+      # Also create a markdown companion file for viewing in Obsidian
+      local md_filepath="${DIAGRAM_DIR}/${safe_name}.md"
       {
         echo "# ${description}"
         echo ""
@@ -771,9 +837,9 @@ stop
         echo ""
         echo "## Render"
         echo "To render this diagram, run:"
-        echo "  dot -Tpng ${filename} -o ${safe_name}.png"
-        echo "  dot -Tsvg ${filename} -o ${safe_name}.svg"
-      } > "$filepath"
+        echo "  dot -Tpng ${safe_name}.dot -o ${safe_name}.png"
+        echo "  dot -Tsvg ${safe_name}.dot -o ${safe_name}.svg"
+      } > "$md_filepath"
       ;;
     text)
       {
@@ -819,12 +885,23 @@ stop
       ;;
   esac
   
-  echo "✓ Diagram created: $filepath"
-  echo ""
-  echo "📊 Preview:"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-  cat "$filepath"
+  # For DOT format, we create both .dot and .md files
+  if [[ "$output_format" == "dot" ]]; then
+    echo "✓ Diagram created: $filepath (pure DOT code for rendering)"
+    echo "✓ Markdown file created: ${DIAGRAM_DIR}/${safe_name}.md (for viewing)"
+    echo ""
+    echo "📊 Preview (Markdown):"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    cat "${DIAGRAM_DIR}/${safe_name}.md"
+  else
+    echo "✓ Diagram created: $filepath"
+    echo ""
+    echo "📊 Preview:"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    cat "$filepath"
+  fi
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
@@ -843,10 +920,12 @@ stop
     dot)
       if check_tool "dot" "Install with: brew install graphviz"; then
         echo "💡 To render this DOT diagram:"
-        echo "   dot -Tpng ${filepath} -o ${safe_name}.png"
-        echo "   dot -Tsvg ${filepath} -o ${safe_name}.svg"
+        echo "   cd ${DIAGRAM_DIR}"
+        echo "   dot -Tpng ${safe_name}.dot -o ${safe_name}.png"
+        echo "   dot -Tsvg ${safe_name}.dot -o ${safe_name}.svg"
         echo ""
       fi
+      echo "💡 View the markdown file in Obsidian: ${safe_name}.md"
       echo "💡 Or use online viewer: https://dreampuf.github.io/GraphvizOnline/"
       ;;
     text)
@@ -894,7 +973,9 @@ save_diagram() {
   
   if [[ -z "$filename" ]]; then
     echo "Available diagrams:"
-    ls -1 "$DIAGRAM_DIR"/*.{md,puml,dot,txt} 2>/dev/null | xargs -n1 basename
+    for ext in md puml dot txt; do
+      ls -1 "$DIAGRAM_DIR"/*."$ext" 2>/dev/null | xargs -n1 basename
+    done
     echo ""
     echo "Enter diagram filename to save:"
     read filename
@@ -931,7 +1012,16 @@ list_diagrams() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
-  if [[ ! -d "$DIAGRAM_DIR" ]] || [[ -z "$(ls -A "$DIAGRAM_DIR"/*.{md,puml,dot,txt} 2>/dev/null)" ]]; then
+  # Check if directory exists and has files
+  local has_files=false
+  for ext in md puml dot txt; do
+    if ls -1 "$DIAGRAM_DIR"/*."$ext" 2>/dev/null | grep -q .; then
+      has_files=true
+      break
+    fi
+  done
+  
+  if [[ ! -d "$DIAGRAM_DIR" ]] || [[ "$has_files" == false ]]; then
     echo "No diagrams found. Create one with:"
     echo "  gtd-diagram mindmap \"Your Topic\""
     echo ""
@@ -940,8 +1030,10 @@ list_diagrams() {
   
   local count=1
   # List all diagram files (md, puml, dot, txt)
-  for file in "$DIAGRAM_DIR"/*.{md,puml,dot,txt} 2>/dev/null; do
-    if [[ -f "$file" ]]; then
+  shopt -s nullglob  # Don't expand to literal pattern if no matches
+  for ext in md puml dot txt; do
+    for file in "$DIAGRAM_DIR"/*."$ext"; do
+      if [[ -f "$file" ]]; then
       local basename=$(basename "$file")
       local title=$(head -1 "$file" | sed 's/^# //')
       local type=$(grep "^Type:" "$file" 2>/dev/null | cut -d' ' -f2)
@@ -960,7 +1052,9 @@ list_diagrams() {
       echo ""
       ((count++))
     fi
+    done
   done
+  shopt -u nullglob  # Restore default behavior
 }
 
 # View diagram

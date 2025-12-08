@@ -1,24 +1,15 @@
 #!/bin/bash
 # GTD Advise Command - Get advice from multiple AI personas
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
-# Load config
-GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
-fi
-
-if [[ -f "$GTD_CONFIG_FILE" ]]; then
-  source "$GTD_CONFIG_FILE"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
 # Find persona helper
@@ -36,26 +27,35 @@ for path in "${POSSIBLE_PATHS[@]}"; do
 done
 
 if [[ -z "$PERSONA_HELPER" || ! -f "$PERSONA_HELPER" ]]; then
-  echo "❌ Persona helper not found. Expected at:"
+  gtd_print_error "Persona helper not found. Expected at:"
   for path in "${POSSIBLE_PATHS[@]}"; do
     echo "   $path"
   done
   exit 1
 fi
 
-# Find python
-PYTHON_CMD=""
-if [[ -f "/opt/homebrew/bin/python3" ]]; then
-  PYTHON_CMD="/opt/homebrew/bin/python3"
-elif command -v python3 &>/dev/null; then
-  PYTHON_CMD="python3"
-else
-  echo "❌ python3 not found"
+# Use common Python helper (prefers venv, falls back to system Python)
+PYTHON_CMD=$(gtd_get_mcp_python)
+if [[ -z "$PYTHON_CMD" ]]; then
+  # Fallback to system Python
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    PYTHON_CMD="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    PYTHON_CMD="python3"
+  else
+    gtd_print_error "python3 not found. Please install Python or ensure the venv is set up."
+    exit 1
+  fi
+fi
+
+# Verify Python is actually available
+if ! command -v "$PYTHON_CMD" &>/dev/null && [[ ! -f "$PYTHON_CMD" ]]; then
+  gtd_print_error "Python not found at: $PYTHON_CMD"
   exit 1
 fi
 
 # Available personas
-PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer")
+PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob")
 
 # Show persona info
 show_persona_info() {
@@ -89,6 +89,7 @@ show_persona_info() {
     maxfit) echo "Maxfit Pro Coach - Cable system workouts, resistance training, functional fitness with cables" ;;
     dumbbell) echo "Dumbbell Coach - Dumbbell training, strength building, functional fitness with dumbbells" ;;
     dipbar) echo "Dip Bar Coach - Dip bar and bodyweight training, calisthenics, functional strength" ;;
+    bodyweight) echo "Bodyweight Fitness Coach - EMOM workouts, bodyweight exercises (push-ups, jumping jacks, squats), calisthenics" ;;
     kelsey) echo "Kelsey Hightower - SRE pragmatism, avoiding overengineering, practical infrastructure" ;;
     kent) echo "Kent Beck - Software simplicity, YAGNI, TDD, doing the simplest thing that works" ;;
     charity) echo "Charity Majors - SRE reliability, observability, practical engineering, avoiding overengineering" ;;
@@ -96,6 +97,14 @@ show_persona_info() {
     goggins) echo "David Goggins - Mental toughness, pushing limits, extreme fitness, calling out excuses, staying hard" ;;
     dean) echo "Dean Karnazes - Ultra marathon running, endurance training, long-distance running, building mental resilience" ;;
     bioneer) echo "The Bioneer (Adam) - Functional fitness, science-based training, movement quality, practical fitness advice" ;;
+    harry) echo "Harry Dresden - Creative problem-solving, wizard metaphors, resourceful solutions, friendly neighborhood wizard" ;;
+    murphy) echo "Karrin Murphy - Practical execution, cutting through BS, organized, methodical, no-nonsense detective" ;;
+    joe) echo "General Joe Bishop - Simple explanations, breaking things down barney style, clear communication, plain language" ;;
+    skippy) echo "Skippy the Magnificent - Sarcastic brilliance, snarky but helpful, cutting through BS with humor, condescending AI" ;;
+    sherlock) echo "Sherlock Holmes - Analytical deduction, methodical investigation, noticing details others miss, logical problem-solving" ;;
+    picard) echo "Jean-Luc Picard - Strategic leadership, diplomatic guidance, principled decision-making, inspiring others" ;;
+    sandy) echo "Sandy Squirrel (SpongeBob SquarePants) - Science, karate, Texas pride, competitive spirit, practical problem-solving" ;;
+    spongebob) echo "SpongeBob SquarePants - Optimism, enthusiasm, creativity, friendship, finding joy in work, positive attitude" ;;
     *) echo "Unknown persona" ;;
   esac
 }
@@ -284,6 +293,52 @@ except Exception as e:
 PYTHON_SCRIPT
 }
 
+# Get progress analysis - identifies completed work not recorded in system
+get_progress_analysis() {
+  local days="${1:-7}"  # Default to 7 days
+  
+  # Find progress analyzer script
+  local progress_analyzer=""
+  POSSIBLE_PATHS=(
+    "$HOME/code/personal/dotfiles/mcp/gtd_progress_analyzer.py"
+    "$HOME/code/dotfiles/mcp/gtd_progress_analyzer.py"
+  )
+  
+  for path in "${POSSIBLE_PATHS[@]}"; do
+    if [[ -f "$path" ]]; then
+      progress_analyzer="$path"
+      break
+    fi
+  done
+  
+  if [[ -z "$progress_analyzer" || ! -f "$progress_analyzer" ]]; then
+    return 1
+  fi
+  
+  # Find python
+  PYTHON_CMD=""
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    PYTHON_CMD="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    PYTHON_CMD="python3"
+  else
+    return 1
+  fi
+  
+  # Get summary (non-blocking, don't fail if script has issues)
+  local summary=$($PYTHON_CMD "$progress_analyzer" summary "$days" 2>/dev/null)
+  
+  if [[ -n "$summary" ]]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "# Progress Analysis - Last $days Days"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "$summary"
+    echo ""
+  fi
+}
+
 # Get active goals from goals directory
 get_active_goals() {
   local gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
@@ -422,6 +477,82 @@ get_habit_tracker_data() {
 }
 
 # Get daily log content
+# Filter daily log content for advice requests
+# Removes EMOM workout sections and keeps only first 5 and last 10 lines
+filter_log_for_advice() {
+  local log_content="$1"
+  
+  # Use a temporary file to process the content
+  local temp_file=$(mktemp)
+  echo "$log_content" > "$temp_file"
+  
+  # Remove EMOM workout sections
+  # Look for patterns like "💪 KETTLEBELL EMOM WORKOUT" or "EMOM Workout" sections
+  # Remove everything from EMOM workout header until we see a separator followed by a different coach
+  local filtered_content=$(awk '
+    BEGIN {
+      in_emom = 0
+      prev_line = ""
+    }
+    # Detect start of EMOM workout section
+    /💪.*[Ee][Mm][Oo][Mm]|💪.*WORKOUT|[Ee][Mm][Oo][Mm].*WORKOUT|[Ee][Mm][Oo][Mm] Workout/ {
+      in_emom = 1
+      prev_line = ""
+      next
+    }
+    # If we are in an EMOM section
+    in_emom == 1 {
+      # Check if this is a separator line (using index to check for separator character)
+      if (index($0, "━") > 0 && length($0) > 10) {
+        prev_line = $0
+        next
+      }
+      # Check if this is a new coach section (not Kettlebell Coach)
+      if (index($0, "💬") > 0 && index($0, "Coach") > 0 && index($0, "Kettlebell Coach") == 0) {
+        # End of EMOM section - we found a new coach
+        in_emom = 0
+        # Print the separator if we had one
+        if (prev_line != "" && index(prev_line, "━") > 0) {
+          print prev_line
+          prev_line = ""
+        }
+        # Print this new coach line
+        print
+        next
+      }
+      # Still in EMOM section, skip this line
+      prev_line = ""
+      next
+    }
+    # Not in EMOM section - print the line
+    {
+      print
+    }
+  ' "$temp_file")
+  
+  # Now get first 5 lines and last 10 lines
+  local total_lines=$(echo "$filtered_content" | wc -l | tr -d ' ')
+  
+  if [[ $total_lines -le 15 ]]; then
+    # If content is 15 lines or less, return it all
+    echo "$filtered_content"
+  else
+    # Get first 5 lines
+    local first_lines=$(echo "$filtered_content" | head -5)
+    # Get last 10 lines
+    local last_lines=$(echo "$filtered_content" | tail -10)
+    
+    # Combine with separator
+    echo "$first_lines"
+    echo ""
+    echo "... (content truncated for brevity) ..."
+    echo ""
+    echo "$last_lines"
+  fi
+  
+  rm -f "$temp_file"
+}
+
 get_daily_log_content() {
   local date_range="${1:-today}"  # today, week, month, all, or specific date
   local date_cmd="date"
@@ -538,10 +669,66 @@ get_daily_log_content() {
   esac
 }
 
+# Perform web search for factual questions
+# This function outputs search instructions that the AI assistant should act on
+# The AI assistant should use browser MCP tools to perform the actual search
+perform_web_search() {
+  local query="$1"
+  
+  if [[ -z "$query" ]]; then
+    return 1
+  fi
+  
+  echo "🔍 Searching the web for: $query" >&2
+  
+  # Construct Google search URL
+  local encoded_query=$(echo "$query" | sed 's/ /+/g' | sed 's/&/%26/g' | sed 's/?/%3F/g' | sed 's/=/%3D/g')
+  local search_url="https://www.google.com/search?q=${encoded_query}"
+  
+  # Output search request with a clear marker for the AI assistant
+  # The AI assistant should detect this and perform the search automatically
+  cat <<EOF
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 WEB SEARCH REQUEST - AI ASSISTANT: PERFORM SEARCH NOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Query: ${query}
+Search URL: ${search_url}
+
+AI ASSISTANT: You must perform this web search NOW using browser MCP tools:
+1. browser_navigate to: ${search_url}
+2. browser_snapshot to capture results
+3. Extract key factual information
+4. Replace the [SEARCH_RESULTS_PLACEHOLDER] below with actual results
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WEB SEARCH RESULTS (AI ASSISTANT: Replace this with actual search results):
+[SEARCH_RESULTS_PLACEHOLDER]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EOF
+  
+  return 0
+}
+
 # Get advice from single persona
 advise_single() {
   local persona="$1"
   shift
+  local simple_mode=false
+  local use_web_search=false
+  
+  # Check for --simple flag (skip all GTD context)
+  if [[ "$1" == "--simple" ]]; then
+    simple_mode=true
+    shift
+  fi
+  
+  # Check for --web-search flag (perform web search for factual questions)
+  if [[ "$1" == "--web-search" ]]; then
+    use_web_search=true
+    shift
+  fi
+  
   local content="$*"
   local use_daily_log=false
   local date_range="today"
@@ -573,6 +760,8 @@ advise_single() {
   # If daily log requested, load it and include habit tracker data, goals, and badges
   if [[ "$use_daily_log" == "true" ]]; then
     local log_content=$(get_daily_log_content "$date_range")
+    # Filter log content for advice (remove EMOM sections, keep first 5 and last 10 lines)
+    log_content=$(filter_log_for_advice "$log_content")
     local habit_data=""
     local goals_data=""
     local badge_data=""
@@ -590,8 +779,11 @@ advise_single() {
     # Get badge status (always include for context)
     badge_data=$(get_badge_status)
     
+    # Get progress analysis (identifies completed work not recorded)
+    progress_data=$(get_progress_analysis 7)
+    
     if [[ $? -eq 0 ]]; then
-      # Combine daily log, habit tracker data, goals, and badges
+      # Combine daily log, habit tracker data, goals, badges, and progress
       local context_parts=""
       context_parts="${log_content}"
       
@@ -607,13 +799,19 @@ advise_single() {
         context_parts="${context_parts}\n${habit_data}"
       fi
       
+      if [[ -n "$progress_data" ]]; then
+        context_parts="${context_parts}\n${progress_data}"
+      fi
+      
       content=$(printf "Review my daily log and provide advice:\n\n%s\n\n%s" "$context_parts" "$content")
     fi
-  else
-    # Even if not reviewing daily log, include goals and badges for context when providing feedback
-    # This helps advisors remind about goals and badges related to log entries
+  elif [[ "$simple_mode" == "false" ]]; then
+    # Even if not reviewing daily log, include goals, badges, and progress for context
+    # This helps advisors remind about goals, badges, and encourage recording completed work
+    # BUT skip this if simple_mode is true (for factual questions)
     local goals_data=$(get_active_goals)
     local badge_data=$(get_badge_status)
+    local progress_data=$(get_progress_analysis 7)
     
     local context_parts=""
     if [[ -n "$goals_data" ]]; then
@@ -626,13 +824,94 @@ advise_single() {
         context_parts="${badge_data}"
       fi
     fi
+    if [[ -n "$progress_data" ]]; then
+      if [[ -n "$context_parts" ]]; then
+        context_parts="${context_parts}\n${progress_data}"
+      else
+        context_parts="${progress_data}"
+      fi
+    fi
     
     if [[ -n "$context_parts" ]]; then
       content=$(printf "Here's my current status for context:\n%s\n\n%s" "$context_parts" "$content")
     fi
   fi
   
-  $PYTHON_CMD "$PERSONA_HELPER" "$persona" "$content"
+  # In simple mode, add explicit instruction to answer directly without GTD context
+  # This must override the system prompt's GTD awareness instructions
+  if [[ "$simple_mode" == "true" ]]; then
+    local search_instruction=""
+    
+    # Add web search instruction if requested
+    if [[ "$use_web_search" == "true" ]]; then
+      local search_info=$(perform_web_search "$content" 2>&1 | grep -v "^🔍")
+      
+      # Extract search URL from search_info
+      local search_url=$(echo "$search_info" | grep "Search URL:" | sed 's/.*Search URL: //')
+      
+      # Check if model supports tool calls
+      local model_name="${LM_STUDIO_CHAT_MODEL:-${OLLAMA_CHAT_MODEL:-unknown}}"
+      local supports_tools="false"
+      
+      # Models that typically support tool/function calling:
+      # - OpenAI GPT models (gpt-3.5-turbo, gpt-4, etc.)
+      # - Anthropic Claude models
+      # - Qwen models (Qwen2.5, Qwen2.5-Coder, Qwen3, etc.) - support tool calling
+      # - Models with "tool" or "function" in name
+      # - Gemini models (gemini-pro, etc.)
+      # - Llama 3.1+ models with tool calling support
+      model_lower=$(echo "$model_name" | tr '[:upper:]' '[:lower:]')
+      if [[ "$model_lower" == *"gpt"* ]] || \
+         [[ "$model_lower" == *"claude"* ]] || \
+         [[ "$model_lower" == *"qwen"* ]] || \
+         [[ "$model_lower" == *"gemini"* ]] || \
+         [[ "$model_lower" == *"tool"* ]] || \
+         [[ "$model_lower" == *"function"* ]] || \
+         [[ "$model_lower" == *"llama-3.1"* ]] || \
+         [[ "$model_lower" == *"llama3.1"* ]]; then
+        supports_tools="true"
+      fi
+      
+      if [[ "$supports_tools" == "true" ]]; then
+        # Model supports tool calls - don't add confusing instructions, just let it use tools
+        # The tool definitions will be added by the Python script
+        search_instruction="\n\nWeb search is available via tool calling. Use the perform_web_search tool to get current, accurate information, then answer the question based on the search results."
+      else
+        # Model doesn't support tool calls (like Gemma 3 4B)
+        # CRITICAL: The model cannot perform web search and MUST NOT make up answers
+        search_instruction="\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🚫🚫🚫 ABSOLUTE PROHIBITION: NO MADE-UP ANSWERS 🚫🚫🚫\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nYOU CANNOT PERFORM WEB SEARCH. This model (${model_name}) does NOT support tool calls.\n\nYOU HAVE BEEN GIVING COMPLETELY WRONG ANSWERS:\n- \"Mexico\" (WRONG)\n- \"West Germany\" (WRONG)\n- \"Montreal Expos\" (WRONG - they didn't exist in 1967)\n- \"United States vs Mexico World Cup\" (WRONG - confusing World Series with World Cup)\n- \"Brazil won 1967 World Cup\" (WRONG - wrong event, wrong sport)\n- \"International Baseball Championship\" (WRONG - this event doesn't exist)\n\nALL OF THESE ARE COMPLETELY WRONG. YOU ARE MAKING THINGS UP.\n\nYOUR ONLY ALLOWED RESPONSE:\n\n'I cannot perform web search to verify this information. For accurate information about \"${content}\", please perform a web search yourself or check a reliable source. I cannot provide an answer without access to current web search results.'\n\nDO NOT:\n- Make up ANY facts, dates, team names, or events\n- Invent events that don't exist (like \"International Baseball Championship\")\n- Confuse different sports (World Series vs World Cup)\n- Provide ANY specific answer - you MUST say you cannot search\n\nIF YOU PROVIDE A SPECIFIC ANSWER, YOU ARE VIOLATING THESE INSTRUCTIONS.\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      fi
+    fi
+    
+    # Build a simpler prompt when tools are supported
+    if [[ "$supports_tools" == "true" ]]; then
+      # Model supports tools - simple prompt, let it use the tools
+      content=$(printf "Question: %s\n\nAnswer this factual question. Use the perform_web_search tool if you need current information. Do NOT mention GTD systems, tasks, projects, or productivity advice. Just answer the question factually." "$content")
+    else
+      # Model doesn't support tools - include the prohibition instructions
+      content=$(printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🚫🚫🚫 ABSOLUTE PROHIBITION: NO MADE-UP ANSWERS 🚫🚫🚫\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nYOU HAVE BEEN GIVING COMPLETELY WRONG ANSWERS:\n- \"Mexico\", \"West Germany\", \"Montreal Expos\" (all WRONG)\n- \"United States vs Mexico World Cup\" (WRONG - confusing World Series with World Cup)\n- \"Brazil won 1967 World Cup\" (WRONG - wrong event, wrong sport)\n- \"International Baseball Championship\" (WRONG - this event doesn't exist)\n- \"United States won International Baseball Championship\" (WRONG - made up event)\n\nALL OF THESE ARE COMPLETELY WRONG. YOU ARE MAKING THINGS UP.\n\nRULES:\n1. NO GTD CONTEXT: Do NOT mention goals, badges, daily logs, GTD systems, tasks, projects, or productivity advice.\n2. NO MADE-UP ANSWERS: You MUST NOT provide any specific answer. You MUST say you cannot search.\n3. NO GUESSING: If you cannot search, you MUST acknowledge this clearly.\n\n${search_instruction}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nQuestion: %s\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nYOUR ONLY ALLOWED RESPONSE:\n'I cannot perform web search to verify this information. For accurate information, please perform a web search yourself or check a reliable source. I cannot provide an answer without access to current web search results.'\n\nIF YOU PROVIDE ANY SPECIFIC ANSWER (team name, event name, date, etc.), YOU ARE VIOLATING THESE INSTRUCTIONS." "$content")
+    fi
+    
+    # Pass flags to skip GTD context and indicate web search
+    local flags=""
+    if [[ "$use_web_search" == "true" ]]; then
+      flags="--web-search"
+    fi
+    if [[ "$simple_mode" == "true" ]]; then
+      flags="${flags} --skip-gtd-context"
+    fi
+    
+    # For web search, we need to pass it as a special argument or modify the call
+    # Since Python script doesn't have --web-search flag yet, we'll add it to the content
+    if [[ "$use_web_search" == "true" ]]; then
+      # Temporarily inject a marker that Python can detect
+      content="[WEB_SEARCH_REQUESTED] ${content}"
+    fi
+    
+    $PYTHON_CMD "$PERSONA_HELPER" "$persona" "$content" "" "$flags"
+  else
+    $PYTHON_CMD "$PERSONA_HELPER" "$persona" "$content"
+  fi
 }
 
 # Get advice from all personas
@@ -668,6 +947,8 @@ advise_all() {
       date_range="month"
     fi
     local log_content=$(get_daily_log_content "$date_range")
+    # Filter log content for advice (remove EMOM sections, keep first 5 and last 10 lines)
+    log_content=$(filter_log_for_advice "$log_content")
     local habit_data=""
     local goals_data=""
     local badge_data=""
@@ -685,8 +966,11 @@ advise_all() {
     # Get badge status (always include for context)
     badge_data=$(get_badge_status)
     
+    # Get progress analysis (identifies completed work not recorded)
+    progress_data=$(get_progress_analysis 7)
+    
     if [[ $? -eq 0 ]]; then
-      # Combine daily log, habit tracker data, goals, and badges
+      # Combine daily log, habit tracker data, goals, badges, and progress
       local context_parts=""
       context_parts="${log_content}"
       
@@ -702,12 +986,17 @@ advise_all() {
         context_parts="${context_parts}\n${habit_data}"
       fi
       
+      if [[ -n "$progress_data" ]]; then
+        context_parts="${context_parts}\n${progress_data}"
+      fi
+      
       content=$(printf "Review my daily log and provide advice:\n\n%s\n\n%s" "$context_parts" "$content")
     fi
   else
-    # Even if not reviewing daily log, include goals and badges for context
+    # Even if not reviewing daily log, include goals, badges, and progress for context
     local goals_data=$(get_active_goals)
     local badge_data=$(get_badge_status)
+    local progress_data=$(get_progress_analysis 7)
     
     local context_parts=""
     if [[ -n "$goals_data" ]]; then
@@ -718,6 +1007,13 @@ advise_all() {
         context_parts="${context_parts}\n${badge_data}"
       else
         context_parts="${badge_data}"
+      fi
+    fi
+    if [[ -n "$progress_data" ]]; then
+      if [[ -n "$context_parts" ]]; then
+        context_parts="${context_parts}\n${progress_data}"
+      else
+        context_parts="${progress_data}"
       fi
     fi
     
@@ -832,7 +1128,7 @@ advise_review() {
   fi
 }
 
-# Random persona
+# Random persona with intelligent selection based on content
 advise_random() {
   local content="$*"
   
@@ -846,9 +1142,167 @@ advise_random() {
     fi
   fi
   
-  local persona_count=${#PERSONAS[@]}
-  local random_index=$((RANDOM % persona_count))
-  local selected_persona="${PERSONAS[$random_index + 1]}"
+  # Intelligent persona selection based on content (similar to zsh version)
+  # Define keyword patterns for each expertise area
+  declare -A persona_keywords
+  persona_keywords["goggins"]="workout|exercise|fitness|gym|weight|lifting|strength training|cardio workout|endurance workout|mental toughness|stay hard|callous your mind|who's gonna carry the boats|physical limits|body limits|ultramarathon|endurance training|leg day|chest day|back day|shoulder day|arm day|workout session|fitness training|gym session|lifting session|physical training|PT session|fitness motivation|push your limits|break through barriers|physical barriers|body building|muscle building|powerlifting|crossfit|HIIT|high intensity|fitness challenge|physical challenge|fitness goal|training goal|bench press|squat|deadlift|barbell|dumbbell|kettlebell|pull up|push up|fitness routine|exercise routine|workout routine|training program|fitness program|muscle|muscle group|reps|sets|personal trainer|fitness coach|gym workout|home workout|strength workout"
+  persona_keywords["dean"]="marathon|ultra|ultramarathon|endurance|race|running race|jog|jogging|running workout|training run|long run|running pace|running form|running distance|ultra distance|endurance running|running miles|running km|ultra running|endurance race|50k|50 mile|100k|100 mile|trail running|road race"
+  persona_keywords["bioneer"]="workout|exercise|fitness|training|strength|movement|mobility|functional|form|technique|biomechanics|program|routine|muscle|muscle group"
+  persona_keywords["david"]="project|goal|task|inbox|process|organize|gtd|getting things done|next action|context|review|weekly|system|workflow|area|someday|waiting"
+  persona_keywords["cal"]="focus|distraction|deep work|concentration|flow|interruption|phone|social media|notification|attention|productivity|flow state|distracted|can't focus|interrupt"
+  persona_keywords["james"]="habit|routine|system|atomic|incremental|progress|track|consistency|behavior|pattern|daily|repeat|build habit|form habit|stuck with habit"
+  persona_keywords["marie"]="clutter|organize|declutter|spark joy|tidy|clean|minimal|simplify|stuff|things|belongings|space|messy|disorganized|too much stuff"
+  persona_keywords["warren"]="strategy|priority|prioritize|important|urgent|decision|invest|long term|value|focus|opportunity|business|plan|planning|strategic"
+  persona_keywords["sheryl"]="leadership|execute|execution|team|manage|lead|action|get things done|efficient|productivity|results|delegate|coordinate"
+  persona_keywords["tim"]="optimize|optimization|hack|system|experiment|test|trial|improve|efficiency|life hack|productivity tip|experiment|trial|test"
+  persona_keywords["bob"]="creative|art|paint|calm|stress|anxiety|peace|relax|breathe|joy|happy accident|mistake|process|meditation|mindful"
+  persona_keywords["fred"]="kind|self-care|self care|worth|value|overwhelmed|emotional|support|care|gentle|compassion|love yourself|feeling|feelings|sad|depressed"
+  persona_keywords["louiza"]="procrastinate|stuck|accountability|slacking|discipline|tracking|log|record|complete|done|finished|consequence|missed|failed|didn't do"
+  persona_keywords["esther"]="relationship|partner|intimacy|connection|communicate|date|romance|love|couple|together|relationship advice"
+  persona_keywords["gottman"]="relationship|partner|couple|marriage|communication|conflict|fight|argument|resolve|together|love language"
+  persona_keywords["gary"]="love language|partner|relationship|affection|touch|service|gift|time|words|appreciation|express love"
+  persona_keywords["brene"]="vulnerability|courage|connection|authentic|brave|shame|worth|belonging|daring|show up|present"
+  persona_keywords["romance"]="date|romantic|surprise|gesture|massage|backrub|special|treat|appreciate|show love|make feel special"
+  persona_keywords["kelsey"]="code|programming|software|engineering|overengineer|simple|ship|deploy|infrastructure|sre|system|tech"
+  persona_keywords["kent"]="code|programming|software|tdd|test|yagni|simple|refactor|design|pattern|architecture|engineering"
+  persona_keywords["charity"]="code|programming|software|observability|reliability|monitoring|sre|engineering|system|production|tech"
+  persona_keywords["rich"]="code|programming|software|design|architecture|complexity|simple|clojure|system|engineering|tech"
+  persona_keywords["spiderman"]="creative|problem|solve|challenge|stuck|juggling|balance|responsibility|creative solution|think outside"
+  persona_keywords["ironman"]="creative|innovation|engineering|adhd|hyperfocus|system|build|create|invent|tech|project"
+  persona_keywords["squirrelgirl"]="creative|positive|optimistic|problem|solve|communication|unconventional|think different|creative solution"
+  persona_keywords["harley"]="creative|chaos|unconventional|think outside|creative solution|problem|solve|different|unique"
+  persona_keywords["deadpool"]="creative|humor|funny|chaos|unconventional|problem|solve|think different|creative solution"
+  persona_keywords["rogue"]="creative|adapt|overwhelmed|control|problem|solve|creative solution|think different|unique"
+  persona_keywords["sandy"]="science|karate|texas|competitive|sport|athletic|training|discipline|focused|determined|strong|tough|challenge|win|competition"
+  persona_keywords["spongebob"]="optimism|enthusiasm|joy|happiness|work|job|fun|creative|friendship|positive|excited|energetic|cheerful|happy|smile"
+  
+  # Score each persona based on keyword matches
+  declare -A persona_scores
+  declare -A persona_match_counts
+  local max_score=0
+  local best_personas=()
+  
+  # Use ripgrep (rg) if available, fallback to grep
+  local use_rg=false
+  if command -v rg &>/dev/null; then
+    use_rg=true
+  fi
+  local search_cmd=""
+  if [[ "$use_rg" == true ]]; then
+    search_cmd="rg"
+  else
+    search_cmd="/usr/bin/grep"
+    [[ ! -f "$search_cmd" ]] && search_cmd="grep"
+  fi
+  
+  # Score fitness coaches first (they have priority for fitness topics)
+  local fitness_coaches=("goggins" "dean" "bioneer")
+  for persona in "${fitness_coaches[@]}"; do
+    local score=0
+    local match_count=0
+    # Count actual keyword matches for confidence scoring
+    local matches_output=""
+    if [[ "$use_rg" == true ]]; then
+      matches_output=$(echo "$content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+    else
+      matches_output=$(echo "$content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+    fi
+    if [[ -n "$matches_output" ]]; then
+      match_count=$(echo "$matches_output" | wc -l | tr -d ' ')
+    fi
+    # Fitness coaches need at least 2 matches for confidence (prevents false positives)
+    if [[ $match_count -ge 2 ]]; then
+      score=$((match_count * 2))  # Weight matches, but require multiple for confidence
+    elif [[ $match_count -eq 1 ]]; then
+      score=1  # Single match gets low score (likely false positive)
+    fi
+    persona_scores[$persona]=$score
+    persona_match_counts[$persona]=$match_count
+    if [[ $score -gt $max_score ]]; then
+      max_score=$score
+      best_personas=("$persona")
+    elif [[ $score -eq $max_score && $score -gt 0 ]]; then
+      best_personas+=("$persona")
+    fi
+  done
+  
+  # Score other personas
+  local other_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kelsey" "kent" "charity" "rich" "sandy" "spongebob")
+  for persona in "${other_personas[@]}"; do
+    local score=0
+    local match_count=0
+    # Count actual keyword matches
+    local matches_output=""
+    if [[ "$use_rg" == true ]]; then
+      matches_output=$(echo "$content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+    else
+      matches_output=$(echo "$content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+    fi
+    if [[ -n "$matches_output" ]]; then
+      match_count=$(echo "$matches_output" | wc -l | tr -d ' ')
+    fi
+    if [[ $match_count -gt 0 ]]; then
+      score=$match_count
+    fi
+    persona_scores[$persona]=$score
+    persona_match_counts[$persona]=$match_count
+    if [[ $score -gt $max_score ]]; then
+      max_score=$score
+      best_personas=("$persona")
+    elif [[ $score -eq $max_score && $score -gt 0 ]]; then
+      best_personas+=("$persona")
+    fi
+  done
+  
+  # Select persona: use best match if found with sufficient confidence, otherwise fallback to random from general pool
+  local selected_persona=""
+  local confidence_threshold=2  # Minimum confidence score required for fitness coaches
+  local general_threshold=1     # Minimum confidence score for other personas
+  
+  if [[ ${#best_personas[@]} -gt 0 && $max_score -gt 0 ]]; then
+    # Check confidence threshold - filter out low-confidence matches
+    local confident_personas=()
+    for persona in "${best_personas[@]}"; do
+      local is_fitness=false
+      for fit_persona in "${fitness_coaches[@]}"; do
+        if [[ "$persona" == "$fit_persona" ]]; then
+          is_fitness=true
+          break
+        fi
+      done
+      
+      # Fitness coaches need higher confidence (at least 2 matches = score 4)
+      if [[ "$is_fitness" == true ]]; then
+        if [[ ${persona_scores[$persona]} -ge 4 ]]; then  # 2+ matches * 2 = 4+
+          confident_personas+=("$persona")
+        fi
+      else
+        # Other personas need at least 1 match
+        if [[ ${persona_scores[$persona]} -ge $general_threshold ]]; then
+          confident_personas+=("$persona")
+        fi
+      fi
+    done
+    
+    # Use confident personas if available, otherwise fall back to general pool
+    if [[ ${#confident_personas[@]} -gt 0 ]]; then
+      local best_count=${#confident_personas[@]}
+      local random_index=$((RANDOM % best_count))
+      selected_persona="${confident_personas[$random_index]}"
+    else
+      # Confidence too low - use general productivity coaches
+      local general_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "bob" "fred" "louiza")
+      local general_count=${#general_personas[@]}
+      local random_index=$((RANDOM % general_count))
+      selected_persona="${general_personas[$random_index]}"
+    fi
+  else
+    # No clear match - use general productivity coaches (not fitness-specific)
+    local general_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "bob" "fred" "louiza")
+    local general_count=${#general_personas[@]}
+    local random_index=$((RANDOM % general_count))
+    selected_persona="${general_personas[$random_index]}"
+  fi
   
   echo "Randomly selected: $selected_persona"
   advise_single "$selected_persona" "$content"
@@ -883,6 +1337,8 @@ main() {
       # Get daily log(s) and review with all personas
       local log_content=$(get_daily_log_content "$date_range")
       if [[ $? -eq 0 ]]; then
+        # Filter log content for advice (remove EMOM sections, keep first 5 and last 10 lines)
+        log_content=$(filter_log_for_advice "$log_content")
         local range_desc="today's"
         case "$date_range" in
           week) range_desc="this week's" ;;
@@ -912,6 +1368,7 @@ main() {
       echo "  --daily-log [range]           Review daily log(s) with all personas"
       echo "                                Range: today (default), week, month, all, or YYYY-MM-DD"
       echo "  --random, -R                  Get advice from random persona"
+      echo "  --simple, -s                  Ask a simple factual question (no GTD context)"
       echo "  <persona>                     Get advice from specific persona"
       echo ""
       echo "Personas:"
@@ -943,8 +1400,43 @@ main() {
       echo "  gtd-advise --context=project \"Review my project plan\""
       echo "  gtd-advise --review"
       echo "  gtd-advise --random \"Give me advice\""
+      echo "  gtd-advise --simple hank \"Who won the 1967 World Series?\"  # Factual question, no GTD context"
       echo "  echo \"My question\" | gtd-advise david"
       exit 0
+      ;;
+    --simple|-s)
+      shift
+      # Simple mode: ask a factual question without GTD context
+      if [[ $# -eq 0 ]]; then
+        echo "Usage: gtd-advise --simple [--web-search] <persona> \"your question\""
+        echo "   Or: gtd-advise --simple <persona>  # then enter question"
+        exit 1
+      fi
+      
+      local web_search_flag=""
+      if [[ "$1" == "--web-search" ]]; then
+        web_search_flag="--web-search"
+        shift
+      fi
+      
+      if [[ $# -eq 0 ]]; then
+        echo "Usage: gtd-advise --simple [--web-search] <persona> \"your question\""
+        exit 1
+      fi
+      
+      local persona="$1"
+      shift
+      if [[ " ${PERSONAS[@]} " =~ " ${persona} " ]]; then
+        if [[ -n "$web_search_flag" ]]; then
+          advise_single "$persona" "--simple" "--web-search" "$@"
+        else
+          advise_single "$persona" "--simple" "$@"
+        fi
+      else
+        echo "Unknown persona: $persona"
+        echo "Run 'gtd-advise --list' to see available personas"
+        exit 1
+      fi
       ;;
     *)
       # Check if it's a persona name

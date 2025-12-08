@@ -6,3 +6,4 @@ vim/.netrwhist
 vim/bundle/*
 fonts/
 *.pyc
+*venv*

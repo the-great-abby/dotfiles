@@ -2,16 +2,18 @@
 # GTD Daily Log Command - Add entry to daily log
 # Standalone script version of addInfoToDailyLog function
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Load config if available
+# Load daily log config if available
 DAILY_LOG_CONFIG="$HOME/.daily_log_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
   DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
@@ -34,20 +36,9 @@ fi
 
 log_entry="$1"
 
-# Get date command
-get_date_cmd() {
-  if [[ -x "/usr/bin/date" ]]; then
-    echo "/usr/bin/date"
-  elif [[ -x "/bin/date" ]]; then
-    echo "/bin/date"
-  else
-    echo "date"
-  fi
-}
-
-DATE_CMD=$(get_date_cmd)
-today=$($DATE_CMD +"%Y-%m-%d")
-current_time=$($DATE_CMD +"%H:%M")
+# Use common date helpers
+today=$(gtd_get_today)
+current_time=$(gtd_get_current_time)
 log_file="${DAILY_LOG_DIR}/${today}.md"
 
 # Expand $HOME if present in path
@@ -82,7 +73,7 @@ echo "✓ Added: ${current_time} - ${log_entry}"
 # Check if this is a workout/exercise entry and award XP (gamification)
 if echo "$log_entry" | grep -qiE "workout|exercise|kettlebell|walk|run|weight|lifting|gym|fitness|training|cardio|strength|squat|deadlift|press|swing|snatch|clean|row|bike|cycling|yoga|stretch|active|movement"; then
 	# Determine if it's intense exercise (running, intense training) or normal
-	local exercise_type="exercise"
+	exercise_type="exercise"
 	if echo "$log_entry" | grep -qiE "run|running|sprint|intense|hard|heavy|cardio"; then
 		exercise_type="exercise_intense"
 	fi
@@ -115,11 +106,35 @@ if [[ -f "$AUTO_SUGGEST_SCRIPT" ]]; then
     EXTRACT_BANTER="$HOME/code/personal/dotfiles/mcp/extract_banter.py"
   fi
   
+  # Find MCP Python using common helper (virtualenv if available)
+  MCP_PYTHON=$(gtd_get_mcp_python)
+  if [[ -z "$MCP_PYTHON" ]]; then
+    # Fallback if gtd_get_mcp_python not available
+    MCP_DIR="$(dirname "$AUTO_SUGGEST_SCRIPT")"
+    VENV_PYTHON="${MCP_DIR}/venv/bin/python3"
+    if [[ -f "$VENV_PYTHON" ]]; then
+      MCP_PYTHON="$VENV_PYTHON"
+    elif [[ -f "/opt/homebrew/bin/python3" ]]; then
+      MCP_PYTHON="/opt/homebrew/bin/python3"
+    else
+      MCP_PYTHON="python3"
+    fi
+  fi
+  
+  # Verify Python is available
+  if ! command -v "$MCP_PYTHON" &>/dev/null && [[ ! -f "$MCP_PYTHON" ]]; then
+    echo "❌ Python not found at: $MCP_PYTHON" >&2
+    MCP_PYTHON=""
+  fi
+  
   # Run auto-suggestions in background and save banter
   (
-    result=$(python3 "$AUTO_SUGGEST_SCRIPT" entry "$log_entry" 2>&1)
+    if [[ -z "$MCP_PYTHON" ]]; then
+      exit 0  # Skip if Python not available
+    fi
+    result=$("$MCP_PYTHON" "$AUTO_SUGGEST_SCRIPT" entry "$log_entry" 2>&1)
     if [[ -f "$EXTRACT_BANTER" ]]; then
-      banter=$(echo "$result" | python3 "$EXTRACT_BANTER" 2>/dev/null)
+      banter=$(echo "$result" | "$MCP_PYTHON" "$EXTRACT_BANTER" 2>/dev/null)
     else
       # Fallback: try simple extraction
       banter=$(echo "$result" | grep -o '"banter":\s*"[^"]*"' | cut -d'"' -f4)

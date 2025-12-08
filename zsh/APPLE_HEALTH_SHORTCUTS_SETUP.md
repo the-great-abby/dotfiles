@@ -23,19 +23,68 @@ The helper script should already be executable, but verify:
 chmod +x ~/code/dotfiles/bin/gtd-healthkit-log
 ```
 
-### Step 2: Create the Shortcuts Workflow
+### Step 2: Choose Your Approach
+
+> **⚠️ Important:** Health actions are often **NOT searchable** in Shortcuts. They may not appear when you search. We recommend using **Manual Logging** (Option A) - it's simpler and works on all devices.
+
+#### Option A: Manual Logging (Recommended - Works Everywhere)
+
+**Simplest and most reliable approach:**
 
 1. **Open Shortcuts app** on your iPhone/iPad/Mac
 2. **Create a new shortcut** (tap "+" or "New Shortcut")
-3. **Name it**: "Log Health Data to Daily Log"
+3. **Name it**: "Log Health Data"
 
-### Step 3: Build the Workflow
+**Add these actions:**
 
-Add these actions in order:
+1. **Ask for Input**
+   - Type: Text
+   - Prompt: "Enter health data (e.g., '12,345 steps' or '30 min workout'):"
+
+2. **Get Current Date**
+   - Format: Custom
+   - Format String: **HH:mm**
+
+3. **Run Shell Script**
+   - Shell: `/bin/zsh`
+   - Input: as arguments
+   - Script: `"$HOME/code/dotfiles/bin/gtd-healthkit-log" "$1" "$2"`
+   - Pass: Ask for Input as $1, Formatted Date as $2
+
+**Done!** When you run this shortcut, it will ask you to type in your health data and log it automatically.
+
+**Example inputs:**
+- "12,345 steps"
+- "30 min kettlebell workout, 300 calories"
+- "Heart rate: 72 bpm"
+- "Apple Watch Daily Summary: 10,000 steps, 500 calories, 45 min exercise"
+
+#### Option B: Automated Health Actions (Advanced - May Not Work)
+
+**Only if you can find Health actions:**
+
+Health actions are often hidden and not searchable. Try these methods:
+
+1. **Browse Categories (Don't Search)**
+   - When adding an action, scroll through categories
+   - Look for a **"Health"** category
+   - Health actions are grouped together here
+
+2. **Type Exact Name**
+   - Start typing: **"Find Health Samples"** (exact name)
+   - Or try: **"Get Health Sample"**
+   - Some versions use different names
+
+3. **Check Permissions First**
+   - Open Health app → Profile → Apps → Shortcuts
+   - Enable all health data permissions
+   - Restart Shortcuts app
+   - Actions may appear after permissions are granted
+
+**If you find Health actions, use:**
 
 #### Action 1: Get Health Samples
-- Search for "Get Health Samples"
-- Choose the health data type you want (e.g., "Workouts", "Steps", "Heart Rate")
+- Choose the health data type (e.g., "Workouts", "Steps", "Heart Rate")
 - Set date range to "Today" or "Last 1 Day"
 - Set sort order to "Newest First"
 - Limit to 1 result (or more if you want multiple entries)

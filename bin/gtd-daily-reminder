@@ -1,28 +1,15 @@
 #!/bin/bash
 # GTD Daily Evening Review Reminder - Daily reminder from Mistress Louiza
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
-# Load GTD config
-GTD_CONFIG_FILE="$HOME/.gtd_config"
-# Check multiple possible locations
-if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
-elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
-fi
-
-# Source config if it exists
-if [[ -f "$GTD_CONFIG_FILE" ]]; then
-  source "$GTD_CONFIG_FILE"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
 # Load daily log config
@@ -40,33 +27,14 @@ if [[ -f "$DAILY_LOG_CONFIG" ]]; then
 fi
 
 # Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 GTD_DAILY_REVIEW_TIME="${GTD_DAILY_REVIEW_TIME:-18:00}"  # 6:00 PM default
 GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
 
-# Get date command
-get_date_cmd() {
-  if [[ -x "/usr/bin/date" ]]; then
-    echo "/usr/bin/date"
-  elif [[ -x "/bin/date" ]]; then
-    echo "/bin/date"
-  else
-    echo "date"
-  fi
-}
-
-DATE_CMD=$(get_date_cmd)
-
-# Get current time in HH:MM format
-get_current_time() {
-  $DATE_CMD +"%H:%M"
-}
-
-# Get today's date
-get_today() {
-  $DATE_CMD +"%Y-%m-%d"
-}
+# Use common date helpers (aliased for backward compatibility)
+alias get_date_cmd='gtd_get_date_cmd'
+alias get_current_time='gtd_get_current_time'
+alias get_today='gtd_get_today'
 
 # Get today's daily log content
 get_todays_log() {
@@ -92,13 +60,40 @@ get_log_stats() {
     return
   fi
   
-  # Count entries - try multiple patterns to catch different formats
-  local entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]+-[[:space:]]+" "$log_file" 2>/dev/null || echo "0")
-  if [[ "$entry_count" == "0" ]]; then
+  # Try to use gtd-log-stats script first for consistency with other systems
+  local stats_script="$(dirname "$0")/gtd-log-stats"
+  if [[ ! -f "$stats_script" ]]; then
+    stats_script="gtd-log-stats"
+  fi
+  
+  if command -v "$stats_script" &>/dev/null || [[ -f "$stats_script" ]]; then
+    local entry_count=$("$stats_script" today 2>/dev/null | tr -d '[:space:]' || echo "0")
+    # gtd-log-stats today returns just the number
+    if [[ "$entry_count" =~ ^[0-9]+$ ]]; then
+      local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null || echo "0")
+      echo "Entries: $entry_count"
+      if [[ $goal_count -gt 0 ]]; then
+        echo "Goals: $goal_count"
+      fi
+      return
+    fi
+  fi
+  
+  # Fallback: use the same pattern as other systems (gtd-log-stats, gtd-brain-sync-daily-logs)
+  # Pattern matches: "HH:MM - entry" format
+  local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  
+  # Fallback: try alternative patterns if the standard format doesn't match
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
     entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
   fi
-  if [[ "$entry_count" == "0" ]]; then
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
     entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | wc -l | tr -d ' ' || echo "0")
+  fi
+  
+  # Ensure entry_count is numeric
+  if [[ ! "$entry_count" =~ ^[0-9]+$ ]]; then
+    entry_count=0
   fi
   
   local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null || echo "0")
@@ -120,13 +115,20 @@ check_evening_progress() {
     return
   fi
   
-  # Check entry count - use same improved pattern
-  local entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]+-[[:space:]]+" "$log_file" 2>/dev/null || echo "0")
-  if [[ "$entry_count" == "0" ]]; then
+  # Check entry count - use same pattern as get_log_stats (consistent with other systems)
+  local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  
+  # Fallback patterns
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
     entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
   fi
-  if [[ "$entry_count" == "0" ]]; then
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
     entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | wc -l | tr -d ' ' || echo "0")
+  fi
+  
+  # Ensure entry_count is numeric
+  if [[ ! "$entry_count" =~ ^[0-9]+$ ]]; then
+    entry_count=0
   fi
   
   if [[ $entry_count -eq 0 ]]; then

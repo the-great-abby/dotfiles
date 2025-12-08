@@ -1,0 +1,58 @@
+# ============================================================================
+# GTD Calendar Integration Configuration
+# ============================================================================
+# Settings for Google Calendar and Office 365 integration
+
+# ============================================================================
+# Primary Calendar Configuration (for backwards compatibility)
+# ============================================================================
+# Google Calendar configuration (primary read-write calendar)
+GTD_GOOGLE_CALENDAR="${GTD_GOOGLE_CALENDAR:-}"
+GTD_GOOGLE_CALENDAR_NAME="${GTD_GOOGLE_CALENDAR_NAME:-GTD}"
+
+# Office 365 configuration (primary read-write calendar)
+GTD_OFFICE365_CALENDAR="${GTD_OFFICE365_CALENDAR:-}"
+GTD_OFFICE365_CALENDAR_NAME="${GTD_OFFICE365_CALENDAR_NAME:-Work}"
+GTD_OFFICE365_CLIENT_ID="${GTD_OFFICE365_CLIENT_ID:-}"
+GTD_OFFICE365_CLIENT_SECRET="${GTD_OFFICE365_CLIENT_SECRET:-}"
+GTD_OFFICE365_ACCESS_TOKEN="${GTD_OFFICE365_ACCESS_TOKEN:-}"
+
+# ============================================================================
+# Multiple Calendar Support
+# ============================================================================
+# Configure multiple calendars to view and manage
+# Format: "type:calendar_name:display_name"
+#   type: "rw" (read-write) or "ro" (read-only)
+#   calendar_name: The actual calendar name as it appears in Google/Office365
+#   display_name: How it appears in calendar views (optional, defaults to calendar_name)
+#
+# Examples:
+#   GTD_CALENDARS=(
+#     "rw:GTD:My GTD Calendar"           # Read-write calendar named "GTD"
+#     "ro:Family:Family Events"          # Read-only calendar for family events
+#     "ro:Work Team:Team Calendar"       # Read-only team calendar
+#     "ro:Birthdays:Birthdays"           # Read-only birthdays calendar
+#   )
+#
+# Note: If GTD_CALENDARS is not set, the system uses the primary calendars above
+#       for backwards compatibility.
+#
+# To add calendars, edit this file and add entries to the array:
+#   GTD_CALENDARS=(
+#     "rw:GTD:My GTD Calendar"
+#     "ro:Family:Family Events"
+#     "ro:Work:Work Calendar"
+#   )
+GTD_CALENDARS=(
+  # Default: use primary calendar if set
+  # Add more calendars here as needed
+  "rw:GTD:My GTD Calendar"
+  "ro:Pink and brown bears:Pink and Brown bears - abby and louiza calendar"
+  "ro:On-call feed for Abby Malson:SRE on call calendar"
+  "ro:Abby Work - Filevine (Outlook):Work Calendar (sync from outlook)"
+)
+
+# Primary write calendar (calendar used when adding events via wizard)
+# Should match one of the "rw" calendars in GTD_CALENDARS or GTD_GOOGLE_CALENDAR_NAME
+GTD_PRIMARY_WRITE_CALENDAR="${GTD_PRIMARY_WRITE_CALENDAR:-${GTD_GOOGLE_CALENDAR_NAME}}"
+

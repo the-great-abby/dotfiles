@@ -1,0 +1,58 @@
+# ============================================================================
+# GTD Notifications & Reminders Configuration
+# ============================================================================
+# Settings for notifications, reminders, and Discord integration
+
+# ============================================================================
+# Notifications
+# ============================================================================
+# Enable notifications (true/false)
+GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
+
+# Notification method (terminal, osascript, notify-send, discord, etc.)
+GTD_NOTIFICATION_METHOD="${GTD_NOTIFICATION_METHOD:-osascript}"
+
+# Discord webhook URL for notifications (optional)
+# Get this from Discord: Server Settings → Integrations → Webhooks → New Webhook
+# Example: https://discord.com/api/webhooks/123456789/abcdefghijklmnop
+GTD_DISCORD_WEBHOOK_URL="${GTD_DISCORD_WEBHOOK_URL:-}"
+
+# Enable Discord notifications for weekly reminders (true/false)
+GTD_DISCORD_WEEKLY_REMINDERS="${GTD_DISCORD_WEEKLY_REMINDERS:-true}"
+
+# Enable Discord notifications for daily reminders (true/false)
+GTD_DISCORD_DAILY_REMINDERS="${GTD_DISCORD_DAILY_REMINDERS:-true}"
+
+# ============================================================================
+# Reminder Times
+# ============================================================================
+# Morning reminder time (24-hour format)
+GTD_MORNING_REMINDER_TIME="${GTD_MORNING_REMINDER_TIME:-08:00}"
+
+# Lunch reminder time (24-hour format)
+GTD_LUNCH_REMINDER_TIME="${GTD_LUNCH_REMINDER_TIME:-12:30}"
+
+# Enable morning reminders (true/false)
+GTD_MORNING_REMINDER_ENABLED="${GTD_MORNING_REMINDER_ENABLED:-true}"
+
+# Enable lunch reminders (true/false)
+GTD_LUNCH_REMINDER_ENABLED="${GTD_LUNCH_REMINDER_ENABLED:-true}"
+
+# ============================================================================
+# Study Reminder Settings
+# ============================================================================
+# Enable study reminders (true/false)
+GTD_STUDY_REMINDER_ENABLED="${GTD_STUDY_REMINDER_ENABLED:-true}"
+
+# Study reminder interval in hours (how often to check/remind)
+GTD_STUDY_REMINDER_INTERVAL="${GTD_STUDY_REMINDER_INTERVAL:-6}"  # Remind if no study in 6 hours
+
+# ============================================================================
+# Health Reminder Settings
+# ============================================================================
+# Enable health reminders (true/false)
+GTD_HEALTH_REMINDER_ENABLED="${GTD_HEALTH_REMINDER_ENABLED:-true}"
+
+# Health reminder interval in hours (how often to check/remind)
+GTD_HEALTH_REMINDER_INTERVAL="${GTD_HEALTH_REMINDER_INTERVAL:-4}"  # Remind every 4 hours
+

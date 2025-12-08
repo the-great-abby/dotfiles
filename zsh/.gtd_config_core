@@ -1,0 +1,56 @@
+# ============================================================================
+# GTD Core Configuration
+# ============================================================================
+# Core settings: User info, directories, basic system configuration
+# This file is loaded first and provides the foundation for other configs
+
+# ============================================================================
+# User Configuration
+# ============================================================================
+# User name used in persona prompts and reminders (default: "Abby")
+GTD_USER_NAME="${GTD_USER_NAME:-Abby}"
+
+# ============================================================================
+# Directory Structure
+# ============================================================================
+# Base directory for GTD system (default: ~/Documents/gtd)
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+
+# Subdirectories (relative to GTD_BASE_DIR)
+GTD_INBOX_DIR="${GTD_INBOX_DIR:-0-inbox}"
+GTD_PROJECTS_DIR="${GTD_PROJECTS_DIR:-1-projects}"
+GTD_AREAS_DIR="${GTD_AREAS_DIR:-2-areas}"
+GTD_REFERENCE_DIR="${GTD_REFERENCE_DIR:-3-reference}"
+GTD_SOMEDAY_DIR="${GTD_SOMEDAY_DIR:-4-someday-maybe}"
+GTD_WAITING_DIR="${GTD_WAITING_DIR:-5-waiting-for}"
+GTD_ARCHIVE_DIR="${GTD_ARCHIVE_DIR:-6-archive}"
+GTD_DAILY_LOGS_DIR="${GTD_DAILY_LOGS_DIR:-daily-logs}"
+GTD_WEEKLY_REVIEWS_DIR="${GTD_WEEKLY_REVIEWS_DIR:-weekly-reviews}"
+
+# ============================================================================
+# File Templates
+# ============================================================================
+# Template for fleeting notes
+GTD_TEMPLATE_FLEETING="${GTD_TEMPLATE_FLEETING:-fleeting_note}"
+
+# Template for tasks
+GTD_TEMPLATE_TASK="${GTD_TEMPLATE_TASK:-task}"
+
+# Template for projects
+GTD_TEMPLATE_PROJECT="${GTD_TEMPLATE_PROJECT:-project}"
+
+# Template for areas
+GTD_TEMPLATE_AREA="${GTD_TEMPLATE_AREA:-area}"
+
+# Template for weekly review
+GTD_TEMPLATE_WEEKLY_REVIEW="${GTD_TEMPLATE_WEEKLY_REVIEW:-weekly_review}"
+
+# ============================================================================
+# Search and Filtering
+# ============================================================================
+# Default search tool (grep, ripgrep, ag, etc.)
+GTD_SEARCH_TOOL="${GTD_SEARCH_TOOL:-grep}"
+
+# Enable fuzzy search (true/false)
+GTD_FUZZY_SEARCH="${GTD_FUZZY_SEARCH:-false}"
+

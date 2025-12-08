@@ -133,6 +133,30 @@ EOF
   echo -e "${GREEN}✓ Created zettelkasten note:${NC} $note_path"
   echo -e "  ${CYAN}ID:${NC} $zet_id"
   echo -e "  ${CYAN}Category:${NC} $para_category"
+  
+  # Suggest related notes
+  echo ""
+  echo -e "${CYAN}💡 AI Connection Suggestions:${NC}"
+  if command -v gtd-brain-suggest-connections &>/dev/null; then
+    suggestions=$(gtd-brain-suggest-connections suggest "$note_path" 5 2>/dev/null)
+    if [[ -n "$suggestions" ]]; then
+      echo "$suggestions" | sed 's/^/   /'
+      echo ""
+      echo -e "${YELLOW}   💡 Add links using: zet-link link \"$note_path\" <target-note>${NC}"
+    else
+      echo -e "   ${YELLOW}No suggestions available${NC}"
+    fi
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-suggest-connections" ]]; then
+    suggestions=$("$HOME/code/dotfiles/bin/gtd-brain-suggest-connections" suggest "$note_path" 5 2>/dev/null)
+    if [[ -n "$suggestions" ]]; then
+      echo "$suggestions" | sed 's/^/   /'
+      echo ""
+      echo -e "${YELLOW}   💡 Add links using: zet-link link \"$note_path\" <target-note>${NC}"
+    else
+      echo -e "   ${YELLOW}No suggestions available${NC}"
+    fi
+  fi
+  
   echo "$note_path"
   echo "$note_path"  # Return path for chaining
 }

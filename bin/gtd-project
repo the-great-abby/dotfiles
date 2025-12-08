@@ -1,42 +1,33 @@
 #!/bin/bash
 # GTD Project Command - Project management
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-# Load GTD config
-GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Source config if it exists
-if [[ -f "$GTD_CONFIG_FILE" ]]; then
-  source "$GTD_CONFIG_FILE"
-fi
-
-# Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
+# Additional paths
 ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
 TASKS_PATH="${GTD_BASE_DIR}/tasks"
+GOALS_DIR="${GTD_BASE_DIR}/goals"
 
-mkdir -p "$PROJECTS_PATH" "$ARCHIVE_PATH" "$TASKS_PATH"
+mkdir -p "$PROJECTS_PATH" "$ARCHIVE_PATH" "$TASKS_PATH" "$GOALS_DIR"
 
-TODAY=$(date +"%Y-%m-%d")
-NOW=$(date +"%H:%M")
+TODAY=$(gtd_get_today)
+NOW=$(gtd_get_current_time)
 
-# Extract frontmatter value
+# Use common frontmatter helper (aliased for backward compatibility)
+alias get_frontmatter_value='gtd_get_frontmatter_value'
+
+# Define wrapper function (aliases don't always work in subshells)
 get_frontmatter_value() {
-  local file="$1"
-  local key="$2"
-  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+  gtd_get_frontmatter_value "$@"
 }
 
 # Update frontmatter value
@@ -93,12 +84,22 @@ normalize_repo_url() {
 create_project() {
   local project_name=""
   local repository=""
+  local outcome=""
+  local goal=""
   
   # Parse arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --repository|--repo)
         repository="$2"
+        shift 2
+        ;;
+      --outcome)
+        outcome="$2"
+        shift 2
+        ;;
+      --goal)
+        goal="$2"
         shift 2
         ;;
       *)
@@ -112,6 +113,34 @@ create_project() {
   
   if [[ -z "$project_name" ]]; then
     read -p "Project name: " project_name
+  fi
+  
+  # Require outcome definition
+  if [[ -z "$outcome" ]]; then
+    echo ""
+    echo "📋 Every project needs a clear outcome. What does 'done' look like?"
+    echo "   (Example: 'A fully redesigned website launched with new branding')"
+    read -p "Project outcome: " outcome
+    
+    if [[ -z "$outcome" ]]; then
+      echo "⚠️  Warning: Creating project without a defined outcome."
+      echo "   Consider defining one later: gtd-project update-outcome '$project_name' '<outcome>'"
+      read -p "Continue anyway? (y/N): " continue_anyway
+      if [[ ! "$continue_anyway" =~ ^[Yy]$ ]]; then
+        echo "Cancelled."
+        exit 1
+      fi
+    fi
+  fi
+  
+  # Optionally link to goal
+  if [[ -z "$goal" ]]; then
+    # Check if there are active goals
+    if [[ -d "$GOALS_DIR" ]] && [[ -n "$(find "$GOALS_DIR" -name "*.md" 2>/dev/null)" ]]; then
+      echo ""
+      echo "🎯 Link this project to a goal? (optional)"
+      read -p "Goal name (or press Enter to skip): " goal
+    fi
   fi
   
   project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
@@ -129,13 +158,19 @@ create_project() {
     repository=$(normalize_repo_url "$repository")
   fi
   
-  # Create README with conditional repository field
+  # Create README with conditional fields
   {
     echo "---"
     echo "type: project"
     echo "status: active"
     echo "created: ${TODAY}T${NOW}"
     echo "project: ${project_name}"
+    if [[ -n "$outcome" ]]; then
+      echo "outcome: ${outcome}"
+    fi
+    if [[ -n "$goal" ]]; then
+      echo "goal: ${goal}"
+    fi
     if [[ -n "$repository" ]]; then
       echo "repository: ${repository}"
     fi
@@ -144,6 +179,12 @@ create_project() {
     echo ""
     echo "# ${project_name}"
     echo ""
+    if [[ -n "$outcome" ]]; then
+      echo "## Outcome"
+      echo ""
+      echo "$outcome"
+      echo ""
+    fi
     echo "## Description"
     echo ""
     echo ""
@@ -159,6 +200,12 @@ create_project() {
   
   echo "✓ Created project: $project_name"
   echo "  Location: $project_dir"
+  if [[ -n "$outcome" ]]; then
+    echo "  Outcome: $outcome"
+  fi
+  if [[ -n "$goal" ]]; then
+    echo "  Linked to goal: $goal"
+  fi
   
   # Ask for repository link if not provided via wizard
   if [[ -z "$repository" ]]; then
@@ -205,9 +252,17 @@ list_projects() {
     local task_count=$(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
     
     local repository=$(get_frontmatter_value "$readme" "repository")
+    local outcome=$(get_frontmatter_value "$readme" "outcome")
+    local goal=$(get_frontmatter_value "$readme" "goal")
     
     echo "[$count] $project_name"
     echo "     Status: $status | Created: $created | Tasks: $task_count"
+    if [[ -n "$outcome" ]]; then
+      echo "     Outcome: $outcome"
+    fi
+    if [[ -n "$goal" ]]; then
+      echo "     Goal: $goal"
+    fi
     if [[ -n "$repository" ]]; then
       echo "     Repository: $repository"
     fi
@@ -245,8 +300,19 @@ view_project() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
-  # Show repository link if available
+  # Show outcome and goal if available
+  local outcome=$(get_frontmatter_value "$readme" "outcome")
+  local goal=$(get_frontmatter_value "$readme" "goal")
   local repository=$(get_frontmatter_value "$readme" "repository")
+  
+  if [[ -n "$outcome" ]]; then
+    echo "🎯 Outcome: $outcome"
+    echo ""
+  fi
+  if [[ -n "$goal" ]]; then
+    echo "🏆 Linked to Goal: $goal"
+    echo ""
+  fi
   if [[ -n "$repository" ]]; then
     echo "🔗 Repository: $repository"
     echo ""
@@ -331,6 +397,141 @@ EOF
   echo "✓ Added task to project: $project_name"
   echo "  Task: $task_desc"
   echo "  File: $filepath"
+}
+
+# Add note to project (creates note file in notes/ subdirectory)
+add_note_to_project() {
+  local project_name="$1"
+  shift
+  local note_title="$*"
+  
+  if [[ -z "$project_name" ]]; then
+    echo "❌ Project name required"
+    echo "Usage: gtd-project add-note <project-name> [note-title]"
+    echo ""
+    echo "Examples:"
+    echo "  gtd-project add-note website-redesign \"Design Notes\""
+    echo "  gtd-project add-note website-redesign  # Interactive mode - prompts for title"
+    exit 1
+  fi
+  
+  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_name}"
+  local readme="${project_dir}/README.md"
+  
+  if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
+    echo "❌ Project not found: $project_name"
+    exit 1
+  fi
+  
+  # Create notes directory for this project
+  local notes_dir="${project_dir}/notes"
+  mkdir -p "$notes_dir"
+  
+  # Get note title
+  if [[ -z "$note_title" ]]; then
+    echo -n "Note title: "
+    read note_title
+    if [[ -z "$note_title" ]]; then
+      echo "❌ Note title required"
+      exit 1
+    fi
+  fi
+  
+  # Create sanitized filename
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  local sanitized_title=$(echo "$note_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local note_filename="${timestamp}-${sanitized_title}.md"
+  local note_file="${notes_dir}/${note_filename}"
+  
+  # Check if note already exists
+  if [[ -f "$note_file" ]]; then
+    echo "⚠️  Note already exists: $note_file"
+    read -p "Create anyway with new timestamp? (y/N): " create_anyway
+    if [[ ! "$create_anyway" =~ ^[Yy]$ ]]; then
+      echo "Cancelled."
+      exit 0
+    fi
+    timestamp=$(date +"%Y%m%d%H%M%S")
+    note_filename="${timestamp}-${sanitized_title}.md"
+    note_file="${notes_dir}/${note_filename}"
+  fi
+  
+  # Get project description for the note
+  local project_desc=$(grep "^# " "$readme" 2>/dev/null | head -1 | sed 's/^# //' || echo "")
+  if [[ -z "$project_desc" ]]; then
+    project_desc="$project_name"
+  fi
+  
+  # Create the note file
+  local created_time=$(date +"%Y-%m-%d %H:%M")
+  cat > "$note_file" <<EOF
+---
+type: note
+project: ${project_name}
+created: ${TODAY}T${NOW}
+tags: []
+---
+
+# ${note_title}
+
+Created: ${created_time}
+Project: ${project_desc}
+
+## Content
+
+
+
+## Links
+- Related to: 
+
+## Tags
+#project-note #${project_name}
+
+EOF
+  
+  # Add link to note in the project's Notes section (or create it)
+  local temp_file=$(mktemp)
+  local notes_section_found=false
+  local relative_note_path="notes/${note_filename}"
+  local note_link="[[${note_title}]] (${relative_note_path})"
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Check if we're at the Notes section header
+    if [[ "$line" == "## Notes" ]]; then
+      notes_section_found=true
+      echo "$line" >> "$temp_file"
+      echo "" >> "$temp_file"
+      echo "- ${note_link}" >> "$temp_file"
+      continue
+    fi
+    
+    echo "$line" >> "$temp_file"
+  done < "$readme"
+  
+  # If Notes section wasn't found, add it at the end
+  if [[ "$notes_section_found" == "false" ]]; then
+    echo "" >> "$temp_file"
+    echo "## Notes" >> "$temp_file"
+    echo "" >> "$temp_file"
+    echo "- ${note_link}" >> "$temp_file"
+    echo "" >> "$temp_file"
+  fi
+  
+  mv "$temp_file" "$readme"
+  
+  echo "✓ Created note for project: $project_name"
+  echo "  Title: $note_title"
+  echo "  File: $note_file"
+  echo "  Linked in project README"
+  
+  # Optionally open the note in editor
+  if command -v ${EDITOR:-vim} &>/dev/null; then
+    read -p "Open note in editor? (y/N): " open_editor
+    if [[ "$open_editor" =~ ^[Yy]$ ]]; then
+      ${EDITOR:-vim} "$note_file"
+    fi
+  fi
 }
 
 # Show project status
@@ -711,6 +912,10 @@ main() {
       shift
       add_task_to_project "$@"
       ;;
+    add-note)
+      shift
+      add_note_to_project "$@"
+      ;;
     status)
       shift
       project_status "$1"
@@ -739,6 +944,7 @@ main() {
       echo "  list [status]                    List projects (default: active)"
       echo "  view <name>                      View project details"
       echo "  add-task <name> <description>    Add task to project"
+      echo "  add-note <name> [note]           Add note to project"
       echo "  status <name>                    Show project status"
       echo "  kickoff <name>                   Run project kickoff checklist"
       echo "  review <name>                    Run project review checklist"

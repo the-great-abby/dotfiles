@@ -1,0 +1,40 @@
+# ============================================================================
+# GTD Review System Configuration
+# ============================================================================
+# Settings for daily, weekly, monthly, and other review processes
+
+# ============================================================================
+# Review System
+# ============================================================================
+# Daily review time (24-hour format, empty = no scheduled review)
+GTD_DAILY_REVIEW_TIME="${GTD_DAILY_REVIEW_TIME:-18:00}"  # 6:00 PM default for evening review
+
+# Enable daily review reminders (true/false)
+GTD_DAILY_REMINDER_ENABLED="${GTD_DAILY_REMINDER_ENABLED:-true}"
+
+# Weekly review day (0=Sunday, 1=Monday, etc., empty = no scheduled review)
+GTD_WEEKLY_REVIEW_DAY="${GTD_WEEKLY_REVIEW_DAY:-0}"
+
+# Weekly review time (24-hour format)
+GTD_WEEKLY_REVIEW_TIME="${GTD_WEEKLY_REVIEW_TIME:-09:00}"
+
+# Enable weekly review reminders (true/false)
+GTD_WEEKLY_REMINDER_ENABLED="${GTD_WEEKLY_REMINDER_ENABLED:-true}"
+
+# Review questions
+GTD_DAILY_REVIEW_QUESTIONS=(
+  "What are my top 3 priorities today?"
+  "What did I accomplish yesterday?"
+  "What's blocking me?"
+  "What needs my attention?"
+)
+
+GTD_WEEKLY_REVIEW_QUESTIONS=(
+  "What projects need attention?"
+  "What's in my inbox that needs processing?"
+  "What's on my calendar for next week?"
+  "What's in Waiting For that I should follow up on?"
+  "What's in Someday/Maybe that I want to activate?"
+  "What areas of responsibility need attention?"
+)
+

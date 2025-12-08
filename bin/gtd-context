@@ -1,38 +1,22 @@
 #!/bin/bash
 # GTD Context Command - Context-based task suggestions
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
-# Load GTD config
-GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Source config if it exists
-if [[ -f "$GTD_CONFIG_FILE" ]]; then
-  source "$GTD_CONFIG_FILE"
-fi
-
-# Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# Additional paths
 TASKS_PATH="${GTD_BASE_DIR}/tasks"
-PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
 
-# Extract frontmatter value
-get_frontmatter_value() {
-  local file="$1"
-  local key="$2"
-  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
-}
+# Use common frontmatter helper (aliased for backward compatibility)
+alias get_frontmatter_value='gtd_get_frontmatter_value'
 
 # Get current context (where are you?)
 get_current_context() {

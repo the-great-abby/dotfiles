@@ -1,0 +1,178 @@
+#!/bin/bash
+# GTD Google Health Sync - Sync Google Health/Fitness data to daily log
+# Can be called manually, from evening routine, or via automation
+
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
+# Source common functions (for gtd_get_mcp_python)
+COMMON_SH="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$COMMON_SH" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  COMMON_SH="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$COMMON_SH" ]]; then
+  source "$COMMON_SH"
+fi
+
+# Load config if available
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+# Find Python script
+GOOGLE_HEALTH_SCRIPT="$HOME/code/dotfiles/bin/gtd-google-health-sync.py"
+if [[ ! -f "$GOOGLE_HEALTH_SCRIPT" ]]; then
+  GOOGLE_HEALTH_SCRIPT="$HOME/code/personal/dotfiles/bin/gtd-google-health-sync.py"
+fi
+
+if [[ ! -f "$GOOGLE_HEALTH_SCRIPT" ]]; then
+  echo "❌ Google Health sync script not found: $GOOGLE_HEALTH_SCRIPT"
+  exit 1
+fi
+
+# Find Python (prefer MCP virtualenv, fallback to system)
+if command -v gtd_get_mcp_python &>/dev/null; then
+  PYTHON_CMD=$(gtd_get_mcp_python)
+elif [[ -f "$HOME/code/dotfiles/mcp/venv/bin/python3" ]]; then
+  PYTHON_CMD="$HOME/code/dotfiles/mcp/venv/bin/python3"
+elif [[ -f "$HOME/code/personal/dotfiles/mcp/venv/bin/python3" ]]; then
+  PYTHON_CMD="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+elif command -v python3 &>/dev/null; then
+  PYTHON_CMD="python3"
+elif command -v python &>/dev/null; then
+  PYTHON_CMD="python"
+else
+  echo "❌ Python not found"
+  exit 1
+fi
+
+# Function to check if health data already logged today
+health_already_logged() {
+  local log_file="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}/$(date +%Y-%m-%d).md"
+  
+  if [[ ! -f "$log_file" ]]; then
+    return 1  # No log file, not logged
+  fi
+  
+  # Check for Google Fit summary entries
+  if grep -qiE "Google Fit.*Daily Summary|Google Fit.*steps.*calories" "$log_file" 2>/dev/null; then
+    return 0  # Already logged
+  fi
+  
+  return 1  # Not logged
+}
+
+# Main sync function
+sync_google_health_data() {
+  local force="${1:-false}"
+  local mode="${2:-takeout}"  # takeout or api
+  local takeout_path="${3:-}"
+  
+  # Check if already logged (unless forced)
+  if [[ "$force" != "true" ]] && health_already_logged; then
+    echo "ℹ️  Google Health data already logged today. Use --force to sync again."
+    return 0
+  fi
+  
+  echo "🔄 Syncing Google Health/Fitness data to daily log..."
+  
+  # Build command
+  local cmd_args=()
+  
+  if [[ "$mode" == "api" ]]; then
+    cmd_args+=("--api")
+  elif [[ -n "$takeout_path" ]]; then
+    cmd_args+=("--takeout" "$takeout_path")
+  fi
+  
+  # Run Python script
+  if "$PYTHON_CMD" "$GOOGLE_HEALTH_SCRIPT" "${cmd_args[@]}"; then
+    echo "✓ Google Health data sync completed"
+    
+    # Award XP for syncing health data (gamification)
+    if command -v gtd-gamify-award &>/dev/null; then
+      gtd-gamify-award health_log "" "Synced Google Health data" 2>/dev/null || true
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-gamify-award" health_log "" "Synced Google Health data" 2>/dev/null || true
+    elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" ]]; then
+      "$HOME/code/personal/dotfiles/bin/gtd-gamify-award" health_log "" "Synced Google Health data" 2>/dev/null || true
+    fi
+    
+    return 0
+  else
+    echo "❌ Google Health data sync failed"
+    return 1
+  fi
+}
+
+# Parse arguments
+case "${1:-}" in
+  --force|-f)
+    sync_google_health_data "true" "${2:-takeout}" "${3:-}"
+    ;;
+  --api)
+    sync_google_health_data "${2:-false}" "api" ""
+    ;;
+  --takeout)
+    if [[ -z "$2" ]]; then
+      echo "❌ --takeout requires a path"
+      echo "Usage: $0 --takeout /path/to/takeout"
+      exit 1
+    fi
+    sync_google_health_data "${3:-false}" "takeout" "$2"
+    ;;
+  --help|-h)
+    echo "Usage: gtd-sync-google-health [OPTIONS]"
+    echo ""
+    echo "Syncs Google Health/Fitness data to your daily log."
+    echo ""
+    echo "Options:"
+    echo "  --force, -f          Force sync even if already logged today"
+    echo "  --api                Use Data Portability API (requires OAuth setup)"
+    echo "  --takeout PATH       Process Google Takeout export from PATH"
+    echo "  --help, -h           Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                    # Sync from default Takeout location"
+    echo "  $0 --takeout ~/Downloads/Takeout  # Sync from specific path"
+    echo "  $0 --api              # Use API mode (requires setup)"
+    echo "  $0 --force            # Force sync even if already logged"
+    echo ""
+    echo "See: zsh/GOOGLE_HEALTH_SETUP.md for setup instructions"
+    ;;
+  "")
+    sync_google_health_data "false" "takeout" ""
+    ;;
+  *)
+    echo "Unknown option: $1"
+    echo "Use --help for usage information"
+    exit 1
+    ;;
+esac
+
+exit 0

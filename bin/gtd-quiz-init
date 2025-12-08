@@ -1,0 +1,28 @@
+#!/bin/bash
+# Initialize quiz question banks
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+QUIZ_DIR="${GTD_BASE_DIR}/quizzes"
+QUIZ_DATA_DIR="${QUIZ_DIR}/data"
+QUIZ_SOURCE_DIR="$HOME/code/dotfiles/zsh/quizzes"
+
+# Create directories
+mkdir -p "$QUIZ_DATA_DIR"
+
+# Copy question banks if they exist
+if [[ -d "$QUIZ_SOURCE_DIR" ]]; then
+  echo "Copying question banks..."
+  
+  for file in "$QUIZ_SOURCE_DIR"/*.json; do
+    if [[ -f "$file" ]]; then
+      filename=$(basename "$file")
+      cp "$file" "$QUIZ_DATA_DIR/$filename"
+      echo "  ✓ Copied $filename"
+    fi
+  done
+fi
+
+echo ""
+echo "Quiz question banks initialized!"
+echo "Question banks available in: $QUIZ_DATA_DIR"
+

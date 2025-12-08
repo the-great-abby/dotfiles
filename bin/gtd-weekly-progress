@@ -156,7 +156,13 @@ generate_report() {
   if [[ -n "$persona_helper" && -n "$python_cmd" ]]; then
     local full_output=$("$python_cmd" "$persona_helper" "louiza" "$prompt" "weekly_progress" 2>&1)
     
-    if [[ -n "$full_output" && ! "$full_output" =~ Error|⚠️|timed out ]]; then
+    # Check if output contains errors (using separate checks to avoid regex issues)
+    local has_error=false
+    if [[ "$full_output" == *"Error"* ]] || [[ "$full_output" == *"⚠️"* ]] || [[ "$full_output" == *"timed out"* ]]; then
+      has_error=true
+    fi
+    
+    if [[ -n "$full_output" && "$has_error" == "false" ]]; then
       louiza_message=$(echo "$full_output" | awk '
         /^━+$/ {
           if (in_section) {
@@ -199,7 +205,8 @@ generate_report() {
   
   report+="💡 **Keep it up!** Use \`addInfoToDailyLog\` to keep tracking your progress.\n"
   
-  echo -e "$report"
+  # Return the report (don't echo here, let main handle display)
+  echo "$report"
 }
 
 # Send to Discord
@@ -248,7 +255,8 @@ PYTHON_EOF
 main() {
   local report=$(generate_report)
   
-  echo "$report"
+  # Display report with proper formatting
+  echo -e "$report"
   
   # Send to Discord if enabled
   if [[ "${GTD_DISCORD_WEEKLY_REMINDERS:-true}" == "true" && -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then

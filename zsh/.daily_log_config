@@ -21,8 +21,8 @@ DAILY_LOG_DIR="$HOME/Documents/daily_logs"
 # Examples: "text-embedding-nomic-embed-text-v1.5", "text-embedding-embeddinggemma-300m-qat"
 #LM_STUDIO_EMBEDDING_MODEL=""
 
-LM_STUDIO_CHAT_MODEL="google/gemma-3-1b"
-LM_STUDIO_EMBEDDING_MODEL="nomic-embed-text-v2-moe-GGUF"
+#LM_STUDIO_CHAT_MODEL="google/gemma-3-1b"
+#LM_STUDIO_EMBEDDING_MODEL="nomic-embed-text-v2-moe-GGUF"
 
 # Your name (for personalized reminders from Hank)
 NAME="Abby"

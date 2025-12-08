@@ -22,16 +22,47 @@ cat ~/Documents/daily_logs/$(date +%Y-%m-%d).md | tail -3
 
 ### 2. Create Your First Shortcut
 
+> **⚠️ Reality Check:** Health actions often **don't appear in Shortcuts search**. They're hard to find and may not work on all devices. We recommend starting with **Manual Logging** (see below) - it's simpler and more reliable!
+
+#### Option A: Manual Logging (Recommended - Works Everywhere)
+
+**Simplest approach that works on all devices:**
+
 1. Open **Shortcuts** app on your iPhone/iPad/Mac
 2. Tap **+** to create new shortcut
-3. Name it: **"Log Workout"**
+3. Name it: **"Log Health Data"**
 4. Add these actions:
-   - **Get Health Samples** → Type: Workouts, Date: Today, Limit: 1
-   - **Get Details** → Get: Workout Type, Duration, Total Energy Burned
-   - **Text** → Format: `Apple Watch Workout: [Workout Type] - [Duration] minutes, [Total Energy Burned] calories`
-   - **Get Current Date** → Format: HH:mm
-   - **Run Shell Script** → Script: `"$HOME/code/dotfiles/bin/gtd-healthkit-log" "$1" "$2"`
-     - Pass: Text as $1, Formatted Date as $2
+   - **Ask for Input** → Type: Text → Prompt: "Enter health data (e.g., '12,345 steps' or '30 min workout, 300 calories'):"
+   - **Get Current Date** → Format: Custom → Format String: **HH:mm**
+   - **Run Shell Script** → 
+     - Shell: **/bin/zsh**
+     - Input: **as arguments**
+     - Script: `"$HOME/code/dotfiles/bin/gtd-healthkit-log" "$1" "$2"`
+     - Pass inputs: Ask for Input as $1, Formatted Date as $2
+
+**To use:**
+- Run the shortcut
+- When prompted, enter your health data
+- Examples:
+  - "12,345 steps"
+  - "30 min kettlebell workout, 300 calories"
+  - "Heart rate: 72 bpm"
+  - "8 hours sleep"
+
+#### Option B: Automated Health Actions (Advanced - May Not Work)
+
+**Only try this if you can find Health actions:**
+
+1. Open **Shortcuts** app
+2. Browse action categories (don't search - browse manually)
+3. Look for **"Health"** category
+4. If found, use:
+   - **Find Health Samples** (or "Get Health Samples") → Type: Workouts
+   - **Get Details** → Extract workout info
+   - Format as text
+   - Run Shell Script (same as above)
+
+**If you can't find Health category:** Use Option A (Manual Logging) instead!
 
 ### 3. Test It
 
@@ -53,6 +84,8 @@ For complete setup instructions and more examples, see:
 
 ## 🎯 What You Can Log
 
+You can log any health data manually, or automatically if Health actions are available:
+
 - ✅ Workouts (type, duration, calories, distance)
 - ✅ Steps (daily count)
 - ✅ Heart Rate (current, resting, workout average)
@@ -60,6 +93,11 @@ For complete setup instructions and more examples, see:
 - ✅ Exercise Minutes (Apple Watch rings)
 - ✅ Stand Hours
 - ✅ Sleep (duration, quality)
+
+**Note:** With manual logging, you simply type in the data. For example:
+- "12,345 steps"
+- "30 min workout, 300 calories"
+- "Heart rate: 72 bpm"
 
 ## 💡 Pro Tip
 

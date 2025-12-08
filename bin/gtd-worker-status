@@ -1,0 +1,191 @@
+#!/bin/bash
+# Quick background worker status check
+# Shows if worker is running and actively processing
+
+# Source common environment
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
+# Load GTD config
+GTD_CONFIG_FILE="$HOME/.gtd_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  source "$GTD_CONFIG_FILE"
+fi
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+
+# Colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+echo ""
+echo -e "${BOLD}${CYAN}⚙️  Background Worker Status${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Check local worker process
+echo -e "${BOLD}Worker Process:${NC}"
+if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+  pid=$(pgrep -f "gtd_deep_analysis_worker.py")
+  # Check if process is actually running (not just zombie)
+  if ps -p "$pid" >/dev/null 2>&1; then
+    cpu=$(ps -p "$pid" -o %cpu= 2>/dev/null | tr -d ' ')
+    mem=$(ps -p "$pid" -o %mem= 2>/dev/null | tr -d ' ')
+    runtime=$(ps -p "$pid" -o etime= 2>/dev/null | tr -d ' ')
+    echo -e "  ${GREEN}✅ Running${NC} (PID: $pid)"
+    echo -e "    CPU: ${CYAN}${cpu:-0.0}%${NC} | Memory: ${CYAN}${mem:-0.0}%${NC} | Runtime: ${CYAN}${runtime:-unknown}${NC}"
+    
+    # Check if actively processing (CPU usage > 0.1% or recent activity)
+    if [[ -n "$cpu" ]] && (( $(echo "$cpu > 0.1" | bc -l 2>/dev/null || echo 0) )); then
+      echo -e "    ${GREEN}🔄 Actively processing${NC}"
+    else
+      echo -e "    ${CYAN}⏸️  Idle (waiting for jobs)${NC}"
+    fi
+  else
+    echo -e "  ${RED}❌ Process not found${NC}"
+  fi
+else
+  echo -e "  ${RED}❌ Not running${NC}"
+  echo -e "    ${YELLOW}→ Start with: python3 ~/code/dotfiles/mcp/gtd_deep_analysis_worker.py file${NC}"
+fi
+echo ""
+
+# Check queue status
+echo -e "${BOLD}Queue Status:${NC}"
+QUEUE_FILE="${GTD_BASE_DIR}/deep_analysis_queue.jsonl"
+if [[ -f "$QUEUE_FILE" ]]; then
+  queue_count=$(wc -l < "$QUEUE_FILE" 2>/dev/null | tr -d ' ')
+  if [[ "$queue_count" -gt 0 ]]; then
+    echo -e "  ${YELLOW}⚠️  $queue_count item(s) waiting${NC}"
+    
+    # Show last item timestamp
+    if [[ -f "$QUEUE_FILE" ]]; then
+      last_item=$(tail -1 "$QUEUE_FILE" 2>/dev/null)
+      if [[ -n "$last_item" ]]; then
+        last_time=$(echo "$last_item" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('timestamp', 'unknown'))" 2>/dev/null || echo "unknown")
+        if [[ "$last_time" != "unknown" ]]; then
+          echo -e "    Last queued: ${CYAN}$last_time${NC}"
+        fi
+      fi
+    fi
+  else
+    echo -e "  ${GREEN}✅ Queue empty${NC}"
+  fi
+else
+  echo -e "  ${CYAN}ℹ️  No queue file (no jobs queued yet)${NC}"
+fi
+echo ""
+
+# Check RabbitMQ (if available)
+if command -v rabbitmqctl &>/dev/null; then
+  echo -e "${BOLD}RabbitMQ Queue:${NC}"
+  if rabbitmqctl status >/dev/null 2>&1; then
+    queue_messages=$(rabbitmqctl list_queues name messages 2>/dev/null | grep "gtd_deep_analysis" | awk '{print $2}' || echo "0")
+    if [[ "$queue_messages" != "0" && -n "$queue_messages" ]]; then
+      echo -e "  ${YELLOW}⚠️  $queue_messages message(s) in queue${NC}"
+    else
+      echo -e "  ${GREEN}✅ Queue empty${NC}"
+    fi
+  else
+    echo -e "  ${CYAN}ℹ️  RabbitMQ not running${NC}"
+  fi
+  echo ""
+fi
+
+# Check recent results (indicates recent activity)
+echo -e "${BOLD}Recent Activity:${NC}"
+RESULTS_DIR="${GTD_BASE_DIR}/deep_analysis_results"
+if [[ -d "$RESULTS_DIR" ]]; then
+  latest_result=$(ls -t "$RESULTS_DIR"/*.json 2>/dev/null | head -1)
+  if [[ -n "$latest_result" ]]; then
+    result_time=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$latest_result" 2>/dev/null || stat -c "%y" "$latest_result" 2>/dev/null | cut -d'.' -f1)
+    echo -e "  ${GREEN}✅ Latest result:${NC} $(basename "$latest_result")"
+    echo -e "    Time: ${CYAN}$result_time${NC}"
+    
+    # Check if result is recent (within last hour)
+    if [[ "$(uname)" == "Darwin" ]]; then
+      result_epoch=$(stat -f "%m" "$latest_result" 2>/dev/null)
+    else
+      result_epoch=$(stat -c "%Y" "$latest_result" 2>/dev/null)
+    fi
+    current_epoch=$(date +%s)
+    age_seconds=$((current_epoch - result_epoch))
+    age_minutes=$((age_seconds / 60))
+    
+    if [[ $age_minutes -lt 60 ]]; then
+      echo -e "    ${GREEN}🔄 Active (${age_minutes}m ago)${NC}"
+    elif [[ $age_minutes -lt 1440 ]]; then
+      age_hours=$((age_minutes / 60))
+      echo -e "    ${CYAN}⏸️  Idle (${age_hours}h ago)${NC}"
+    else
+      age_days=$((age_minutes / 1440))
+      echo -e "    ${YELLOW}⚠️  No recent activity (${age_days}d ago)${NC}"
+    fi
+  else
+    echo -e "  ${CYAN}ℹ️  No results yet${NC}"
+  fi
+else
+  echo -e "  ${CYAN}ℹ️  No results directory${NC}"
+fi
+echo ""
+
+# Check Kubernetes worker (if kubectl available)
+if command -v kubectl &>/dev/null; then
+  echo -e "${BOLD}Kubernetes Worker:${NC}"
+  if kubectl get deployment gtd-deep-analysis-worker &>/dev/null 2>&1; then
+    replicas=$(kubectl get deployment gtd-deep-analysis-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    desired=$(kubectl get deployment gtd-deep-analysis-worker -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    if [[ "$replicas" -gt 0 && "$replicas" == "$desired" ]]; then
+      echo -e "  ${GREEN}✅ Running ($replicas/$desired replicas)${NC}"
+      
+      # Check recent logs for activity
+      recent_logs=$(kubectl logs -l app=gtd-deep-analysis-worker --tail=5 --since=5m 2>/dev/null | wc -l | tr -d ' ')
+      if [[ "$recent_logs" -gt 0 ]]; then
+        echo -e "    ${GREEN}🔄 Recent activity in logs${NC}"
+      else
+        echo -e "    ${CYAN}⏸️  No recent log activity${NC}"
+      fi
+    else
+      echo -e "  ${YELLOW}⚠️  Not fully ready ($replicas/$desired)${NC}"
+    fi
+  else
+    echo -e "  ${CYAN}ℹ️  Not deployed${NC}"
+  fi
+  echo ""
+fi
+
+# Summary
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Determine overall status
+if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+  if [[ -f "$QUEUE_FILE" ]] && [[ $(wc -l < "$QUEUE_FILE" 2>/dev/null | tr -d ' ') -gt 0 ]]; then
+    echo -e "${YELLOW}⚠️  Worker is running but queue has items${NC}"
+    echo -e "   Worker may be processing or stuck. Check logs for details."
+  else
+    echo -e "${GREEN}✅ Worker is running and queue is empty${NC}"
+    echo -e "   Worker is ready and waiting for new jobs."
+  fi
+else
+  echo -e "${RED}❌ Worker is not running${NC}"
+  echo -e "   Start with: ${CYAN}python3 ~/code/dotfiles/mcp/gtd_deep_analysis_worker.py file${NC}"
+fi
+
+echo ""
+

@@ -17,12 +17,28 @@ fi
 PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1,2)
 echo "✓ Found Python $PYTHON_VERSION"
 
-# Install dependencies
+# Create virtualenv if it doesn't exist
+VENV_DIR="${SCRIPT_DIR}/venv"
+if [[ ! -d "$VENV_DIR" ]]; then
+    echo ""
+    echo "🔧 Creating virtualenv..."
+    python3 -m venv "$VENV_DIR" || {
+        echo "❌ Failed to create virtualenv. You may need to install python3-venv"
+        echo "   On macOS: brew install python3"
+        exit 1
+    }
+    echo "✓ Virtualenv created at $VENV_DIR"
+fi
+
+# Activate virtualenv and install dependencies
 echo ""
-echo "📦 Installing dependencies..."
-pip3 install -r "$SCRIPT_DIR/requirements.txt" || {
+echo "📦 Installing dependencies in virtualenv..."
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip >/dev/null 2>&1 || true
+pip install -r "$SCRIPT_DIR/requirements.txt" || {
     echo "⚠️  Failed to install some dependencies. Continuing anyway..."
 }
+deactivate
 
 # Make scripts executable
 chmod +x "$SCRIPT_DIR/gtd_mcp_server.py"
@@ -53,7 +69,7 @@ fi
 # Test imports
 echo ""
 echo "🧪 Testing imports..."
-python3 -c "
+"$VENV_DIR/bin/python3" -c "
 import sys
 sys.path.insert(0, '$SCRIPT_DIR')
 try:
@@ -71,5 +87,7 @@ echo "Next steps:"
 echo "1. Configure MCP server in Cursor (see README.md)"
 echo "2. Start LM Studio and load your model"
 echo "3. (Optional) Set up RabbitMQ for background processing"
-echo "4. Test with: python3 $SCRIPT_DIR/gtd_auto_suggest.py entry 'test entry'"
+echo "4. Test with: $VENV_DIR/bin/python3 $SCRIPT_DIR/gtd_auto_suggest.py entry 'test entry'"
+echo ""
+echo "💡 Note: MCP scripts will automatically use the virtualenv at: $VENV_DIR"
 

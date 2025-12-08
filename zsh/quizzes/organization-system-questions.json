@@ -1,0 +1,99 @@
+{
+  "topic": "organization-system",
+  "description": "GTD, Second Brain, and Zettelkasten",
+  "questions": [
+    {
+      "id": "gtd-001",
+      "type": "multiple_choice",
+      "question": "What does GTD stand for?",
+      "options": [
+        "Getting Things Done",
+        "Great Task Directory",
+        "Goal Tracking Dashboard",
+        "General Task Database"
+      ],
+      "correct_answer": "Getting Things Done",
+      "explanation": "GTD stands for Getting Things Done, a productivity methodology by David Allen."
+    },
+    {
+      "id": "gtd-002",
+      "type": "multiple_choice",
+      "question": "What is the 2-minute rule in GTD?",
+      "options": [
+        "If it takes less than 2 minutes, do it now",
+        "Review tasks every 2 minutes",
+        "Spend 2 minutes planning each task",
+        "Complete 2 tasks per minute"
+      ],
+      "correct_answer": "If it takes less than 2 minutes, do it now",
+      "explanation": "The 2-minute rule states that if a task takes less than 2 minutes, do it immediately rather than adding it to your system."
+    },
+    {
+      "id": "gtd-003",
+      "type": "true_false",
+      "question": "The weekly review is optional in GTD.",
+      "correct_answer": "false",
+      "explanation": "The weekly review is critical and non-negotiable in GTD. It's essential for keeping your system current and trusted."
+    },
+    {
+      "id": "para-001",
+      "type": "multiple_choice",
+      "question": "What does PARA stand for?",
+      "options": [
+        "Projects, Areas, Resources, Archives",
+        "Planning, Action, Review, Archive",
+        "Priorities, Actions, Resources, Areas",
+        "Process, Analyze, Review, Act"
+      ],
+      "correct_answer": "Projects, Areas, Resources, Archives",
+      "explanation": "PARA is an organization system: Projects (outcomes with deadlines), Areas (ongoing responsibilities), Resources (topics of interest), Archives (inactive items)."
+    },
+    {
+      "id": "code-001",
+      "type": "multiple_choice",
+      "question": "What does CODE stand for in Second Brain methodology?",
+      "options": [
+        "Capture, Organize, Distill, Express",
+        "Create, Organize, Document, Execute",
+        "Collect, Organize, Develop, Express",
+        "Capture, Organize, Develop, Execute"
+      ],
+      "correct_answer": "Capture, Organize, Distill, Express",
+      "explanation": "CODE is the Second Brain workflow: Capture what resonates, Organize by actionability (PARA), Distill progressively, Express to create value."
+    },
+    {
+      "id": "zettelkasten-001",
+      "type": "multiple_choice",
+      "question": "What is an atomic note in Zettelkasten?",
+      "options": [
+        "One idea per note",
+        "A note about atoms",
+        "A very small note",
+        "A note that can't be split"
+      ],
+      "correct_answer": "One idea per note",
+      "explanation": "An atomic note contains one single idea or concept, making it easy to link and combine with other notes."
+    },
+    {
+      "id": "moc-001",
+      "type": "true_false",
+      "question": "MOCs (Maps of Content) should be created when you have 3 or more related notes.",
+      "correct_answer": "true",
+      "explanation": "MOCs help organize related notes by topic. Create one when you have 3+ notes on a similar subject."
+    },
+    {
+      "id": "gtd-004",
+      "type": "multiple_choice",
+      "question": "What are the 5 Horizons of Focus in GTD?",
+      "options": [
+        "Runway, 10k, 20k, 30k, 40k",
+        "Daily, Weekly, Monthly, Quarterly, Yearly",
+        "Tasks, Projects, Areas, Goals, Vision",
+        "Capture, Process, Organize, Review, Do"
+      ],
+      "correct_answer": "Runway, 10k, 20k, 30k, 40k",
+      "explanation": "The 5 Horizons are: Runway (current actions), 10k (projects), 20k (areas of responsibility), 30k (goals), 40k (vision/purpose)."
+    }
+  ]
+}
+

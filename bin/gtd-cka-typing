@@ -522,23 +522,53 @@ practice_session() {
       return 1
     fi
     
-    # Practice the command
-    practice_command "$command" "false"
-    local result=$?
-    
-    if [[ $result -eq 0 ]]; then
-      ((correct++))
-      ((total++))
-    elif [[ $result -eq 2 ]]; then
-      # Quit
-      break
-    elif [[ $result -eq 3 ]]; then
-      # Try again - don't increment count
-      ((i--))
-      continue
-    else
-      ((total++))
-    fi
+    # Practice the command - keep trying until correct, skipped, or quit
+    while true; do
+      practice_command "$command" "false"
+      local result=$?
+      
+      if [[ $result -eq 0 ]]; then
+        # Correct!
+        ((correct++))
+        ((total++))
+        break  # Move to next command
+      elif [[ $result -eq 2 ]]; then
+        # User wants to quit
+        # Show summary even if quitting early
+        if [[ $total -gt 0 || $i -gt 1 ]]; then
+          clear
+          echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+          echo -e "${BOLD}${CYAN}📊 Practice Session Complete${NC}"
+          echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+          echo ""
+          
+          if [[ $total -gt 0 ]]; then
+            local accuracy=$(echo "scale=1; ($correct * 100) / $total" | bc 2>/dev/null || echo "0")
+            echo -e "${BOLD}Results:${NC}"
+            echo -e "   Commands: ${total}"
+            echo -e "   Correct: ${GREEN}${correct}${NC}"
+            echo -e "   Incorrect: ${RED}$((total - correct))${NC}"
+            echo -e "   Accuracy: ${accuracy}%"
+            echo ""
+          fi
+          
+          echo ""
+          read -p "Press Enter to continue..."
+        fi
+        return 0  # Exit session
+      elif [[ $result -eq 1 ]]; then
+        # User skipped this command
+        ((total++))
+        break  # Move to next command
+      elif [[ $result -eq 3 ]]; then
+        # Try again - loop back to practice the same command
+        continue
+      else
+        # Unknown result, count as attempted
+        ((total++))
+        break  # Move to next command
+      fi
+    done
   done
   
   # Session summary

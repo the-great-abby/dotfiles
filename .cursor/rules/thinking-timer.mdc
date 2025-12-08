@@ -1,0 +1,82 @@
+---
+description: Show thinking timer for operations taking longer than 2 seconds
+globs: ["**/*.sh", "**/*.py", "**/bin/**"]
+alwaysApply: true
+---
+
+# Thinking Timer Rule
+
+**CRITICAL**: Any time the system has to wait for a response or execute a command that takes longer than 2 seconds, a thinking timer MUST appear and start a count-up timer.
+
+## Implementation Requirements
+
+1. **Automatic Timer Display**: When any operation takes longer than 2 seconds:
+   - Show a thinking spinner with animated characters (⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+   - Display elapsed time in format: `T+MM:SS` or `T+HH:MM:SS` for longer operations
+   - Use the format: `🤔 Thinking [spinner] T+[time]`
+
+2. **When to Use**:
+   - AI/LLM API calls (LM Studio, Ollama)
+   - File operations that might be slow (large file processing)
+   - Network requests (web searches, API calls)
+   - Database queries or complex data processing
+   - Any command that might block for > 2 seconds
+
+3. **Use Helper Functions**: Always use the helper functions from `gtd-common.sh`:
+   - `show_thinking_timer "Label" &` - Start timer in background (waits 2 seconds before showing)
+   - `stop_thinking_timer $timer_pid` - Stop and clear timer
+   - `run_with_thinking_timer "Label" command args...` - Wrapper that automatically handles timer
+
+## Implementation Examples
+
+### Method 1: Automatic Wrapper (Preferred)
+```bash
+source "$HOME/code/dotfiles/bin/gtd-common.sh"
+run_with_thinking_timer "Processing" your_long_command arg1 arg2
+```
+
+### Method 2: Manual Control
+```bash
+source "$HOME/code/dotfiles/bin/gtd-common.sh"
+
+show_thinking_timer "Thinking" &
+timer_pid=$!
+
+# Your long-running command
+your_command
+
+# Clean up
+stop_thinking_timer $timer_pid
+```
+
+### Method 3: With Error Handling
+```bash
+source "$HOME/code/dotfiles/bin/gtd-common.sh"
+
+show_thinking_timer "Calling AI" &
+timer_pid=$!
+
+if ! python3 "$PERSONA_HELPER" "$persona" "$prompt"; then
+    stop_thinking_timer $timer_pid
+    echo "Error occurred"
+    exit 1
+fi
+
+stop_thinking_timer $timer_pid
+```
+
+## Code Generation Rules
+
+- When generating shell scripts that call AI APIs, file operations, or network requests, ALWAYS include thinking timer logic
+- Use the helper function `show_thinking_timer` or `run_with_thinking_timer` from `gtd-common.sh`
+- Never skip the timer for operations that might take > 2 seconds
+- Always clean up the timer with `stop_thinking_timer` even if the command fails
+- Use descriptive labels that explain what operation is running
+
+## User Experience
+
+- Timer should appear automatically after 2 seconds
+- Should not interfere with output
+- Should clear cleanly when operation completes
+- Should show accurate elapsed time
+- Timer output goes to stderr (>&2) so it doesn't interfere with command output

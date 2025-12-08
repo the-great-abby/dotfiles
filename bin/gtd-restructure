@@ -1,0 +1,179 @@
+#!/bin/bash
+# Natural Language Restructuring Tool
+# Allows users to restructure tasks, projects, areas, and goals using natural language
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get MCP Python
+MCP_VENV="$SCRIPT_DIR/../mcp/venv"
+if [[ ! -d "$MCP_VENV" ]]; then
+  MCP_VENV="$HOME/code/personal/dotfiles/mcp/venv"
+fi
+
+if [[ -f "$MCP_VENV/bin/python3" ]]; then
+  MCP_PYTHON="$MCP_VENV/bin/python3"
+elif [[ -f "$MCP_VENV/bin/python" ]]; then
+  MCP_PYTHON="$MCP_VENV/bin/python"
+else
+  MCP_PYTHON="$(which python3)"
+fi
+
+# MCP server script directory
+MCP_DIR="$SCRIPT_DIR/../mcp"
+if [[ ! -d "$MCP_DIR" ]]; then
+  MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+fi
+
+# Parse arguments
+ITEM_TYPE=""
+ITEM_ID=""
+COMMAND=""
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --task|--project|--area|--goal)
+      ITEM_TYPE="${1#--}"
+      shift
+      if [[ -n "$1" && ! "$1" =~ ^-- ]]; then
+        ITEM_ID="$1"
+        shift
+      fi
+      ;;
+    --command|-c)
+      shift
+      COMMAND="$1"
+      shift
+      ;;
+    *)
+      # If no flags, treat as: item_type item_id command
+      if [[ -z "$ITEM_TYPE" ]]; then
+        ITEM_TYPE="$1"
+        shift
+      elif [[ -z "$ITEM_ID" ]]; then
+        ITEM_ID="$1"
+        shift
+      else
+        COMMAND="$*"
+        break
+      fi
+      ;;
+  esac
+done
+
+# Validate inputs
+if [[ -z "$ITEM_TYPE" ]] || [[ -z "$ITEM_ID" ]] || [[ -z "$COMMAND" ]]; then
+  echo "Usage: gtd-restructure [--task|--project|--area|--goal] <item_id> --command \"<natural language command>\""
+  echo ""
+  echo "Examples:"
+  echo "  gtd-restructure --task my-task-id --command \"Make this more prominent\""
+  echo "  gtd-restructure --project my-project --command \"Archive but keep searchable\""
+  echo "  gtd-restructure --area health --command \"Focus on this week\""
+  echo "  gtd-restructure task 20240101120000-task \"I'm done with this\""
+  exit 1
+fi
+
+# Validate item type
+if [[ ! "$ITEM_TYPE" =~ ^(task|project|area|goal)$ ]]; then
+  echo "Error: item_type must be one of: task, project, area, goal"
+  exit 1
+fi
+
+# Call MCP server function directly via Python
+echo "Understanding your intent..."
+echo ""
+
+RESULT=$("$MCP_PYTHON" <<PYTHON_SCRIPT
+import sys
+import json
+import asyncio
+from pathlib import Path
+
+# Add MCP directory to path
+mcp_dir = Path('$MCP_DIR').expanduser()
+if mcp_dir.exists():
+    sys.path.insert(0, str(mcp_dir))
+
+try:
+    from gtd_mcp_server import handle_call_tool
+    
+    import shlex
+    # Properly escape the command
+    command = shlex.quote('$COMMAND')
+    # But we need to pass it as a string, so unquote it after quoting
+    command = '$COMMAND'
+    
+    # Call the async function
+    result = asyncio.run(handle_call_tool(
+        "restructure_with_natural_language",
+        {
+            "item_type": "$ITEM_TYPE",
+            "item_id": "$ITEM_ID",
+            "command": command
+        }
+    ))
+    
+    # Extract text content
+    if result and len(result) > 0:
+        response_text = result[0].text if hasattr(result[0], 'text') else str(result[0])
+        print(response_text)
+    else:
+        print(json.dumps({"error": "No response from MCP server"}))
+        
+except Exception as e:
+    print(json.dumps({"error": f"Error calling MCP server: {str(e)}"}))
+    sys.exit(1)
+PYTHON_SCRIPT
+)
+
+# Parse and display result
+echo "$RESULT" | "$MCP_PYTHON" -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    
+    if 'error' in data:
+        print(f\"❌ Error: {data['error']}\")
+        sys.exit(1)
+    
+    # Display explanation
+    if 'explanation' in data:
+        print(f\"✅ {data['explanation']}\")
+    elif 'success' in data:
+        status = '✅ Success' if data['success'] else '⚠️  Completed with issues'
+        print(status)
+    
+    # Show intent
+    if 'intent' in data:
+        print(f\"\n📋 Intent: {data['intent']}\")
+    
+    # Show actions taken
+    if 'actions_taken' in data and data['actions_taken']:
+        print(\"\nActions taken:\")
+        for action in data['actions_taken']:
+            print(f\"  • {action}\")
+    
+    # Show errors
+    if 'errors' in data and data['errors']:
+        print(\"\n⚠️  Issues:\")
+        for error in data['errors']:
+            print(f\"  • {error}\")
+    
+    if not data.get('success', False) and not data.get('errors'):
+        print(\"\nRaw response:\")
+        print(json.dumps(data, indent=2))
+        
+except json.JSONDecodeError:
+    print('Response:')
+    print(sys.stdin.read())
+except Exception as e:
+    print(f\"Error parsing result: {e}\")
+    print('Raw response:')
+    print(sys.stdin.read())
+    sys.exit(1)
+"
+
+EXIT_CODE=$?
+exit $EXIT_CODE

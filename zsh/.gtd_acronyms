@@ -1,0 +1,94 @@
+# GTD System Acronyms
+# ============================================================================
+# This file contains acronym definitions that help the AI personas understand
+# context when processing your GTD content (tasks, notes, logs, etc.)
+#
+# Format: ACRONYM|Full Definition|Context/Notes (optional)
+# ============================================================================
+
+# Technology & Infrastructure
+GTD_ACRONYMS=(
+  # Cloud & Infrastructure
+  "AWS|Amazon Web Services|Cloud computing platform"
+  "EC2|Elastic Compute Cloud|AWS virtual servers"
+  "S3|Simple Storage Service|AWS object storage"
+  "RDS|Relational Database Service|AWS managed databases"
+  "VPC|Virtual Private Cloud|AWS networking"
+  "IAM|Identity and Access Management|AWS security"
+  "K8s|Kubernetes|Container orchestration platform"
+  "CKA|Certified Kubernetes Administrator|Kubernetes certification"
+  "CKAD|Certified Kubernetes Application Developer|Kubernetes certification"
+  "CKS|Certified Kubernetes Security Specialist|Kubernetes certification"
+  "Docker|Docker|Container platform"
+  "Terraform|Terraform|Infrastructure as Code tool"
+  "Ansible|Ansible|Configuration management tool"
+  "CI/CD|Continuous Integration/Continuous Deployment|DevOps pipeline"
+  "GitOps|GitOps|DevOps methodology using Git"
+  
+  # Development & Programming
+  "API|Application Programming Interface|Software interface"
+  "REST|Representational State Transfer|API architectural style"
+  "GraphQL|GraphQL|Query language for APIs"
+  "JSON|JavaScript Object Notation|Data format"
+  "YAML|YAML Ain't Markup Language|Data serialization format"
+  "SQL|Structured Query Language|Database query language"
+  "NoSQL|Not Only SQL|Non-relational databases"
+  "ORM|Object-Relational Mapping|Database abstraction layer"
+  "MVC|Model-View-Controller|Software architecture pattern"
+  "RESTful|RESTful|REST-compliant API design"
+  
+  # DevOps & Operations
+  "SRE|Site Reliability Engineering|Engineering discipline"
+  "SLA|Service Level Agreement|Service quality commitment"
+  "SLI|Service Level Indicator|Service quality metric"
+  "SLO|Service Level Objective|Service quality target"
+  "MTTR|Mean Time To Recovery|Incident recovery metric"
+  "MTBF|Mean Time Between Failures|Reliability metric"
+  "PagerDuty|PagerDuty|Incident management platform"
+  "Datadog|Datadog|Monitoring and observability platform"
+  "Prometheus|Prometheus|Monitoring system"
+  "Grafana|Grafana|Visualization and analytics platform"
+  
+  # Networking & Security
+  "DNS|Domain Name System|Name resolution service"
+  "HTTP|Hypertext Transfer Protocol|Web protocol"
+  "HTTPS|Hypertext Transfer Protocol Secure|Secure web protocol"
+  "SSL|Secure Sockets Layer|Encryption protocol"
+  "TLS|Transport Layer Security|Encryption protocol"
+  "VPN|Virtual Private Network|Secure network connection"
+  "SSH|Secure Shell|Remote access protocol"
+  "OAuth|OAuth|Authorization framework"
+  "JWT|JSON Web Token|Authentication token format"
+  "RBAC|Role-Based Access Control|Access control method"
+  
+  # Data & Analytics
+  "ETL|Extract, Transform, Load|Data pipeline process"
+  "ELT|Extract, Load, Transform|Data pipeline process"
+  "OLTP|Online Transaction Processing|Transaction database"
+  "OLAP|Online Analytical Processing|Analytical database"
+  "Data Lake|Data Lake|Raw data storage"
+  "Data Warehouse|Data Warehouse|Structured data storage"
+  "BI|Business Intelligence|Data analysis and reporting"
+  
+  # GTD & Productivity
+  "GTD|Getting Things Done|Productivity methodology by David Allen"
+  "PARA|Projects, Areas, Resources, Archives|Second Brain organization method"
+  "MOC|Map of Content|Index/table of contents for notes"
+  "Zettelkasten|Zettelkasten|Note-taking method with atomic notes"
+  "PKM|Personal Knowledge Management|Knowledge organization system"
+  
+  # Work & Business
+  "OKR|Objectives and Key Results|Goal-setting framework"
+  "KPI|Key Performance Indicator|Business metric"
+  "ROI|Return on Investment|Financial metric"
+  "MVP|Minimum Viable Product|Product development approach"
+  "SCRUM|Scrum|Agile framework"
+  "Agile|Agile|Software development methodology"
+  "Kanban|Kanban|Workflow management method"
+  
+  # Add your custom acronyms below
+  # "CUSTOM|Custom Definition|Additional context"
+  "BAAR|Blameless After Action Review|Incident Review Meeting"
+  "FV|Filevine|Place of employment"
+)
+

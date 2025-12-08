@@ -1,0 +1,103 @@
+# ============================================================================
+# GTD Capture & Processing Configuration
+# ============================================================================
+# Settings for capturing items and processing the inbox
+
+# ============================================================================
+# Capture System Configuration
+# ============================================================================
+# Quick capture command (default: "capture")
+GTD_CAPTURE_CMD="${GTD_CAPTURE_CMD:-capture}"
+
+# Capture methods
+GTD_CAPTURE_METHODS=(
+  "note|Create a fleeting note"
+  "task|Create a task"
+  "idea|Capture an idea"
+  "reminder|Set a reminder"
+  "link|Save a link/reference"
+  "meeting|Log a meeting note"
+  "email|Capture email action"
+  "call|Log a phone call"
+)
+
+# Auto-tagging rules for captured items
+# Format: keyword|tag1,tag2,tag3
+GTD_AUTO_TAGS=(
+  "work|work,urgent"
+  "personal|personal"
+  "finance|finance,money"
+  "health|health,wellness"
+  "learning|learning,education"
+  "family|family,personal"
+  "urgent|urgent,asap"
+)
+
+# ============================================================================
+# Inbox Processing Configuration
+# ============================================================================
+# Inbox processing command (default: "process")
+GTD_PROCESS_CMD="${GTD_PROCESS_CMD:-process}"
+
+# Processing questions (GTD methodology)
+GTD_PROCESS_QUESTIONS=(
+  "What is it?"
+  "Is it actionable?"
+  "What's the next action?"
+  "Will it take less than 2 minutes?"
+  "Does it require multiple steps?"
+  "What's the context?"
+  "What's the energy level required?"
+  "What's the deadline/urgency?"
+)
+
+# Processing outcomes
+GTD_PROCESS_OUTCOMES=(
+  "delete|Delete it (not needed)"
+  "reference|File as reference"
+  "someday|Move to Someday/Maybe"
+  "waiting|Move to Waiting For"
+  "project|Create/assign to project"
+  "area|Assign to area of responsibility"
+  "next_action|Create next action"
+  "calendar|Schedule on calendar"
+)
+
+# ============================================================================
+# Contexts (GTD concept - where/how you can do work)
+# ============================================================================
+GTD_CONTEXTS=(
+  "home|Work that can be done at home"
+  "office|Work that requires being at the office"
+  "computer|Work that requires a computer"
+  "phone|Work that requires making phone calls"
+  "errands|Work that requires being out and about"
+  "online|Work that requires internet connection"
+  "offline|Work that can be done without internet"
+  "low_energy|Work that requires minimal mental energy"
+  "high_energy|Work that requires high mental energy"
+  "short|Work that takes less than 15 minutes"
+  "long|Work that takes more than an hour"
+)
+
+# ============================================================================
+# Energy Levels
+# ============================================================================
+GTD_ENERGY_LEVELS=(
+  "low|Minimal mental/physical energy required"
+  "medium|Moderate energy required"
+  "high|High energy/focus required"
+  "creative|Requires creative thinking"
+  "administrative|Routine/admin work"
+)
+
+# ============================================================================
+# Priority/Urgency Matrix (Eisenhower Matrix)
+# ============================================================================
+GTD_PRIORITY_MATRIX=(
+  "urgent_important|Do first|red"
+  "not_urgent_important|Schedule|blue"
+  "urgent_not_important|Delegate|yellow"
+  "not_urgent_not_important|Eliminate|gray"
+)
+

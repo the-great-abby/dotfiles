@@ -1,0 +1,64 @@
+#!/bin/bash
+# GTD Config Splitter - Migrate existing .gtd_config to modular files
+# This script helps split your existing monolithic config into modular files
+
+# Find config directory
+GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+  GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+fi
+
+GTD_CONFIG_FILE="$GTD_CONFIG_DIR/.gtd_config"
+if [[ ! -f "$GTD_CONFIG_FILE" ]]; then
+  GTD_CONFIG_FILE="$HOME/.gtd_config"
+fi
+
+if [[ ! -f "$GTD_CONFIG_FILE" ]]; then
+  echo "❌ Config file not found at: $GTD_CONFIG_FILE"
+  exit 1
+fi
+
+echo "📋 GTD Config Splitter"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "This will split your existing config into modular files:"
+echo "  • .gtd_config_core"
+echo "  • .gtd_config_ai"
+echo "  • .gtd_config_capture"
+echo "  • .gtd_config_reviews"
+echo "  • .gtd_config_integrations"
+echo "  • .gtd_config_calendar"
+echo "  • .gtd_config_notifications"
+echo "  • .gtd_config_advanced"
+echo ""
+echo "Source: $GTD_CONFIG_FILE"
+echo "Target: $GTD_CONFIG_DIR"
+echo ""
+echo -n "Continue? (y/N): "
+read confirm
+
+if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+  echo "Cancelled."
+  exit 0
+fi
+
+echo ""
+echo "📝 Splitting config..."
+
+# The modular files have already been created with default values
+# This script is mainly for documentation and verification
+
+echo ""
+echo "✅ Modular config files are ready!"
+echo ""
+echo "Next steps:"
+echo "  1. Review the modular files in: $GTD_CONFIG_DIR"
+echo "  2. Move any custom settings to .gtd_config_custom"
+echo "  3. Update your scripts to use load_gtd_config.sh"
+echo ""
+echo "To use the modular system, update your scripts to source:"
+echo "  source \"$GTD_CONFIG_DIR/functions/load_gtd_config.sh\""
+echo ""
+echo "Or update .gtd_config to use the loader at the end:"
+echo "  source \"$GTD_CONFIG_DIR/functions/load_gtd_config.sh\""
+

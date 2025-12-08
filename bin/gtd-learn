@@ -3,16 +3,6 @@
 # She teaches the unified system (Zettelkasten + GTD + Second Brain) and calls in other experts when needed
 # She also has to deal with comic book heroes who are always rushing off to "save the world" mid-explanation
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
-fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
 # Load GTD config
 GTD_CONFIG_FILE="$HOME/.gtd_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
@@ -74,22 +64,235 @@ else
   exit 1
 fi
 
+# GTD base directory and study directories
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+STUDY_DIR="${GTD_BASE_DIR}/study"
+GTD_STUDY_DIR="${STUDY_DIR}/gtd-system"
+
+# Create study directories
+mkdir -p "$GTD_STUDY_DIR"/{notes,progress}
+
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Create study note for GTD system learning
+create_gtd_study_note() {
+  local topic="$1"
+  local content="$2"
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local timestamp=$($DATE_CMD +"%Y%m%d-%H%M%S")
+  local safe_topic=$(echo "$topic" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local note_file="${GTD_STUDY_DIR}/notes/${timestamp}-${safe_topic}.md"
+  
+  cat > "$note_file" <<EOF
+# GTD System Learning: ${topic}
+Date: ${today}
+Topic: ${topic}
+Created: $($DATE_CMD)
+
+## Lesson Content
+
+${content}
+
+---
+Tags: #gtd #learning #${safe_topic}
+EOF
+
+  echo "$note_file"
+}
+
+# Gather system data for critique
+gather_system_data() {
+  local topic="$1"
+  
+  # Default paths
+  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+  ZET_INBOX="${ZET_INBOX:-$SECOND_BRAIN/0-inbox}"
+  ZET_DIR="${ZET_DIR:-$SECOND_BRAIN/Zettelkasten}"
+  PROJECTS_PATH="${PROJECTS_PATH:-$GTD_BASE_DIR/1-projects}"
+  TASKS_PATH="${TASKS_PATH:-$GTD_BASE_DIR/tasks}"
+  AREAS_PATH="${AREAS_PATH:-$GTD_BASE_DIR/2-areas}"
+  
+  local system_data=""
+  
+  # GTD system learning notes
+  if [[ -d "$GTD_STUDY_DIR/notes" ]]; then
+    local gtd_notes_count=$(find "$GTD_STUDY_DIR/notes" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$gtd_notes_count" -gt 0 ]]; then
+      system_data="${system_data}\nGTD System Learning Notes: ${gtd_notes_count} notes"
+      local recent_gtd_topics=$(find "$GTD_STUDY_DIR/notes" -type f -name "*.md" -exec basename {} \; 2>/dev/null | sed 's/^[0-9]*-//' | sed 's/\.md$//' | head -5 | tr '\n' ', ' | sed 's/, $//')
+      if [[ -n "$recent_gtd_topics" ]]; then
+        system_data="${system_data} (recent: ${recent_gtd_topics})"
+      fi
+    fi
+  fi
+  
+  # Gather relevant data based on topic
+  case "$topic" in
+    capture|inbox|process|processing|unified-system|system|"")
+      # Gather inbox data
+      if [[ -d "$GTD_BASE_DIR/0-inbox" ]]; then
+        local inbox_count=$(find "$GTD_BASE_DIR/0-inbox" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$inbox_count" -gt 0 ]]; then
+          local inbox_items=$(find "$GTD_BASE_DIR/0-inbox" -type f -name "*.md" -exec basename {} \; 2>/dev/null | head -5 | tr '\n' ', ' | sed 's/, $//')
+          system_data="${system_data}\nGTD Inbox: ${inbox_count} items (examples: ${inbox_items})"
+        fi
+      fi
+      
+      # Zettelkasten inbox
+      if [[ -d "$ZET_INBOX" ]]; then
+        local zet_inbox_count=$(find "$ZET_INBOX" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$zet_inbox_count" -gt 0 ]]; then
+          system_data="${system_data}\nZettelkasten Inbox: ${zet_inbox_count} atomic notes"
+        fi
+      fi
+      ;;
+  esac
+  
+  case "$topic" in
+    tasks|task|process|processing|unified-system|system|"")
+      # Gather task data
+      local task_count=0
+      local task_samples=""
+      
+      if [[ -d "$TASKS_PATH" ]]; then
+        task_count=$(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$task_count" -gt 0 ]]; then
+          task_samples=$(find "$TASKS_PATH" -type f -name "*.md" -exec grep -h "^title:" {} \; 2>/dev/null | head -3 | sed 's/title: //' | tr '\n' '; ' | sed 's/; $//')
+        fi
+      fi
+      
+      # Also check project tasks
+      if [[ -d "$PROJECTS_PATH" ]]; then
+        local project_task_count=$(find "$PROJECTS_PATH" -type f -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$project_task_count" -gt 0 ]]; then
+          task_count=$((task_count + project_task_count))
+        fi
+      fi
+      
+      if [[ "$task_count" -gt 0 ]]; then
+        system_data="${system_data}\nGTD Tasks: ${task_count} total tasks"
+        if [[ -n "$task_samples" ]]; then
+          system_data="${system_data} (examples: ${task_samples})"
+        fi
+      fi
+      ;;
+  esac
+  
+  case "$topic" in
+    projects|project|unified-system|system|"")
+      # Gather project data
+      if [[ -d "$PROJECTS_PATH" ]]; then
+        local project_dirs=$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$project_dirs" -gt 0 ]]; then
+          local project_names=$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 -exec basename {} \; 2>/dev/null | head -5 | tr '\n' ', ' | sed 's/, $//')
+          system_data="${system_data}\nGTD Projects: ${project_dirs} projects (examples: ${project_names})"
+        fi
+      fi
+      ;;
+  esac
+  
+  case "$topic" in
+    second-brain|brain|zettelkasten|zet|atomic|unified-system|system|"")
+      # Gather Second Brain note data
+      if [[ -d "$SECOND_BRAIN" ]]; then
+        local sb_notes=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/.obsidian/*" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$sb_notes" -gt 0 ]]; then
+          system_data="${system_data}\nSecond Brain Notes: ${sb_notes} notes"
+          
+          # Check PARA structure
+          local projects_count=$(find "$SECOND_BRAIN/Projects" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+          local areas_count=$(find "$SECOND_BRAIN/Areas" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+          local resources_count=$(find "$SECOND_BRAIN/Resources" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+          
+          if [[ "$projects_count" -gt 0 ]] || [[ "$areas_count" -gt 0 ]] || [[ "$resources_count" -gt 0 ]]; then
+            system_data="${system_data} (Projects: ${projects_count}, Areas: ${areas_count}, Resources: ${resources_count})"
+          fi
+        fi
+      fi
+      
+      # Zettelkasten organized notes
+      if [[ -d "$ZET_DIR" ]]; then
+        local zet_notes=$(find "$ZET_DIR" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$zet_notes" -gt 0 ]]; then
+          system_data="${system_data}\nZettelkasten Notes: ${zet_notes} atomic notes"
+        fi
+      fi
+      ;;
+  esac
+  
+  case "$topic" in
+    zettelkasten|zet|atomic|process|processing|unified-system|system|"")
+      # Sample note quality (check for linking, structure)
+      if [[ -d "$ZET_DIR" ]]; then
+        local linked_notes=$(find "$ZET_DIR" -type f -name "*.md" -exec grep -l "\[\[" {} \; 2>/dev/null | wc -l | tr -d ' ')
+        local total_zet_notes=$(find "$ZET_DIR" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$total_zet_notes" -gt 0 ]]; then
+          local link_percentage=$((linked_notes * 100 / total_zet_notes))
+          system_data="${system_data}\nZettelkasten Linking: ${linked_notes}/${total_zet_notes} notes have links (${link_percentage}%)"
+        fi
+      fi
+      
+      if [[ -d "$SECOND_BRAIN" ]]; then
+        local sb_total=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/.obsidian/*" 2>/dev/null | wc -l | tr -d ' ')
+        local sb_linked=$(find "$SECOND_BRAIN" -type f -name "*.md" ! -path "*/Templates/*" ! -path "*/.obsidian/*" -exec grep -l "\[\[" {} \; 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$sb_total" -gt 0 ]]; then
+          local sb_link_percentage=$((sb_linked * 100 / sb_total))
+          system_data="${system_data}\nSecond Brain Linking: ${sb_linked}/${sb_total} notes have links (${sb_link_percentage}%)"
+        fi
+      fi
+      ;;
+  esac
+  
+  echo -e "$system_data"
+}
+
 # Get instructor lesson from Mistress Louiza
 get_instructor_lesson() {
   local topic="$1"
   local context="$2"  # beginner, intermediate, advanced, or specific question
+  local critique_mode="${3:-false}"  # true = include system data for critique
+  
+  # Gather system data if in critique mode
+  local system_data=""
+  if [[ "$critique_mode" == "true" ]]; then
+    system_data=$(gather_system_data "$topic")
+  fi
   
   # Create comprehensive prompt for Louiza as instructor
   local prompt=""
   
+  if [[ "$critique_mode" == "true" && -n "$system_data" ]]; then
+    prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s organization system instructor. ${GTD_USER_NAME:-Abby} wants personalized critique and feedback on her actual system usage. I've provided her actual system data below. Analyze it critically and provide specific, actionable feedback on how well she's using the unified system (Zettelkasten + GTD + Second Brain). Be firm but encouraging. Point out what's working well and what needs improvement. Give specific examples from her data. Use your characteristic style.\n\n${GTD_USER_NAME:-Abby}'s Current System Data:\n${system_data}\n\n"
+  fi
+  
   if [[ -z "$topic" ]]; then
     # General unified system introduction
-    prompt="You are Mistress Louiza, and you are ${GTD_USER_NAME:-Abby}'s organization system instructor. You take pleasure in teaching and seeing her succeed. Give her a comprehensive introduction to the unified system that combines Zettelkasten (atomic notes), GTD (Getting Things Done), and Second Brain (knowledge organization). Explain how these three systems work together: Zettelkasten for atomic ideas (use 'zet'), GTD for tasks and actions (use 'gtd-capture', 'gtd-process', 'gtd-task'), Second Brain for knowledge organization (use 'gtd-brain create', 'gtd-brain-sync'). Explain the core GTD concepts: Capture, Process, Organize, Review. Be encouraging but firm. Use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. When you need to explain something in more detail, you can reference other experts: 'Let me have David Allen explain the GTD methodology', 'Tiago Forte can help with Second Brain', 'Sönke Ahrens explains Zettelkasten', 'Cal Newport can help with deep work', 'James Clear knows about habits', etc. But you remain the primary instructor. When comic book heroes (Spider-Man, Iron Man, etc.) rush in with brief advice and then rush off to 'save the world', you should sigh, roll your eyes, but translate what they probably meant and fill in the gaps. Make it engaging and practical. Include specific commands for all three systems."
+    if [[ "$critique_mode" == "true" && -n "$system_data" ]]; then
+      prompt="${prompt}Based on her actual system data above, critique her unified system usage. Analyze how well she's integrating Zettelkasten, GTD, and Second Brain. Point out strengths and weaknesses. Give specific recommendations based on what you see in her data. Then provide targeted guidance on how to improve."
+    else
+      prompt="${prompt}You are Mistress Louiza, and you are ${GTD_USER_NAME:-Abby}'s organization system instructor. You take pleasure in teaching and seeing her succeed. Give her a comprehensive introduction to the unified system that combines Zettelkasten (atomic notes), GTD (Getting Things Done), and Second Brain (knowledge organization). Explain how these three systems work together: Zettelkasten for atomic ideas (use 'zet'), GTD for tasks and actions (use 'gtd-capture', 'gtd-process', 'gtd-task'), Second Brain for knowledge organization (use 'gtd-brain create', 'gtd-brain-sync'). Explain the core GTD concepts: Capture, Process, Organize, Review. Be encouraging but firm. Use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. When you need to explain something in more detail, you can reference other experts: 'Let me have David Allen explain the GTD methodology', 'Tiago Forte can help with Second Brain', 'Sönke Ahrens explains Zettelkasten', 'Cal Newport can help with deep work', 'James Clear knows about habits', etc. But you remain the primary instructor. When comic book heroes (Spider-Man, Iron Man, etc.) rush in with brief advice and then rush off to 'save the world', you should sigh, roll your eyes, but translate what they probably meant and fill in the gaps. Make it engaging and practical. Include specific commands for all three systems."
+    fi
   else
     # Specific topic
     case "$topic" in
       capture|inbox)
-        prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s organization system instructor. Teach her about capturing across all three systems. Explain why capturing everything is crucial. Show her three ways to capture: 1) Tasks and actions → use 'gtd-capture' for GTD inbox, 2) Atomic ideas → use 'zet' for Zettelkasten notes, 3) Knowledge resources → use 'gtd-brain create' for Second Brain. Explain when to use which capture method. Show how to process GTD inbox with 'gtd-process' and Zettelkasten inbox (review and link notes). Be encouraging but firm. Reference David Allen for GTD methodology, Tiago Forte for Second Brain, Sönke Ahrens for Zettelkasten if needed, but you remain the primary instructor. Use your characteristic style. Make it practical with examples for all three systems."
+        if [[ "$critique_mode" == "true" && -n "$system_data" ]]; then
+          prompt="${prompt}Based on her actual system data above, critique her capturing habits. How many items are in her inboxes? Is she capturing regularly? Are items piling up? Give specific feedback on her capture workflow and recommend improvements. Then teach about capturing across all three systems."
+        else
+          prompt="${prompt}You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s organization system instructor. Teach her about capturing across all three systems. Explain why capturing everything is crucial. Show her three ways to capture: 1) Tasks and actions → use 'gtd-capture' for GTD inbox, 2) Atomic ideas → use 'zet' for Zettelkasten notes, 3) Knowledge resources → use 'gtd-brain create' for Second Brain. Explain when to use which capture method. Show how to process GTD inbox with 'gtd-process' and Zettelkasten inbox (review and link notes). Be encouraging but firm. Reference David Allen for GTD methodology, Tiago Forte for Second Brain, Sönke Ahrens for Zettelkasten if needed, but you remain the primary instructor. Use your characteristic style. Make it practical with examples for all three systems."
+        fi
         ;;
       process|processing)
         prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s organization system instructor. Teach her about processing inbox items in both GTD and Zettelkasten systems. For GTD processing, explain the questions: What is it? Is it actionable? What's the next action? Show how to use 'gtd-process' effectively. For Zettelkasten processing, explain how to review atomic notes in the inbox, decide if they're one atomic idea, link them to other notes, and move them to organized locations (Zettelkasten directory or PARA categories). Be detailed and practical. Reference David Allen for GTD methodology, Sönke Ahrens for Zettelkasten methodology if needed. Use your characteristic style. Show examples for both systems."
@@ -167,6 +370,96 @@ get_instructor_lesson() {
   fi
   
   return 1
+}
+
+# Handle Q&A session after a lesson
+handle_qa_session() {
+  local topic="$1"
+  
+  # Ask if student wants to ask questions
+  echo -e "${BOLD}Do you have any questions about this topic?${NC}"
+  echo -e "${GREEN}y${NC} - Ask questions"
+  echo -e "${GREEN}n${NC} - Continue"
+  echo ""
+  read -p "Choice: " ask_questions
+  echo ""
+  
+  if [[ "$ask_questions" != "y" && "$ask_questions" != "Y" ]]; then
+    return 0
+  fi
+  
+  # Q&A session loop
+  while true; do
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}💬 Ask Mistress Louiza about: ${topic}${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${YELLOW}Type your question (or 'done' to finish asking questions):${NC}"
+    echo ""
+    read -p "❓ Question: " student_question
+    
+    if [[ -z "$student_question" ]]; then
+      echo "Please enter a question or 'done' to continue."
+      echo ""
+      continue
+    fi
+    
+    # Check if student is done
+    if [[ "$student_question" == "done" || "$student_question" == "Done" || "$student_question" == "DONE" ]]; then
+      echo ""
+      echo "✓ Finished asking questions."
+      echo ""
+      break
+    fi
+    
+    # Get answer from Mistress Louiza with context
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}👑 Answer from Mistress Louiza${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
+    echo ""
+    
+    local question_prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s GTD instructor. ${GTD_USER_NAME:-Abby} just learned about: ${topic}. Now she has a question: '${student_question}'. Answer her question in detail, referencing what you just taught her about ${topic}. Be helpful, encouraging, and use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Reference other experts if needed, but you remain the primary instructor."
+    
+    local answer=$("$PYTHON_CMD" "$PERSONA_HELPER" "louiza" "$question_prompt" "gtd_instructor" 2>&1)
+    
+    if [[ -n "$answer" ]]; then
+      # Extract message (same extraction logic as lesson)
+      local answer_text=$(echo "$answer" | awk '
+        /^━+$/ {
+          if (in_section) {
+            exit
+          }
+          in_section = 1
+          next
+        }
+        in_section && !/^💬/ && !/^━/ {
+          print
+        }
+      ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      
+      # Clean up
+      answer_text=$(echo "$answer_text" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
+      answer_text=$(echo "$answer_text" | sed 's/\*\*//g')
+      answer_text=$(echo "$answer_text" | awk 'NF || prev_nf; {prev_nf=NF}')
+      
+      if [[ -n "$answer_text" && ${#answer_text} -gt 10 ]]; then
+        echo "$answer_text" | sed 's/^/   /'
+        echo ""
+      else
+        echo "   I'm here to help, baby girl. Could you rephrase your question?"
+        echo ""
+      fi
+    else
+      echo "   ⚠️  Could not get answer. Check LM Studio connection."
+      echo ""
+    fi
+    
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+  done
 }
 
 # Get expert input when Louiza references them
@@ -255,6 +548,11 @@ show_lesson_menu() {
   echo -e "${GREEN}13)${NC} Personas & Getting Advice (Including Comic Book Heroes)"
   echo -e "${GREEN}14)${NC} Custom Topic"
   echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}📊 Personalized Critique${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}15)${NC} Get Personalized Critique on My System Usage"
+  echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
   echo -n "Choose: "
@@ -263,12 +561,16 @@ show_lesson_menu() {
 # Main function
 main() {
   local topic="$1"
+  local critique_mode="false"
   
   if [[ -z "$topic" ]]; then
     # Interactive mode
     while true; do
       show_lesson_menu
       read choice
+      
+      # Reset critique mode for each lesson
+      critique_mode="false"
       
       case "$choice" in
         1) topic="" ;;
@@ -288,6 +590,44 @@ main() {
           echo ""
           echo -n "What topic would you like to learn about? "
           read topic
+          ;;
+        15)
+          # Personalized critique mode
+          echo ""
+          echo -e "${BOLD}📊 Personalized System Critique${NC}"
+          echo ""
+          echo "Mistress Louiza will analyze your actual system usage and provide"
+          echo "personalized feedback. This includes:"
+          echo "  • Your GTD inbox, tasks, and projects"
+          echo "  • Your Second Brain notes and organization"
+          echo "  • Your Zettelkasten notes and linking"
+          echo "  • How well you're integrating all three systems"
+          echo ""
+          echo -e "${YELLOW}Select a topic for critique:${NC}"
+          echo "  1) Overall system critique"
+          echo "  2) Capture & Inbox usage"
+          echo "  3) Task management"
+          echo "  4) Project management"
+          echo "  5) Second Brain / Note-taking"
+          echo "  6) Zettelkasten / Atomic notes"
+          echo ""
+          read -p "Choice (1-6): " critique_topic
+          
+          case "$critique_topic" in
+            1) topic="" ;;
+            2) topic="capture" ;;
+            3) topic="tasks" ;;
+            4) topic="projects" ;;
+            5) topic="second-brain" ;;
+            6) topic="zettelkasten" ;;
+            *)
+              echo "Invalid choice, using overall system critique"
+              topic=""
+              ;;
+          esac
+          
+          # Set critique mode flag (will be used in lesson call)
+          critique_mode="true"
           ;;
         0)
           echo ""
@@ -310,19 +650,46 @@ main() {
       echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
       echo ""
       
-      local lesson=$(get_instructor_lesson "$topic" "")
+      local lesson=$(get_instructor_lesson "$topic" "" "$critique_mode")
       
       if [[ -n "$lesson" ]]; then
+        if [[ "$critique_mode" == "true" ]]; then
+          echo -e "${BOLD}${YELLOW}📊 Personalized Critique from Mistress Louiza:${NC}"
+          echo ""
+        fi
         echo "$lesson" | sed 's/^/   /'
         echo ""
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        echo -e "${BOLD}Want to learn more?${NC}"
-        echo -e "${GREEN}y${NC} - Another lesson"
-        echo -e "${GREEN}n${NC} - Return to menu"
+        
+        # Q&A session
+        handle_qa_session "$topic"
+        
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        read -p "Choice: " more
-        if [[ "$more" != "y" ]]; then
+        
+        # Offer to save note
+        echo -e "${BOLD}💾 Save this lesson as a note?${NC}"
+        echo -e "${GREEN}y${NC} - Save lesson note (can be reviewed during critique)"
+        echo -e "${GREEN}n${NC} - Skip"
+        echo ""
+        read -p "Choice: " save_note
+        
+        if [[ "$save_note" == "y" || "$save_note" == "Y" ]]; then
+          local note_file=$(create_gtd_study_note "${topic:-unified-system}" "$lesson")
+          echo -e "${GREEN}✓${NC} Study note saved: $(basename "$note_file")"
+          echo -e "${CYAN}💡 Note: This note can be reviewed by Mistress Louiza during personalized critique${NC}"
+          echo ""
+        fi
+        
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo -e "${BOLD}What would you like to do next?${NC}"
+        echo -e "${GREEN}1${NC} - Another lesson on this topic"
+        echo -e "${GREEN}2${NC} - Return to menu"
+        echo ""
+        read -p "Choice: " next_action
+        if [[ "$next_action" != "1" ]]; then
           topic=""
         fi
       else
@@ -349,6 +716,26 @@ main() {
       echo ""
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       echo ""
+      
+      # Q&A session
+      handle_qa_session "$topic"
+      
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Offer to save note
+      echo -e "${BOLD}💾 Save this lesson as a note?${NC}"
+      echo -e "${GREEN}y${NC} - Save lesson note (can be reviewed during critique)"
+      echo -e "${GREEN}n${NC} - Skip"
+      echo ""
+      read -p "Choice: " save_note
+      
+      if [[ "$save_note" == "y" || "$save_note" == "Y" ]]; then
+        local note_file=$(create_gtd_study_note "${topic:-unified-system}" "$lesson")
+        echo -e "${GREEN}✓${NC} Study note saved: $(basename "$note_file")"
+        echo -e "${CYAN}💡 Note: This note can be reviewed by Mistress Louiza during personalized critique${NC}"
+        echo ""
+      fi
     else
       echo "⚠️  Could not get lesson. Check LM Studio connection."
       exit 1

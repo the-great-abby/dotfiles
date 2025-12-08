@@ -1,0 +1,51 @@
+# ============================================================================
+# GTD Integration Settings
+# ============================================================================
+# Settings for integrating with external systems (Second Brain, calendar, email)
+
+# ============================================================================
+# Integration Settings
+# ============================================================================
+# Calendar integration (ics/caldav path or command)
+GTD_CALENDAR_PATH="${GTD_CALENDAR_PATH:-}"
+
+# Email integration (maildir path or command)
+GTD_EMAIL_INBOX="${GTD_EMAIL_INBOX:-}"
+
+# ============================================================================
+# Second Brain Integration (Tiago Forte's Building a Second Brain)
+# ============================================================================
+# Second Brain base directory (Obsidian vault)
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+
+# Sync with Second Brain (true/false)
+GTD_SYNC_SECOND_BRAIN="${GTD_SYNC_SECOND_BRAIN:-true}"
+
+# PARA method categories (Projects, Areas, Resources, Archives)
+SECOND_BRAIN_PROJECTS_DIR="${SECOND_BRAIN_PROJECTS_DIR:-Projects}"
+SECOND_BRAIN_AREAS_DIR="${SECOND_BRAIN_AREAS_DIR:-Areas}"
+SECOND_BRAIN_RESOURCES_DIR="${SECOND_BRAIN_RESOURCES_DIR:-Resources}"
+SECOND_BRAIN_ARCHIVES_DIR="${SECOND_BRAIN_ARCHIVES_DIR:-Archives}"
+
+# Auto-link GTD items to Second Brain (true/false)
+GTD_AUTO_LINK_BRAIN="${GTD_AUTO_LINK_BRAIN:-true}"
+
+# Progressive summarization levels
+# Level 1: Highlight key points
+# Level 2: Create summary section
+# Level 3: Distill to core insights
+GTD_SUMMARIZATION_LEVELS="${GTD_SUMMARIZATION_LEVELS:-1,2,3}"
+
+# Auto-discover connections (true/false)
+GTD_AUTO_DISCOVER_CONNECTIONS="${GTD_AUTO_DISCOVER_CONNECTIONS:-true}"
+
+# Link format (wiki, markdown, plain)
+GTD_LINK_FORMAT="${GTD_LINK_FORMAT:-wiki}"  # wiki = [[link]], markdown = [text](link), plain = text
+
+# Enable bidirectional linking (true/false)
+GTD_BIDIRECTIONAL_LINKS="${GTD_BIDIRECTIONAL_LINKS:-true}"
+
+# Sync daily logs to Second Brain (true/false)
+# When enabled, daily logs are synced to Second Brain/Daily Notes/
+GTD_SYNC_DAILY_LOGS="${GTD_SYNC_DAILY_LOGS:-true}"
+

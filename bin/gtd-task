@@ -1,42 +1,32 @@
 #!/bin/bash
 # GTD Task Command - Task management
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-# Load GTD config
-GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Source config if it exists
-if [[ -f "$GTD_CONFIG_FILE" ]]; then
-  source "$GTD_CONFIG_FILE"
-fi
-
-# Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# Additional paths
 TASKS_PATH="${GTD_BASE_DIR}/tasks"
-PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
 ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
 
 mkdir -p "$TASKS_PATH" "$PROJECTS_PATH" "$ARCHIVE_PATH"
 
-TODAY=$(date +"%Y-%m-%d")
-NOW=$(date +"%H:%M")
+TODAY=$(gtd_get_today)
+NOW=$(gtd_get_current_time)
 
-# Extract frontmatter value
+# Use common frontmatter helper (aliased for backward compatibility)
+alias get_frontmatter_value='gtd_get_frontmatter_value'
+
+# Define wrapper function (aliases don't always work in subshells)
 get_frontmatter_value() {
-  local file="$1"
-  local key="$2"
-  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+  gtd_get_frontmatter_value "$@"
 }
 
 # Update frontmatter value
@@ -157,6 +147,44 @@ add_task() {
   
   if [[ -z "$task_desc" ]]; then
     read -p "Task description: " task_desc
+  fi
+  
+  # Show upcoming events in context during planning (if interactive)
+  if [[ "$non_interactive" != "true" ]]; then
+    echo ""
+    echo "📅 Upcoming Events (Next 3 days):"
+    if command -v gtd-calendar &>/dev/null; then
+      gtd-calendar upcoming-context 3 2>/dev/null | head -15 || true
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-calendar" upcoming-context 3 2>/dev/null | head -15 || true
+    fi
+    echo ""
+    
+    # Ask if they want to schedule this task
+    echo -n "Would you like to schedule this task? (y/n): "
+    read schedule_task
+    if [[ "$schedule_task" == "y" || "$schedule_task" == "Y" ]]; then
+      echo -n "When? (e.g., 'tomorrow 2pm' or '2024-12-05 10:00'): "
+      read task_when
+      if [[ -n "$task_when" ]]; then
+        # Store when for later use (we'll add a due date field)
+        echo -n "Would you like to time-block this in calendar? (y/n): "
+        read time_block
+        if [[ "$time_block" == "y" || "$time_block" == "Y" ]]; then
+          # Suggest time-blocking
+          if command -v gtd-calendar &>/dev/null; then
+            gtd-calendar suggest-time-blocking "$task_desc" "$task_when" 60 2>/dev/null || true
+          fi
+        fi
+        
+        # Check for over-scheduling warning
+        echo ""
+        if command -v gtd-calendar &>/dev/null; then
+          gtd-calendar check-over-scheduled "$task_when" 2>/dev/null || true
+        fi
+      fi
+    fi
+    echo ""
   fi
   
   local timestamp=$(date +"%Y%m%d%H%M%S")
@@ -297,6 +325,13 @@ add_task() {
   echo "  Priority: $priority"
   if [[ -n "$project" ]]; then
     echo "  Project: $project"
+  fi
+  
+  # Track preferences
+  if command -v gtd-preferences-learn &>/dev/null; then
+    gtd-preferences-learn track-context "${context:-computer}" 2>/dev/null || true
+    gtd-preferences-learn track-priority "$priority" "$task_desc" 2>/dev/null || true
+    gtd-preferences-learn track-feature "command" "gtd-task" 2>/dev/null || true
   fi
   if [[ -n "$repository" ]]; then
     echo "  Repository: $repository"
@@ -442,9 +477,14 @@ list_tasks() {
     local task_name=$(head -20 "$task" | grep "^# " | head -1 | sed 's/^# //')
     local task_id=$(basename "$task" .md)
     
+    local area=$(get_frontmatter_value "$task" "area")
+    
     echo "[$count] $task_name"
     echo "     ID: $task_id"
     echo "     Context: $context | Energy: $energy | Priority: $priority"
+    if [[ -n "$area" ]]; then
+      echo "     Area: $area"
+    fi
     if [[ -n "$project" ]]; then
       echo "     Project: $project"
     fi
@@ -536,8 +576,9 @@ update_task() {
   echo "2) Energy level"
   echo "3) Priority"
   echo "4) Status"
-  echo "5) Open in editor"
-  read -p "Choice (1-5): " choice
+  echo "5) Area"
+  echo "6) Open in editor"
+  read -p "Choice (1-6): " choice
   
   case "$choice" in
     1)
@@ -573,6 +614,56 @@ update_task() {
       fi
       ;;
     5)
+      # Load areas path
+      AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}"
+      
+      if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+        echo "Select area:"
+        # Use select_from_list if available
+        if command -v select_from_list &>/dev/null || declare -f select_from_list &>/dev/null; then
+          area_name=$(select_from_list "area" "$AREAS_PATH" "name")
+        else
+          # Fallback: list areas manually
+          echo "Available areas:"
+          local areas=($(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null | sort))
+          local idx=1
+          for area_file in "${areas[@]}"; do
+            local area_display=$(basename "$area_file" .md | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+            echo "  $idx) $area_display"
+            ((idx++))
+          done
+          echo -n "Enter area number or name: "
+          read area_input
+          
+          # Try to find by number or name
+          if [[ "$area_input" =~ ^[0-9]+$ ]]; then
+            local area_idx=$((area_input - 1))
+            if [[ $area_idx -ge 0 && $area_idx -lt ${#areas[@]} ]]; then
+              area_name=$(basename "${areas[$area_idx]}" .md | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+            fi
+          else
+            area_name="$area_input"
+          fi
+        fi
+        
+        if [[ -n "$area_name" ]]; then
+          area_slug=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+          update_frontmatter_value "$task_file" "area" "$area_slug"
+          echo "✓ Updated area to: $area_name"
+        else
+          echo "❌ No area selected"
+        fi
+      else
+        echo -n "Area name: "
+        read area_input
+        if [[ -n "$area_input" ]]; then
+          area_slug=$(echo "$area_input" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+          update_frontmatter_value "$task_file" "area" "$area_slug"
+          echo "✓ Updated area to: $area_input"
+        fi
+      fi
+      ;;
+    6)
       if [[ -n "$EDITOR" ]]; then
         $EDITOR "$task_file"
       else
@@ -616,6 +707,220 @@ move_task() {
   echo "  Location: $project_dir"
 }
 
+# View a task in detail
+view_task() {
+  local task_id="$1"
+  
+  if [[ -z "$task_id" ]]; then
+    echo "Usage: gtd-task view <task-id>"
+    exit 1
+  fi
+  
+  local task_file=$(find_task_file "$task_id")
+  
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    echo "❌ Task not found: $task_id"
+    exit 1
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "✅ Task: $task_id"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Show task file
+  cat "$task_file"
+  echo ""
+  
+  # Show notes if they exist
+  local task_base=$(basename "$task_file" .md)
+  local task_dir=$(dirname "$task_file")
+  local notes_dir="${task_dir}/${task_base}/notes"
+  
+  if [[ -d "$notes_dir" ]]; then
+    local notes=($(find "$notes_dir" -type f -name "*.md" 2>/dev/null | sort))
+    if [[ ${#notes[@]} -gt 0 ]]; then
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "📝 Notes (${#notes[@]})"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      for note_file in "${notes[@]}"; do
+        local note_name=$(basename "$note_file" .md)
+        echo "  • $note_name"
+      done
+      echo ""
+    fi
+  fi
+}
+
+# List notes for a task
+list_task_notes() {
+  local task_id="$1"
+  
+  if [[ -z "$task_id" ]]; then
+    echo "❌ Task ID required"
+    return 1
+  fi
+  
+  local task_file=$(find_task_file "$task_id")
+  
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    return 1
+  fi
+  
+  # Get task base name and notes directory
+  local task_base=$(basename "$task_file" .md)
+  local task_dir=$(dirname "$task_file")
+  local notes_dir="${task_dir}/${task_base}/notes"
+  
+  if [[ ! -d "$notes_dir" ]]; then
+    return 1
+  fi
+  
+  # Find and list notes
+  find "$notes_dir" -type f -name "*.md" 2>/dev/null | sort
+}
+
+# Add note to task (creates note file in notes/ subdirectory)
+add_note_to_task() {
+  local task_id="$1"
+  shift
+  local note_title="$*"
+  
+  if [[ -z "$task_id" ]]; then
+    echo "❌ Task ID required"
+    echo "Usage: gtd-task add-note <task-id> [note-title]"
+    echo ""
+    echo "Examples:"
+    echo "  gtd-task add-note 20240101120000-task \"Research notes\""
+    echo "  gtd-task add-note 20240101120000-task  # Interactive mode - prompts for title"
+    exit 1
+  fi
+  
+  local task_file=$(find_task_file "$task_id")
+  
+  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+    echo "❌ Task not found: $task_id"
+    exit 1
+  fi
+  
+  # Get task base name (filename without extension)
+  local task_base=$(basename "$task_file" .md)
+  local task_dir=$(dirname "$task_file")
+  
+  # Create notes directory for this task
+  # Notes go in task-id/notes/ subdirectory
+  local task_notes_dir="${task_dir}/${task_base}"
+  local notes_dir="${task_notes_dir}/notes"
+  mkdir -p "$notes_dir"
+  
+  # Get note title
+  if [[ -z "$note_title" ]]; then
+    echo -n "Note title: "
+    read note_title
+    if [[ -z "$note_title" ]]; then
+      echo "❌ Note title required"
+      exit 1
+    fi
+  fi
+  
+  # Create sanitized filename
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  local sanitized_title=$(echo "$note_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local note_filename="${timestamp}-${sanitized_title}.md"
+  local note_file="${notes_dir}/${note_filename}"
+  
+  # Check if note already exists
+  if [[ -f "$note_file" ]]; then
+    echo "⚠️  Note already exists: $note_file"
+    read -p "Create anyway with new timestamp? (y/N): " create_anyway
+    if [[ ! "$create_anyway" =~ ^[Yy]$ ]]; then
+      echo "Cancelled."
+      exit 0
+    fi
+    timestamp=$(date +"%Y%m%d%H%M%S")
+    note_filename="${timestamp}-${sanitized_title}.md"
+    note_file="${notes_dir}/${note_filename}"
+  fi
+  
+  # Get task description for the note
+  local task_desc=$(grep "^# " "$task_file" 2>/dev/null | head -1 | sed 's/^# //' || echo "")
+  if [[ -z "$task_desc" ]]; then
+    task_desc="$task_base"
+  fi
+  
+  # Create the note file
+  local created_time=$(date +"%Y-%m-%d %H:%M")
+  cat > "$note_file" <<EOF
+---
+type: note
+task: ${task_base}
+created: ${TODAY}T${NOW}
+tags: []
+---
+
+# ${note_title}
+
+Created: ${created_time}
+Task: ${task_desc}
+
+## Content
+
+
+
+## Links
+- Related to: 
+
+## Tags
+#task-note #${task_base}
+
+EOF
+  
+  # Add link to note in the task's Notes section
+  local temp_file=$(mktemp)
+  local notes_section_found=false
+  local relative_note_path="${task_base}/notes/${note_filename}"
+  local note_link="[[${note_title}]] (${relative_note_path})"
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Check if we're at the Notes section header
+    if [[ "$line" == "## Notes" ]]; then
+      notes_section_found=true
+      echo "$line" >> "$temp_file"
+      echo "" >> "$temp_file"
+      echo "- ${note_link}" >> "$temp_file"
+      continue
+    fi
+    
+    echo "$line" >> "$temp_file"
+  done < "$task_file"
+  
+  # If Notes section wasn't found, add it at the end
+  if [[ "$notes_section_found" == "false" ]]; then
+    echo "" >> "$temp_file"
+    echo "## Notes" >> "$temp_file"
+    echo "" >> "$temp_file"
+    echo "- ${note_link}" >> "$temp_file"
+    echo "" >> "$temp_file"
+  fi
+  
+  mv "$temp_file" "$task_file"
+  
+  echo "✓ Created note for task: $task_desc"
+  echo "  Title: $note_title"
+  echo "  File: $note_file"
+  echo "  Linked in task file"
+  
+  # Optionally open the note in editor
+  if command -v ${EDITOR:-vim} &>/dev/null; then
+    read -p "Open note in editor? (y/N): " open_editor
+    if [[ "$open_editor" =~ ^[Yy]$ ]]; then
+      ${EDITOR:-vim} "$note_file"
+    fi
+  fi
+}
+
 # Main
 main() {
   case "$1" in
@@ -639,15 +944,25 @@ main() {
       shift
       move_task "$1" "$2"
       ;;
+    add-note)
+      shift
+      add_note_to_task "$@"
+      ;;
+    view)
+      shift
+      view_task "$@"
+      ;;
     --help|-h|"")
       echo "Usage: gtd-task <command> [options]"
       echo ""
       echo "Commands:"
       echo "  add <description>              Add a new task"
       echo "  list [filters]                  List tasks"
+      echo "  view <task-id>                 View task details"
       echo "  complete <task-id>             Mark task as complete"
       echo "  update <task-id>                Update task properties"
       echo "  move <task-id> <project>        Move task to project"
+      echo "  add-note <task-id> [note]       Add note to task"
       echo ""
       echo "List filters:"
       echo "  --context=<context>             Filter by context"

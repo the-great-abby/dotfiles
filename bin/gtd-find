@@ -28,6 +28,13 @@ fi
 
 SEARCH_TERM="$1"
 
+# Track search usage
+if command -v gtd-success-metrics &>/dev/null; then
+  gtd-success-metrics track-search "gtd-find" "$SEARCH_TERM" 2>/dev/null || true
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-success-metrics" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-success-metrics" track-search "gtd-find" "$SEARCH_TERM" 2>/dev/null || true
+fi
+
 echo ""
 echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BOLD}${CYAN}🔍 Searching for: ${SEARCH_TERM}${NC}"

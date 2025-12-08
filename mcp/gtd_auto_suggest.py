@@ -160,11 +160,13 @@ def process_log_entry_with_banter(entry: str, timestamp: str = None) -> Dict[str
 {entry}
 
 Provide a brief, warm, contextual response (2-3 sentences max). 
-- If they mentioned completing something, celebrate it
+- If they mentioned completing something, celebrate it AND gently suggest recording it in their GTD system if it's not already there (e.g., "Great job completing X! Consider recording it in your GTD system so you can track your progress.")
+- If they mentioned starting or working on a project/task, encourage them to make sure it's recorded
 - If they're stuck, offer encouragement
 - If they're planning, show excitement
 - Be conversational and natural
 - Reference specific things from their entry
+- Always encourage good GTD practices like recording completed work and tracking projects
 
 Just give the response text, no JSON or formatting."""
 
@@ -216,11 +218,13 @@ def generate_banter_for_log(entry: str) -> str:
 {entry}
 
 Provide a brief, warm, contextual response (2-3 sentences max). 
-- If they mentioned completing something, celebrate it
+- If they mentioned completing something, celebrate it AND gently suggest recording it in their GTD system if it's not already there
+- If they mentioned starting or working on a project/task, encourage them to make sure it's recorded
 - If they're stuck, offer encouragement  
 - If they're planning, show excitement
 - Be conversational and natural
 - Reference specific things from their entry
+- Always encourage good GTD practices like recording completed work and tracking projects
 
 Just give the response text, no JSON or formatting."""
 

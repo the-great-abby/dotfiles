@@ -326,6 +326,8 @@ if [[ -d "${HOME}/code/personal/dotfiles/bin" ]]; then
   export PATH="${HOME}/code/personal/dotfiles/bin:${PATH}"
 fi
 
+export EDITOR='vim'
+
 # Final safety check: ensure system binaries are always in PATH
 # This prevents issues if mise or other tools remove them
 if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
@@ -917,6 +919,115 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
     fi
   fi
   
+  # Check for bodyweight exercise mention and trigger coach if first time today
+  local bodyweight_flag_file="${log_dir}/.bodyweight_triggered_${today}"
+  # Use ripgrep (rg) if available, fallback to grep
+  local use_rg=false
+  if command -v rg &>/dev/null; then
+    use_rg=true
+  fi
+  local matched=false
+  if [[ "$use_rg" == true ]]; then
+    # Match bodyweight exercises: push-ups, jumping jacks, bodyweight squats, burpees, planks, etc.
+    echo "$log_entry" | rg -qiE "\b(push[[:space:]]*-?[[:space:]]*up|pushup|jumping[[:space:]]+jack|bodyweight[[:space:]]+squat|burpee|plank|mountain[[:space:]]+climber|lunge|jumping[[:space:]]+lunge|high[[:space:]]+knee|butt[[:space:]]+kick|bear[[:space:]]+crawl|inchworm|pike[[:space:]]+push[[:space:]]*-?[[:space:]]*up|diamond[[:space:]]+push[[:space:]]*-?[[:space:]]*up|wall[[:space:]]+sit|glute[[:space:]]+bridge|bodyweight[[:space:]]+exercise|bodyweight[[:space:]]+workout)\b" 2>/dev/null && matched=true
+  else
+    local grep_cmd="/usr/bin/grep"
+    [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+    echo "$log_entry" | "$grep_cmd" -qiE "\b(push[[:space:]]*-?[[:space:]]*up|pushup|jumping[[:space:]]+jack|bodyweight[[:space:]]+squat|burpee|plank|mountain[[:space:]]+climber|lunge|jumping[[:space:]]+lunge|high[[:space:]]+knee|butt[[:space:]]+kick|bear[[:space:]]+crawl|inchworm|pike[[:space:]]+push[[:space:]]*-?[[:space:]]*up|diamond[[:space:]]+push[[:space:]]*-?[[:space:]]*up|wall[[:space:]]+sit|glute[[:space:]]+bridge|bodyweight[[:space:]]+exercise|bodyweight[[:space:]]+workout)\b" 2>/dev/null && matched=true
+  fi
+  if [[ "$matched" == true ]]; then
+    # Check if workout already exists in log file (more reliable than flag file)
+    local workout_already_added=false
+    if [[ -f "$log_file" ]]; then
+      if [[ "$use_rg" == true ]]; then
+        rg -q "BODYWEIGHT EMOM WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      else
+        local grep_cmd="/usr/bin/grep"
+        [[ ! -f "$grep_cmd" ]] && grep_cmd="grep"
+        "$grep_cmd" -q "BODYWEIGHT EMOM WORKOUT" "$log_file" 2>/dev/null && workout_already_added=true
+      fi
+    fi
+    
+    # Only trigger if flag file doesn't exist AND workout not already in log
+    if [[ ! -f "$bodyweight_flag_file" && "$workout_already_added" == false ]]; then
+      # Create flag file FIRST to prevent race conditions
+      touch "$bodyweight_flag_file" 2>/dev/null || true
+      
+      # First mention of bodyweight exercises today - trigger the coach
+      echo ""
+      echo "💪 Bodyweight exercises detected! Getting your EMOM workout for today..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      # Find persona helper
+      local persona_helper=""
+      local possible_persona_paths=(
+        "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+        "${(%):-%x:h}/functions/gtd_persona_helper.py"
+        "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+      )
+      
+      for path in "${possible_persona_paths[@]}"; do
+        if [[ -f "$path" ]]; then
+          persona_helper="$path"
+          break
+        fi
+      done
+      
+      # Find python
+      local python_cmd=""
+      if [[ -f "/opt/homebrew/bin/python3" ]]; then
+        python_cmd="/opt/homebrew/bin/python3"
+      elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+      fi
+      
+      if [[ -n "$persona_helper" && -f "$persona_helper" && -n "$python_cmd" ]]; then
+        # Get day of week for workout variety
+        local day_of_week=$($date_cmd +"%A")
+        local full_date=$($date_cmd +"%B %d, %Y")
+        
+        # Create special EMOM workout prompt
+        local bodyweight_prompt=$(printf "I just mentioned bodyweight exercises (like push-ups, jumping jacks, bodyweight squats, etc.) for the first time today! Today is %s, %s.
+
+Please provide me with an EMOM (Every Minute On the Minute) bodyweight workout for today. IMPORTANT: EMOM means 'Every Minute On the Minute' - perform a set at the start of each minute, then rest for the remainder of that minute before the next set begins at the start of the next minute. This is a time-based format, NOT 'Every Month One Modification'. Make it:
+- Challenging but achievable
+- Varied and interesting
+- Include exercises like push-ups (various variations), jumping jacks, bodyweight squats, burpees, planks, mountain climbers, lunges, jumping lunges, high knees, butt kicks, bear crawls, inchworms, pike push-ups, diamond push-ups, wall sits, glute bridges, and other bodyweight movements
+- Clear instructions with rep counts for each minute, total duration (e.g., 10 minutes = 10 rounds), and explain the EMOM timing format
+- Motivating and encouraging
+
+Give me a complete EMOM workout I can do right now using only bodyweight. Be enthusiastic and celebrate my commitment to training!" "$day_of_week" "$full_date")
+        
+        # Call bodyweight coach
+        local bodyweight_output
+        bodyweight_output=$("$python_cmd" "$persona_helper" "bodyweight" "$bodyweight_prompt" "bodyweight_emom_workout" 2>&1)
+        
+        if [[ -n "$bodyweight_output" ]]; then
+          echo "$bodyweight_output"
+          echo ""
+          
+          # Append workout to daily log for easy reference
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "💪 BODYWEIGHT EMOM WORKOUT - ${day_of_week}, ${full_date}" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "$bodyweight_output" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$log_file" || true
+          echo "" >> "$log_file" || true
+        fi
+      else
+        echo "⚠️  Could not find persona helper or python3 for bodyweight coach"
+        # Remove flag file if we couldn't add workout
+        rm -f "$bodyweight_flag_file" 2>/dev/null || true
+      fi
+      
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+    fi
+  fi
+  
   # Get advice from LM Studio
   if [[ -n "$helper_script" && -f "$helper_script" ]]; then
     # Find python3 - try multiple methods (check file paths first for reliability)
@@ -990,6 +1101,8 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
     persona_keywords["harley"]="creative|chaos|unconventional|think outside|creative solution|problem|solve|different|unique"
     persona_keywords["deadpool"]="creative|humor|funny|chaos|unconventional|problem|solve|think different|creative solution"
     persona_keywords["rogue"]="creative|adapt|overwhelmed|control|problem|solve|creative solution|think different|unique"
+    persona_keywords["sandy"]="science|karate|texas|competitive|sport|athletic|training|discipline|focused|determined|strong|tough|challenge|win|competition"
+    persona_keywords["spongebob"]="optimism|enthusiasm|joy|happiness|work|job|fun|creative|friendship|positive|excited|energetic|cheerful|happy|smile"
     
     # Score each persona based on keyword matches
     typeset -A persona_scores
@@ -1041,7 +1154,7 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
     done
     
     # Score other personas
-    local other_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kelsey" "kent" "charity" "rich")
+    local other_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kelsey" "kent" "charity" "rich" "sandy" "spongebob")
     for persona in "${other_personas[@]}"; do
       local score=0
       local match_count=0
@@ -1196,6 +1309,8 @@ Give me a complete workout I can do right now with dip bars. Be enthusiastic and
       harley) persona_name="Harley Quinn" ;;
       deadpool) persona_name="Deadpool" ;;
       rogue) persona_name="Rogue" ;;
+      sandy) persona_name="Sandy Squirrel" ;;
+      spongebob) persona_name="SpongeBob SquarePants" ;;
       esther) persona_name="Esther Perel" ;;
       gottman) persona_name="Dr. John Gottman" ;;
       gary) persona_name="Gary Chapman" ;;

@@ -544,6 +544,13 @@ main() {
         exit 1
       fi
       
+      # Track search usage
+      if command -v gtd-success-metrics &>/dev/null; then
+        gtd-success-metrics track-search "gtd-search" "$keyword" 2>/dev/null || true
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-success-metrics" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-success-metrics" track-search "gtd-search" "$keyword" 2>/dev/null || true
+      fi
+      
       search_keyword "$keyword" "$scope"
       ;;
   esac

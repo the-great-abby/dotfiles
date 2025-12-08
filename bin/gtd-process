@@ -1,55 +1,26 @@
 #!/bin/bash
 # GTD Process Command - Process inbox items using GTD methodology
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-# Load GTD config
-GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Source config if it exists
-if [[ -f "$GTD_CONFIG_FILE" ]]; then
-  source "$GTD_CONFIG_FILE"
-fi
-
-# Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-GTD_INBOX_DIR="${GTD_INBOX_DIR:-0-inbox}"
-GTD_PROJECTS_DIR="${GTD_PROJECTS_DIR:-1-projects}"
-GTD_AREAS_DIR="${GTD_AREAS_DIR:-2-areas}"
-GTD_REFERENCE_DIR="${GTD_REFERENCE_DIR:-3-reference}"
-GTD_SOMEDAY_DIR="${GTD_SOMEDAY_DIR:-4-someday-maybe}"
-GTD_WAITING_DIR="${GTD_WAITING_DIR:-5-waiting-for}"
-GTD_ARCHIVE_DIR="${GTD_ARCHIVE_DIR:-6-archive}"
-
-INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR}"
-PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR}"
-AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR}"
-REFERENCE_PATH="${GTD_BASE_DIR}/${GTD_REFERENCE_DIR}"
-SOMEDAY_PATH="${GTD_BASE_DIR}/${GTD_SOMEDAY_DIR}"
-WAITING_PATH="${GTD_BASE_DIR}/${GTD_WAITING_DIR}"
-ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR}"
+# Additional paths (using common paths as base)
+INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR:-0-inbox}"
+REFERENCE_PATH="${GTD_BASE_DIR}/${GTD_REFERENCE_DIR:-3-reference}"
+SOMEDAY_PATH="${GTD_BASE_DIR}/${GTD_SOMEDAY_DIR:-4-someday-maybe}"
+WAITING_PATH="${GTD_BASE_DIR}/${GTD_WAITING_DIR:-5-waiting-for}"
+ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
 
 # Create directories if they don't exist
 mkdir -p "$INBOX_PATH" "$PROJECTS_PATH" "$AREAS_PATH" "$REFERENCE_PATH" "$SOMEDAY_PATH" "$WAITING_PATH" "$ARCHIVE_PATH"
-
-# Source selection helper
-SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
-if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
-  SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
-fi
-if [[ -f "$SELECT_HELPER" ]]; then
-  source "$SELECT_HELPER"
-fi
 
 # Get inbox items
 get_inbox_items() {
@@ -224,7 +195,8 @@ process_item() {
     if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
       echo ""
       echo "   Available projects:"
-      existing_project=$(select_from_list "project" "$PROJECTS_PATH" "project" 2>/dev/null)
+      # Don't redirect stderr - we want to see the list!
+      existing_project=$(select_from_list "project" "$PROJECTS_PATH" "project")
       if [[ -n "$existing_project" ]]; then
         # User selected an existing project
         project_name=$(echo "$existing_project" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
@@ -261,6 +233,11 @@ process_item() {
     echo "6. What's the context?"
     echo "   Available: home, office, computer, phone, errands, online, offline"
     read -p "   Context: " context
+    
+    # Track context usage for preferences learning
+    if [[ -n "$context" ]] && command -v gtd-preferences-learn &>/dev/null; then
+      gtd-preferences-learn track-context "$context" 2>/dev/null || true
+    fi
     
     # Get energy level
     echo ""

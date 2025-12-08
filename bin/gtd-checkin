@@ -1,26 +1,15 @@
 #!/bin/bash
 # GTD Check-In - Morning and Evening Check-In Process
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
-# Load GTD config
-GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
-elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
-fi
-
-if [[ -f "$GTD_CONFIG_FILE" ]]; then
-  source "$GTD_CONFIG_FILE"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
 # Load daily log config
@@ -35,38 +24,274 @@ if [[ -f "$DAILY_LOG_CONFIG" ]]; then
   source "$DAILY_LOG_CONFIG"
 fi
 
-# Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# Additional paths
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 HABITS_PATH="${GTD_BASE_DIR}/habits"
-TASKS_PATH="${GTD_BASE_DIR}/tasks"
-PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
-AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}"
+TASKS_PATH="${GTD_BASE_DIR}/${GTD_TASKS_DIR:-1-tasks}"
+PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-3-projects}"
 INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR:-0-inbox}"
 
-# Colors
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BOLD='\033[1m'
-NC='\033[0m'
+# Use common date helpers
+TODAY=$(gtd_get_today)
+NOW=$(gtd_get_current_time)
+DATE_CMD=$(gtd_get_date_cmd)
+DAY_OF_WEEK=$($DATE_CMD +"%A")
 
-# Get date command
-get_date_cmd() {
-  if [[ -x "/usr/bin/date" ]]; then
-    echo "/usr/bin/date"
-  elif [[ -x "/bin/date" ]]; then
-    echo "/bin/date"
-  else
-    echo "date"
+# Find persona helper for AI suggestions
+PERSONA_HELPER=""
+POSSIBLE_PATHS=(
+  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+  if [[ -f "$path" ]]; then
+    PERSONA_HELPER="$path"
+    break
   fi
+done
+
+# Get AI suggestions based on recent log entries
+get_ai_suggestions() {
+  local review_type="${1:-morning}"  # morning or evening
+  local days_back="${2:-3}"  # How many days to analyze
+  
+  if [[ -z "$PERSONA_HELPER" || ! -f "$PERSONA_HELPER" ]]; then
+    return 1  # Persona helper not available
+  fi
+  
+  local PYTHON_CMD=$(gtd_get_mcp_python)
+  if [[ -z "$PYTHON_CMD" ]]; then
+    return 1  # Python not available
+  fi
+  
+  # Collect recent log entries
+  local log_content=""
+  local entry_count=0
+  
+  for i in $(seq 0 $((days_back - 1))); do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
+      if [[ -f "$log_file" ]]; then
+        # Extract log entries (lines with timestamps)
+        local entries=$(grep "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null | head -20)
+        if [[ -n "$entries" ]]; then
+          if [[ -n "$log_content" ]]; then
+            log_content="${log_content}\n\n--- ${check_date} ---\n${entries}"
+          else
+            log_content="--- ${check_date} ---\n${entries}"
+          fi
+          local count=$(echo "$entries" | wc -l | tr -d ' ')
+          entry_count=$((entry_count + count))
+        fi
+      fi
+    fi
+  done
+  
+  # Only get suggestions if we have log entries
+  if [[ -z "$log_content" || $entry_count -eq 0 ]]; then
+    return 1
+  fi
+  
+  # Determine persona based on review type
+  local persona="hank"  # Default to Hank for general advice
+  if [[ "$review_type" == "morning" ]]; then
+    persona="hank"  # Practical morning advice
+  else
+    persona="louiza"  # Accountability for evening
+  fi
+  
+  # Create prompt based on review type
+  local prompt=""
+  if [[ "$review_type" == "morning" ]]; then
+    prompt=$(printf "Based on my recent daily log entries from the last %d days, provide 2-3 brief, actionable suggestions for today. Focus on priorities, patterns you notice, and what I should focus on. Keep it concise and practical.\n\nRecent log entries:\n%s" "$days_back" "$log_content")
+  else
+    prompt=$(printf "Based on my recent daily log entries from the last %d days, provide 2-3 brief suggestions for improvement, patterns you notice, and what I should focus on tomorrow. Be encouraging but honest. Keep it concise.\n\nRecent log entries:\n%s" "$days_back" "$log_content")
+  fi
+  
+  # Get AI suggestion (persona helper expects prompt as second argument)
+  # Use timeout if available to prevent hanging
+  local suggestion=""
+  # Use printf %q to properly quote the prompt for command line
+  local quoted_prompt=$(printf '%q' "$prompt")
+  if command -v gtimeout &>/dev/null; then
+    suggestion=$(eval "gtimeout 15 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+  elif command -v timeout &>/dev/null; then
+    suggestion=$(eval "timeout 15 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+  else
+    # No timeout available, just try to get suggestion (may take a while)
+    suggestion=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+  fi
+  
+  # Clean up the suggestion (persona helper adds header, we want just the advice)
+  if [[ -n "$suggestion" ]]; then
+    # Extract just the advice content (between the divider lines)
+    # Also remove any line numbers or debug output that might have leaked through
+    suggestion=$(echo "$suggestion" | sed -n '/^━/,/^━/p' | sed '1d;$d' | sed '/^$/d' | grep -v '^[[:space:]]*[0-9]\+[[:space:]]*$' | grep -v '^@make' | grep -v '^([0-9]\+-[0-9]\+)')
+  fi
+  
+  if [[ -n "$suggestion" && ${#suggestion} -gt 20 ]]; then
+    echo "$suggestion"
+    return 0
+  fi
+  
+  return 1
 }
 
-DATE_CMD=$(get_date_cmd)
-TODAY=$($DATE_CMD +"%Y-%m-%d")
-NOW=$($DATE_CMD +"%H:%M")
-DAY_OF_WEEK=$($DATE_CMD +"%A")
+# Review pending AI suggestions
+review_pending_suggestions() {
+  clear
+  echo ""
+  gtd_print_header "📋 Review Pending Suggestions" "" "$CYAN"
+  
+  SUGGESTIONS_DIR="${GTD_BASE_DIR}/suggestions"
+  if [[ ! -d "$SUGGESTIONS_DIR" ]]; then
+    gtd_print_info "No suggestions directory found. No pending suggestions."
+    echo ""
+    echo "Press Enter to continue..."
+    read
+    return 0
+  fi
+  
+  local pending_count=0
+  local suggestions=()
+  
+  # Find all pending suggestions
+  for suggestion_file in "$SUGGESTIONS_DIR"/*.json; do
+    if [[ -f "$suggestion_file" ]]; then
+      local status=$(grep -o '"status":\s*"[^"]*"' "$suggestion_file" 2>/dev/null | cut -d'"' -f4)
+      if [[ "$status" == "pending" ]]; then
+        suggestions+=("$suggestion_file")
+        ((pending_count++))
+      fi
+    fi
+  done
+  
+  if [[ $pending_count -eq 0 ]]; then
+    gtd_print_success "No pending suggestions!"
+    echo ""
+    echo "Press Enter to continue..."
+    read
+    return 0
+  fi
+  
+  echo "You have $pending_count pending suggestion(s)."
+  echo ""
+  echo "Processing suggestions..."
+  echo ""
+  
+  for suggestion_file in "${suggestions[@]}"; do
+    local suggestion_id=$(basename "$suggestion_file" .json)
+    local title=$(grep -o '"title":\s*"[^"]*"' "$suggestion_file" 2>/dev/null | cut -d'"' -f4)
+    local reason=$(grep -o '"reason":\s*"[^"]*"' "$suggestion_file" 2>/dev/null | cut -d'"' -f4)
+    local confidence=$(grep -o '"confidence":\s*[0-9.]*' "$suggestion_file" 2>/dev/null | cut -d':' -f2 | tr -d ' ')
+    
+    gtd_print_divider "━" 70 "$CYAN"
+    echo "💡 Suggestion: $title"
+    echo "   Reason: $reason"
+    echo "   Confidence: $confidence"
+    echo ""
+    echo "What would you like to do?"
+    echo ""
+    echo "  1) Create task from suggestion"
+    echo "  2) Dismiss suggestion"
+    echo "  3) Skip (view next)"
+    echo ""
+    echo -n "Choose: "
+    read suggestion_choice
+    
+    case "$suggestion_choice" in
+      1)
+        # Create task using gtd-task
+        echo ""
+        echo "Creating task..."
+        if command -v gtd-task &>/dev/null; then
+          gtd-task add --non-interactive "$title" 2>&1
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-task" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-task" add --non-interactive "$title" 2>&1
+        elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-task" ]]; then
+          "$HOME/code/personal/dotfiles/bin/gtd-task" add --non-interactive "$title" 2>&1
+        fi
+        
+        if [[ $? -eq 0 ]]; then
+          # Mark suggestion as accepted
+          local PYTHON_CMD=$(gtd_get_mcp_python)
+          if [[ -z "$PYTHON_CMD" ]]; then
+            PYTHON_CMD="python3"
+          fi
+          
+          if command -v "$PYTHON_CMD" &>/dev/null; then
+            suggestion_type=$("$PYTHON_CMD" -c "
+import json
+file = '$suggestion_file'
+with open(file, 'r') as f:
+    data = json.load(f)
+data['status'] = 'accepted'
+suggestion_type = data.get('type', 'task')
+with open(file, 'w') as f:
+    json.dump(data, f, indent=2)
+print(suggestion_type)
+" 2>/dev/null)
+            
+            # Track suggestion acceptance for preferences learning
+            if command -v gtd-preferences-learn &>/dev/null; then
+              gtd-preferences-learn track-feature "suggestion" "$suggestion_type" "accepted" 2>/dev/null || true
+            fi
+          fi
+          gtd_print_success "Task created from suggestion"
+        else
+          gtd_print_error "Failed to create task"
+        fi
+        ;;
+      2)
+        # Mark as dismissed
+        local PYTHON_CMD=$(gtd_get_mcp_python)
+        if [[ -z "$PYTHON_CMD" ]]; then
+          PYTHON_CMD="python3"
+        fi
+        
+        if command -v "$PYTHON_CMD" &>/dev/null; then
+          suggestion_type=$("$PYTHON_CMD" -c "
+import json
+file = '$suggestion_file'
+with open(file, 'r') as f:
+    data = json.load(f)
+data['status'] = 'dismissed'
+suggestion_type = data.get('type', 'task')
+with open(file, 'w') as f:
+    json.dump(data, f, indent=2)
+print(suggestion_type)
+" 2>/dev/null)
+          
+          # Track suggestion dismissal for preferences learning
+          if command -v gtd-preferences-learn &>/dev/null; then
+            gtd-preferences-learn track-feature "suggestion" "$suggestion_type" "dismissed" 2>/dev/null || true
+          fi
+          
+          gtd_print_success "Suggestion dismissed"
+        fi
+        ;;
+      3|"")
+        echo "→ Skipping..."
+        ;;
+      *)
+        echo "Invalid choice, skipping..."
+        ;;
+    esac
+    echo ""
+  done
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
 
 # Morning check-in
 morning_checkin() {
@@ -118,6 +343,22 @@ morning_checkin() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
+  # AI Suggestions based on recent logs
+  echo -e "${BOLD}🤖 AI Suggestions (Based on Recent Logs)${NC}"
+  echo ""
+  
+  local ai_suggestions=$(get_ai_suggestions "morning" 3)
+  if [[ -n "$ai_suggestions" ]]; then
+    echo -e "${CYAN}$ai_suggestions${NC}"
+    echo ""
+  else
+    echo -e "${YELLOW}  (No suggestions available - try logging more entries)${NC}"
+    echo ""
+  fi
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
   # Morning questions
   echo -e "${BOLD}💭 Morning Reflection${NC}"
   echo ""
@@ -144,6 +385,29 @@ morning_checkin() {
   read -p "   " gratitude
   echo ""
   
+  # Optional weather logging
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "${BOLD}🌤️  Weather Conditions${NC}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo -e "${CYAN}💡 Tip:${NC} Logging weather helps identify patterns with"
+  echo "   energy levels, mood, and productivity."
+  echo ""
+  read -p "Log current weather? (y/n, default n): " log_weather
+  
+  if [[ "$log_weather" == "y" || "$log_weather" == "Y" ]]; then
+    if command -v gtd-log-weather &>/dev/null; then
+      gtd-log-weather
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-log-weather" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-log-weather"
+    elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-log-weather" ]]; then
+      "$HOME/code/personal/dotfiles/bin/gtd-log-weather"
+    else
+      echo "⚠️  Weather logging not available (gtd-log-weather command not found)"
+    fi
+    echo ""
+  fi
+  
   # Habit check-in
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo -e "${BOLD}🔁 Morning Habits${NC}"
@@ -167,8 +431,10 @@ morning_checkin() {
             read complete_habit
             if [[ "$complete_habit" == "y" || "$complete_habit" == "Y" ]]; then
               gtd-habit log "$habit_name" 2>/dev/null || echo "  ✓ Logged: $habit_name"
+            else
+              # User said no - just add a newline for clean output
+              echo ""
             fi
-            echo ""
           fi
         fi
       fi
@@ -192,6 +458,9 @@ morning_checkin() {
     echo "" >> "$log_file"
   fi
   
+  # Get AI suggestions for log
+  local ai_suggestions_log=$(get_ai_suggestions "morning" 3)
+  
   cat >> "$log_file" <<EOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌅 Morning Check-In - ${NOW}
@@ -211,20 +480,46 @@ Potential Blockers: ${blockers}
 Gratitude: ${gratitude}
 
 EOF
+
+  if [[ -n "$ai_suggestions_log" ]]; then
+    cat >> "$log_file" <<EOF
+🤖 AI Suggestions:
+${ai_suggestions_log}
+
+EOF
+  fi
   
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   echo "✓ Morning check-in saved to daily log"
   echo ""
   
-  # Offer quick actions
+  # Small delay to ensure all output is flushed before showing quick actions
+  sleep 0.1
+  
+  # Check for pending suggestions
+  SUGGESTIONS_DIR="${GTD_BASE_DIR}/suggestions"
+  local pending_suggestions_count=0
+  if [[ -d "$SUGGESTIONS_DIR" ]]; then
+    pending_suggestions_count=$(find "$SUGGESTIONS_DIR" -name "*.json" -exec grep -l '"status":\s*"pending"' {} \; 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  # Offer quick actions (ensure clean output, no line numbers or debug info)
   echo "Quick actions:"
   echo "  1) Process inbox (${inbox_count} items)"
   echo "  2) View today's tasks"
   echo "  3) View habit dashboard"
-  echo "  4) Continue"
+  if [[ $pending_suggestions_count -gt 0 ]]; then
+    echo "  4) ⚡ Review high-confidence suggestions ($pending_suggestions_count)"
+    echo "  5) 📋 Review mode - Medium-confidence suggestions"
+    echo "  6) Continue"
+  else
+    echo "  4) ⚡ Review high-confidence suggestions"
+    echo "  5) 📋 Review mode - Medium-confidence suggestions"
+    echo "  6) Continue"
+  fi
   echo ""
-  read -p "Choose (1-4): " quick_action
+  read -p "Choose (1-6): " quick_action
   
   case "$quick_action" in
     1)
@@ -235,10 +530,102 @@ EOF
       fi
       ;;
     2)
-      gtd-task list --status=active
+      # Show tasks and then offer to view details
+      local temp_list=$(mktemp)
+      gtd-task list --status=active > "$temp_list" 2>&1
+      cat "$temp_list"
+      
+      # Extract task IDs from the list output
+      local task_ids=()
+      while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*ID:[[:space:]]+(.+)$ ]]; then
+          task_ids+=("${BASH_REMATCH[1]}")
+        fi
+      done < "$temp_list"
+      
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "📋 Task Actions"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      
+      if [[ ${#task_ids[@]} -gt 0 ]]; then
+        echo "Would you like to view a task in detail?"
+        echo "  Enter task number (1-${#task_ids[@]}) to view in editor"
+        echo "  Or press Enter to continue"
+        echo ""
+        read -p "Task number (or Enter to skip): " task_choice
+        
+        if [[ -n "$task_choice" && "$task_choice" =~ ^[0-9]+$ ]]; then
+          local selected_idx=$((task_choice - 1))
+          if [[ $selected_idx -ge 0 && $selected_idx -lt ${#task_ids[@]} ]]; then
+            local selected_task_id="${task_ids[$selected_idx]}"
+            
+            # Find the task file
+            local task_file=""
+            if [[ -d "$TASKS_PATH" ]]; then
+              task_file=$(find "$TASKS_PATH" -name "${selected_task_id}*.md" -type f 2>/dev/null | head -1)
+            fi
+            if [[ -z "$task_file" ]] && [[ -d "$PROJECTS_PATH" ]]; then
+              task_file=$(find "$PROJECTS_PATH" -name "${selected_task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
+            fi
+            
+            if [[ -n "$task_file" && -f "$task_file" ]]; then
+              echo ""
+              echo "Opening task in editor..."
+              echo "Tip: Press :q to exit (read-only) or :wq to save changes"
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              
+              # Use vim in read-only mode by default, but allow editing
+              local editor="${EDITOR:-vim}"
+              if command -v "$editor" &>/dev/null; then
+                "$editor" "$task_file"
+              else
+                # Fallback to cat if no editor
+                cat "$task_file"
+                echo ""
+                echo "Press Enter to continue..."
+                read
+              fi
+            else
+              echo "❌ Could not find task file for: $selected_task_id"
+              echo "Press Enter to continue..."
+              read
+            fi
+          else
+            echo "❌ Invalid task number. Please select 1-${#task_ids[@]}"
+            echo "Press Enter to continue..."
+            read
+          fi
+        fi
+      fi
+      
+      rm -f "$temp_list"
       ;;
     3)
       gtd-habit dashboard
+      ;;
+    4)
+      # High-confidence suggestions (one-keystroke)
+      if command -v gtd-smart-suggestions &>/dev/null; then
+        gtd-smart-suggestions immediate
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-smart-suggestions" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-smart-suggestions" immediate
+      else
+        review_pending_suggestions
+      fi
+      ;;
+    5)
+      # Review mode for medium-confidence
+      if command -v gtd-smart-suggestions &>/dev/null; then
+        gtd-smart-suggestions review
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-smart-suggestions" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-smart-suggestions" review
+      else
+        review_pending_suggestions
+      fi
       ;;
   esac
   
@@ -267,6 +654,22 @@ evening_checkin() {
     fi
     echo ""
   fi
+  
+  # AI Suggestions based on recent logs
+  echo -e "${BOLD}🤖 AI Suggestions (Based on Recent Logs)${NC}"
+  echo ""
+  
+  local ai_suggestions=$(get_ai_suggestions "evening" 3)
+  if [[ -n "$ai_suggestions" ]]; then
+    echo -e "${CYAN}$ai_suggestions${NC}"
+    echo ""
+  else
+    echo -e "${YELLOW}  (No suggestions available - try logging more entries)${NC}"
+    echo ""
+  fi
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
   
   # Evening questions
   echo -e "${BOLD}💭 Evening Reflection${NC}"
@@ -362,6 +765,9 @@ evening_checkin() {
     echo "" >> "$log_file"
   fi
   
+  # Get AI suggestions for log
+  local ai_suggestions_log=$(get_ai_suggestions "evening" 3)
+  
   cat >> "$log_file" <<EOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌙 Evening Check-In - ${NOW}
@@ -384,20 +790,43 @@ Areas Attention: ${areas_attention}
 Tomorrow Preview: ${tomorrow_preview}
 
 EOF
+
+  if [[ -n "$ai_suggestions_log" ]]; then
+    cat >> "$log_file" <<EOF
+🤖 AI Suggestions:
+${ai_suggestions_log}
+
+EOF
+  fi
   
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   echo "✓ Evening check-in saved to daily log"
   echo ""
   
+  # Check for pending suggestions
+  SUGGESTIONS_DIR="${GTD_BASE_DIR}/suggestions"
+  local pending_suggestions_count=0
+  if [[ -d "$SUGGESTIONS_DIR" ]]; then
+    pending_suggestions_count=$(find "$SUGGESTIONS_DIR" -name "*.json" -exec grep -l '"status":\s*"pending"' {} \; 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
   # Offer quick actions
   echo "Quick actions:"
   echo "  1) Review today's log"
   echo "  2) View habit dashboard"
   echo "  3) Plan tomorrow"
-  echo "  4) Continue"
+  if [[ $pending_suggestions_count -gt 0 ]]; then
+    echo "  4) ⚡ Review high-confidence suggestions ($pending_suggestions_count)"
+    echo "  5) 📋 Review mode - Medium-confidence suggestions"
+    echo "  6) Continue"
+  else
+    echo "  4) ⚡ Review high-confidence suggestions"
+    echo "  5) 📋 Review mode - Medium-confidence suggestions"
+    echo "  6) Continue"
+  fi
   echo ""
-  read -p "Choose (1-4): " quick_action
+  read -p "Choose (1-6): " quick_action
   
   case "$quick_action" in
     1)
@@ -423,6 +852,9 @@ EOF
         echo "📅 Planned: $tomorrow_plan" >> "$tomorrow_log"
         echo "✓ Saved to tomorrow's log"
       fi
+      ;;
+    4)
+      review_pending_suggestions
       ;;
   esac
   

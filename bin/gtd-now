@@ -30,20 +30,69 @@ if [[ $inbox_count -gt 0 ]]; then
   echo ""
 fi
 
+# Helper function to extract and display tasks
+show_tasks() {
+  local output="$1"
+  local max_tasks="${2:-5}"
+  
+  if [[ -z "$output" || "$output" == *"No tasks found"* ]]; then
+    echo "  (none)"
+    return
+  fi
+  
+  # Extract task blocks (each task is [N] followed by details)
+  local task_count=0
+  local in_task=false
+  local task_line=""
+  
+  while IFS= read -r line; do
+    # Start of a new task
+    if [[ "$line" =~ ^\[[0-9]+\][[:space:]]+(.+) ]]; then
+      if [[ $task_count -ge $max_tasks ]]; then
+        break
+      fi
+      task_line="${BASH_REMATCH[1]}"
+      echo -e "  ${GREEN}•${NC} $task_line"
+      ((task_count++))
+      in_task=true
+    elif [[ "$in_task" == "true" && "$line" =~ ^[[:space:]]+Project:[[:space:]]+(.+) ]]; then
+      # Show project if available
+      echo -e "     ${CYAN}Project:${NC} ${BASH_REMATCH[1]}"
+    fi
+  done <<< "$output"
+  
+  if [[ $task_count -eq 0 ]]; then
+    echo "  (none)"
+  fi
+}
+
 # Urgent/Important tasks
 echo -e "${BOLD}🔥 Urgent & Important Tasks:${NC}"
-gtd-task list --priority=urgent_important 2>/dev/null | head -5 || echo "  (none)"
+urgent_output=$(gtd-task list --priority=urgent_important --status=active 2>/dev/null)
+show_tasks "$urgent_output" 5
 echo ""
 
-# Tasks due today
-echo -e "${BOLD}📅 Tasks Due Today:${NC}"
-gtd-task list --due=today 2>/dev/null | head -5 || echo "  (none)"
+# High priority tasks
+echo -e "${BOLD}⭐ High Priority Tasks:${NC}"
+high_priority_output=$(gtd-task list --priority=high --status=active 2>/dev/null)
+show_tasks "$high_priority_output" 3
 echo ""
 
 # Next actions (context-based)
 echo -e "${BOLD}💻 Computer Tasks (next 3):${NC}"
-gtd-task list --context=computer 2>/dev/null | head -3 || echo "  (none)"
+computer_output=$(gtd-task list --context=computer --status=active 2>/dev/null)
+show_tasks "$computer_output" 3
 echo ""
+
+# Show a few general active tasks if no high priority tasks found
+urgent_count=$(echo "$urgent_output" | grep -cE "^\[[0-9]+\]" || echo "0")
+high_count=$(echo "$high_priority_output" | grep -cE "^\[[0-9]+\]" || echo "0")
+if [[ $urgent_count -eq 0 && $high_count -eq 0 ]]; then
+  echo -e "${BOLD}📋 Active Tasks (next 3):${NC}"
+  general_output=$(gtd-task list --status=active 2>/dev/null)
+  show_tasks "$general_output" 3
+  echo ""
+fi
 
 # Habits due
 if [[ -d ~/Documents/gtd/habits ]]; then
@@ -57,9 +106,9 @@ fi
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "${BOLD}💡 Quick commands:${NC}"
-echo "  ${GREEN}p${NC}          → Process inbox"
-echo "  ${GREEN}t${NC}          → List all tasks"
-echo "  ${GREEN}w${NC}          → Open wizard"
+echo -e "  ${GREEN}p${NC}          → Process inbox"
+echo -e "  ${GREEN}t${NC}          → List all tasks"
+echo -e "  ${GREEN}w${NC}          → Open wizard"
 echo ""
 
 

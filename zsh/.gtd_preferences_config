@@ -1,0 +1,47 @@
+# GTD Preferences Config
+# Manual overrides for learned preferences
+# This file allows you to manually set preferences that override what the system learns from your behavior
+
+# Preferred contexts (override learned preferences)
+# Format: context=preference_score (0.0-1.0)
+# Higher scores mean more preferred. Example:
+# computer=0.8
+# home=0.6
+# office=0.4
+
+# Priority calibration (override learned patterns)
+# Adjust how often you use each priority level
+# Format: priority_<level>=frequency (0.0-1.0)
+# Example: If you rarely use "urgent_important", set:
+# priority_urgent_important=0.1  # Only 10% of tasks should be urgent_important
+# priority_not_urgent_important=0.7  # 70% should be not urgent but important
+
+# Feature usage preferences
+# Disable suggestions for features you never use
+# Format: disable_suggestions_for=<feature_name>
+# Example:
+# disable_suggestions_for=habits
+# disable_suggestions_for=zettelkasten
+
+# Review timing preferences (override learned times)
+# Set your preferred review times regardless of when you actually do them
+# Format: preferred_<type>_review_<setting>=<value>
+# Example:
+# preferred_daily_review_time=18:00
+# preferred_weekly_review_day=Sunday
+# preferred_weekly_review_time=09:00
+
+# Writing style preferences
+# Adjust how AI suggests task titles and descriptions
+# Example:
+# prefer_concise_titles=true
+# prefer_action_verbs=true
+# max_title_length=60
+
+# Context preferences (manual override)
+# Force certain contexts for certain task types
+# Format: context_for_<keyword>=<context>
+# Example:
+# context_for_email=computer
+# context_for_call=phone
+# context_for_meeting=office

@@ -1,16 +1,6 @@
 #!/bin/bash
 # GTD Habit Tracker - Track recurring tasks and habits
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
-fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-
 # Load GTD config
 GTD_CONFIG_FILE="$HOME/.gtd_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
@@ -35,11 +25,30 @@ if [[ -f "$DAILY_LOG_CONFIG" ]]; then
   source "$DAILY_LOG_CONFIG"
 fi
 
+# Source common GTD helpers for selection functions
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Source selection helper for area selection
+SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
+  SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
+fi
+if [[ -f "$SELECT_HELPER" ]]; then
+  source "$SELECT_HELPER"
+fi
+
 # Default values
 GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
 HABITS_PATH="${GTD_BASE_DIR}/habits"
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 TASKS_PATH="${GTD_BASE_DIR}/tasks"
+AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}"
 
 mkdir -p "$HABITS_PATH"
 
@@ -114,7 +123,26 @@ create_habit() {
   esac
   
   echo ""
-  read -p "Area of responsibility (optional): " area
+  # Show area selection if areas exist
+  area=""
+  if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+    echo "Area of responsibility (optional):"
+    # Don't redirect stderr - we want to see the list!
+    area_name=$(select_from_list "area" "$AREAS_PATH" "name")
+    if [[ -n "$area_name" ]]; then
+      # Convert display name to slug format
+      area=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+      echo "Selected: $area_name"
+    else
+      echo "No area selected (skipping)"
+    fi
+  else
+    read -p "Area of responsibility (optional, or press Enter to skip): " area
+    if [[ -n "$area" ]]; then
+      # Convert to slug format
+      area=$(echo "$area" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+    fi
+  fi
   echo ""
   read -p "Context (home/office/computer/phone/errands, optional): " context
   echo ""

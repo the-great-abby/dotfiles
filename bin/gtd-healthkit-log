@@ -90,7 +90,7 @@ echo "✓ Added: ${current_time} - ${log_entry}"
 # Check if this is a workout/exercise entry and award XP (gamification)
 if echo "$log_entry" | grep -qiE "workout|exercise|kettlebell|walk|run|weight|lifting|gym|fitness|training|cardio|strength|squat|deadlift|press|swing|snatch|clean|row|bike|cycling|yoga|stretch|active|movement"; then
 	# Determine if it's intense exercise (running, intense training) or normal
-	local exercise_type="exercise"
+	exercise_type="exercise"
 	if echo "$log_entry" | grep -qiE "run|running|sprint|intense|hard|heavy|cardio"; then
 		exercise_type="exercise_intense"
 	fi
@@ -120,16 +120,27 @@ if [[ ! -f "$AUTO_SUGGEST_SCRIPT" ]]; then
 fi
 
 if [[ -f "$AUTO_SUGGEST_SCRIPT" ]]; then
+  # Find MCP Python (virtualenv if available)
+  MCP_DIR="$(dirname "$AUTO_SUGGEST_SCRIPT")"
+  VENV_PYTHON="${MCP_DIR}/venv/bin/python3"
+  if [[ -f "$VENV_PYTHON" ]]; then
+    MCP_PYTHON="$VENV_PYTHON"
+  elif [[ -f "/opt/homebrew/bin/python3" ]]; then
+    MCP_PYTHON="/opt/homebrew/bin/python3"
+  else
+    MCP_PYTHON="python3"
+  fi
+  
   # Run auto-suggestions in background
   (
-    result=$(python3 "$AUTO_SUGGEST_SCRIPT" entry "$log_entry" 2>&1)
+    result=$("$MCP_PYTHON" "$AUTO_SUGGEST_SCRIPT" entry "$log_entry" 2>&1)
     EXTRACT_BANTER="$HOME/code/dotfiles/mcp/extract_banter.py"
     if [[ ! -f "$EXTRACT_BANTER" ]]; then
       EXTRACT_BANTER="$HOME/code/personal/dotfiles/mcp/extract_banter.py"
     fi
     
     if [[ -f "$EXTRACT_BANTER" ]]; then
-      banter=$(echo "$result" | python3 "$EXTRACT_BANTER" 2>/dev/null)
+      banter=$(echo "$result" | "$MCP_PYTHON" "$EXTRACT_BANTER" 2>/dev/null)
     else
       banter=$(echo "$result" | grep -o '"banter":\s*"[^"]*"' | cut -d'"' -f4)
     fi

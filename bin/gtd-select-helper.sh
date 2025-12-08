@@ -100,16 +100,17 @@ select_from_list() {
     return 1
   fi
   
-  # Display numbered list
-  echo ""
+  # Display numbered list to stderr so it shows even when capturing stdout
+  echo "" >&2
   for i in "${!item_names[@]}"; do
     local num=$((i + 1))
-    echo "  ${num}) ${item_names[$i]}"
+    echo "  ${num}) ${item_names[$i]}" >&2
   done
-  echo ""
+  echo "" >&2
   
-  # Get user input
-  read -p "Select ${item_type} (number or partial name): " user_input
+  # Get user input (prompt to stderr so it shows)
+  echo -n "Select ${item_type} (number or partial name): " >&2
+  read user_input
   
   if [[ -z "$user_input" ]]; then
     return 1
@@ -136,7 +137,12 @@ select_from_list() {
     local file_base=$(basename "${item_paths[$i]}" .md)
     
     # Case-insensitive partial match
-    if [[ "${display_name,,}" == *"${user_input,,}"* ]] || [[ "${file_base,,}" == *"${user_input,,}"* ]]; then
+    # Convert to lowercase for comparison (bash compatible method)
+    local display_name_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+    local file_base_lower=$(echo "$file_base" | tr '[:upper:]' '[:lower:]')
+    local user_input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
+    
+    if [[ "$display_name_lower" == *"$user_input_lower"* ]] || [[ "$file_base_lower" == *"$user_input_lower"* ]]; then
       matches+=("$display_name")
       match_indices+=($i)
     fi
@@ -152,16 +158,169 @@ select_from_list() {
     echo "${matches[0]}"
     return 0
   else
-    # Multiple matches - show them and ask again
-    echo ""
-    echo "Multiple matches found:"
-    echo ""
+    # Multiple matches - show them and ask again (to stderr so it shows)
+    echo "" >&2
+    echo "Multiple matches found:" >&2
+    echo "" >&2
     for i in "${!matches[@]}"; do
       local num=$((i + 1))
-      echo "  ${num}) ${matches[$i]}"
+      echo "  ${num}) ${matches[$i]}" >&2
     done
-    echo ""
-    read -p "Select ${item_type} (number): " user_input
+    echo "" >&2
+    echo -n "Select ${item_type} (number): " >&2
+    read user_input
+    
+    if [[ "$user_input" =~ ^[0-9]+$ ]]; then
+      local selected_index=$((user_input - 1))
+      if [[ $selected_index -ge 0 && $selected_index -lt $match_count ]]; then
+        echo "${matches[$selected_index]}"
+        return 0
+      else
+        echo "❌ Invalid number. Please select 1-$match_count" >&2
+        return 1
+      fi
+    else
+      echo "❌ Invalid input" >&2
+      return 1
+    fi
+  fi
+}
+
+# Select a persona from the available list
+# Returns: persona key (e.g., "hank", "david") via stdout, empty if cancelled
+select_persona() {
+  # Available personas array
+  declare -a personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob")
+  
+  # Function to get persona display info
+  get_persona_info() {
+    case "$1" in
+      hank) echo "Hank Hill - General productivity, practical reminders" ;;
+      david) echo "David Allen - GTD methodology, organization" ;;
+      cal) echo "Cal Newport - Deep work, focus, eliminating distractions" ;;
+      james) echo "James Clear - Habit formation, systems thinking" ;;
+      marie) echo "Marie Kondo - Organization, decluttering" ;;
+      warren) echo "Warren Buffett - Strategic thinking, prioritization" ;;
+      sheryl) echo "Sheryl Sandberg - Leadership, execution" ;;
+      tim) echo "Tim Ferriss - Optimization, life hacks" ;;
+      george) echo "George Carlin - Satirical critique, dark humor" ;;
+      john) echo "John Oliver - Witty analysis, British humor" ;;
+      jon) echo "Jon Stewart - Satirical insight, calling out BS" ;;
+      bob) echo "Bob Ross - Creativity, calm, finding joy in the process" ;;
+      fred) echo "Fred Rogers - Kindness, self-care, emotional support" ;;
+      louiza) echo "Mistress Louiza - Accountability, execution, tracking, discipline" ;;
+      spiderman) echo "Spider-Man - Creative problem-solving, juggling responsibilities, relatable struggles" ;;
+      ironman) echo "Iron Man - Innovation, ADHD-like hyperfocus, engineering creativity" ;;
+      squirrelgirl) echo "Squirrel Girl - Positive creativity, communication, unconventional thinking" ;;
+      harley) echo "Harley Quinn - Chaotic creativity, resourcefulness, outside-the-box thinking" ;;
+      deadpool) echo "Deadpool - Chaotic humor, unpredictable solutions, creative problem-solving" ;;
+      rogue) echo "Rogue - Adaptive creativity, working with unique abilities, resourcefulness" ;;
+      esther) echo "Esther Perel - Relationships, intimacy, making partners feel special" ;;
+      gottman) echo "Dr. John Gottman - Relationship science, building strong foundations" ;;
+      gary) echo "Gary Chapman - Love languages, expressing love effectively" ;;
+      brene) echo "Brené Brown - Vulnerability, courage, authentic connection" ;;
+      romance) echo "The Romance Coach - Date planning, thoughtful gestures, making partners feel like royalty" ;;
+      kettlebell) echo "Kettlebell Coach - EMOM workouts, kettlebell training, strength and functional fitness" ;;
+      maxfit) echo "Maxfit Pro Coach - Cable system workouts, resistance training, functional fitness with cables" ;;
+      dumbbell) echo "Dumbbell Coach - Dumbbell training, strength building, functional fitness with dumbbells" ;;
+      dipbar) echo "Dip Bar Coach - Dip bar and bodyweight training, calisthenics, functional strength" ;;
+      bodyweight) echo "Bodyweight Fitness Coach - EMOM workouts, bodyweight exercises (push-ups, jumping jacks, squats), calisthenics" ;;
+      kelsey) echo "Kelsey Hightower - SRE pragmatism, avoiding overengineering, practical infrastructure" ;;
+      kent) echo "Kent Beck - Software simplicity, YAGNI, TDD, doing the simplest thing that works" ;;
+      charity) echo "Charity Majors - SRE reliability, observability, practical engineering, avoiding overengineering" ;;
+      rich) echo "Rich Hickey - Software design, simplicity vs complexity, essential vs accidental complexity" ;;
+      goggins) echo "David Goggins - Mental toughness, pushing limits, extreme fitness, calling out excuses, staying hard" ;;
+      dean) echo "Dean Karnazes - Ultra marathon running, endurance training, long-distance running, building mental resilience" ;;
+      bioneer) echo "The Bioneer (Adam) - Functional fitness, science-based training, movement quality, practical fitness advice" ;;
+      harry) echo "Harry Dresden - Creative problem-solving, wizard metaphors, resourceful solutions, friendly neighborhood wizard" ;;
+      murphy) echo "Karrin Murphy - Practical execution, cutting through BS, organized, methodical, no-nonsense detective" ;;
+      joe) echo "General Joe Bishop - Simple explanations, breaking things down barney style, clear communication, plain language" ;;
+      skippy) echo "Skippy the Magnificent - Sarcastic brilliance, snarky but helpful, cutting through BS with humor, condescending AI" ;;
+      sherlock) echo "Sherlock Holmes - Analytical deduction, methodical investigation, noticing details others miss, logical problem-solving" ;;
+      picard) echo "Jean-Luc Picard - Strategic leadership, diplomatic guidance, principled decision-making, inspiring others" ;;
+      sandy) echo "Sandy Squirrel (SpongeBob SquarePants) - Science, karate, Texas pride, competitive spirit, practical problem-solving" ;;
+      spongebob) echo "SpongeBob SquarePants - Optimism, enthusiasm, creativity, friendship, finding joy in work, positive attitude" ;;
+      *) echo "Unknown persona" ;;
+    esac
+  }
+  
+  local persona_count=${#personas[@]}
+  
+  # Display numbered list to stderr so it shows even when capturing stdout
+  echo "" >&2
+  echo "Available personas:" >&2
+  echo "" >&2
+  for i in "${!personas[@]}"; do
+    local num=$((i + 1))
+    local persona_key="${personas[$i]}"
+    local persona_info=$(get_persona_info "$persona_key")
+    echo "  ${num}) ${persona_key} - ${persona_info}" >&2
+  done
+  echo "" >&2
+  
+  # Get user input (prompt to stderr so it shows)
+  echo -n "Select persona (number or partial name): " >&2
+  read user_input
+  
+  if [[ -z "$user_input" ]]; then
+    return 1
+  fi
+  
+  # Check if it's a number
+  if [[ "$user_input" =~ ^[0-9]+$ ]]; then
+    local selected_index=$((user_input - 1))
+    if [[ $selected_index -ge 0 && $selected_index -lt $persona_count ]]; then
+      echo "${personas[$selected_index]}"
+      return 0
+    else
+      echo "❌ Invalid number. Please select 1-$persona_count" >&2
+      return 1
+    fi
+  fi
+  
+  # Try partial name matching (case-insensitive)
+  declare -a matches
+  declare -a match_indices
+  
+  for i in "${!personas[@]}"; do
+    local persona_key="${personas[$i]}"
+    local persona_info=$(get_persona_info "$persona_key")
+    
+    # Case-insensitive partial match on key or info
+    # Convert to lowercase for comparison (bash compatible method)
+    local persona_key_lower=$(echo "$persona_key" | tr '[:upper:]' '[:lower:]')
+    local persona_info_lower=$(echo "$persona_info" | tr '[:upper:]' '[:lower:]')
+    local user_input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
+    
+    if [[ "$persona_key_lower" == *"$user_input_lower"* ]] || [[ "$persona_info_lower" == *"$user_input_lower"* ]]; then
+      matches+=("$persona_key")
+      match_indices+=($i)
+    fi
+  done
+  
+  local match_count=${#matches[@]}
+  
+  if [[ $match_count -eq 0 ]]; then
+    echo "❌ No personas found matching '$user_input'" >&2
+    return 1
+  elif [[ $match_count -eq 1 ]]; then
+    # Single match - return it
+    echo "${matches[0]}"
+    return 0
+  else
+    # Multiple matches - show them and ask again (to stderr so it shows)
+    echo "" >&2
+    echo "Multiple matches found:" >&2
+    echo "" >&2
+    for i in "${!matches[@]}"; do
+      local num=$((i + 1))
+      local persona_key="${matches[$i]}"
+      local persona_info=$(get_persona_info "$persona_key")
+      echo "  ${num}) ${persona_key} - ${persona_info}" >&2
+    done
+    echo "" >&2
+    echo -n "Select persona (number): " >&2
+    read user_input
     
     if [[ "$user_input" =~ ^[0-9]+$ ]]; then
       local selected_index=$((user_input - 1))

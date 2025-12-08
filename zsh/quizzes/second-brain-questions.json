@@ -1,0 +1,66 @@
+{
+  "topic": "second-brain",
+  "description": "Second Brain methodology: CODE, PARA, MOCs, Progressive Summarization",
+  "questions": [
+    {
+      "id": "sb-001",
+      "type": "multiple_choice",
+      "question": "What is Progressive Summarization?",
+      "options": [
+        "A 3-level method of distilling notes over time",
+        "Summarizing notes progressively longer",
+        "Making notes more complex over time",
+        "Summarizing multiple notes at once"
+      ],
+      "correct_answer": "A 3-level method of distilling notes over time",
+      "explanation": "Progressive Summarization has 3 levels: Level 1 (bold key points), Level 2 (highlight main points), Level 3 (executive summary)."
+    },
+    {
+      "id": "sb-002",
+      "type": "multiple_choice",
+      "question": "In PARA, where should reference material go?",
+      "options": [
+        "Resources",
+        "Projects",
+        "Areas",
+        "Archives"
+      ],
+      "correct_answer": "Resources",
+      "explanation": "Resources are topics of ongoing interest - perfect for reference material you might want to access later."
+    },
+    {
+      "id": "sb-003",
+      "type": "true_false",
+      "question": "Evergreen notes are notes that grow in value over time.",
+      "correct_answer": "true",
+      "explanation": "Evergreen notes are living documents that you continuously update and refine, making them more valuable over time."
+    },
+    {
+      "id": "sb-004",
+      "type": "multiple_choice",
+      "question": "What is the Express phase in CODE?",
+      "options": [
+        "Creating content from your notes",
+        "Expressing your feelings about notes",
+        "Exporting notes to other systems",
+        "Expressing gratitude for your notes"
+      ],
+      "correct_answer": "Creating content from your notes",
+      "explanation": "The Express phase is about creating value from your notes - writing articles, creating presentations, building projects."
+    },
+    {
+      "id": "sb-005",
+      "type": "multiple_choice",
+      "question": "When should you create a MOC?",
+      "options": [
+        "When you have 3+ related notes",
+        "When you have 10+ notes",
+        "At the start of every project",
+        "Only for large topics"
+      ],
+      "correct_answer": "When you have 3+ related notes",
+      "explanation": "MOCs help organize related notes. Create one when you have 3 or more notes on a similar topic."
+    }
+  ]
+}
+

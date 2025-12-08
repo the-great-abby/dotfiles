@@ -1,0 +1,14 @@
+# ============================================================================
+# GTD Custom Configuration
+# ============================================================================
+# This file is for your custom overrides and personal settings
+# It's loaded last, so it can override any settings from other config files
+#
+# Example overrides:
+# GTD_USER_NAME="Your Name"
+# GTD_BASE_DIR="$HOME/MyGTD"
+# AI_BACKEND="ollama"
+# etc.
+
+# Add your custom settings below:
+

@@ -75,6 +75,11 @@ daily_review() {
     time_icon="🌙"
   fi
   
+  # Track review timing for preferences learning
+  if command -v gtd-preferences-learn &>/dev/null; then
+    gtd-preferences-learn track-review "daily" 2>/dev/null || true
+  fi
+  
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📅 Daily ${time_label} Review - $TODAY ${time_icon}"
@@ -244,6 +249,11 @@ EOF
 
 # Weekly review
 weekly_review() {
+  # Track review timing for preferences learning
+  if command -v gtd-preferences-learn &>/dev/null; then
+    gtd-preferences-learn track-review "weekly" 2>/dev/null || true
+  fi
+  
   local week_start=$(date -v-monday +"%Y-%m-%d" 2>/dev/null || date -d "last monday" +"%Y-%m-%d" 2>/dev/null || date +"%Y-%m-%d")
   local week_end=$(date -v-sunday +"%Y-%m-%d" 2>/dev/null || date -d "next sunday" +"%Y-%m-%d" 2>/dev/null || date +"%Y-%m-%d")
   
@@ -279,6 +289,18 @@ weekly_review() {
   done
   
   echo "📁 Active projects: $active_projects"
+  echo ""
+  
+  # Detect stalled projects
+  echo "🔍 Checking for stalled projects..."
+  ENHANCED_SCRIPT="$HOME/code/dotfiles/bin/gtd-project-enhanced.sh"
+  if [[ ! -f "$ENHANCED_SCRIPT" ]]; then
+    ENHANCED_SCRIPT="$HOME/code/personal/dotfiles/bin/gtd-project-enhanced.sh"
+  fi
+  if [[ -f "$ENHANCED_SCRIPT" ]]; then
+    source "$ENHANCED_SCRIPT"
+    detect_stalled_projects | head -30
+  fi
   echo ""
   
   # Waiting for
@@ -465,6 +487,15 @@ ${brain_refine}
 ### Notes to Review for Connections
 ${brain_connections}
 
+### 🔗 Notes You Might Want to Link (AI Suggestions)
+$(if command -v gtd-brain-suggest-connections &>/dev/null; then
+  gtd-brain-suggest-connections weekly 10 2>/dev/null | sed 's/^/  /'
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-suggest-connections" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-brain-suggest-connections" weekly 10 2>/dev/null | sed 's/^/  /'
+else
+  echo "  (Connection suggestions not available)"
+fi)
+
 ### MOCs to Update
 ${brain_mocs}
 
@@ -574,6 +605,11 @@ EOF
 
 # Monthly review
 monthly_review() {
+  # Track review timing for preferences learning
+  if command -v gtd-preferences-learn &>/dev/null; then
+    gtd-preferences-learn track-review "monthly" 2>/dev/null || true
+  fi
+  
   local month_start=$(date -v1d +"%Y-%m-%d" 2>/dev/null || date -d "first day of this month" +"%Y-%m-%d" 2>/dev/null || date +"%Y-%m-%d")
   local month_end=$(date -v1d -v+1m -v-1d +"%Y-%m-%d" 2>/dev/null || date -d "last day of this month" +"%Y-%m-%d" 2>/dev/null || date +"%Y-%m-%d")
   local month_name=$(date +"%B %Y" 2>/dev/null || echo "This Month")

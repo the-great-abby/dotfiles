@@ -1,52 +1,32 @@
 #!/bin/bash
 # GTD Area Command - Areas of responsibility management
 
-# Source common environment (PATH setup)
-COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
-if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
-  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
-if [[ -f "$COMMON_ENV" ]]; then
-  source "$COMMON_ENV"
-fi
-
-# Load GTD config
-GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
-  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Source config if it exists
-if [[ -f "$GTD_CONFIG_FILE" ]]; then
-  source "$GTD_CONFIG_FILE"
-fi
-
-# Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}"
-PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
+# Additional paths
 TASKS_PATH="${GTD_BASE_DIR}/tasks"
 ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
 
 mkdir -p "$AREAS_PATH" "$ARCHIVE_PATH"
 
-# Source selection helper
-SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
-if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
-  SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
-fi
-if [[ -f "$SELECT_HELPER" ]]; then
-  source "$SELECT_HELPER"
-fi
+TODAY=$(gtd_get_today)
+NOW=$(gtd_get_current_time)
 
-TODAY=$(date +"%Y-%m-%d")
-NOW=$(date +"%H:%M")
+# Use common frontmatter helper (aliased for backward compatibility)
+alias get_frontmatter_value='gtd_get_frontmatter_value'
 
-# Extract frontmatter value
+# Define wrapper function (aliases don't always work in subshells)
 get_frontmatter_value() {
-  local file="$1"
-  local key="$2"
-  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+  gtd_get_frontmatter_value "$@"
 }
 
 # Update frontmatter value
@@ -386,6 +366,151 @@ EOF
   fi
 }
 
+# Add note to area (creates note file in notes/ subdirectory)
+add_note_to_area() {
+  local area_name="$1"
+  shift
+  local note_title="$*"
+  
+  if [[ -z "$area_name" ]]; then
+    echo "❌ Area name required"
+    echo "Usage: gtd-area add-note <area-name> [note-title]"
+    echo ""
+    echo "Examples:"
+    echo "  gtd-area add-note health \"Medication Schedule\""
+    echo "  gtd-area add-note health  # Interactive mode - prompts for title"
+    exit 1
+  fi
+  
+  area_name=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local area_file="${AREAS_PATH}/${area_name}.md"
+  
+  # Try to find the area file - first try as slug, then search by display name
+  if [[ ! -f "$area_file" ]]; then
+    while IFS= read -r file; do
+      local display_name=$(get_frontmatter_value "$file" "name")
+      if [[ -z "$display_name" ]]; then
+        display_name=$(basename "$file" .md)
+      fi
+      if [[ "$display_name" == "$area_name" ]] || [[ "$display_name" == *"$area_name"* ]] || [[ "$area_name" == *"$display_name"* ]]; then
+        area_file="$file"
+        area_name=$(basename "$file" .md)
+        break
+      fi
+    done < <(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)
+  fi
+  
+  if [[ ! -f "$area_file" ]]; then
+    echo "❌ Area not found: $area_name"
+    exit 1
+  fi
+  
+  # Create notes directory for this area
+  # Note: area file is area-name.md, notes go in area-name/notes/
+  local area_base=$(basename "$area_file" .md)
+  local area_dir="${AREAS_PATH}/${area_base}"
+  local notes_dir="${area_dir}/notes"
+  mkdir -p "$notes_dir"
+  
+  # Get note title
+  if [[ -z "$note_title" ]]; then
+    echo -n "Note title: "
+    read note_title
+    if [[ -z "$note_title" ]]; then
+      echo "❌ Note title required"
+      exit 1
+    fi
+  fi
+  
+  # Create sanitized filename
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  local sanitized_title=$(echo "$note_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local note_filename="${timestamp}-${sanitized_title}.md"
+  local note_file="${notes_dir}/${note_filename}"
+  
+  # Check if note already exists
+  if [[ -f "$note_file" ]]; then
+    echo "⚠️  Note already exists: $note_file"
+    read -p "Create anyway with new timestamp? (y/N): " create_anyway
+    if [[ ! "$create_anyway" =~ ^[Yy]$ ]]; then
+      echo "Cancelled."
+      exit 0
+    fi
+    timestamp=$(date +"%Y%m%d%H%M%S")
+    note_filename="${timestamp}-${sanitized_title}.md"
+    note_file="${notes_dir}/${note_filename}"
+  fi
+  
+  # Create the note file
+  local created_time=$(date +"%Y-%m-%d %H:%M")
+  cat > "$note_file" <<EOF
+---
+type: note
+area: ${area_name}
+created: ${TODAY}T${NOW}
+tags: []
+---
+
+# ${note_title}
+
+Created: ${created_time}
+
+## Content
+
+
+
+## Links
+- Related to: 
+
+## Tags
+#area-note #${area_name}
+
+EOF
+  
+  # Add link to note in the area's Notes section
+  local temp_file=$(mktemp)
+  local notes_section_found=false
+  local relative_note_path="${area_base}/notes/${note_filename}"
+  local note_link="[[${note_title}]] (${relative_note_path})"
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Check if we're at the Notes section header
+    if [[ "$line" == "## Notes" ]]; then
+      notes_section_found=true
+      echo "$line" >> "$temp_file"
+      echo "" >> "$temp_file"
+      echo "- ${note_link}" >> "$temp_file"
+      continue
+    fi
+    
+    echo "$line" >> "$temp_file"
+  done < "$area_file"
+  
+  # If Notes section wasn't found, add it at the end
+  if [[ "$notes_section_found" == "false" ]]; then
+    echo "" >> "$temp_file"
+    echo "## Notes" >> "$temp_file"
+    echo "" >> "$temp_file"
+    echo "- ${note_link}" >> "$temp_file"
+    echo "" >> "$temp_file"
+  fi
+  
+  mv "$temp_file" "$area_file"
+  
+  echo "✓ Created note for area: $area_name"
+  echo "  Title: $note_title"
+  echo "  File: $note_file"
+  echo "  Linked in area file"
+  
+  # Optionally open the note in editor
+  if command -v ${EDITOR:-vim} &>/dev/null; then
+    read -p "Open note in editor? (y/N): " open_editor
+    if [[ "$open_editor" =~ ^[Yy]$ ]]; then
+      ${EDITOR:-vim} "$note_file"
+    fi
+  fi
+}
+
 # Review area
 review_area() {
   local area_name="$1"
@@ -445,6 +570,88 @@ ${area_blockers}
 EOF
   
   echo "✓ Review added to area: $area_name"
+}
+
+# Update area description
+update_area() {
+  local area_name="$1"
+  shift
+  local new_description="$*"
+  
+  if [[ -z "$area_name" ]]; then
+    echo "❌ Area name required"
+    echo "Usage: gtd-area update <area-name> <new-description>"
+    exit 1
+  fi
+  
+  if [[ -z "$new_description" ]]; then
+    echo "❌ Description required"
+    echo "Usage: gtd-area update <area-name> <new-description>"
+    exit 1
+  fi
+  
+  # Try to find the area file - first try as slug, then search by display name
+  local area_file=""
+  local area_slug=$(echo "$area_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  area_file="${AREAS_PATH}/${area_slug}.md"
+  
+  # If not found as slug, search by display name
+  if [[ ! -f "$area_file" ]]; then
+    while IFS= read -r file; do
+      local display_name=$(get_frontmatter_value "$file" "name")
+      if [[ -z "$display_name" ]]; then
+        display_name=$(basename "$file" .md)
+      fi
+      if [[ "$display_name" == "$area_name" ]] || [[ "$display_name" == *"$area_name"* ]] || [[ "$area_name" == *"$display_name"* ]]; then
+        area_file="$file"
+        break
+      fi
+    done < <(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)
+  fi
+  
+  if [[ ! -f "$area_file" ]]; then
+    echo "❌ Area not found: $area_name"
+    echo "   Searched as slug: ${area_slug}.md"
+    exit 1
+  fi
+  
+  # Update the description section in the markdown file
+  # Find "## Description" and replace content until next "##" section
+  local temp_file=$(mktemp)
+  local in_description=false
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Check if this is the Description section header
+    if [[ "$line" == "## Description" ]]; then
+      in_description=true
+      echo "$line" >> "$temp_file"
+      echo "$new_description" >> "$temp_file"
+      continue
+    fi
+    
+    # If we're in the description section, skip old content until next section
+    if [[ "$in_description" == "true" ]]; then
+      # Check if we hit the next section header
+      if [[ "$line" =~ ^##[[:space:]] ]]; then
+        in_description=false
+        echo "" >> "$temp_file"
+        echo "$line" >> "$temp_file"
+      fi
+      # Otherwise, skip the old description content
+      continue
+    fi
+    
+    # Normal line - copy as-is
+    echo "$line" >> "$temp_file"
+  done < "$area_file"
+  
+  # Ensure file ends with newline
+  echo "" >> "$temp_file"
+  
+  mv "$temp_file" "$area_file"
+  
+  echo "✓ Updated area: $area_name"
+  echo "  New description: $new_description"
 }
 
 # Review all areas systematically
@@ -748,6 +955,10 @@ main() {
       shift
       add_project_to_area "$@"
       ;;
+    add-note)
+      shift
+      add_note_to_area "$@"
+      ;;
     review)
       shift
       if [[ -z "$1" ]]; then
@@ -763,6 +974,10 @@ main() {
       shift
       archive_area "$1"
       ;;
+    update)
+      shift
+      update_area "$@"
+      ;;
     --help|-h|"")
       echo "Usage: gtd-area <command> [options]"
       echo ""
@@ -772,6 +987,8 @@ main() {
       echo "  view <name>                    View area details"
       echo "  add-task <area> <description>  Add task to area"
       echo "  add-project <area> <name>      Add project to area"
+      echo "  add-note <area> [note]         Add note to area"
+      echo "  update <area> <description>    Update area description"
       echo "  review [name]                  Review area (or all areas if no name)"
       echo "  review-all                     Review all areas systematically"
       echo "  archive <name>                 Archive an area"
@@ -782,6 +999,8 @@ main() {
       echo "  gtd-area view health"
       echo "  gtd-area add-task health \"Exercise daily\""
       echo "  gtd-area add-project health \"Fitness Program\""
+      echo "  gtd-area add-note health \"Medication schedule and dosages\""
+      echo "  gtd-area update health \"Maintaining physical and mental wellness\""
       echo "  gtd-area review health"
       exit 0
       ;;

@@ -33,6 +33,7 @@ mkdir -p "$INBOX_PATH"
 TIMESTAMP=$(date +"%Y%m%d%H%M%S")
 TODAY=$(date +"%Y-%m-%d")
 NOW=$(date +"%H:%M")
+CAPTURE_START_TIME=$(date +%s)  # Track capture start time
 
 # Determine capture type
 CAPTURE_TYPE="note"
@@ -107,6 +108,22 @@ EOF
 echo "✓ Captured to inbox: ${FILEPATH}"
 echo "  Type: ${CAPTURE_TYPE}"
 echo "  Content: ${CONTENT}"
+
+# Track capture time (time to capture = friction metric)
+CAPTURE_END_TIME=$(date +%s)
+CAPTURE_DURATION=$((CAPTURE_END_TIME - CAPTURE_START_TIME))
+if command -v gtd-success-metrics &>/dev/null; then
+  gtd-success-metrics track-capture "$CAPTURE_DURATION" 2>/dev/null || true
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-success-metrics" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-success-metrics" track-capture "$CAPTURE_DURATION" 2>/dev/null || true
+fi
+
+# Track daily usage
+if command -v gtd-success-metrics &>/dev/null; then
+  gtd-success-metrics track "gtd-capture" 2>/dev/null || true
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-success-metrics" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-success-metrics" track "gtd-capture" 2>/dev/null || true
+fi
 
 # Optionally open in editor
 if [[ -n "$EDITOR" ]]; then

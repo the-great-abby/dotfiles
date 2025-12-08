@@ -1,0 +1,47 @@
+# ============================================================================
+# GTD Advanced Features & Analytics Configuration
+# ============================================================================
+# Settings for advanced features, analytics, and tracking
+
+# ============================================================================
+# Analytics and Tracking
+# ============================================================================
+# Track completion rates (true/false)
+GTD_TRACK_COMPLETION="${GTD_TRACK_COMPLETION:-true}"
+
+# Track time spent (true/false)
+GTD_TRACK_TIME="${GTD_TRACK_TIME:-false}"
+
+# Generate weekly reports (true/false)
+GTD_WEEKLY_REPORTS="${GTD_WEEKLY_REPORTS:-true}"
+
+# ============================================================================
+# Advanced Features
+# ============================================================================
+# Enable AI-powered suggestions (true/false)
+GTD_AI_SUGGESTIONS="${GTD_AI_SUGGESTIONS:-true}"
+
+# Enable automatic categorization (true/false)
+GTD_AUTO_CATEGORIZE="${GTD_AUTO_CATEGORIZE:-true}"
+
+# Enable dependency tracking (true/false)
+GTD_TRACK_DEPENDENCIES="${GTD_TRACK_DEPENDENCIES:-false}"
+
+# Enable recurring tasks (true/false)
+GTD_RECURRING_TASKS="${GTD_RECURRING_TASKS:-true}"
+
+# Enable time estimates (true/false)
+GTD_TIME_ESTIMATES="${GTD_TIME_ESTIMATES:-true}"
+
+# Enable tags system (true/false)
+GTD_USE_TAGS="${GTD_USE_TAGS:-true}"
+
+# Enable projects with sub-tasks (true/false)
+GTD_SUB_TASKS="${GTD_SUB_TASKS:-true}"
+
+# Enable areas of responsibility (true/false)
+GTD_USE_AREAS="${GTD_USE_AREAS:-true}"
+
+# Maximum acronyms to include in AI context (to avoid overload)
+GTD_MAX_ACRONYMS="${GTD_MAX_ACRONYMS:-10}"
+
