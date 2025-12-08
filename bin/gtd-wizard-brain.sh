@@ -12,10 +12,11 @@ sync_wizard() {
   show_sync_guide
   echo "What would you like to sync?"
   echo ""
-  echo "  1) Full sync (projects, areas, references)"
+  echo "  1) Full sync (projects, areas, references, daily logs)"
   echo "  2) Projects only"
   echo "  3) Areas only"
   echo "  4) References only"
+  echo "  5) Daily logs only"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -34,6 +35,9 @@ sync_wizard() {
       ;;
     4)
       gtd-brain-sync references
+      ;;
+    5)
+      gtd-brain-sync daily-logs
       ;;
     0|"")
       return 0

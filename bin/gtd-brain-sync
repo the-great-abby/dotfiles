@@ -13,7 +13,9 @@ fi
 
 # Load GTD config
 GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
   GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
 fi
 
@@ -22,11 +24,24 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
 # Default values
 GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/Second Brain}"
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
 GTD_PROJECTS_DIR="${GTD_PROJECTS_DIR:-1-projects}"
 GTD_AREAS_DIR="${GTD_AREAS_DIR:-2-areas}"
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 
 # Sync GTD projects to Second Brain Projects
 sync_projects() {
@@ -179,17 +194,71 @@ sync_references() {
   echo "✓ Reference sync complete"
 }
 
-# Sync daily logs
+# Sync daily logs to Second Brain directory (for syncing between computers)
 sync_daily_logs() {
   echo "🔄 Syncing Daily Logs to Second Brain..."
   
-  # Check if daily log sync command exists
-  local sync_cmd="$(dirname "$0")/gtd-brain-sync-daily-logs"
-  if [[ -f "$sync_cmd" && -x "$sync_cmd" ]]; then
-    "$sync_cmd" all 2>/dev/null || echo "⚠️  Daily log sync failed (optional)"
-  else
-    echo "⚠️  Daily log sync not available (gtd-brain-sync-daily-logs not found)"
+  local sync_dir="${SECOND_BRAIN}/Daily Logs"
+  
+  # Create sync directory
+  mkdir -p "$sync_dir"
+  mkdir -p "$DAILY_LOG_DIR"
+  
+  if [[ ! -d "$DAILY_LOG_DIR" ]]; then
+    echo "⚠️  Daily log directory not found: $DAILY_LOG_DIR"
+    return 0  # Don't fail, just skip
   fi
+  
+  local synced=0
+  local updated=0
+  local pulled=0
+  
+  # Sync local → Second Brain
+  find "$DAILY_LOG_DIR" -type f -name "*.md" -maxdepth 1 2>/dev/null | while read -r log_file; do
+    local filename=$(basename "$log_file")
+    local sync_file="${sync_dir}/${filename}"
+    
+    if [[ ! -f "$sync_file" ]]; then
+      cp "$log_file" "$sync_file"
+      echo "  ✓ Synced: $filename → Second Brain"
+      ((synced++))
+    else
+      # Compare modification times
+      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
+      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
+      
+      if [[ $log_mtime -gt $sync_mtime ]]; then
+        cp "$log_file" "$sync_file"
+        echo "  ✓ Updated: $filename → Second Brain"
+        ((updated++))
+      fi
+    fi
+  done
+  
+  # Sync Second Brain → local (pull any new logs from other computers)
+  find "$sync_dir" -type f -name "*.md" -maxdepth 1 2>/dev/null | while read -r sync_file; do
+    local filename=$(basename "$sync_file")
+    local log_file="${DAILY_LOG_DIR}/${filename}"
+    
+    if [[ ! -f "$log_file" ]]; then
+      cp "$sync_file" "$log_file"
+      echo "  ✓ Pulled: $filename ← Second Brain"
+      ((pulled++))
+    else
+      # Check if sync version is newer
+      local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
+      local sync_mtime=$(stat -f %m "$sync_file" 2>/dev/null || stat -c %Y "$sync_file" 2>/dev/null)
+      
+      if [[ $sync_mtime -gt $log_mtime ]]; then
+        cp "$sync_file" "$log_file"
+        echo "  ✓ Updated: $filename ← Second Brain"
+        ((pulled++))
+      fi
+    fi
+  done
+  
+  echo "  ✓ Daily logs synced to: ${sync_dir}"
+  echo "    (Will sync automatically via Obsidian to other computers)"
 }
 
 # Main sync function
@@ -204,12 +273,7 @@ main_sync() {
   echo ""
   sync_references
   echo ""
-  
-  # Optional: sync daily logs
-  if [[ "${GTD_SYNC_DAILY_LOGS:-false}" == "true" ]]; then
-    echo ""
-    sync_daily_logs
-  fi
+  sync_daily_logs
   
   echo ""
   echo "✓ Sync complete!"
@@ -221,7 +285,7 @@ show_usage() {
 Usage: gtd-brain-sync [command]
 
 Commands:
-  (no args)    Full sync (projects, areas, references, daily logs if enabled)
+  (no args)    Full sync (projects, areas, references, daily logs)
   projects     Sync only projects
   areas        Sync only areas
   references   Sync only references
