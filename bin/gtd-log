@@ -64,6 +64,14 @@ view_today() {
   local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
   local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null || echo "0")
   
+  # Ensure counts are clean integers (strip any whitespace/newlines)
+  entry_count=$(echo "$entry_count" | tr -d '[:space:]')
+  goal_count=$(echo "$goal_count" | tr -d '[:space:]')
+  
+  # Default to 0 if empty or not a number
+  entry_count=${entry_count:-0}
+  goal_count=${goal_count:-0}
+  
   echo "📊 Stats:"
   echo "   Entries: $entry_count"
   if [[ $goal_count -gt 0 ]]; then
@@ -121,6 +129,13 @@ list_logs() {
     local filename=$(basename "$log" .md)
     local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log" 2>/dev/null || echo "0")
     local size=$(stat -f%z "$log" 2>/dev/null || stat -c%s "$log" 2>/dev/null || echo "0")
+    
+    # Ensure counts are clean integers (strip any whitespace/newlines)
+    entry_count=$(echo "$entry_count" | tr -d '[:space:]')
+    entry_count=${entry_count:-0}
+    size=$(echo "$size" | tr -d '[:space:]')
+    size=${size:-0}
+    
     local size_kb=$((size / 1024))
     
     echo "📅 $filename"

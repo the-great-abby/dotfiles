@@ -32,7 +32,7 @@ AI_BACKEND="lmstudio"
 
 # LM Studio Configuration (used when AI_BACKEND="lmstudio")
 LM_STUDIO_URL="http://localhost:1234/v1/chat/completions"
-#LM_STUDIO_CHAT_MODEL="qwen/qwen3-1.7b"
+LM_STUDIO_CHAT_MODEL="qwen/qwen3-1.7b"
 
 # Ollama Configuration (used when AI_BACKEND="ollama")
 # Ollama default port is 11434, uses OpenAI-compatible API

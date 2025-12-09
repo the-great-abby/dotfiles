@@ -1,5 +1,21 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GTD Advise Command - Get advice from multiple AI personas
+# Note: Requires bash 4.0+ for associative arrays
+
+# Check bash version (associative arrays require bash 4.0+)
+if [[ ${BASH_VERSION%%.*} -lt 4 ]]; then
+  # Try to find a newer bash
+  if [[ -x /opt/homebrew/bin/bash ]]; then
+    exec /opt/homebrew/bin/bash "$0" "$@"
+  elif [[ -x /usr/local/bin/bash ]]; then
+    exec /usr/local/bin/bash "$0" "$@"
+  else
+    echo "Error: This script requires bash 4.0+ (associative arrays)" >&2
+    echo "Current bash version: $BASH_VERSION" >&2
+    echo "Please install a newer bash: brew install bash" >&2
+    exit 1
+  fi
+fi
 
 # Source common GTD helpers
 GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
@@ -908,9 +924,17 @@ advise_single() {
       content="[WEB_SEARCH_REQUESTED] ${content}"
     fi
     
-    $PYTHON_CMD "$PERSONA_HELPER" "$persona" "$content" "" "$flags"
+    # Use thinking timer for AI API calls (may take > 2 seconds)
+    # Short label to avoid line wrapping issues
+    local persona_name=$(show_persona_info "$persona" | cut -d' ' -f1-2)
+    run_with_thinking_timer "Getting advice from $persona_name" \
+      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content" "" "$flags"
   else
-    $PYTHON_CMD "$PERSONA_HELPER" "$persona" "$content"
+    # Use thinking timer for AI API calls (may take > 2 seconds)
+    # Short label to avoid line wrapping issues
+    local persona_name=$(show_persona_info "$persona" | cut -d' ' -f1-2)
+    run_with_thinking_timer "Getting advice from $persona_name" \
+      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content"
   fi
 }
 
@@ -1033,7 +1057,11 @@ advise_all() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "💬 $(show_persona_info "$persona")"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    $PYTHON_CMD "$PERSONA_HELPER" "$persona" "$content"
+    # Use thinking timer for AI API calls (may take > 2 seconds)
+    # Short label to avoid line wrapping issues
+    local persona_name=$(show_persona_info "$persona" | cut -d' ' -f1-2)
+    run_with_thinking_timer "Getting advice from $persona_name" \
+      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content"
     echo ""
   done
 }

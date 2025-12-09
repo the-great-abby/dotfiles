@@ -409,14 +409,154 @@ log_wizard() {
   echo -e "${BOLD}${CYAN}📝 Daily Log Wizard${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
-  show_daily_log_guide
-  
-  # Display inspirational message
-  get_log_inspiration
+  echo "What would you like to do?"
   echo ""
+  echo -e "${GREEN}1)${NC} 📝 Add entry to daily log"
+  echo -e "${GREEN}2)${NC} 👁️  View today's daily log"
+  echo -e "${GREEN}3)${NC} 📅 View specific date"
+  echo -e "${GREEN}4)${NC} 📚 List available logs"
+  echo -e "${GREEN}5)${NC} 🔍 Search logs"
+  echo -e "${GREEN}6)${NC} 📋 Show recent entries"
+  echo ""
+  echo -n "Choose: "
+  read log_choice
   
-  echo -n "What would you like to log? "
-  read log_entry
+  case "$log_choice" in
+    1)
+      # Original logging functionality
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📝 Add to Daily Log${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      show_daily_log_guide
+      
+      # Display inspirational message
+      get_log_inspiration
+      echo ""
+      
+      echo -n "What would you like to log? "
+      read log_entry
+      ;;
+    2)
+      # View today's log
+      clear
+      echo ""
+      if command -v gtd-log &>/dev/null; then
+        gtd-log today
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-log" today
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-log" today
+      else
+        echo "❌ gtd-log command not found"
+        return 1
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      return 0
+      ;;
+    3)
+      # View specific date
+      clear
+      echo ""
+      echo -n "Enter date (YYYY-MM-DD): "
+      read view_date
+      if [[ -z "$view_date" ]]; then
+        echo "❌ No date provided"
+        return 1
+      fi
+      if command -v gtd-log &>/dev/null; then
+        gtd-log view "$view_date"
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-log" view "$view_date"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-log" view "$view_date"
+      else
+        echo "❌ gtd-log command not found"
+        return 1
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      return 0
+      ;;
+    4)
+      # List available logs
+      clear
+      echo ""
+      if command -v gtd-log &>/dev/null; then
+        gtd-log list
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-log" list
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-log" list
+      else
+        echo "❌ gtd-log command not found"
+        return 1
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      return 0
+      ;;
+    5)
+      # Search logs
+      clear
+      echo ""
+      echo -n "Enter search pattern: "
+      read search_pattern
+      if [[ -z "$search_pattern" ]]; then
+        echo "❌ No search pattern provided"
+        return 1
+      fi
+      if command -v gtd-log &>/dev/null; then
+        gtd-log search "$search_pattern"
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-log" search "$search_pattern"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-log" search "$search_pattern"
+      else
+        echo "❌ gtd-log command not found"
+        return 1
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      return 0
+      ;;
+    6)
+      # Show recent entries
+      clear
+      echo ""
+      if command -v gtd-log &>/dev/null; then
+        gtd-log recent
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-log" recent
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-log" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-log" recent
+      else
+        echo "❌ gtd-log command not found"
+        return 1
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      return 1
+      ;;
+  esac
+  
+  # If we got here, user chose option 1 (log entry)
+  if [[ -z "$log_entry" ]]; then
+    echo "❌ No entry provided"
+    return 1
+  fi
   
   if [[ -z "$log_entry" ]]; then
     echo "❌ No entry provided"

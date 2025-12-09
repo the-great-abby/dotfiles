@@ -760,14 +760,22 @@ def filter_relevant_acronyms(acronyms: List[Dict[str, Any]], content: str, max_a
     return relevant[:max_acronyms]
 
 def read_config():
-    """Read configuration from .daily_log_config, .gtd_config, or .gtd_config_ai file."""
+    """Read configuration from .daily_log_config, .gtd_config, or .gtd_config_ai file.
+    
+    Loading order (later files override earlier ones):
+    1. daily_log_config - Base daily log settings
+    2. gtd_config - General GTD settings
+    3. gtd_config_ai - AI-specific settings (highest priority)
+    """
     config_paths = [
-        Path.home() / ".gtd_config_ai",
-        Path.home() / ".gtd_config",
+        # Home directory configs (base settings)
         Path.home() / ".daily_log_config",
-        Path(__file__).parent.parent / ".gtd_config_ai",
+        Path.home() / ".gtd_config",
+        Path.home() / ".gtd_config_ai",
+        # Dotfiles directory configs (override home, loaded in same order)
+        Path(__file__).parent.parent / ".daily_log_config",
         Path(__file__).parent.parent / ".gtd_config",
-        Path(__file__).parent.parent / ".daily_log_config"
+        Path(__file__).parent.parent / ".gtd_config_ai"
     ]
     
     config = {
@@ -790,7 +798,12 @@ def read_config():
                     if line and not line.startswith('#') and '=' in line:
                         key, value = line.split('=', 1)
                         key = key.strip()
-                        value = value.strip().strip('"').strip("'")
+                        value = value.strip()
+                        # Remove comments (everything after #)
+                        if '#' in value:
+                            value = value.split('#')[0].strip()
+                        # Remove quotes
+                        value = value.strip('"').strip("'")
                         # Remove variable expansion syntax like ${VAR:-default}
                         if value.startswith("${") and ":-" in value:
                             value = value.split(":-", 1)[1].rstrip("}")

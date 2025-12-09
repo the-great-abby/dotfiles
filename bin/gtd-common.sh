@@ -331,13 +331,19 @@ gtd_get_current_time() {
 show_thinking_timer() {
   local label="${1:-Thinking}"
   local delay="${2:-2}"  # Wait 2 seconds before showing timer
+  local parent_pid="${3:-$$}"  # Optional parent PID to monitor
   local start_time=$(date +%s)
+  
+  # Truncate label if too long (max 40 chars to avoid wrapping)
+  if [[ ${#label} -gt 40 ]]; then
+    label="${label:0:37}..."
+  fi
   
   # Wait for delay, then start spinner if still needed
   sleep "$delay"
   
   # Check if we should still show the timer (parent process might have finished)
-  if ! kill -0 $$ 2>/dev/null; then
+  if ! kill -0 "$parent_pid" 2>/dev/null; then
     return 0
   fi
   
@@ -346,7 +352,7 @@ show_thinking_timer() {
   
   while true; do
     # Check if parent process is still running
-    if ! kill -0 $$ 2>/dev/null; then
+    if ! kill -0 "$parent_pid" 2>/dev/null; then
       break
     fi
     
@@ -356,10 +362,11 @@ show_thinking_timer() {
     local minutes=$(((elapsed % 3600) / 60))
     local seconds=$((elapsed % 60))
     
+    # Clear line and print timer (use \033[K to clear to end of line)
     if [[ $hours -gt 0 ]]; then
-      printf "\r🤔 %s %s T+%02d:%02d:%02d" "$label" "${spinner_chars[$idx]}" "$hours" "$minutes" "$seconds" >&2
+      printf "\r\033[K🤔 %s %s T+%02d:%02d:%02d" "$label" "${spinner_chars[$idx]}" "$hours" "$minutes" "$seconds" >&2
     else
-      printf "\r🤔 %s %s T+%02d:%02d" "$label" "${spinner_chars[$idx]}" "$minutes" "$seconds" >&2
+      printf "\r\033[K🤔 %s %s T+%02d:%02d" "$label" "${spinner_chars[$idx]}" "$minutes" "$seconds" >&2
     fi
     
     idx=$(( (idx + 1) % ${#spinner_chars[@]} ))
@@ -374,7 +381,10 @@ stop_thinking_timer() {
     kill "$timer_pid" 2>/dev/null
     wait "$timer_pid" 2>/dev/null
   fi
-  printf "\r\033[K" >&2  # Clear the spinner line
+  # Clear the entire line and move cursor to beginning
+  printf "\r\033[K" >&2
+  # Also print a newline to ensure we're on a fresh line
+  printf "\n" >&2
 }
 
 # Wrapper function to run a command with automatic thinking timer
@@ -387,14 +397,15 @@ run_with_thinking_timer() {
   local command=("$@")
   
   # Start timer in background (waits 2 seconds before showing)
-  show_thinking_timer "$label" 2 &
+  # Pass current shell PID so timer can monitor when command finishes
+  show_thinking_timer "$label" 2 $$ &
   local timer_pid=$!
   
   # Run the command and capture output if needed
   local exit_code=0
   "${command[@]}" || exit_code=$?
   
-  # Stop timer
+  # Stop timer (this will also clear the line)
   stop_thinking_timer $timer_pid
   
   return $exit_code
