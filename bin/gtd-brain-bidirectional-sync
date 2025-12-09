@@ -234,15 +234,18 @@ if zettelkasten_dir.exists():
                     "has_local_log": False  # Zettelkasten notes don't have local logs
                 })
         else:
-            if mtime > cutoff_time:
-                new_files.append({
-                    "path": rel_path,
-                    "full_path": file_path,
-                    "type": "new",
-                    "created": mtime.isoformat(),
-                    "mtime": stat.st_mtime,
-                    "has_local_log": False
-                })
+            # New file (not tracked yet) - include if recent OR if never tracked
+            # This catches notes created in Obsidian that haven't been tracked
+            # New file (not tracked yet) - include it regardless of age
+            # This catches files created in Obsidian that haven't been tracked
+            new_files.append({
+                "path": rel_path,
+                "full_path": file_path,
+                "type": "new",
+                "created": mtime.isoformat(),
+                "mtime": stat.st_mtime,
+                "has_local_log": False
+            })
 
 # Check MOCs directory
 mocs_dir = second_brain / "MOCs"
@@ -266,15 +269,16 @@ if mocs_dir.exists():
                     "has_local_log": False
                 })
         else:
-            if mtime > cutoff_time:
-                new_files.append({
-                    "path": rel_path,
-                    "full_path": file_path,
-                    "type": "new",
-                    "created": mtime.isoformat(),
-                    "mtime": stat.st_mtime,
-                    "has_local_log": False
-                })
+            # New file (not tracked yet) - include it regardless of age
+            # This catches MOCs created in Obsidian that haven't been tracked
+            new_files.append({
+                "path": rel_path,
+                "full_path": file_path,
+                "type": "new",
+                "created": mtime.isoformat(),
+                "mtime": stat.st_mtime,
+                "has_local_log": False
+            })
 
 # Check Resources, Projects, Areas directories
 for para_dir in ["Resources", "Projects", "Areas"]:
@@ -586,14 +590,13 @@ sync_daily_logs_bidirectional() {
 sync_second_brain_files() {
   local changes_json="$1"
   
-  if [[ -z "$changes_json" ]]; then
-    return 0
-  fi
-  
   echo ""
   echo -e "${BOLD}${CYAN}📚 Syncing Second Brain Files (MOCs, Zettelkasten, etc.)${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
+  
+  # Even if changes_json is empty, we still want to scan for untracked files
+  # So we'll pass an empty dict if needed
   
   python3 <<EOF
 import json
@@ -605,9 +608,14 @@ second_brain = Path("$SECOND_BRAIN")
 sync_metadata_file = Path("$SYNC_METADATA_FILE")
 
 try:
-    changes_data = json.loads(changes_json)
-    new_files = changes_data.get("new_files", [])
-    changes = changes_data.get("changes", [])
+    # Parse changes_json, default to empty dict if invalid/empty
+    if changes_json and changes_json.strip() and changes_json != "{}":
+        changes_data = json.loads(changes_json)
+        new_files = changes_data.get("new_files", [])
+        changes = changes_data.get("changes", [])
+    else:
+        new_files = []
+        changes = []
     
     # Load metadata
     if sync_metadata_file.exists():
@@ -691,6 +699,26 @@ try:
     with open(sync_metadata_file, 'w') as f:
         json.dump(metadata, f, indent=2)
     
+    # Also check for MOCs that exist but aren't in metadata (catch-all)
+    moc_dir = second_brain / "MOCs"
+    if moc_dir.exists():
+        for moc_file in moc_dir.glob("*.md"):
+            rel_path = str(moc_file.relative_to(second_brain))
+            if rel_path not in file_timestamps:
+                # MOC exists but not tracked - add it
+                stat = moc_file.stat()
+                file_timestamps[rel_path] = {
+                    "mtime": stat.st_mtime,
+                    "size": stat.st_size,
+                    "last_synced": datetime.now().isoformat(),
+                    "type": "existing"
+                }
+                files_processed += 1
+                mocs_tracked += 1
+                moc_name = moc_file.name.replace(".md", "").replace("MOC - ", "")
+                if moc_name not in moc_list:
+                    moc_list.append(moc_name)
+    
     if files_processed > 0:
         print(f"✓ Acknowledged {files_processed} Second Brain file(s) from Obsidian:")
         print("")
@@ -708,20 +736,29 @@ try:
             print(f"   📄 Other: {files_processed - mocs_tracked - zettelkasten_tracked - resources_tracked} file(s)")
         print("")
         print("✅ Verification:")
-        if mocs_tracked > 0:
-            moc_dir = second_brain / "MOCs"
-            if moc_dir.exists():
-                local_moc_count = len(list(moc_dir.glob("*.md")))
-                print(f"   📚 Local MOCs directory: {moc_dir}")
-                print(f"   📊 Total MOCs in local system: {local_moc_count}")
+        if moc_dir.exists():
+            local_moc_count = len(list(moc_dir.glob("*.md")))
+            tracked_moc_count = len([p for p in file_timestamps.keys() if "MOCs" in p or "MOC" in p])
+            print(f"   📚 Local MOCs directory: {moc_dir}")
+            print(f"   📊 Total MOCs in local system: {local_moc_count}")
+            print(f"   📋 MOCs tracked in sync metadata: {tracked_moc_count}")
         print("")
         print("💡 These files are already in your local Second Brain directory")
         print("   (synced automatically via Obsidian iCloud/Dropbox)")
         print("💡 Sync metadata has been updated to track them for future syncs")
         print("")
     else:
-        print("✓ No new Second Brain files detected from Obsidian")
-        print("")
+        # Still show MOC count even if nothing new
+        if moc_dir.exists():
+            local_moc_count = len(list(moc_dir.glob("*.md")))
+            tracked_moc_count = len([p for p in file_timestamps.keys() if "MOCs" in p or "MOC" in p])
+            if local_moc_count > 0:
+                print(f"✓ Found {local_moc_count} MOC(s) in local system")
+                print(f"  {tracked_moc_count} already tracked in sync metadata")
+                print("")
+        else:
+            print("✓ No new Second Brain files detected from Obsidian")
+            print("")
 except Exception as e:
     # Silently fail - this is just metadata tracking
     pass
@@ -795,6 +832,9 @@ except Exception as e:
     print("")
 EOF
   
+  # Store changes_json for later use (even if empty, we still want to scan for untracked files)
+  local stored_changes_json="$changes_json"
+  
   # Show detected changes
   echo "🔍 Detecting changes in Obsidian..."
   echo ""
@@ -804,7 +844,8 @@ EOF
   
   # Sync MOCs, Zettelkasten, and other Second Brain files
   # (Update metadata tracking even though files are already synced via Obsidian)
-  sync_second_brain_files "$changes_json"
+  # Pass changes_json even if empty - function will scan for untracked files
+  sync_second_brain_files "${stored_changes_json:-{}}"
   
   # Update sync metadata
   python3 <<EOF
