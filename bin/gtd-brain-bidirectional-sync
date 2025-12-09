@@ -621,6 +621,7 @@ try:
     mocs_tracked = 0
     zettelkasten_tracked = 0
     resources_tracked = 0
+    moc_list = []
     
     # Process new files (MOCs, Zettelkasten, etc.)
     for file_info in new_files:
@@ -643,9 +644,11 @@ try:
             }
             files_processed += 1
             
-            # Count by type
+            # Count by type and collect MOC names
             if "MOCs" in rel_path or "MOC" in rel_path:
                 mocs_tracked += 1
+                moc_name = Path(rel_path).name.replace(".md", "").replace("MOC - ", "")
+                moc_list.append(moc_name)
             elif "Zettelkasten" in rel_path:
                 zettelkasten_tracked += 1
             elif "Resources" in rel_path:
@@ -672,9 +675,12 @@ try:
             }
             files_processed += 1
             
-            # Count by type
+            # Count by type and collect MOC names
             if "MOCs" in rel_path or "MOC" in rel_path:
                 mocs_tracked += 1
+                moc_name = Path(rel_path).name.replace(".md", "").replace("MOC - ", "")
+                if moc_name not in moc_list:
+                    moc_list.append(moc_name)
             elif "Zettelkasten" in rel_path:
                 zettelkasten_tracked += 1
             elif "Resources" in rel_path:
@@ -686,21 +692,35 @@ try:
         json.dump(metadata, f, indent=2)
     
     if files_processed > 0:
-        print(f"✓ Tracked {files_processed} Second Brain file(s):")
-        if mocs_tracked > 0:
-            print(f"   📚 MOCs: {mocs_tracked}")
-        if zettelkasten_tracked > 0:
-            print(f"   🔗 Zettelkasten: {zettelkasten_tracked}")
-        if resources_tracked > 0:
-            print(f"   📁 Resources: {resources_tracked}")
-        if files_processed - mocs_tracked - zettelkasten_tracked - resources_tracked > 0:
-            print(f"   📄 Other: {files_processed - mocs_tracked - zettelkasten_tracked - resources_tracked}")
+        print(f"✓ Acknowledged {files_processed} Second Brain file(s) from Obsidian:")
         print("")
-        print("💡 These files are already synced via Obsidian (iCloud/Dropbox)")
-        print("💡 Sync metadata has been updated to track them")
+        if mocs_tracked > 0:
+            print(f"   📚 MOCs: {mocs_tracked} file(s)")
+            for moc_name in sorted(set(moc_list))[:10]:  # Show up to 10, sorted
+                print(f"      • {moc_name}")
+            if len(moc_list) > 10:
+                print(f"      ... and {len(moc_list) - 10} more")
+        if zettelkasten_tracked > 0:
+            print(f"   🔗 Zettelkasten: {zettelkasten_tracked} note(s)")
+        if resources_tracked > 0:
+            print(f"   📁 Resources: {resources_tracked} file(s)")
+        if files_processed - mocs_tracked - zettelkasten_tracked - resources_tracked > 0:
+            print(f"   📄 Other: {files_processed - mocs_tracked - zettelkasten_tracked - resources_tracked} file(s)")
+        print("")
+        print("✅ Verification:")
+        if mocs_tracked > 0:
+            moc_dir = second_brain / "MOCs"
+            if moc_dir.exists():
+                local_moc_count = len(list(moc_dir.glob("*.md")))
+                print(f"   📚 Local MOCs directory: {moc_dir}")
+                print(f"   📊 Total MOCs in local system: {local_moc_count}")
+        print("")
+        print("💡 These files are already in your local Second Brain directory")
+        print("   (synced automatically via Obsidian iCloud/Dropbox)")
+        print("💡 Sync metadata has been updated to track them for future syncs")
         print("")
     else:
-        print("✓ No new Second Brain files to track")
+        print("✓ No new Second Brain files detected from Obsidian")
         print("")
 except Exception as e:
     # Silently fail - this is just metadata tracking
