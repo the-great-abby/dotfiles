@@ -1,0 +1,182 @@
+---
+description: Central rule index system for automatic context-aware rule application
+globs: ["**/*"]
+alwaysApply: true
+priority: 1
+---
+
+# Cursor Rules Index System
+
+**PURPOSE**: This system automatically determines which rules apply based on file patterns and content match strings, making the coding system more intelligent and context-aware.
+
+## How It Works
+
+### 1. **Rule Index** (`index.json`)
+- Central registry of all cursor rules
+- Maps file patterns and match strings to rules
+- Defines priority and categories
+- Enables automatic rule selection
+
+### 2. **Automatic Rule Selection**
+
+When working on a file, the system:
+1. Checks file path against `filePatterns` (glob patterns)
+2. Scans file content for `matchStrings` (keywords/phrases)
+3. Applies matching rules based on priority
+4. Always includes rules with `alwaysApply: true`
+
+### 3. **Rule Matching Logic**
+
+```json
+{
+  "filePatterns": ["**/*.sh", "**/bin/**"],  // File path matches
+  "matchStrings": ["function ", "show_thinking_timer"],  // Content matches
+  "alwaysApply": true,  // Always include
+  "priority": 10  // Higher = applied first
+}
+```
+
+**Match occurs when:**
+- File path matches ANY pattern in `filePatterns`, OR
+- File content contains ANY string in `matchStrings`, OR
+- Rule has `alwaysApply: true`
+
+## Current Rules
+
+### thinking-timer
+- **Applies to**: Shell scripts, Python files, bin directory
+- **Triggers**: LLM calls, API calls, web searches, network requests
+- **Priority**: 10 (high)
+- **Always applies**: Yes
+
+### unit-testing
+- **Applies to**: All code files, test files
+- **Triggers**: Function definitions, test keywords, new features
+- **Priority**: 9 (high)
+- **Always applies**: Yes
+
+## Adding New Rules
+
+### Step 1: Create Rule File
+Create `your-rule.mdc` in `.cursor/rules/`:
+
+```markdown
+---
+description: Your rule description
+globs: ["**/*.sh", "**/*.py"]
+alwaysApply: false
+priority: 5
+---
+
+# Your Rule Name
+
+Rule content here...
+```
+
+### Step 2: Register in Index
+Add to `index.json`:
+
+```json
+{
+  "id": "your-rule-id",
+  "file": "your-rule.mdc",
+  "description": "Your rule description",
+  "filePatterns": ["**/*.sh", "**/*.py"],
+  "matchStrings": ["keyword1", "keyword2"],
+  "alwaysApply": false,
+  "priority": 5,
+  "categories": ["category1", "category2"]
+}
+```
+
+### Step 3: Test Rule Matching
+Use the rule helper to verify:
+
+```bash
+# Check which rules apply to a file
+python3 .cursor/rules/rule_helper.py check path/to/file.sh
+```
+
+## Rule Priority
+
+Rules are applied in priority order (higher first):
+- **Priority 10+**: Critical rules (always apply)
+- **Priority 5-9**: Important rules (context-dependent)
+- **Priority 1-4**: General rules (context-dependent)
+- **Priority 0**: Default rules
+
+## Match Strings Best Practices
+
+### Effective Match Strings
+- ✅ Specific function names: `show_thinking_timer`
+- ✅ Common patterns: `def `, `function `
+- ✅ Domain keywords: `LLM`, `API call`, `web search`
+- ✅ File extensions: `.sh`, `.py` (use filePatterns instead)
+
+### Avoid
+- ❌ Too generic: `the`, `a`, `is`
+- ❌ Too specific: `very_long_function_name_that_only_appears_once`
+- ❌ Common words: `if`, `for`, `return`
+
+## File Patterns (Glob)
+
+Use standard glob patterns:
+- `**/*.sh` - All shell scripts
+- `**/bin/**` - Everything in bin directories
+- `**/tests/**/*.py` - Python files in tests
+- `zsh/functions/*.py` - Python files in zsh/functions
+
+## Categories
+
+Use categories to group related rules:
+- `performance` - Performance-related
+- `ux` - User experience
+- `testing` - Testing and QA
+- `quality` - Code quality
+- `bash` - Bash-specific
+- `python` - Python-specific
+- `security` - Security-related
+- `documentation` - Documentation
+
+## Rule Helper Script
+
+Use `rule_helper.py` to:
+- Check which rules apply to a file
+- Validate rule index
+- List all rules
+- Test match strings
+
+```bash
+# Check rules for a file
+python3 .cursor/rules/rule_helper.py check bin/gtd-wizard
+
+# List all rules
+python3 .cursor/rules/rule_helper.py list
+
+# Validate index
+python3 .cursor/rules/rule_helper.py validate
+```
+
+## Benefits
+
+1. **Context-Aware**: Rules apply automatically based on context
+2. **Maintainable**: Central index makes it easy to manage rules
+3. **Discoverable**: Easy to see which rules apply to what
+4. **Extensible**: Simple to add new rules
+5. **Intelligent**: System understands file types and content
+
+## Integration with AI
+
+The AI assistant should:
+1. Read `index.json` to understand available rules
+2. Check file patterns and match strings when working on files
+3. Apply relevant rules automatically
+4. Reference rule index when suggesting new rules
+
+## Maintenance
+
+- Update `index.json` when adding/removing rules
+- Review match strings periodically for effectiveness
+- Adjust priorities based on importance
+- Add categories as needed
+- Validate index regularly

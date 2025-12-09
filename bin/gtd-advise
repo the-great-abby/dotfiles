@@ -28,6 +28,17 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
+# Load AI config to get default persona for daily log reviews
+GTD_AI_CONFIG="$HOME/code/dotfiles/zsh/.gtd_config_ai"
+if [[ ! -f "$GTD_AI_CONFIG" && -f "$HOME/code/personal/dotfiles/zsh/.gtd_config_ai" ]]; then
+  GTD_AI_CONFIG="$HOME/code/personal/dotfiles/zsh/.gtd_config_ai"
+fi
+if [[ -f "$GTD_AI_CONFIG" ]]; then
+  source "$GTD_AI_CONFIG" 2>/dev/null || true
+fi
+# Default persona for daily log reviews (defaults to "skippy" if not set)
+GTD_DEFAULT_PERSONA="${GTD_DEFAULT_PERSONA:-skippy}"
+
 # Find persona helper
 PERSONA_HELPER=""
 POSSIBLE_PATHS=(
@@ -1362,7 +1373,7 @@ main() {
     --daily-log|--log)
       shift
       local date_range="${1:-today}"
-      # Get daily log(s) and review with all personas
+      # Get daily log(s) and review with default persona (single response)
       local log_content=$(get_daily_log_content "$date_range")
       if [[ $? -eq 0 ]]; then
         # Filter log content for advice (remove EMOM sections, keep first 5 and last 10 lines)
@@ -1375,7 +1386,7 @@ main() {
           *) range_desc="$date_range's" ;;
         esac
         local content=$(printf "Review my %s daily log(s) and provide advice:\n\n%s" "$range_desc" "$log_content")
-        advise_all "$content"
+        advise_single "$GTD_DEFAULT_PERSONA" "$content"
       else
         echo "❌ Could not load daily log"
         exit 1
@@ -1393,7 +1404,7 @@ main() {
       echo "  --all, -a                     Get advice from all personas"
       echo "  --context=<context>           Auto-select persona based on context"
       echo "  --review, -r                  Get review advice (uses latest review)"
-      echo "  --daily-log [range]           Review daily log(s) with all personas"
+      echo "  --daily-log [range]           Review daily log(s) with default persona"
       echo "                                Range: today (default), week, month, all, or YYYY-MM-DD"
       echo "  --random, -R                  Get advice from random persona"
       echo "  --simple, -s                  Ask a simple factual question (no GTD context)"
@@ -1421,7 +1432,7 @@ main() {
       echo "  gtd-advise hank \"What should I focus on today?\""
       echo "  gtd-advise --all \"Help me organize my tasks\""
       echo "  gtd-advise --all \"Review my daily log\"  # Auto-loads daily log"
-      echo "  gtd-advise --daily-log                    # Review today's log with all personas"
+      echo "  gtd-advise --daily-log                    # Review today's log with default persona"
       echo "  gtd-advise --daily-log week               # Review this week's logs"
       echo "  gtd-advise --daily-log month              # Review this month's logs"
       echo "  gtd-advise --daily-log all                # Review all logs"

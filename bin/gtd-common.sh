@@ -287,7 +287,7 @@ get_second_brain_notes() {
 gtd_get_frontmatter_value() {
   local file="$1"
   local key="$2"
-  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+  grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
 }
 
 # ============================================================================
@@ -372,17 +372,26 @@ show_thinking_timer() {
     idx=$(( (idx + 1) % ${#spinner_chars[@]} ))
     sleep 0.1
   done
+  
+  # Clear the timer line when exiting normally
+  printf "\r\033[K" >&2
 }
 
 # Stop thinking timer and clear the line
 stop_thinking_timer() {
   local timer_pid="$1"
   if [[ -n "$timer_pid" ]]; then
+    # Kill the timer process and wait for it
     kill "$timer_pid" 2>/dev/null
+    # Wait with timeout to avoid hanging
+    (sleep 0.5; kill -9 "$timer_pid" 2>/dev/null) &
     wait "$timer_pid" 2>/dev/null
+    kill %1 2>/dev/null  # Kill the timeout watcher
   fi
   # Clear the entire line and move cursor to beginning
+  # Use multiple methods to ensure display is cleared
   printf "\r\033[K" >&2
+  echo -ne "\r\033[K" >&2
   # Also print a newline to ensure we're on a fresh line
   printf "\n" >&2
 }

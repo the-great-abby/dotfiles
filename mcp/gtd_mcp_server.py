@@ -779,6 +779,45 @@ def read_area_file(area_path: Path) -> Dict[str, Any]:
     return area_data
 
 
+def read_goal_file(goal_path: Path) -> Dict[str, Any]:
+    """Read a goal file and return structured data."""
+    if not goal_path.exists():
+        return {}
+    
+    frontmatter = extract_frontmatter(goal_path)
+    
+    # Read content after frontmatter
+    content = ""
+    with open(goal_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        in_frontmatter = False
+        frontmatter_end = False
+        for line in lines:
+            if line.strip() == "---":
+                if not in_frontmatter:
+                    in_frontmatter = True
+                else:
+                    frontmatter_end = True
+                    continue
+            if frontmatter_end:
+                content += line
+    
+    goal_data = {
+        "name": frontmatter.get("name", goal_path.stem.replace("_", " ")),
+        "path": str(goal_path),
+        "type": "goal",
+        "status": frontmatter.get("status", "active"),
+        "progress": int(frontmatter.get("progress", 0)),
+        "created": frontmatter.get("created", ""),
+        "deadline": frontmatter.get("deadline", ""),
+        "area": frontmatter.get("area", ""),
+        "description": frontmatter.get("description", ""),
+        "content": content.strip()
+    }
+    
+    return goal_data
+
+
 def read_daily_log_file(date: Optional[str] = None) -> str:
     """Read a daily log file."""
     if date is None:
@@ -907,15 +946,22 @@ def call_fast_ai(prompt: str, system_prompt: str = None) -> str:
         headers={'Content-Type': 'application/json'}
     )
     
-    timeout = LM_CONFIG.get("timeout", 30)  # Faster timeout for quick responses
+    timeout = LM_CONFIG.get("timeout", 120)  # Use configured timeout (default 120 seconds)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             if 'error' in result:
                 return f"Error: {result['error'].get('message', 'Unknown error')}"
             if 'choices' in result and len(result['choices']) > 0:
-                return result['choices'][0]['message']['content']
-            return "No response from AI"
+                content = result['choices'][0]['message']['content']
+                if not content or len(content.strip()) == 0:
+                    return "Error: AI returned empty content"
+                return content
+            return "Error: No response from AI"
+    except urllib.error.URLError as e:
+        return f"Error: Could not connect to AI server: {e}"
+    except json.JSONDecodeError as e:
+        return f"Error: Invalid JSON response from AI server: {e}"
     except Exception as e:
         return f"Error calling AI: {e}"
 
@@ -1328,6 +1374,97 @@ async def handle_list_tools() -> List[Tool]:
             }
         ),
         Tool(
+            name="list_goals",
+            description="List all goals with their details and status.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by status (active, completed, all). Default: active"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="create_goal",
+            description="Create a new goal with optional deadline, area, and description.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Goal name"
+                    },
+                    "deadline": {
+                        "type": "string",
+                        "description": "Optional deadline in YYYY-MM-DD format"
+                    },
+                    "area": {
+                        "type": "string",
+                        "description": "Optional area of responsibility"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional goal description"
+                    }
+                },
+                "required": ["name"]
+            }
+        ),
+        Tool(
+            name="get_goal_details",
+            description="Get detailed information about a specific goal.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "goal_name": {
+                        "type": "string",
+                        "description": "Goal name"
+                    }
+                },
+                "required": ["goal_name"]
+            }
+        ),
+        Tool(
+            name="update_goal",
+            description="Update goal properties (progress, status, deadline, area, description).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "goal_name": {
+                        "type": "string",
+                        "description": "Goal name"
+                    },
+                    "progress": {
+                        "type": "integer",
+                        "description": "Progress percentage (0-100)"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Status (active, completed, on-hold)"
+                    },
+                    "deadline": {
+                        "type": "string",
+                        "description": "Deadline in YYYY-MM-DD format"
+                    },
+                    "area": {
+                        "type": "string",
+                        "description": "Area of responsibility"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Goal description"
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "Optional note for progress updates"
+                    }
+                },
+                "required": ["goal_name"]
+            }
+        ),
+        Tool(
             name="get_context_tasks",
             description="Get tasks available in a specific context and optional energy level.",
             inputSchema={
@@ -1404,6 +1541,37 @@ async def handle_list_tools() -> List[Tool]:
                     }
                 },
                 "required": ["item_type", "item_id", "command"]
+            }
+        ),
+        Tool(
+            name="plan_with_ai",
+            description="Interactive AI planning assistant. Helps break down goals into projects, projects into tasks, identifies dependencies, and asks thoughtful questions to help users think through what needs to happen.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "plan_type": {
+                        "type": "string",
+                        "description": "Type of planning: 'goal', 'project', 'task', or 'general'",
+                        "enum": ["goal", "project", "task", "general"]
+                    },
+                    "item_name": {
+                        "type": "string",
+                        "description": "Name of the item being planned (optional for general planning)"
+                    },
+                    "item_id": {
+                        "type": "string",
+                        "description": "ID of the item being planned (optional)"
+                    },
+                    "item_context": {
+                        "type": "string",
+                        "description": "Current context/content of the item (if available)"
+                    },
+                    "user_question": {
+                        "type": "string",
+                        "description": "Follow-up question from the user (for continuing conversation)"
+                    }
+                },
+                "required": ["plan_type"]
             }
         ),
     ]
@@ -2151,6 +2319,183 @@ Only suggest tasks that are clearly actionable. If no tasks are found, return an
             "count": len(areas)
         }, default=str))]
     
+    elif name == "list_goals":
+        status_filter = arguments.get("status", "active")
+        
+        goals = []
+        goals_dir = GTD_BASE_DIR / "goals"
+        
+        if goals_dir.exists():
+            for goal_file in goals_dir.glob("*.md"):
+                goal_data = read_goal_file(goal_file)
+                if goal_data:
+                    if status_filter == "all" or goal_data.get("status") == status_filter:
+                        goals.append(goal_data)
+        
+        return [TextContent(type="text", text=json.dumps({
+            "goals": goals,
+            "count": len(goals),
+            "status_filter": status_filter
+        }, default=str))]
+    
+    elif name == "create_goal":
+        goal_name = arguments.get("name", "")
+        deadline = arguments.get("deadline", "")
+        area = arguments.get("area", "")
+        description = arguments.get("description", "")
+        
+        import subprocess
+        
+        cmd = ["gtd-goal", "create", goal_name]
+        if deadline:
+            cmd.extend(["--deadline", deadline])
+        if area:
+            cmd.extend(["--area", area])
+        if description:
+            cmd.extend(["--description", description])
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(GTD_BASE_DIR.parent)
+        )
+        
+        if result.returncode == 0:
+            return [TextContent(type="text", text=json.dumps({
+                "success": True,
+                "message": f"Goal '{goal_name}' created",
+                "output": result.stdout
+            }))]
+        else:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Failed to create goal: {result.stderr}"
+            }))]
+    
+    elif name == "get_goal_details":
+        goal_name = arguments.get("goal_name", "")
+        goal_file = GTD_BASE_DIR / "goals" / f"{goal_name.replace(' ', '_')}.md"
+        
+        if not goal_file.exists():
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Goal '{goal_name}' not found"
+            }))]
+        
+        goal_data = read_goal_file(goal_file)
+        return [TextContent(type="text", text=json.dumps(goal_data, default=str))]
+    
+    elif name == "update_goal":
+        goal_name = arguments.get("goal_name", "")
+        progress = arguments.get("progress")
+        status = arguments.get("status")
+        deadline = arguments.get("deadline")
+        area = arguments.get("area")
+        description = arguments.get("description")
+        note = arguments.get("note", "")
+        
+        import subprocess
+        
+        # If progress is specified, use gtd-goal progress command
+        if progress is not None:
+            cmd = ["gtd-goal", "progress", goal_name, str(progress)]
+            if note:
+                cmd.append(note)
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=str(GTD_BASE_DIR.parent)
+            )
+            
+            if result.returncode != 0:
+                return [TextContent(type="text", text=json.dumps({
+                    "error": f"Failed to update goal progress: {result.stderr}"
+                }))]
+        
+        # For other updates, we need to modify the file directly
+        goal_file = GTD_BASE_DIR / "goals" / f"{goal_name.replace(' ', '_')}.md"
+        
+        if not goal_file.exists():
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Goal '{goal_name}' not found"
+            }))]
+        
+        # Read current content
+        goal_data = read_goal_file(goal_file)
+        
+        # Update fields if provided
+        if status:
+            goal_data["status"] = status
+        if deadline:
+            goal_data["deadline"] = deadline
+        if area:
+            goal_data["area"] = area
+        if description:
+            goal_data["description"] = description
+        
+        # Write updated frontmatter back to file
+        with open(goal_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Update frontmatter lines
+        updated_lines = []
+        in_frontmatter = False
+        frontmatter_end = False
+        frontmatter_fields = set()
+        
+        for line in lines:
+            if line.strip() == "---":
+                if not in_frontmatter:
+                    in_frontmatter = True
+                    updated_lines.append(line)
+                else:
+                    # Before closing frontmatter, add any missing fields
+                    if status and "status" not in frontmatter_fields:
+                        updated_lines.append(f"status: {status}\n")
+                    if deadline and "deadline" not in frontmatter_fields:
+                        updated_lines.append(f"deadline: {deadline}\n")
+                    if area and "area" not in frontmatter_fields:
+                        updated_lines.append(f"area: {area}\n")
+                    if description and "description" not in frontmatter_fields:
+                        updated_lines.append(f"description: {description}\n")
+                    
+                    frontmatter_end = True
+                    updated_lines.append(line)
+                    continue
+            
+            if in_frontmatter and not frontmatter_end:
+                # Track which fields exist
+                if ":" in line:
+                    field_name = line.split(":")[0].strip()
+                    frontmatter_fields.add(field_name)
+                
+                # Update frontmatter fields
+                if status and line.startswith("status:"):
+                    updated_lines.append(f"status: {status}\n")
+                elif deadline and line.startswith("deadline:"):
+                    updated_lines.append(f"deadline: {deadline}\n")
+                elif area and line.startswith("area:"):
+                    updated_lines.append(f"area: {area}\n")
+                elif description and line.startswith("description:"):
+                    updated_lines.append(f"description: {description}\n")
+                elif progress is not None and line.startswith("progress:"):
+                    updated_lines.append(f"progress: {progress}\n")
+                else:
+                    updated_lines.append(line)
+            else:
+                updated_lines.append(line)
+        
+        # Write back
+        with open(goal_file, 'w', encoding='utf-8') as f:
+            f.writelines(updated_lines)
+        
+        return [TextContent(type="text", text=json.dumps({
+            "success": True,
+            "message": f"Goal '{goal_name}' updated",
+            "goal": read_goal_file(goal_file)
+        }, default=str))]
+    
     elif name == "get_context_tasks":
         context = arguments.get("context", "")
         energy = arguments.get("energy")
@@ -2592,6 +2937,333 @@ Return ONLY the JSON object, no other text."""
         }
         
         return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+    
+    elif name == "plan_with_ai":
+        plan_type = arguments.get("plan_type", "general")
+        item_name = arguments.get("item_name", "")
+        item_id = arguments.get("item_id", "")
+        item_context = arguments.get("item_context", "")
+        user_question = arguments.get("user_question", "")
+        
+        # Build context-aware prompt based on plan type
+        if plan_type == "goal":
+            prompt = f"""You are a thoughtful GTD planning assistant helping to break down a goal into actionable projects.
+
+Goal: {item_name}
+Context: {item_context if item_context else "No additional context provided"}
+
+Your role:
+1. ANSWER the user's questions directly and helpfully
+2. Provide information, insights, and practical advice
+3. Identify what needs to happen for this goal to be achieved
+4. Break down the goal into 3-5 key projects
+5. Identify dependencies between projects
+6. Suggest next steps
+
+Think about:
+- What are the major milestones or outcomes needed?
+- What dependencies exist (e.g., "Before X can happen, Y must be done")?
+- What resources or skills are needed?
+- What are potential obstacles?
+- What's the logical sequence of work?
+
+IMPORTANT: When the user asks a question, ANSWER IT FIRST with helpful information. Then, if needed, ask 1-2 clarifying questions to better understand their specific situation. Do not just ask questions - provide value by answering what you can.
+
+{("User's question: " + user_question + chr(10) + chr(10) + "Please answer this question directly with helpful information, then provide a breakdown and ask any clarifying questions if needed.") if user_question else "Start by asking 2-3 thoughtful questions to understand the goal better, then provide a breakdown."}
+
+Return a JSON object with:
+{{
+  "questions": ["question 1", "question 2", ...],
+  "breakdown": {{
+    "projects": [
+      {{
+        "name": "Project name",
+        "description": "What this project accomplishes",
+        "dependencies": ["other project names or prerequisites"],
+        "estimated_effort": "low|medium|high",
+        "suggested_tasks": ["task 1", "task 2", ...]
+      }}
+    ],
+    "dependencies": [
+      {{
+        "from": "Project/Prerequisite name",
+        "to": "Dependent project name",
+        "reason": "Why this dependency exists"
+      }}
+    ]
+  }},
+  "insights": ["insight 1", "insight 2", ...],
+  "next_steps": ["step 1", "step 2", ...],
+  "conversation": "A natural, conversational response that includes your questions and thoughts"
+}}
+
+Return ONLY the JSON object, no other text."""
+        
+        elif plan_type == "project":
+            prompt = f"""You are a thoughtful GTD planning assistant helping to break down a project into actionable tasks.
+
+Project: {item_name}
+Context: {item_context if item_context else "No additional context provided"}
+
+Your role:
+1. Understand what the project needs to accomplish
+2. Break down the project into specific, actionable tasks
+3. Identify task dependencies and sequence
+4. Ask clarifying questions if needed
+5. Suggest priorities and effort estimates
+
+Think about:
+- What are the concrete steps needed to complete this project?
+- What order should tasks be done in?
+- What dependencies exist between tasks?
+- What can be done in parallel vs. sequentially?
+- What are the critical path items?
+
+{("User's question: " + user_question) if user_question else "Start by understanding the project, then provide a task breakdown."}
+
+Return a JSON object with:
+{{
+  "questions": ["question 1", "question 2", ...],
+  "breakdown": {{
+    "tasks": [
+      {{
+        "name": "Task name",
+        "description": "What needs to be done",
+        "dependencies": ["other task names"],
+        "priority": "low|medium|high|urgent",
+        "estimated_effort": "15min|30min|1h|2h|4h|1d",
+        "context": "where/when this can be done"
+      }}
+    ],
+    "sequence": ["task 1", "task 2", ...],
+    "parallel_work": [["task a", "task b"], ["task c", "task d"]]
+  }},
+  "insights": ["insight 1", "insight 2", ...],
+  "next_steps": ["step 1", "step 2", ...],
+  "conversation": "A natural, conversational response"
+}}
+
+Return ONLY the JSON object, no other text."""
+        
+        elif plan_type == "task":
+            prompt = f"""You are a thoughtful GTD planning assistant helping to plan the steps for a task.
+
+Task: {item_name}
+Context: {item_context if item_context else "No additional context provided"}
+
+Your role:
+1. Break down the task into smaller sub-steps
+2. Identify what's needed to complete the task
+3. Ask clarifying questions if the task is unclear
+4. Suggest resources or information needed
+
+{("User's question: " + user_question) if user_question else "Provide a step-by-step plan for this task."}
+
+Return a JSON object with:
+{{
+  "questions": ["question 1", "question 2", ...],
+  "steps": [
+    {{
+      "step": "Step description",
+      "order": 1,
+      "estimated_time": "time estimate",
+      "resources_needed": ["resource 1", ...]
+    }}
+  ],
+  "prerequisites": ["prerequisite 1", ...],
+  "conversation": "A natural, conversational response"
+}}
+
+Return ONLY the JSON object, no other text."""
+        
+        else:  # general
+            prompt = f"""You are a thoughtful GTD planning assistant helping someone think through something.
+
+{("User's question or topic: " + (user_question or item_name)) if (user_question or item_name) else "The user wants to think through something but hasn't specified what yet."}
+
+Your role:
+1. Ask thoughtful, open-ended questions to help them think
+2. Help identify what needs to happen
+3. Suggest breaking things down into goals, projects, or tasks
+4. Identify dependencies and relationships
+5. Help them see the bigger picture
+
+{("Context: " + item_context) if item_context else ""}
+
+Return a JSON object with:
+{{
+  "questions": ["thoughtful question 1", "thoughtful question 2", ...],
+  "suggestions": ["suggestion 1", "suggestion 2", ...],
+  "breakdown_suggestions": {{
+    "goals": ["goal 1", ...],
+    "projects": ["project 1", ...],
+    "tasks": ["task 1", ...]
+  }},
+  "conversation": "A natural, conversational response with your questions and thoughts"
+}}
+
+Return ONLY the JSON object, no other text."""
+        
+        system_prompt = """You are a thoughtful, helpful GTD planning assistant. When users ask questions, ANSWER THEM DIRECTLY with helpful information, insights, and practical advice. Then, if needed, ask 1-2 clarifying questions to better understand their specific situation. You help people think through complex problems, identify dependencies, and break down big ideas into actionable steps. You're conversational, curious, and help people see connections they might miss. Always provide value by answering what you can before asking for more information."""
+        
+        # Check if the user's question might need web search (factual questions, current info, etc.)
+        web_search_results = ""
+        if user_question:
+            # Keywords that suggest web search might be helpful
+            search_keywords = ["what are", "what is", "requirements", "standards", "evaluations", "how many", "list of", "current", "latest", "recent", "different", "types of"]
+            question_lower = user_question.lower()
+            if any(keyword in question_lower for keyword in search_keywords):
+                # Perform web search with timeout to prevent hanging
+                try:
+                    from zsh.functions.gtd_persona_helper import execute_web_search
+                    import threading
+                    import queue
+                    
+                    # Use threading with timeout to prevent blocking
+                    result_queue = queue.Queue()
+                    error_queue = queue.Queue()
+                    
+                    def search_worker():
+                        try:
+                            config = read_config()
+                            results = execute_web_search(user_question, context={"planning": True})
+                            result_queue.put(results)
+                        except Exception as e:
+                            error_queue.put(e)
+                    
+                    # Start search in background thread
+                    search_thread = threading.Thread(target=search_worker, daemon=True)
+                    search_thread.start()
+                    search_thread.join(timeout=15)  # 15 second timeout
+                    
+                    if search_thread.is_alive():
+                        # Search is still running, skip it
+                        pass
+                    elif not error_queue.empty():
+                        # Search had an error, skip it
+                        pass
+                    elif not result_queue.empty():
+                        # Got results
+                        web_search_results = result_queue.get()
+                        if web_search_results and len(web_search_results) > 50:
+                            # Add web search results to the prompt
+                            prompt = f"""{prompt}
+
+WEB SEARCH RESULTS (use this information to answer the user's question):
+{web_search_results}
+
+IMPORTANT: Use the web search results above to provide accurate, factual answers to the user's question. Then proceed with the planning breakdown."""
+                except Exception as e:
+                    # If web search fails, continue without it
+                    pass
+        
+        # Call the AI with error handling
+        try:
+            response = call_fast_ai(prompt, system_prompt)
+            
+            # Check if we got an error string (call_fast_ai returns error strings instead of raising)
+            if response and response.startswith("Error"):
+                return [TextContent(type="text", text=json.dumps({
+                    "error": response,
+                    "conversation": f"I encountered an error: {response}. Please check if your AI server (LM Studio or Ollama) is running and a model is loaded."
+                }))]
+            
+            # Check if we got a valid response
+            if not response or len(response.strip()) == 0:
+                return [TextContent(type="text", text=json.dumps({
+                    "error": "AI returned empty response",
+                    "conversation": "I'm sorry, but I didn't receive a response from the AI. Please try again or check if your AI server is running."
+                }))]
+        except Exception as e:
+            # If the AI call fails, return a helpful error message
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error calling AI: {str(e)}",
+                "conversation": f"I encountered an error while trying to get a response from the AI: {str(e)}. Please check if your AI server (LM Studio or Ollama) is running and a model is loaded."
+            }))]
+        
+        try:
+            import re
+            # Remove <think> tags and any content before the JSON
+            cleaned_response = response
+            # Remove <think>...</think> blocks (including multiline)
+            cleaned_response = re.sub(r'<think>.*?</think>', '', cleaned_response, flags=re.DOTALL)
+            # Remove any leading text before the first {
+            cleaned_response = re.sub(r'^[^{]*', '', cleaned_response, flags=re.DOTALL)
+            
+            # Try to find and fix incomplete JSON
+            # First, try to find the JSON object
+            json_match = re.search(r'\{.*', cleaned_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                
+                # Try to fix common truncation issues
+                # If JSON is incomplete, try to close it properly
+                open_braces = json_str.count('{')
+                close_braces = json_str.count('}')
+                
+                # If we have unclosed braces, try to close them
+                if open_braces > close_braces:
+                    # Find the last complete key-value pair
+                    # Try to close arrays and objects
+                    json_str = json_str.rstrip()
+                    # Remove trailing incomplete strings/values
+                    json_str = re.sub(r',\s*"[^"]*$', '', json_str)  # Remove incomplete string values
+                    json_str = re.sub(r',\s*[^,}\]]*$', '', json_str)  # Remove incomplete values
+                    # Close any open arrays/objects
+                    while json_str.count('[') > json_str.count(']'):
+                        json_str += ']'
+                    while json_str.count('{') > json_str.count('}'):
+                        json_str += '}'
+                
+                try:
+                    plan = json.loads(json_str)
+                    return [TextContent(type="text", text=json.dumps(plan, indent=2))]
+                except json.JSONDecodeError as json_err:
+                    # If still can't parse, try to extract what we can
+                    # Extract conversation if available
+                    conversation_match = re.search(r'"conversation"\s*:\s*"([^"]*)"', json_str, re.DOTALL)
+                    questions_match = re.search(r'"questions"\s*:\s*\[(.*?)\]', json_str, re.DOTALL)
+                    
+                    # Build a partial response with what we have
+                    partial_plan = {
+                        "error": "Response was truncated, but here's what I could extract",
+                        "conversation": conversation_match.group(1) if conversation_match else "The response was cut off. Please try asking a follow-up question or re-running the planning session.",
+                    }
+                    
+                    # Try to extract questions
+                    if questions_match:
+                        try:
+                            questions_str = "[" + questions_match.group(1) + "]"
+                            questions = json.loads(questions_str)
+                            partial_plan["questions"] = questions
+                        except:
+                            pass
+                    
+                    return [TextContent(type="text", text=json.dumps(partial_plan, indent=2))]
+            else:
+                # If we can't find JSON, try to return the raw response as conversation
+                # This handles cases where the AI returns plain text instead of JSON
+                return [TextContent(type="text", text=json.dumps({
+                    "error": "Could not parse AI response as JSON",
+                    "raw_response": response[:500],  # Limit raw response size
+                    "conversation": response[:1000] if response and len(response) > 0 else "I had trouble understanding the response. The AI's response may have been cut off. Please try asking a follow-up question or re-running the planning session.",
+                    "questions": [],
+                    "breakdown": {},
+                    "insights": [],
+                    "next_steps": []
+                }))]
+        except Exception as e:
+            # Make sure we have response variable even if parsing fails
+            response_text = response if 'response' in locals() else "No response received"
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error parsing AI response: {str(e)}",
+                "raw_response": response_text[:500] if len(response_text) > 500 else response_text,
+                "conversation": f"I encountered an error processing the response: {str(e)}. The response may have been truncated. Please try asking a follow-up question or re-running the planning session.",
+                "questions": [],
+                "breakdown": {},
+                "insights": [],
+                "next_steps": []
+            }))]
     
     else:
         return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]

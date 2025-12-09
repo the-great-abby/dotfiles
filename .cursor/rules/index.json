@@ -1,0 +1,72 @@
+{
+  "version": "1.0",
+  "description": "Central index of Cursor rules for automatic context-aware application",
+  "rules": [
+    {
+      "id": "thinking-timer",
+      "file": "thinking-timer.mdc",
+      "description": "Show thinking timer for operations taking longer than 2 seconds",
+      "filePatterns": [
+        "**/*.sh",
+        "**/*.py",
+        "**/bin/**",
+        "**/zsh/functions/**"
+      ],
+      "matchStrings": [
+        "show_thinking_timer",
+        "run_with_thinking_timer",
+        "LLM",
+        "API call",
+        "web search",
+        "network request",
+        "long-running",
+        "timeout",
+        "urllib.request",
+        "lmstudio",
+        "ollama"
+      ],
+      "alwaysApply": true,
+      "priority": 10,
+      "categories": ["performance", "ux", "bash", "python"]
+    },
+    {
+      "id": "unit-testing",
+      "file": "unit-testing.mdc",
+      "description": "Require unit tests for all new code",
+      "filePatterns": [
+        "**/*.sh",
+        "**/*.py",
+        "**/bin/**",
+        "**/zsh/functions/**",
+        "**/tests/**"
+      ],
+      "matchStrings": [
+        "def ",
+        "function ",
+        "test_",
+        "unittest",
+        "pytest",
+        "new feature",
+        "add functionality",
+        "implement",
+        "create function"
+      ],
+      "alwaysApply": true,
+      "priority": 9,
+      "categories": ["testing", "quality", "bash", "python"]
+    }
+  ],
+  "categories": {
+    "performance": "Rules related to performance optimization",
+    "ux": "Rules related to user experience",
+    "testing": "Rules related to testing and quality assurance",
+    "quality": "Rules related to code quality",
+    "bash": "Rules specific to bash/shell scripts",
+    "python": "Rules specific to Python code"
+  },
+  "matchLogic": {
+    "description": "Rules are matched when ANY filePattern OR matchString matches",
+    "priority": "Higher priority rules are applied first",
+    "alwaysApply": "Rules with alwaysApply=true are always included regardless of matches"
+  }
+}

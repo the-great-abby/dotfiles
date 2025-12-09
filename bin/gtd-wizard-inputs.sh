@@ -41,288 +41,312 @@ get_log_inspiration() {
 }
 # Capture wizard
 capture_wizard() {
-  clear
-  echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}📥 Capture Wizard${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-  show_capture_guide
-  echo "What type of item are you capturing?"
-  echo ""
-  echo "  1) Task (actionable item)"
-  echo "  2) Idea (someday/maybe)"
-  echo "  3) Reference (information to keep)"
-  echo "  4) Link (URL to save)"
-  echo "  5) Call (phone call notes)"
-  echo "  6) Email (email action)"
-  echo "  7) General note"
-  echo "  8) Zettelkasten note (atomic idea)"
-  echo "  9) Daily log entry"
-  echo ""
-  echo -n "Choose: "
-  read capture_type
-  
-  echo ""
-  echo -n "What do you want to capture? "
-  read capture_content
-  
-  if [[ -z "$capture_content" ]]; then
-    echo "❌ No content provided"
-    return 1
-  fi
-  
-  # For certain capture types, walk through 5 horizons
-  if [[ "$capture_type" == "1" ]] || [[ "$capture_type" == "2" ]] || [[ "$capture_type" == "7" ]]; then
+  # Loop to stay in capture mode
+  while true; do
+    clear
     echo ""
-    echo -e "${BOLD}🎯 5 Horizons of Focus - Where does this fit?${NC}"
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}📥 Capture Wizard${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo "The 5 Horizons help you see the bigger picture:"
+    show_capture_guide
+    echo "What type of item are you capturing?"
     echo ""
-    echo -e "  ${CYAN}Runway (Ground)${NC} - Current actions & tasks"
-    echo -e "  ${CYAN}10,000 ft${NC} - Current projects (outcomes with deadlines)"
-    echo -e "  ${CYAN}20,000 ft${NC} - Areas of responsibility (ongoing roles)"
-    echo -e "  ${CYAN}30,000 ft${NC} - 1-2 year goals & objectives"
-    echo -e "  ${CYAN}40,000 ft${NC} - 3-5 year vision & long-term goals"
+    echo "  1) Task (actionable item)"
+    echo "  2) Idea (someday/maybe)"
+    echo "  3) Reference (information to keep)"
+    echo "  4) Link (URL to save)"
+    echo "  5) Call (phone call notes)"
+    echo "  6) Email (email action)"
+    echo "  7) General note"
+    echo "  8) Zettelkasten note (atomic idea)"
+    echo "  9) Daily log entry"
     echo ""
-    echo "Where does this item fit in your horizons?"
-    echo ""
-    echo "  1) Runway (Ground) - Just a task/action"
-    echo "  2) 10,000 ft - Part of a current project"
-    echo "  3) 20,000 ft - Related to an area of responsibility"
-    echo "  4) 30,000 ft - Supports a 1-2 year goal"
-    echo "  5) 40,000 ft - Aligns with long-term vision"
-    echo "  0) Skip horizons (just capture it)"
+    echo -e "${YELLOW}  0) Exit capture mode${NC}"
     echo ""
     echo -n "Choose: "
-    read horizon_choice
+    read capture_type
     
-    case "$horizon_choice" in
-      1)
-        # Runway - just capture as task
-        horizon_context="runway"
-        ;;
-      2)
-        # 10,000 ft - project level
-        horizon_context="project"
-        echo ""
-        echo "Which project does this relate to?"
-        if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
-          selected_project=$(select_from_list "project" "$PROJECTS_PATH" "project")
-          if [[ -n "$selected_project" ]]; then
-            project_name=$(echo "$selected_project" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
-            horizon_context="project:$project_name"
-          fi
-        else
-          echo -n "Project name (or press Enter to skip): "
-          read project_input
-          if [[ -n "$project_input" ]]; then
-            horizon_context="project:$project_input"
-          fi
-        fi
-        ;;
-      3)
-        # 20,000 ft - area level
-        horizon_context="area"
-        echo ""
-        echo "Which area of responsibility does this relate to?"
-        if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -name "*.md" -type f 2>/dev/null)" ]]; then
-          selected_area=$(select_from_list "area" "$AREAS_PATH" "area")
-          if [[ -n "$selected_area" ]]; then
-            area_name=$(echo "$selected_area" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
-            horizon_context="area:$area_name"
-          fi
-        else
-          echo -n "Area name (or press Enter to skip): "
-          read area_input
-          if [[ -n "$area_input" ]]; then
-            horizon_context="area:$area_input"
-          fi
-        fi
-        ;;
-      4)
-        # 30,000 ft - 1-2 year goals
-        horizon_context="goal_1_2yr"
-        echo ""
-        echo -n "What 1-2 year goal does this support? (optional note): "
-        read goal_note
-        if [[ -n "$goal_note" ]]; then
-          horizon_context="goal_1_2yr:$goal_note"
-        fi
-        ;;
-      5)
-        # 40,000 ft - long-term vision
-        horizon_context="vision_3_5yr"
-        echo ""
-        echo -n "What long-term vision/goal does this align with? (optional note): "
-        read vision_note
-        if [[ -n "$vision_note" ]]; then
-          horizon_context="vision_3_5yr:$vision_note"
-        fi
-        ;;
-      0|"")
-        # Skip horizons
-        horizon_context=""
-        ;;
-      *)
-        horizon_context=""
-        ;;
-    esac
-  else
-    horizon_context=""
-  fi
-  
-  if [[ -z "$capture_content" ]]; then
-    echo "❌ No content provided"
-    return 1
-  fi
-  
-  case "$capture_type" in
-    1)
-      # Tasks should go directly to tasks directory, not inbox
-      # This allows them to appear in task management immediately
+    # Check if user wants to exit
+    if [[ "$capture_type" == "0" ]]; then
       echo ""
-      echo "Creating task..."
-      if [[ -n "$horizon_context" ]]; then
-        # Extract project/area from horizon context if present
-        if [[ "$horizon_context" == project:* ]]; then
-          project_name="${horizon_context#project:}"
-          gtd-task add "$capture_content" --project="$project_name"
-        elif [[ "$horizon_context" == area:* ]]; then
-          area_name="${horizon_context#area:}"
-          gtd-task add "$capture_content" --area="$area_name"
+      echo "Exiting capture mode..."
+      return 0
+    fi
+    
+    echo ""
+    echo -n "What do you want to capture? "
+    read capture_content
+    
+    if [[ -z "$capture_content" ]]; then
+      echo "❌ No content provided"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      continue  # Loop back to capture menu
+    fi
+    
+    # For certain capture types, walk through 5 horizons
+    if [[ "$capture_type" == "1" ]] || [[ "$capture_type" == "2" ]] || [[ "$capture_type" == "7" ]]; then
+      echo ""
+      echo -e "${BOLD}🎯 5 Horizons of Focus - Where does this fit?${NC}"
+      echo ""
+      echo "The 5 Horizons help you see the bigger picture:"
+      echo ""
+      echo -e "  ${CYAN}Runway (Ground)${NC} - Current actions & tasks"
+      echo -e "  ${CYAN}10,000 ft${NC} - Current projects (outcomes with deadlines)"
+      echo -e "  ${CYAN}20,000 ft${NC} - Areas of responsibility (ongoing roles)"
+      echo -e "  ${CYAN}30,000 ft${NC} - 1-2 year goals & objectives"
+      echo -e "  ${CYAN}40,000 ft${NC} - 3-5 year vision & long-term goals"
+      echo ""
+      echo "Where does this item fit in your horizons?"
+      echo ""
+      echo "  1) Runway (Ground) - Just a task/action"
+      echo "  2) 10,000 ft - Part of a current project"
+      echo "  3) 20,000 ft - Related to an area of responsibility"
+      echo "  4) 30,000 ft - Supports a 1-2 year goal"
+      echo "  5) 40,000 ft - Aligns with long-term vision"
+      echo "  0) Skip horizons (just capture it)"
+      echo ""
+      echo -n "Choose: "
+      read horizon_choice
+      
+      case "$horizon_choice" in
+        1)
+          # Runway - just capture as task
+          horizon_context="runway"
+          ;;
+        2)
+          # 10,000 ft - project level
+          horizon_context="project"
+          echo ""
+          echo "Which project does this relate to?"
+          if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+            selected_project=$(select_from_list "project" "$PROJECTS_PATH" "project")
+            if [[ -n "$selected_project" ]]; then
+              project_name=$(echo "$selected_project" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+              horizon_context="project:$project_name"
+            fi
+          else
+            echo -n "Project name (or press Enter to skip): "
+            read project_input
+            if [[ -n "$project_input" ]]; then
+              horizon_context="project:$project_input"
+            fi
+          fi
+          ;;
+        3)
+          # 20,000 ft - area level
+          horizon_context="area"
+          echo ""
+          echo "Which area of responsibility does this relate to?"
+          if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -name "*.md" -type f 2>/dev/null)" ]]; then
+            selected_area=$(select_from_list "area" "$AREAS_PATH" "area")
+            if [[ -n "$selected_area" ]]; then
+              area_name=$(echo "$selected_area" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+              horizon_context="area:$area_name"
+            fi
+          else
+            echo -n "Area name (or press Enter to skip): "
+            read area_input
+            if [[ -n "$area_input" ]]; then
+              horizon_context="area:$area_input"
+            fi
+          fi
+          ;;
+        4)
+          # 30,000 ft - 1-2 year goals
+          horizon_context="goal_1_2yr"
+          echo ""
+          echo -n "What 1-2 year goal does this support? (optional note): "
+          read goal_note
+          if [[ -n "$goal_note" ]]; then
+            horizon_context="goal_1_2yr:$goal_note"
+          fi
+          ;;
+        5)
+          # 40,000 ft - long-term vision
+          horizon_context="vision_3_5yr"
+          echo ""
+          echo -n "What long-term vision/goal does this align with? (optional note): "
+          read vision_note
+          if [[ -n "$vision_note" ]]; then
+            horizon_context="vision_3_5yr:$vision_note"
+          fi
+          ;;
+        0|"")
+          # Skip horizons
+          horizon_context=""
+          ;;
+        *)
+          horizon_context=""
+          ;;
+      esac
+    else
+      horizon_context=""
+    fi
+    
+    case "$capture_type" in
+      1)
+        # Tasks should go directly to tasks directory, not inbox
+        # This allows them to appear in task management immediately
+        echo ""
+        echo "Creating task..."
+        if [[ -n "$horizon_context" ]]; then
+          # Extract project/area from horizon context if present
+          if [[ "$horizon_context" == project:* ]]; then
+            project_name="${horizon_context#project:}"
+            gtd-task add "$capture_content" --project="$project_name"
+          elif [[ "$horizon_context" == area:* ]]; then
+            area_name="${horizon_context#area:}"
+            gtd-task add "$capture_content" --area="$area_name"
+          else
+            gtd-task add "$capture_content"
+          fi
         else
           gtd-task add "$capture_content"
         fi
-      else
-        gtd-task add "$capture_content"
-      fi
-      ;;
-    2)
-      # Idea - add horizon context to content if provided
-      if [[ -n "$horizon_context" ]]; then
-        horizon_note=""
-        case "$horizon_context" in
-          runway)
-            horizon_note="[Horizon: Runway - Current action]"
-            ;;
-          project:*)
-            project_name="${horizon_context#project:}"
-            horizon_note="[Horizon: 10k ft - Project: $project_name]"
-            ;;
-          area:*)
-            area_name="${horizon_context#area:}"
-            horizon_note="[Horizon: 20k ft - Area: $area_name]"
-            ;;
-          goal_1_2yr*)
-            goal_note="${horizon_context#goal_1_2yr:}"
-            if [[ -n "$goal_note" ]]; then
-              horizon_note="[Horizon: 30k ft - Goal: $goal_note]"
-            else
-              horizon_note="[Horizon: 30k ft - 1-2 year goal]"
-            fi
-            ;;
-          vision_3_5yr*)
-            vision_note="${horizon_context#vision_3_5yr:}"
-            if [[ -n "$vision_note" ]]; then
-              horizon_note="[Horizon: 40k ft - Vision: $vision_note]"
-            else
-              horizon_note="[Horizon: 40k ft - Long-term vision]"
-            fi
-            ;;
-        esac
-        gtd-capture --type=idea "$capture_content $horizon_note"
-      else
-        gtd-capture --type=idea "$capture_content"
-      fi
-      ;;
-    3)
-      gtd-capture --type=reference "$capture_content"
-      ;;
-    4)
-      gtd-capture --type=link "$capture_content"
-      ;;
-    5)
-      gtd-capture --type=call "$capture_content"
-      ;;
-    6)
-      gtd-capture --type=email "$capture_content"
-      ;;
-    7)
-      # General note - add horizon context to content if provided
-      if [[ -n "$horizon_context" ]]; then
-        horizon_note=""
-        case "$horizon_context" in
-          runway)
-            horizon_note="[Horizon: Runway - Current action]"
-            ;;
-          project:*)
-            project_name="${horizon_context#project:}"
-            horizon_note="[Horizon: 10k ft - Project: $project_name]"
-            ;;
-          area:*)
-            area_name="${horizon_context#area:}"
-            horizon_note="[Horizon: 20k ft - Area: $area_name]"
-            ;;
-          goal_1_2yr*)
-            goal_note="${horizon_context#goal_1_2yr:}"
-            if [[ -n "$goal_note" ]]; then
-              horizon_note="[Horizon: 30k ft - Goal: $goal_note]"
-            else
-              horizon_note="[Horizon: 30k ft - 1-2 year goal]"
-            fi
-            ;;
-          vision_3_5yr*)
-            vision_note="${horizon_context#vision_3_5yr:}"
-            if [[ -n "$vision_note" ]]; then
-              horizon_note="[Horizon: 40k ft - Vision: $vision_note]"
-            else
-              horizon_note="[Horizon: 40k ft - Long-term vision]"
-            fi
-            ;;
-        esac
-        gtd-capture "$capture_content $horizon_note"
-      else
-        gtd-capture "$capture_content"
-      fi
-      ;;
-    8)
-      zet "$capture_content"
-      ;;
-    9)
-      # Use gtd-daily-log script (standalone version of addInfoToDailyLog)
-      if command -v gtd-daily-log &>/dev/null; then
-        gtd-daily-log "$capture_content"
-      elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
-        "$HOME/code/dotfiles/bin/gtd-daily-log" "$capture_content"
-      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-daily-log" ]]; then
-        "$HOME/code/personal/dotfiles/bin/gtd-daily-log" "$capture_content"
-      elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
-        addInfoToDailyLog "$capture_content"
-      else
-        echo "❌ Daily log command not found. Using fallback..."
-        # Fallback: implement basic logging directly
-        local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
-        local today=$(date +"%Y-%m-%d")
-        local current_time=$(date +"%H:%M")
-        local log_file="${log_dir}/${today}.md"
-        mkdir -p "$log_dir"
-        if [[ ! -f "$log_file" ]]; then
-          echo "# Daily Log - $today" > "$log_file"
-          echo "" >> "$log_file"
+        ;;
+      2)
+        # Idea - add horizon context to content if provided
+        if [[ -n "$horizon_context" ]]; then
+          horizon_note=""
+          case "$horizon_context" in
+            runway)
+              horizon_note="[Horizon: Runway - Current action]"
+              ;;
+            project:*)
+              project_name="${horizon_context#project:}"
+              horizon_note="[Horizon: 10k ft - Project: $project_name]"
+              ;;
+            area:*)
+              area_name="${horizon_context#area:}"
+              horizon_note="[Horizon: 20k ft - Area: $area_name]"
+              ;;
+            goal_1_2yr*)
+              goal_note="${horizon_context#goal_1_2yr:}"
+              if [[ -n "$goal_note" ]]; then
+                horizon_note="[Horizon: 30k ft - Goal: $goal_note]"
+              else
+                horizon_note="[Horizon: 30k ft - 1-2 year goal]"
+              fi
+              ;;
+            vision_3_5yr*)
+              vision_note="${horizon_context#vision_3_5yr:}"
+              if [[ -n "$vision_note" ]]; then
+                horizon_note="[Horizon: 40k ft - Vision: $vision_note]"
+              else
+                horizon_note="[Horizon: 40k ft - Long-term vision]"
+              fi
+              ;;
+          esac
+          gtd-capture --type=idea "$capture_content $horizon_note"
+        else
+          gtd-capture --type=idea "$capture_content"
         fi
-        echo "${current_time} - ${capture_content}" >> "$log_file"
-        echo "✓ Added: ${current_time} - ${capture_content}"
-      fi
-      ;;
-    *)
-      gtd-capture "$capture_content"
-      ;;
-  esac
+        ;;
+      3)
+        gtd-capture --type=reference "$capture_content"
+        ;;
+      4)
+        gtd-capture --type=link "$capture_content"
+        ;;
+      5)
+        gtd-capture --type=call "$capture_content"
+        ;;
+      6)
+        gtd-capture --type=email "$capture_content"
+        ;;
+      7)
+        # General note - add horizon context to content if provided
+        if [[ -n "$horizon_context" ]]; then
+          horizon_note=""
+          case "$horizon_context" in
+            runway)
+              horizon_note="[Horizon: Runway - Current action]"
+              ;;
+            project:*)
+              project_name="${horizon_context#project:}"
+              horizon_note="[Horizon: 10k ft - Project: $project_name]"
+              ;;
+            area:*)
+              area_name="${horizon_context#area:}"
+              horizon_note="[Horizon: 20k ft - Area: $area_name]"
+              ;;
+            goal_1_2yr*)
+              goal_note="${horizon_context#goal_1_2yr:}"
+              if [[ -n "$goal_note" ]]; then
+                horizon_note="[Horizon: 30k ft - Goal: $goal_note]"
+              else
+                horizon_note="[Horizon: 30k ft - 1-2 year goal]"
+              fi
+              ;;
+            vision_3_5yr*)
+              vision_note="${horizon_context#vision_3_5yr:}"
+              if [[ -n "$vision_note" ]]; then
+                horizon_note="[Horizon: 40k ft - Vision: $vision_note]"
+              else
+                horizon_note="[Horizon: 40k ft - Long-term vision]"
+              fi
+              ;;
+          esac
+          gtd-capture "$capture_content $horizon_note"
+        else
+          gtd-capture "$capture_content"
+        fi
+        ;;
+      8)
+        zet "$capture_content"
+        ;;
+      9)
+        # Daily log entry - can be captured while staying in capture mode
+        # Use gtd-daily-log script (standalone version of addInfoToDailyLog)
+        if command -v gtd-daily-log &>/dev/null; then
+          gtd-daily-log "$capture_content"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-daily-log" "$capture_content"
+        elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-daily-log" ]]; then
+          "$HOME/code/personal/dotfiles/bin/gtd-daily-log" "$capture_content"
+        elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
+          addInfoToDailyLog "$capture_content"
+        else
+          echo "❌ Daily log command not found. Using fallback..."
+          # Fallback: implement basic logging directly
+          local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+          local today=$(date +"%Y-%m-%d")
+          local current_time=$(date +"%H:%M")
+          local log_file="${log_dir}/${today}.md"
+          mkdir -p "$log_dir"
+          if [[ ! -f "$log_file" ]]; then
+            echo "# Daily Log - $today" > "$log_file"
+            echo "" >> "$log_file"
+          fi
+          echo "${current_time} - ${capture_content}" >> "$log_file"
+          echo "✓ Added: ${current_time} - ${capture_content}"
+        fi
+        ;;
+      *)
+        gtd-capture "$capture_content"
+        ;;
+    esac
   
-  echo ""
-  echo "✓ Captured! Press Enter to continue..."
-  read
+    echo ""
+    echo -e "${GREEN}✓ Captured!${NC}"
+    echo ""
+    echo "What would you like to do next?"
+    echo "  1) Capture another item (stay in capture mode)"
+    echo "  2) Exit capture mode"
+    echo ""
+    echo -n "Choose: "
+    read continue_choice
+    
+    if [[ "$continue_choice" == "2" ]]; then
+      echo ""
+      echo "Exiting capture mode..."
+      return 0
+    fi
+    # If choice is 1 or anything else, loop continues
+  done
 }
 # Process wizard
 process_wizard() {

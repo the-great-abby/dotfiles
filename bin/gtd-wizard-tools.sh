@@ -2,6 +2,198 @@
 # GTD Wizard Tools Functions
 # Tools wizards for advice, config, learning, integrations
 
+# Helper function to save advice conversation to GTD system
+save_advice_conversation() {
+  local question="$1"
+  local persona="$2"
+  local answer="$3"
+  
+  if [[ -z "$question" || -z "$answer" ]]; then
+    echo "❌ Missing question or answer to save"
+    return 1
+  fi
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}💾 Save Advice Conversation${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "How would you like to save this conversation?"
+  echo ""
+  echo "  1) 📝 Note (Second Brain)"
+  echo "  2) 📋 Task"
+  echo "  3) 📁 Project"
+  echo "  4) 🎯 Area"
+  echo "  5) 🎯 Goal"
+  echo "  6) 🔗 Zettelkasten Note (atomic note)"
+  echo "  7) 📥 Inbox (for later processing)"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Skip (don't save)"
+  echo ""
+  echo -n "Choose: "
+  read save_choice
+  
+  # Create title from question (first 50 chars)
+  local title=$(echo "$question" | cut -c1-50)
+  if [[ ${#question} -gt 50 ]]; then
+    title="${title}..."
+  fi
+  
+  # Format the content
+  local content=""
+  if [[ -n "$persona" ]]; then
+    content="# Advice from ${persona}
+
+**Question:** ${question}
+
+**Answer:**
+${answer}"
+  else
+    content="# Advice Conversation
+
+**Question:** ${question}
+
+**Answer:**
+${answer}"
+  fi
+  
+  case "$save_choice" in
+    1)
+      # Save as Second Brain note
+      echo ""
+      echo "💾 Saving as Second Brain note..."
+      if command -v gtd-brain &>/dev/null; then
+        # Ask for PARA location
+        echo ""
+        echo "Where should this note go?"
+        echo "  1) Projects"
+        echo "  2) Areas"
+        echo "  3) Resources"
+        echo "  4) Archive"
+        echo ""
+        echo -n "Choose (1-4, default: Resources): "
+        read para_choice
+        local para_location="Resources"
+        case "$para_choice" in
+          1) para_location="Projects" ;;
+          2) para_location="Areas" ;;
+          3) para_location="Resources" ;;
+          4) para_location="Archive" ;;
+        esac
+        
+        # Create note
+        if echo "$content" | gtd-brain create "$title" "$para_location" 2>/dev/null; then
+          echo "✓ Saved as Second Brain note in ${para_location}"
+        else
+          echo "❌ Failed to create note. Saving to inbox instead..."
+          echo "$content" | gtd-capture "Advice: $title"
+        fi
+      else
+        echo "❌ gtd-brain command not found. Saving to inbox instead..."
+        echo "$content" | gtd-capture "Advice: $title"
+      fi
+      ;;
+    2)
+      # Save as task
+      echo ""
+      echo "💾 Saving as task..."
+      if command -v gtd-task &>/dev/null; then
+        if echo "$content" | gtd-task add "$title" 2>/dev/null; then
+          echo "✓ Saved as task"
+        else
+          echo "❌ Failed to create task. Saving to inbox instead..."
+          echo "$content" | gtd-capture "Task: $title"
+        fi
+      else
+        echo "❌ gtd-task command not found. Saving to inbox instead..."
+        echo "$content" | gtd-capture "Task: $title"
+      fi
+      ;;
+    3)
+      # Save as project
+      echo ""
+      echo "💾 Saving as project..."
+      if command -v gtd-project &>/dev/null; then
+        if echo "$content" | gtd-project create "$title" 2>/dev/null; then
+          echo "✓ Saved as project"
+        else
+          echo "❌ Failed to create project. Saving to inbox instead..."
+          echo "$content" | gtd-capture "Project: $title"
+        fi
+      else
+        echo "❌ gtd-project command not found. Saving to inbox instead..."
+        echo "$content" | gtd-capture "Project: $title"
+      fi
+      ;;
+    4)
+      # Save as area
+      echo ""
+      echo "💾 Saving as area..."
+      if command -v gtd-area &>/dev/null; then
+        if echo "$content" | gtd-area create "$title" 2>/dev/null; then
+          echo "✓ Saved as area"
+        else
+          echo "❌ Failed to create area. Saving to inbox instead..."
+          echo "$content" | gtd-capture "Area: $title"
+        fi
+      else
+        echo "❌ gtd-area command not found. Saving to inbox instead..."
+        echo "$content" | gtd-capture "Area: $title"
+      fi
+      ;;
+    5)
+      # Save as goal
+      echo ""
+      echo "💾 Saving as goal..."
+      if command -v gtd-goal &>/dev/null; then
+        if gtd-goal create "$title" --description "$content" 2>/dev/null; then
+          echo "✓ Saved as goal"
+        else
+          echo "❌ Failed to create goal. Saving to inbox instead..."
+          echo "$content" | gtd-capture "Goal: $title"
+        fi
+      else
+        echo "❌ gtd-goal command not found. Saving to inbox instead..."
+        echo "$content" | gtd-capture "Goal: $title"
+      fi
+      ;;
+    6)
+      # Save as zettelkasten note
+      echo ""
+      echo "💾 Saving as Zettelkasten note..."
+      if command -v zet &>/dev/null; then
+        if echo "$content" | zet create "$title" 2>/dev/null; then
+          echo "✓ Saved as Zettelkasten note"
+        else
+          echo "❌ Failed to create Zettelkasten note. Saving to inbox instead..."
+          echo "$content" | gtd-capture "Zettelkasten: $title"
+        fi
+      else
+        echo "❌ zet command not found. Saving to inbox instead..."
+        echo "$content" | gtd-capture "Zettelkasten: $title"
+      fi
+      ;;
+    7)
+      # Save to inbox
+      echo ""
+      echo "💾 Saving to inbox..."
+      if command -v gtd-capture &>/dev/null; then
+        echo "$content" | gtd-capture "Advice: $title"
+        echo "✓ Saved to inbox"
+      else
+        echo "❌ gtd-capture command not found"
+        return 1
+      fi
+      ;;
+    0|"")
+      echo "Skipped saving"
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+}
+
 advice_wizard() {
   clear
   echo ""
@@ -28,7 +220,16 @@ advice_wizard() {
       echo ""
       echo -n "What do you need advice about? "
       read question
-      gtd-advise --random "$question"
+      if [[ -n "$question" ]]; then
+        local advice_output=$(gtd-advise --random "$question" 2>&1)
+        echo "$advice_output"
+        echo ""
+        echo -e "${BOLD}Save this advice? (y/n):${NC} "
+        read save_advice
+        if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+          save_advice_conversation "$question" "random" "$advice_output"
+        fi
+      fi
       ;;
     2)
       echo ""
@@ -38,7 +239,14 @@ advice_wizard() {
         echo -n "Your question: "
         read question
         if [[ -n "$question" ]]; then
-          gtd-advise "$persona" "$question"
+          local advice_output=$(gtd-advise "$persona" "$question" 2>&1)
+          echo "$advice_output"
+          echo ""
+          echo -e "${BOLD}Save this advice? (y/n):${NC} "
+          read save_advice
+          if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+            save_advice_conversation "$question" "$persona" "$advice_output"
+          fi
         fi
       fi
       ;;
@@ -46,12 +254,28 @@ advice_wizard() {
       echo ""
       echo -n "What do you need advice about? "
       read question
-      gtd-advise --all "$question"
+      if [[ -n "$question" ]]; then
+        local advice_output=$(gtd-advise --all "$question" 2>&1)
+        echo "$advice_output"
+        echo ""
+        echo -e "${BOLD}Save this advice? (y/n):${NC} "
+        read save_advice
+        if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+          save_advice_conversation "$question" "all personas" "$advice_output"
+        fi
+      fi
       ;;
     4)
       echo ""
       echo "Reviewing your daily log..."
-      gtd-advise --daily-log
+      local advice_output=$(gtd-advise --daily-log 2>&1)
+      echo "$advice_output"
+      echo ""
+      echo -e "${BOLD}Save this review? (y/n):${NC} "
+      read save_advice
+      if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+        save_advice_conversation "Daily log review" "default persona" "$advice_output"
+      fi
       ;;
     5)
       echo ""
@@ -77,6 +301,10 @@ advice_wizard() {
           search_flag="--web-search"
         fi
         
+        # Store conversation for saving
+        local conversation_questions=("$question")
+        local conversation_answers=()
+        
         # Get initial answer
         # Note: --web-search must come before the persona when using --simple
         if [[ -n "$search_flag" ]]; then
@@ -94,9 +322,13 @@ advice_wizard() {
           echo "⚠️  AI Assistant: Please perform this search and include results in the prompt"
           echo ""
           
-          gtd-advise --simple --web-search "$persona" "$question"
+          local answer_output=$(gtd-advise --simple --web-search "$persona" "$question" 2>&1)
+          echo "$answer_output"
+          conversation_answers+=("$answer_output")
         else
-          gtd-advise --simple "$persona" "$question"
+          local answer_output=$(gtd-advise --simple "$persona" "$question" 2>&1)
+          echo "$answer_output"
+          conversation_answers+=("$answer_output")
         fi
         
         echo ""
@@ -135,23 +367,16 @@ advice_wizard() {
               break
             fi
             
+            # Add to conversation
+            conversation_questions+=("$followup_question")
+            
             echo ""
             echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${BOLD}${CYAN}💬 Answer from ${persona}${NC}"
             echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
             
-            # For follow-up questions, we need to:
-            # 1. Include the original question context so the search is specific
-            # 2. Make the follow-up question searchable with context
-            # 3. Format it clearly for the model
-            
             # Build a contextual search query that combines original topic with follow-up
-            # Extract key identifying terms from original question to maintain context:
-            # - Years/dates (e.g., "1967", "2020")
-            # - Proper nouns/capitalized phrases (e.g., "World Series", "John Smith", "United States")
-            # - Key topic phrases (multi-word capitalized terms)
-            
             local original_context=""
             
             # Extract years (4-digit numbers, likely years)
@@ -161,16 +386,12 @@ advice_wizard() {
             fi
             
             # Extract capitalized multi-word phrases (likely proper nouns/topics)
-            # Look for patterns like "Word Word", "Word of Word", or longer phrases
-            # This catches things like "Mount Everest", "Battle of Waterloo", "World Series" (if capitalized)
             local key_phrases=$(echo "$question" | grep -oE '[A-Z][a-z]+([ ]([A-Z][a-z]+|of|the|and|or)[ ]?)+[A-Z][a-z]+' | head -3)
             if [[ -n "$key_phrases" ]]; then
-              # Combine with existing context
               original_context="${original_context} ${key_phrases}"
             fi
             
             # Also extract single capitalized words if they're likely proper nouns
-            # (words that appear at start or after specific contexts)
             local single_proper=$(echo "$question" | grep -oE '([Ww]ho|[Ww]hat|[Ww]hen|[Ww]here|[Aa]bout|[Tt]ell|[Ss]how)[ ]+[A-Z][a-z]+' | grep -oE '[A-Z][a-z]+$' | head -2)
             if [[ -n "$single_proper" ]]; then
               original_context="${original_context} ${single_proper}"
@@ -182,33 +403,57 @@ advice_wizard() {
             # Build the search query: original context + follow-up question
             local search_query="${followup_question}"
             if [[ -n "$original_context" ]]; then
-              # Prepend context to make search specific to the same topic
               search_query="${original_context} ${followup_question}"
             else
-              # Fallback: include full original question for context if we couldn't extract key terms
               search_query="${question} ${followup_question}"
             fi
             
             # Create a clear prompt that includes context
             local followup_prompt="Context: We were discussing: ${question}\n\nFollow-up question: ${followup_question}\n\nAnswer this follow-up question about the same topic. Be specific and accurate."
             
+            local followup_answer=""
             if [[ -n "$search_flag" ]]; then
               # For web search, use the contextual search query
               echo "🔍 Performing web search for follow-up question..."
               echo ""
-              # Create a clear, direct question for the search
-              # The search query already includes context, so we just need the follow-up question
-              # But make it clear this is about the same topic we just discussed
-              gtd-advise --simple --web-search "$persona" "$search_query"
+              followup_answer=$(gtd-advise --simple --web-search "$persona" "$search_query" 2>&1)
+              echo "$followup_answer"
             else
               # Without web search, use the formatted prompt with context
-              gtd-advise --simple "$persona" "$followup_prompt"
+              followup_answer=$(gtd-advise --simple "$persona" "$followup_prompt" 2>&1)
+              echo "$followup_answer"
             fi
+            
+            conversation_answers+=("$followup_answer")
             
             echo ""
             echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
           done
+        fi
+        
+        # After conversation ends, offer to save
+        if [[ ${#conversation_questions[@]} -gt 0 ]]; then
+          # Build full conversation text
+          local full_conversation=""
+          for i in "${!conversation_questions[@]}"; do
+            local q_num=$((i+1))
+            full_conversation="${full_conversation}**Q${q_num}:** ${conversation_questions[$i]}
+
+**A${q_num}:**
+${conversation_answers[$i]}
+
+---
+
+"
+          done
+          
+          echo ""
+          echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+          read save_conv
+          if [[ "$save_conv" == "y" || "$save_conv" == "Y" ]]; then
+            save_advice_conversation "$question" "$persona" "$full_conversation"
+          fi
         fi
       fi
       ;;

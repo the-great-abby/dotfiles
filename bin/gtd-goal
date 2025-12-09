@@ -269,10 +269,10 @@ goal_dashboard() {
 case "${1:-}" in
   create)
     shift
-    local goal_name=""
-    local deadline=""
-    local area=""
-    local description=""
+    goal_name=""
+    deadline=""
+    area=""
+    description=""
     
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -302,9 +302,9 @@ case "${1:-}" in
     ;;
   progress|update)
     shift
-    local goal_name="$1"
-    local progress="$2"
-    local note="${3:-}"
+    goal_name="$1"
+    progress="$2"
+    note="${3:-}"
     update_progress "$goal_name" "$progress" "$note"
     ;;
   list)

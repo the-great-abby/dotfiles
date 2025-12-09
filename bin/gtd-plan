@@ -1,0 +1,813 @@
+#!/bin/bash
+# AI Planning Assistant - Interactive planning with local AI
+# Helps break down goals into projects, projects into tasks, and identify dependencies
+
+# Source common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get MCP Python using the helper function (ensures correct venv)
+MCP_PYTHON=$(gtd_get_mcp_python)
+if [[ -z "$MCP_PYTHON" ]]; then
+  echo "❌ Error: Could not find MCP Python environment"
+  echo "Please ensure the MCP venv is set up at: $HOME/code/dotfiles/mcp/venv"
+  exit 1
+fi
+
+# MCP server script directory
+MCP_DIR="$SCRIPT_DIR/../mcp"
+if [[ ! -d "$MCP_DIR" ]]; then
+  MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+fi
+
+# Verify MCP directory exists
+if [[ ! -d "$MCP_DIR" ]]; then
+  echo "❌ Error: MCP directory not found at: $MCP_DIR"
+  exit 1
+fi
+
+# Parse arguments
+PLAN_TYPE=""
+ITEM_NAME=""
+ITEM_ID=""
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --goal|--project|--task)
+      PLAN_TYPE="${1#--}"
+      shift
+      if [[ -n "$1" && ! "$1" =~ ^-- ]]; then
+        ITEM_NAME="$1"
+        shift
+      fi
+      ;;
+    --id)
+      shift
+      ITEM_ID="$1"
+      shift
+      ;;
+    *)
+      if [[ -z "$PLAN_TYPE" ]]; then
+        PLAN_TYPE="$1"
+        shift
+      elif [[ -z "$ITEM_NAME" ]]; then
+        ITEM_NAME="$1"
+        shift
+      else
+        echo "Unknown argument: $1"
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+# Interactive mode if no arguments
+if [[ -z "$PLAN_TYPE" ]]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🤖 AI Planning Assistant"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "What would you like to plan?"
+  echo ""
+  echo "  1) Goal - Break down a goal into projects"
+  echo "  2) Project - Break down a project into tasks"
+  echo "  3) Task - Plan the steps for a task"
+  echo "  4) General - Just want to think through something"
+  echo ""
+  echo -n "Choose: "
+  read choice
+  
+  case "$choice" in
+    1) PLAN_TYPE="goal" ;;
+    2) PLAN_TYPE="project" ;;
+    3) PLAN_TYPE="task" ;;
+    4) PLAN_TYPE="general" ;;
+    *) echo "Invalid choice"; exit 1 ;;
+  esac
+  
+  if [[ "$PLAN_TYPE" != "general" ]]; then
+    echo ""
+    
+    # Show available items based on plan type
+    GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+    PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
+    TASKS_PATH="${GTD_BASE_DIR}/${GTD_TASKS_DIR:-3-tasks}"
+    GOALS_DIR="${GTD_BASE_DIR}/${GTD_GOALS_DIR:-goals}"
+    
+    case "$PLAN_TYPE" in
+      goal)
+        echo "Available goals:"
+        echo ""
+        count=0
+        declare -a goal_names
+        declare -a goal_files
+        
+        # Try using gtd-goal list first (better formatting and logic)
+        if command -v gtd-goal &>/dev/null; then
+          goal_list_output=$(gtd-goal list 2>/dev/null)
+          if [[ -n "$goal_list_output" ]]; then
+            echo "$goal_list_output"
+            # Extract goal names from the list
+            while IFS= read -r line; do
+              if [[ "$line" =~ ^[0-9]+\.\ (.+)$ ]]; then
+                ((count++))
+                goal_names[$count]="${BASH_REMATCH[1]}"
+              fi
+            done <<< "$goal_list_output"
+          fi
+        fi
+        
+        # Fallback: read directly from files if gtd-goal didn't work or found nothing
+        if [[ $count -eq 0 ]] && [[ -d "$GOALS_DIR" ]]; then
+          # Use find to handle filenames with spaces
+          while IFS= read -r goal_file; do
+            [[ ! -f "$goal_file" ]] && continue
+            goal_name=$(grep "^name:" "$goal_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+            if [[ -z "$goal_name" ]]; then
+              goal_name=$(basename "$goal_file" .md | tr '_' ' ')
+            fi
+            goal_status=$(grep "^status:" "$goal_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "active")
+            # Default to active if no status field
+            if [[ -z "$goal_status" ]]; then
+              goal_status="active"
+            fi
+            # Show all goals, not just active (user might want to plan for completed goals too)
+            ((count++))
+            goal_names[$count]="$goal_name"
+            goal_files[$count]="$goal_file"
+            status_indicator=""
+            if [[ "$goal_status" != "active" ]]; then
+              status_indicator=" ($goal_status)"
+            fi
+            echo "  $count) $goal_name$status_indicator"
+          done < <(find "$GOALS_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort)
+        fi
+        
+        # Also check for goals referenced in projects (might not have goal files)
+        if [[ -d "$PROJECTS_PATH" ]]; then
+          project_goals=$(grep -r "^goal:" "$PROJECTS_PATH"/*/README.md 2>/dev/null | cut -d':' -f3- | sed 's/^[[:space:]]*//' | sort -u)
+          if [[ -n "$project_goals" ]]; then
+            echo ""
+            echo "Goals referenced in projects (may not have goal files):"
+            while IFS= read -r proj_goal; do
+              [[ -z "$proj_goal" ]] && continue
+              # Check if we already listed this goal
+              found=false
+              for i in $(seq 1 $count); do
+                if [[ "${goal_names[$i]}" == "$proj_goal" ]]; then
+                  found=true
+                  break
+                fi
+              done
+              if [[ "$found" == "false" ]]; then
+                ((count++))
+                goal_names[$count]="$proj_goal"
+                echo "  $count) $proj_goal (from project)"
+              fi
+            done <<< "$project_goals"
+          fi
+        fi
+        
+        if [[ $count -eq 0 ]]; then
+          echo "  No goals found."
+          echo "  You can still enter a goal name to plan for it."
+        fi
+        echo ""
+        echo -n "Enter goal name or number (or press Enter for new goal): "
+        read user_input
+        if [[ "$user_input" =~ ^[0-9]+$ ]] && [[ $user_input -ge 1 ]] && [[ $user_input -le $count ]]; then
+          # User selected a number, use the stored goal name
+          ITEM_NAME="${goal_names[$user_input]}"
+        elif [[ -n "$user_input" ]]; then
+          ITEM_NAME="$user_input"
+        fi
+        ;;
+      project)
+        echo "Available projects:"
+        echo ""
+        if command -v gtd-project &>/dev/null; then
+          gtd-project list --status=active 2>/dev/null | head -20
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-project" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-project" list --status=active 2>/dev/null | head -20
+        else
+          echo "  (gtd-project command not available)"
+        fi
+        echo ""
+        echo -n "Enter project name or number: "
+        read user_input
+        if [[ "$user_input" =~ ^[0-9]+$ ]]; then
+          # Try to extract project name from list (this is a bit hacky)
+          # For now, just use the number as-is and let the script try to find it
+          ITEM_NAME="$user_input"
+        elif [[ -n "$user_input" ]]; then
+          ITEM_NAME="$user_input"
+        fi
+        ;;
+      task)
+        echo "Available tasks:"
+        echo ""
+        if command -v gtd-task &>/dev/null; then
+          gtd-task list --status=active 2>/dev/null | head -20
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-task" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-task" list --status=active 2>/dev/null | head -20
+        else
+          echo "  (gtd-task command not available)"
+        fi
+        echo ""
+        echo -n "Enter task ID or name: "
+        read user_input
+        if [[ -n "$user_input" ]]; then
+          ITEM_NAME="$user_input"
+        fi
+        ;;
+    esac
+  fi
+fi
+
+# Get item details if provided
+ITEM_CONTEXT=""
+if [[ -n "$ITEM_NAME" || -n "$ITEM_ID" ]]; then
+  # Try to find and read the item
+  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
+  TASKS_PATH="${GTD_BASE_DIR}/${GTD_TASKS_DIR:-3-tasks}"
+  GOALS_DIR="${GTD_BASE_DIR}/${GTD_GOALS_DIR:-goals}"
+  
+  case "$PLAN_TYPE" in
+    goal)
+      if [[ -n "$ITEM_ID" ]]; then
+        ITEM_FILE="${GOALS_DIR}/${ITEM_ID}.md"
+      else
+        ITEM_FILE="${GOALS_DIR}/${ITEM_NAME}.md"
+      fi
+      if [[ -f "$ITEM_FILE" ]]; then
+        ITEM_CONTEXT=$(cat "$ITEM_FILE")
+      fi
+      ;;
+    project)
+      if [[ -n "$ITEM_ID" ]]; then
+        ITEM_FILE="${PROJECTS_PATH}/${ITEM_ID}/README.md"
+      else
+        # Try to find by name
+        for proj_dir in "${PROJECTS_PATH}"/*/; do
+          if [[ -f "${proj_dir}README.md" ]]; then
+            local proj_name=$(grep "^project:" "${proj_dir}README.md" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+            if [[ -z "$proj_name" ]]; then
+              proj_name=$(grep "^name:" "${proj_dir}README.md" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+            fi
+            if [[ "$proj_name" == "$ITEM_NAME" ]] || [[ "$(basename "$proj_dir")" == "$ITEM_NAME" ]]; then
+              ITEM_FILE="${proj_dir}README.md"
+              break
+            fi
+          fi
+        done
+      fi
+      if [[ -f "$ITEM_FILE" ]]; then
+        ITEM_CONTEXT=$(cat "$ITEM_FILE")
+      fi
+      ;;
+    task)
+      if [[ -n "$ITEM_ID" ]]; then
+        ITEM_FILE="${TASKS_PATH}/${ITEM_ID}.md"
+      else
+        ITEM_FILE="${TASKS_PATH}/${ITEM_NAME}.md"
+      fi
+      if [[ -f "$ITEM_FILE" ]]; then
+        ITEM_CONTEXT=$(cat "$ITEM_FILE")
+      fi
+      ;;
+  esac
+fi
+
+# Start interactive planning session
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "💭 Planning Session: $PLAN_TYPE"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+if [[ -n "$ITEM_NAME" ]]; then
+  echo "Planning for: $ITEM_NAME"
+  echo ""
+fi
+
+# Call MCP server for planning
+# Capture stdout (JSON response) while timer writes to stderr (visible to user)
+# Export variables for Python script (since we use quoted heredoc to avoid bash expansion issues)
+export MCP_DIR PLAN_TYPE ITEM_NAME ITEM_ID ITEM_CONTEXT
+RESULT=$(run_with_thinking_timer "Planning" "$MCP_PYTHON" <<'PYTHON_SCRIPT'
+import sys
+import json
+import asyncio
+from pathlib import Path
+import os
+
+# Add MCP directory to path - use the actual MCP directory from environment
+mcp_dir_env = os.environ.get('MCP_DIR')
+if mcp_dir_env:
+    mcp_dir = Path(mcp_dir_env).expanduser()
+else:
+    mcp_dir = Path.home() / 'code' / 'dotfiles' / 'mcp'
+    if not mcp_dir.exists():
+        mcp_dir = Path.home() / 'code' / 'personal' / 'dotfiles' / 'mcp'
+
+if mcp_dir.exists():
+    sys.path.insert(0, str(mcp_dir))
+    # Also add parent directory for zsh.functions imports
+    sys.path.insert(0, str(mcp_dir.parent))
+else:
+    print(json.dumps({"error": f"MCP directory not found: {mcp_dir}"}), file=sys.stderr)
+    sys.exit(1)
+
+try:
+    from gtd_mcp_server import handle_call_tool
+    
+    # Get arguments from environment
+    plan_type = os.environ.get('PLAN_TYPE', 'general')
+    item_name = os.environ.get('ITEM_NAME', '')
+    item_id = os.environ.get('ITEM_ID', '')
+    item_context = os.environ.get('ITEM_CONTEXT', '')
+    
+    # Call the planning tool
+    result = asyncio.run(handle_call_tool(
+        "plan_with_ai",
+        {
+            "plan_type": plan_type,
+            "item_name": item_name,
+            "item_id": item_id,
+            "item_context": item_context
+        }
+    ))
+    
+    # Extract text content
+    if result and len(result) > 0:
+        response_text = result[0].text if hasattr(result[0], 'text') else str(result[0])
+        print(response_text)
+    else:
+        print(json.dumps({"error": "No response from MCP server"}))
+        
+except Exception as e:
+    error_msg = "Error calling MCP server: " + str(e)
+    print(json.dumps({"error": error_msg}))
+    sys.exit(1)
+PYTHON_SCRIPT
+)
+
+EXIT_CODE=$?
+
+# Parse and format the response nicely
+if [[ $EXIT_CODE -eq 0 ]]; then
+  # Re-parse the result to display it nicely
+  echo "$RESULT" | "$MCP_PYTHON" -c "
+import sys
+import json
+import re
+
+# Read all input
+raw_input = sys.stdin.read()
+
+# Strip any thinking timer output or other non-JSON text before the first {
+# Look for the first { that starts a JSON object
+json_start = raw_input.find('{')
+if json_start > 0:
+    raw_input = raw_input[json_start:]
+
+# Also strip any trailing non-JSON text after the last }
+json_end = raw_input.rfind('}')
+if json_end >= 0:
+    raw_input = raw_input[:json_end + 1]
+
+try:
+    data = json.loads(raw_input)
+    
+    if 'error' in data:
+        print(f\"❌ Error: {data['error']}\")
+        if 'conversation' in data:
+            print(\"\")
+            print(data['conversation'])
+        elif 'raw_response' in data:
+            # Try to extract conversation from raw response
+            raw = data['raw_response']
+            # Remove <think> tags
+            raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL)
+            # Try to find JSON with conversation
+            json_match = re.search(r'\{.*\"conversation\".*\}', raw, re.DOTALL)
+            if json_match:
+                try:
+                    parsed = json.loads(json_match.group())
+                    if 'conversation' in parsed:
+                        print(\"\")
+                        print(parsed['conversation'])
+                except:
+                    pass
+        sys.exit(1)
+    
+    # Display conversation prominently first (main human-readable response)
+    if 'conversation' in data and data['conversation']:
+        print(\"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\")
+        print(\"💬 Planning Assistant Response:\")
+        print(\"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\")
+        print(\"\")
+        # Format conversation nicely (preserve paragraphs)
+        conversation = data['conversation']
+        # Split into paragraphs and format
+        paragraphs = conversation.split('\\n\\n')
+        for para in paragraphs:
+            para = para.strip()
+            if para:
+                print(para)
+                print(\"\")
+        print(\"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\")
+        print(\"\")
+    
+    # Display questions
+    if 'questions' in data and data['questions']:
+        print(\"❓ Questions to Consider:\")
+        print(\"\")
+        for i, q in enumerate(data['questions'], 1):
+            print(f\"  {i}. {q}\")
+        print(\"\")
+    
+    # Display breakdown
+    if 'breakdown' in data:
+        breakdown = data['breakdown']
+        
+        if 'projects' in breakdown:
+            print(\"📁 Suggested Projects:\")
+            print(\"\")
+            for i, proj in enumerate(breakdown['projects'], 1):
+                print(f\"  {i}. {proj.get('name', 'Unnamed Project')}\")
+                desc = proj.get('description', '')
+                if desc:
+                    print(f\"     {desc}\")
+                if proj.get('dependencies'):
+                    deps = ', '.join(proj['dependencies'])
+                    print(f\"     Depends on: {deps}\")
+                if proj.get('estimated_effort'):
+                    print(f\"     Effort: {proj['estimated_effort']}\")
+                if proj.get('suggested_tasks'):
+                    tasks_str = ', '.join(proj['suggested_tasks'])
+                    print(f\"     Tasks: {tasks_str}\")
+                print(\"\")
+        
+        if 'tasks' in breakdown:
+            print(\"✅ Suggested Tasks:\")
+            print(\"\")
+            for i, task in enumerate(breakdown['tasks'], 1):
+                print(f\"  {i}. {task.get('name', 'Unnamed Task')}\")
+                desc = task.get('description', '')
+                if desc:
+                    print(f\"     {desc}\")
+                if task.get('dependencies'):
+                    deps = ', '.join(task['dependencies'])
+                    print(f\"     Depends on: {deps}\")
+                if task.get('priority'):
+                    print(f\"     Priority: {task['priority']}\")
+                if task.get('estimated_effort'):
+                    print(f\"     Effort: {task['estimated_effort']}\")
+                if task.get('context'):
+                    print(f\"     Context: {task['context']}\")
+                print(\"\")
+        
+        if 'dependencies' in breakdown and breakdown['dependencies']:
+            print(\"🔗 Dependencies:\")
+            print(\"\")
+            for dep in breakdown['dependencies']:
+                print(f\"  • {dep.get('from')} → {dep.get('to')}\")
+                reason = dep.get('reason', '')
+                if reason:
+                    print(f\"    ({reason})\")
+            print(\"\")
+        
+        if 'sequence' in breakdown and breakdown['sequence']:
+            print(\"📋 Suggested Sequence:\")
+            print(\"\")
+            for i, item in enumerate(breakdown['sequence'], 1):
+                print(f\"  {i}. {item}\")
+            print(\"\")
+        
+        if 'parallel_work' in breakdown and breakdown['parallel_work']:
+            print(\"⚡ Work That Can Be Done in Parallel:\")
+            print(\"\")
+            for i, group in enumerate(breakdown['parallel_work'], 1):
+                group_str = ', '.join(group)
+                print(f\"  Group {i}: {group_str}\")
+            print(\"\")
+    
+    # Display insights
+    if 'insights' in data and data['insights']:
+        print(\"💡 Insights:\")
+        print(\"\")
+        for insight in data['insights']:
+            print(f\"  • {insight}\")
+        print(\"\")
+    
+    # Display next steps
+    if 'next_steps' in data and data['next_steps']:
+        print(\"🎯 Next Steps:\")
+        print(\"\")
+        for i, step in enumerate(data['next_steps'], 1):
+            print(f\"  {i}. {step}\")
+        print(\"\")
+    
+    # Display steps (for task planning)
+    if 'steps' in data and data['steps']:
+        print(\"📝 Step-by-Step Plan:\")
+        print(\"\")
+        for step in sorted(data['steps'], key=lambda x: x.get('order', 0)):
+            print(f\"  {step.get('order', '?')}. {step.get('step', '')}\")
+            if step.get('estimated_time'):
+                print(f\"     Time: {step['estimated_time']}\")
+            if step.get('resources_needed'):
+                resources_str = ', '.join(step['resources_needed'])
+                print(f\"     Resources: {resources_str}\")
+            print(\"\")
+    
+    # Display suggestions (for general planning)
+    if 'suggestions' in data and data['suggestions']:
+        print(\"💭 Suggestions:\")
+        print(\"\")
+        for suggestion in data['suggestions']:
+            print(f\"  • {suggestion}\")
+        print(\"\")
+    
+    # Display breakdown suggestions (for general planning)
+    if 'breakdown_suggestions' in data:
+        bs = data['breakdown_suggestions']
+        if bs.get('goals'):
+            print(\"🎯 Suggested Goals:\")
+            for goal in bs['goals']:
+                print(f\"  • {goal}\")
+            print(\"\")
+        if bs.get('projects'):
+            print(\"📁 Suggested Projects:\")
+            for proj in bs['projects']:
+                print(f\"  • {proj}\")
+            print(\"\")
+        if bs.get('tasks'):
+            print(\"✅ Suggested Tasks:\")
+            for task in bs['tasks']:
+                print(f\"  • {task}\")
+            print(\"\")
+        
+except json.JSONDecodeError as e:
+    # Try to extract JSON from raw input
+    # Find JSON object in the raw text
+    json_match = re.search(r'\{.*\}', raw_input, re.DOTALL)
+    if json_match:
+        try:
+            data = json.loads(json_match.group())
+            # If we successfully parsed, continue with normal display
+            # (fall through to display code below - we'll handle it in the main try block)
+        except Exception as e2:
+            # Still failed, show error
+            print('❌ Error parsing JSON response')
+            print(f'Original error: {e}')
+            print(f'Retry error: {e2}')
+            print(\"\")
+            print('Raw response (first 500 chars):')
+            print(raw_input[:500])
+            sys.exit(1)
+    else:
+        print('❌ Error parsing JSON response')
+        print(f'Error: {e}')
+        print(\"\")
+        print('Raw response (first 500 chars):')
+        print(raw_input[:500])
+        sys.exit(1)
+except Exception as e:
+    print(f\"❌ Error: {e}\")
+    print(\"\")
+    print('Raw response (first 500 chars):')
+    print(raw_input[:500] if 'raw_input' in locals() else 'No input available')
+    sys.exit(1)
+"
+  
+  # Loop to allow multiple follow-up questions
+  while true; do
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Would you like to:"
+    echo "  1) Create the suggested items (projects/tasks)"
+    echo "  2) Ask follow-up questions"
+    echo "  3) Save this plan as notes"
+    echo "  4) Done"
+    echo ""
+    echo -n "Choose: "
+    read next_action
+    
+    case "$next_action" in
+      1)
+        echo ""
+        echo "Creating items..."
+        # TODO: Parse AI response and create items
+        break
+        ;;
+      2)
+        echo ""
+        echo "Ask your question (or press Enter to go back):"
+        read question
+        if [[ -n "$question" ]]; then
+          # Re-run planning with the follow-up question
+          export MCP_DIR PLAN_TYPE ITEM_NAME ITEM_ID ITEM_CONTEXT
+          export user_question="$question"
+          RESULT=$(run_with_thinking_timer "Planning" "$MCP_PYTHON" <<PYTHON_SCRIPT
+import sys
+import json
+import asyncio
+from pathlib import Path
+import os
+
+# Add MCP directory to path - use the actual MCP directory from environment
+mcp_dir_env = os.environ.get('MCP_DIR')
+if mcp_dir_env:
+    mcp_dir = Path(mcp_dir_env).expanduser()
+else:
+    mcp_dir = Path.home() / 'code' / 'dotfiles' / 'mcp'
+    if not mcp_dir.exists():
+        mcp_dir = Path.home() / 'code' / 'personal' / 'dotfiles' / 'mcp'
+
+if mcp_dir.exists():
+    sys.path.insert(0, str(mcp_dir))
+    # Also add parent directory for zsh.functions imports
+    sys.path.insert(0, str(mcp_dir.parent))
+else:
+    print(json.dumps({"error": f"MCP directory not found: {mcp_dir}"}), file=sys.stderr)
+    sys.exit(1)
+
+try:
+    from gtd_mcp_server import handle_call_tool
+    
+    # Get arguments from environment
+    plan_type = os.environ.get('PLAN_TYPE', 'general')
+    item_name = os.environ.get('ITEM_NAME', '')
+    item_id = os.environ.get('ITEM_ID', '')
+    item_context = os.environ.get('ITEM_CONTEXT', '')
+    user_question = os.environ.get('user_question', '')
+    
+    # Call the planning tool with the follow-up question
+    result = asyncio.run(handle_call_tool(
+        "plan_with_ai",
+        {
+            "plan_type": plan_type,
+            "item_name": item_name,
+            "item_id": item_id,
+            "item_context": item_context,
+            "user_question": user_question
+        }
+    ))
+    
+    # Extract text content
+    if result and len(result) > 0:
+        response_text = result[0].text if hasattr(result[0], 'text') else str(result[0])
+        print(response_text)
+    else:
+        print(json.dumps({"error": "No response from MCP server"}))
+        
+except Exception as e:
+    error_msg = "Error calling MCP server: " + str(e)
+    print(json.dumps({"error": error_msg}))
+    sys.exit(1)
+PYTHON_SCRIPT
+)
+        
+        # Display the response (reuse the same formatting logic)
+        echo "$RESULT" | "$MCP_PYTHON" -c "
+import sys
+import json
+import re
+
+# Read all input
+raw_input = sys.stdin.read()
+
+# Strip any thinking timer output or other non-JSON text before the first {
+json_start = raw_input.find('{')
+if json_start > 0:
+    raw_input = raw_input[json_start:]
+
+# Also strip any trailing non-JSON text after the last }
+json_end = raw_input.rfind('}')
+if json_end >= 0:
+    raw_input = raw_input[:json_end + 1]
+
+try:
+    data = json.loads(raw_input)
+    
+    if 'error' in data:
+        print(f\"❌ Error: {data['error']}\")
+        if 'conversation' in data:
+            print(\"\")
+            print(data['conversation'])
+        elif 'raw_response' in data:
+            print(\"\")
+            print('Raw response:')
+            print(data['raw_response'][:500])
+        sys.exit(1)
+    
+    # Display conversation prominently first
+    if 'conversation' in data and data['conversation']:
+        print(\"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\")
+        print(\"💬 Planning Assistant Response:\")
+        print(\"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\")
+        print(\"\")
+        conversation = data['conversation']
+        paragraphs = conversation.split('\\n\\n')
+        for para in paragraphs:
+            para = para.strip()
+            if para:
+                print(para)
+                print(\"\")
+        print(\"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\")
+        print(\"\")
+    
+    # Display questions if any
+    if 'questions' in data and data['questions']:
+        print(\"❓ Questions to Consider:\")
+        print(\"\")
+        for i, q in enumerate(data['questions'], 1):
+            print(f\"  {i}. {q}\")
+        print(\"\")
+    
+    # Display breakdown if available
+    if 'breakdown' in data:
+        breakdown = data['breakdown']
+        if 'projects' in breakdown:
+            print(\"📁 Suggested Projects:\")
+            print(\"\")
+            for i, proj in enumerate(breakdown['projects'], 1):
+                print(f\"  {i}. {proj.get('name', 'Unnamed Project')}\")
+                desc = proj.get('description', '')
+                if desc:
+                    print(f\"     {desc}\")
+            print(\"\")
+    
+    # Display insights
+    if 'insights' in data and data['insights']:
+        print(\"💡 Insights:\")
+        print(\"\")
+        for insight in data['insights']:
+            print(f\"  • {insight}\")
+        print(\"\")
+    
+    # Display next steps
+    if 'next_steps' in data and data['next_steps']:
+        print(\"🎯 Next Steps:\")
+        print(\"\")
+        for i, step in enumerate(data['next_steps'], 1):
+            print(f\"  {i}. {step}\")
+        print(\"\")
+        
+except json.JSONDecodeError as e:
+    json_match = re.search(r'\{.*\}', raw_input, re.DOTALL)
+    if json_match:
+        try:
+            data = json.loads(json_match.group())
+            if 'conversation' in data:
+                print(data['conversation'])
+        except:
+            print('❌ Error parsing response')
+            print(raw_input[:500])
+    else:
+        print('❌ Error parsing response')
+        print(raw_input[:500])
+except Exception as e:
+    print(f\"❌ Error: {e}\")
+    print(raw_input[:500] if 'raw_input' in locals() else 'No input available')
+"
+          # After displaying response, continue the loop to allow another question
+          continue
+        else
+          echo "No question provided. Going back to menu..."
+          continue
+        fi
+        ;;
+      3)
+        echo ""
+        echo "Saving plan..."
+        # TODO: Save to notes
+        break
+        ;;
+      4)
+        echo ""
+        echo "Done."
+        break
+        ;;
+      *)
+        echo "Invalid choice. Please try again."
+        continue
+        ;;
+    esac
+  done
+fi
+
+exit $EXIT_CODE

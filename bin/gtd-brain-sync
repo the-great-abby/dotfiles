@@ -194,9 +194,148 @@ sync_references() {
   echo "✓ Reference sync complete"
 }
 
+# Initialize git repo in GTD directory if it doesn't exist
+init_gtd_git_repo() {
+  if [[ ! -d "$GTD_BASE_DIR" ]]; then
+    mkdir -p "$GTD_BASE_DIR"
+  fi
+  
+  # Check if git repo exists
+  if [[ ! -d "$GTD_BASE_DIR/.git" ]]; then
+    echo "📦 Initializing git repository in GTD directory..."
+    cd "$GTD_BASE_DIR" || return 1
+    
+    # Initialize git repo
+    git init --quiet || return 1
+    
+    # Create .gitignore if it doesn't exist
+    if [[ ! -f "$GTD_BASE_DIR/.gitignore" ]]; then
+      cat > "$GTD_BASE_DIR/.gitignore" <<EOF
+# GTD Git Ignore
+*.backup.*
+*.banter.*
+*.tmp
+*.swp
+*~
+.DS_Store
+.gtd/
+*.txt
+EOF
+      git add .gitignore
+      git commit -m "Initial commit: Add .gitignore" --quiet 2>/dev/null || true
+    fi
+    
+    echo "  ✓ Git repository initialized"
+  fi
+}
+
+# Git-based sync: commit changes and sync to Second Brain
+git_sync_to_second_brain() {
+  local source_dir="$1"
+  local dest_dir="$2"
+  local sync_type="${3:-files}"  # files, daily-logs, etc.
+  
+  if [[ ! -d "$source_dir" ]]; then
+    return 1
+  fi
+  
+  # Initialize git repo if needed
+  init_gtd_git_repo
+  
+  cd "$GTD_BASE_DIR" || return 1
+  
+  # Stage all changes
+  git add -A 2>/dev/null || true
+  
+  # Check if there are changes to commit
+  if git diff --staged --quiet 2>/dev/null && git diff --quiet 2>/dev/null; then
+    # No changes, but still sync files
+    echo "  (No changes to commit)"
+  else
+    # Commit with timestamp
+    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    local commit_msg="Sync ${sync_type} to Second Brain - ${timestamp}"
+    
+    git commit -m "$commit_msg" --quiet 2>/dev/null && {
+      echo "  ✓ Committed changes: ${commit_msg}"
+    } || {
+      echo "  ⚠️  No changes to commit"
+    }
+  fi
+  
+  # Create destination directory
+  mkdir -p "$dest_dir"
+  
+  # Copy files to Second Brain (excluding ignored files)
+  local files_copied=0
+  while IFS= read -r file; do
+    if [[ -f "$file" ]]; then
+      local rel_path="${file#$source_dir/}"
+      local dest_file="$dest_dir/$rel_path"
+      local dest_dir_path=$(dirname "$dest_file")
+      
+      mkdir -p "$dest_dir_path"
+      
+      # Only copy if source is newer or doesn't exist in dest
+      if [[ ! -f "$dest_file" ]] || [[ "$file" -nt "$dest_file" ]]; then
+        cp "$file" "$dest_file" 2>/dev/null && ((files_copied++))
+      fi
+    fi
+  done < <(find "$source_dir" -type f -name "*.md" ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
+  
+  if [[ $files_copied -gt 0 ]]; then
+    echo "  ✓ Copied ${files_copied} file(s) to Second Brain"
+  fi
+}
+
+# Git-based sync: pull from Second Brain
+git_sync_from_second_brain() {
+  local source_dir="$1"
+  local dest_dir="$2"
+  
+  if [[ ! -d "$source_dir" ]]; then
+    return 1
+  fi
+  
+  mkdir -p "$dest_dir"
+  
+  # Copy files from Second Brain to local (only if newer)
+  local files_copied=0
+  while IFS= read -r file; do
+    if [[ -f "$file" ]]; then
+      local rel_path="${file#$source_dir/}"
+      local dest_file="$dest_dir/$rel_path"
+      local dest_dir_path=$(dirname "$dest_file")
+      
+      mkdir -p "$dest_dir_path"
+      
+      # Only copy if source is newer or doesn't exist in dest
+      if [[ ! -f "$dest_file" ]] || [[ "$file" -nt "$dest_file" ]]; then
+        cp "$file" "$dest_file" 2>/dev/null && ((files_copied++))
+      fi
+    fi
+  done < <(find "$source_dir" -type f -name "*.md" ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
+  
+  if [[ $files_copied -gt 0 ]]; then
+    echo "  ✓ Pulled ${files_copied} file(s) from Second Brain"
+    
+    # Commit the pulled changes
+    init_gtd_git_repo
+    cd "$GTD_BASE_DIR" || return 1
+    
+    git add -A 2>/dev/null || true
+    if ! git diff --staged --quiet 2>/dev/null; then
+      local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+      git commit -m "Sync from Second Brain - ${timestamp}" --quiet 2>/dev/null && {
+        echo "  ✓ Committed pulled changes"
+      }
+    fi
+  fi
+}
+
 # Sync daily logs to Second Brain directory (for syncing between computers)
 sync_daily_logs() {
-  echo "🔄 Syncing Daily Logs to Second Brain..."
+  echo "🔄 Syncing Daily Logs to Second Brain (Git-based)..."
   
   local sync_dir="${SECOND_BRAIN}/Daily Logs"
   
@@ -209,21 +348,13 @@ sync_daily_logs() {
     return 0  # Don't fail, just skip
   fi
   
-  # Sync local → Second Brain using rsync
-  # --update: only update if source is newer (preserves newer files in destination)
-  # --exclude: skip banter files, backups, and .txt files (we only sync .md)
-  rsync -av --update \
-    --exclude='*.banter.*' \
-    --exclude='*.backup.*' \
-    --exclude='*.txt' \
-    "${DAILY_LOG_DIR}/" "${sync_dir}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
+  # Sync local → Second Brain using git
+  echo "  Syncing local → Second Brain..."
+  git_sync_to_second_brain "$DAILY_LOG_DIR" "$sync_dir" "daily-logs"
   
   # Sync Second Brain → local (pull new/updated files)
-  # --update: only update if source is newer (preserves newer local files)
-  rsync -av --update \
-    --exclude='*.banter.*' \
-    --exclude='*.backup.*' \
-    "${sync_dir}/" "${DAILY_LOG_DIR}/" 2>/dev/null | grep -E "^[^/]|^deleting" | sed 's/^/  /' || true
+  echo "  Syncing Second Brain → local..."
+  git_sync_from_second_brain "$sync_dir" "$DAILY_LOG_DIR"
   
   echo "  ✓ Daily logs synced to: ${sync_dir}"
   echo "    (Will sync automatically via Obsidian to other computers)"

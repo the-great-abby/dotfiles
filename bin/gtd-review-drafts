@@ -1,0 +1,369 @@
+#!/bin/bash
+# GTD Draft Review - Review and process auto-generated insight drafts
+
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# Load GTD config
+load_gtd_config
+init_gtd_paths
+
+# Default values
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+DRAFTS_DIR="${SECOND_BRAIN}/Express/drafts"
+ZET_DIR="${SECOND_BRAIN}/Zettelkasten"
+
+# Create directories if needed
+mkdir -p "$DRAFTS_DIR"
+mkdir -p "$ZET_DIR"
+
+# Find editor
+EDITOR="${EDITOR:-nvim}"
+
+# List all drafts
+list_drafts() {
+  local drafts=()
+  while IFS= read -r draft; do
+    [[ -f "$draft" ]] && drafts+=("$draft")
+  done < <(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | sort -r)
+  
+  echo "${drafts[@]}"
+}
+
+# Get draft info
+get_draft_info() {
+  local draft_path="$1"
+  local title=$(grep "^# " "$draft_path" 2>/dev/null | head -1 | sed 's/^# //' || basename "$draft_path" .md)
+  local created=$(grep "^**Created:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^**Created:**[[:space:]]*//' || echo "Unknown")
+  local confidence=$(grep "^**Confidence:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^**Confidence:**[[:space:]]*//' || echo "N/A")
+  local source_date=$(grep "^**Source Date:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^**Source Date:**[[:space:]]*//' || echo "Unknown")
+  
+  echo "$title|$created|$confidence|$source_date"
+}
+
+# Accept draft - convert to zettelkasten note
+accept_draft() {
+  local draft_path="$1"
+  
+  if [[ ! -f "$draft_path" ]]; then
+    echo "Error: Draft not found: $draft_path" >&2
+    return 1
+  fi
+  
+  # Extract title and content
+  local title=$(grep "^# " "$draft_path" | head -1 | sed 's/^# //')
+  local insight_section=$(awk '/^## Insight$/,/^---$/' "$draft_path" | sed '/^## Insight$/d' | sed '/^---$/d')
+  
+  # Create zettelkasten note using zet command
+  if command -v zet &>/dev/null; then
+    # Use zet to create note in zettelkasten
+    local zet_id=$(date +"%Y%m%d%H%M%S")
+    local sanitized_title=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+    local zet_file="${ZET_DIR}/${zet_id}-${sanitized_title}.md"
+    
+    # Create zettelkasten note
+    cat > "$zet_file" <<EOF
+# ${title}
+
+**Zettelkasten ID:** \`${zet_id}\`  
+**Created:** $(date +"%Y-%m-%d %H:%M")  
+**Source:** Auto-extracted from daily log
+
+---
+
+## Insight
+
+${insight_section}
+
+---
+
+## Links
+
+<!-- Link to related notes using [[note name]] -->
+
+## Tags
+
+#zettelkasten #evergreen-insight
+
+---
+
+*Promoted from draft on $(date +"%Y-%m-%d")*
+EOF
+    
+    echo "$zet_file"
+    return 0
+  else
+    echo "Error: 'zet' command not found. Install it to create zettelkasten notes." >&2
+    return 1
+  fi
+}
+
+# Reject draft - delete it
+reject_draft() {
+  local draft_path="$1"
+  
+  if [[ -f "$draft_path" ]]; then
+    rm "$draft_path"
+    echo "✓ Rejected and deleted: $(basename "$draft_path")"
+    return 0
+  else
+    echo "Error: Draft not found: $draft_path" >&2
+    return 1
+  fi
+}
+
+# Edit draft - open in editor
+edit_draft() {
+  local draft_path="$1"
+  
+  if [[ ! -f "$draft_path" ]]; then
+    echo "Error: Draft not found: $draft_path" >&2
+    return 1
+  fi
+  
+  cd "$(dirname "$draft_path")" || return 1
+  $EDITOR "$draft_path"
+  
+  echo "✓ Edited: $(basename "$draft_path")"
+  return 0
+}
+
+# Review a single draft
+review_draft() {
+  local draft_path="$1"
+  
+  if [[ ! -f "$draft_path" ]]; then
+    return 1
+  fi
+  
+  clear
+  echo ""
+  gtd_print_header "📝 Review Draft Note" "" "$CYAN"
+  echo ""
+  
+  # Get draft info
+  local info=$(get_draft_info "$draft_path")
+  IFS='|' read -r title created confidence source_date <<< "$info"
+  
+  echo -e "${BOLD}Title:${NC} $title"
+  echo -e "${BOLD}Created:${NC} $created"
+  echo -e "${BOLD}Source Date:${NC} $source_date"
+  echo -e "${BOLD}Confidence:${NC} $confidence"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Show insight section
+  local insight=$(awk '/^## Insight$/,/^---$/' "$draft_path" | sed '/^## Insight$/d' | sed '/^---$/d')
+  echo "$insight"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Show source
+  local source=$(awk '/^## Source$/,/^---$/' "$draft_path" | sed '/^## Source$/d' | sed '/^---$/d')
+  echo -e "${GRAY}Source:${NC}"
+  echo "$source"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Action menu
+  echo "What would you like to do?"
+  echo ""
+  echo "  [a] Accept - Convert to zettelkasten note"
+  echo "  [e] Edit - Open in editor to refine"
+  echo "  [r] Reject - Delete this draft"
+  echo "  [s] Skip - Leave for later"
+  echo "  [q] Quit - Exit review"
+  echo ""
+  read -p "Choice: " choice
+  
+  case "$choice" in
+    a|A|accept)
+      local zet_file=$(accept_draft "$draft_path")
+      if [[ -n "$zet_file" && -f "$zet_file" ]]; then
+        echo ""
+        echo -e "${GREEN}✓ Accepted! Created zettelkasten note:${NC} $(basename "$zet_file")"
+        reject_draft "$draft_path" >/dev/null 2>&1
+        echo ""
+        read -p "Press Enter to continue..."
+        return 0
+      else
+        echo ""
+        echo -e "${RED}✗ Failed to create zettelkasten note${NC}"
+        echo ""
+        read -p "Press Enter to continue..."
+        return 1
+      fi
+      ;;
+    e|E|edit)
+      edit_draft "$draft_path"
+      echo ""
+      read -p "Press Enter to continue..."
+      return 2  # Continue reviewing
+      ;;
+    r|R|reject)
+      echo ""
+      read -p "Are you sure you want to delete this draft? (y/N): " confirm
+      if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        reject_draft "$draft_path"
+        echo ""
+        read -p "Press Enter to continue..."
+        return 0
+      else
+        return 2  # Continue reviewing
+      fi
+      ;;
+    s|S|skip)
+      echo ""
+      echo "Skipped. Will review later."
+      echo ""
+      read -p "Press Enter to continue..."
+      return 2  # Continue reviewing
+      ;;
+    q|Q|quit)
+      return 1
+      ;;
+    *)
+      echo "Invalid choice. Skipping..."
+      sleep 1
+      return 2
+      ;;
+  esac
+}
+
+# Main review function
+review_all_drafts() {
+  local drafts=($(list_drafts))
+  local total=${#drafts[@]}
+  
+  if [[ $total -eq 0 ]]; then
+    echo ""
+    echo -e "${GREEN}✓ No draft notes to review!${NC}"
+    echo ""
+    return 0
+  fi
+  
+  echo ""
+  echo -e "${CYAN}Found ${total} draft note(s) to review${NC}"
+  echo ""
+  
+  local reviewed=0
+  local accepted=0
+  local rejected=0
+  local edited=0
+  
+  for draft in "${drafts[@]}"; do
+    review_draft "$draft"
+    local result=$?
+    
+    ((reviewed++))
+    
+    case $result in
+      0)
+        ((accepted++))
+        ;;
+      1)
+        break  # Quit
+        ;;
+      2)
+        ((edited++))
+        ;;
+    esac
+  done
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "${CYAN}Review Summary${NC}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  Reviewed: $reviewed / $total"
+  echo "  Accepted: $accepted"
+  echo "  Rejected: $rejected"
+  echo "  Edited: $edited"
+  echo "  Remaining: $((total - reviewed))"
+  echo ""
+}
+
+# Quick summary for morning check-in
+show_summary() {
+  local drafts=($(list_drafts))
+  local count=${#drafts[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    return 0
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "${BOLD}📝 Draft Notes for Review${NC}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "I created ${count} draft note(s) from your recent daily logs."
+  echo ""
+  echo "These are evergreen insights I detected - review them?"
+  echo ""
+  read -p "Review drafts now? (y/N): " review_now
+  
+  if [[ "$review_now" == "y" || "$review_now" == "Y" ]]; then
+    review_all_drafts
+  else
+    echo ""
+    echo "You can review them later with: gtd-review-drafts"
+    echo ""
+  fi
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-review-drafts [command]
+
+Commands:
+  (no args)     Review all drafts interactively
+  summary       Show summary (for morning check-in)
+  list          List all drafts
+  help          Show this help
+
+Examples:
+  gtd-review-drafts          # Review all drafts
+  gtd-review-drafts summary  # Show summary (used in morning check-in)
+  gtd-review-drafts list     # List all drafts
+
+Actions during review:
+  [a] Accept - Convert to zettelkasten note
+  [e] Edit - Open in editor to refine
+  [r] Reject - Delete this draft
+  [s] Skip - Leave for later
+  [q] Quit - Exit review
+EOF
+}
+
+# Main
+case "${1:-review}" in
+  review)
+    review_all_drafts
+    ;;
+  summary)
+    show_summary
+    ;;
+  list)
+    list_drafts
+    ;;
+  help|--help|-h)
+    show_usage
+    ;;
+  *)
+    echo "Unknown command: $1"
+    show_usage
+    exit 1
+    ;;
+esac

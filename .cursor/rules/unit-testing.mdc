@@ -1,0 +1,166 @@
+---
+description: Require unit tests for all new code
+globs: ["**/*.sh", "**/*.py", "**/bin/**", "**/zsh/functions/**", "**/tests/**"]
+alwaysApply: true
+priority: 9
+---
+
+# Unit Testing Requirement Rule
+
+**CRITICAL**: All new code must include unit tests. This ensures code quality, prevents regressions, and makes refactoring safer.
+
+## Testing Requirements
+
+### 1. **New Features Must Include Tests**
+- When adding new functionality, create corresponding unit tests
+- Tests should cover:
+  - Happy path (normal operation)
+  - Edge cases (empty inputs, boundary conditions)
+  - Error handling (invalid inputs, failures)
+  - Integration points (function interactions)
+
+### 2. **Test File Locations**
+- **Bash scripts**: `tests/test_<module_name>.sh`
+- **Python scripts**: `tests/test_<module_name>.py`
+- Follow existing naming conventions
+
+### 3. **Test Structure**
+
+#### Bash Tests
+```bash
+#!/bin/bash
+source "$(dirname "$0")/test_helpers.sh"
+source "$(dirname "$0")/../bin/<module>.sh"
+
+test_init "module-name"
+test_assert_success "command" "Description"
+test_assert_equal "expected" "actual" "Description"
+test_summary
+```
+
+#### Python Tests
+```python
+#!/usr/bin/env python3
+import unittest
+from unittest.mock import Mock, patch
+from module import function
+
+class TestModule(unittest.TestCase):
+    def test_function_happy_path(self):
+        result = function("input")
+        self.assertEqual(result, "expected")
+    
+    def test_function_edge_case(self):
+        result = function("")
+        self.assertIsNone(result)
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+### 4. **What to Test**
+
+#### For Enhanced Search System
+- ✅ Query enhancement logic (`should_enhance_query`)
+- ✅ Query generation (`generate_queries`)
+- ✅ Result synthesis (`synthesize_results`)
+- ✅ LLM integration (with mocks)
+- ✅ Error handling and fallbacks
+- ✅ Context handling
+
+#### For Wizard Functions
+- ✅ Function availability
+- ✅ Path resolution
+- ✅ Selection helpers (`select_from_list`, etc.)
+- ✅ Integration with GTD system
+- ✅ Error handling
+
+#### For Persona Helper
+- ✅ Query extraction from prompts
+- ✅ Web search integration
+- ✅ Enhanced search integration
+- ✅ Context extraction
+
+### 5. **Running Tests**
+
+```bash
+# Run all tests
+./tests/run_tests.sh
+
+# Run specific test suite
+./tests/test_<module>.sh
+python3 tests/test_<module>.py
+```
+
+### 6. **Test Coverage Goals**
+- **Minimum**: 70% code coverage for new code
+- **Ideal**: 80%+ coverage
+- Focus on critical paths and error handling
+
+### 7. **When Writing Code**
+
+**Before submitting code:**
+1. ✅ Write tests first (TDD) or alongside code
+2. ✅ Run tests locally: `./tests/run_tests.sh`
+3. ✅ Ensure all tests pass
+4. ✅ Add tests for any bug fixes
+
+**Code review checklist:**
+- [ ] Are there tests for the new functionality?
+- [ ] Do tests cover edge cases?
+- [ ] Are error cases tested?
+- [ ] Do tests use mocks for external dependencies?
+
+### 8. **Test Quality Standards**
+
+- **Clear test names**: `test_function_name_scenario`
+- **One assertion per test** (when possible)
+- **Use mocks** for external dependencies (LLM calls, file I/O, network)
+- **Test isolation**: Each test should be independent
+- **Fast execution**: Tests should run quickly (< 1 second each)
+
+### 9. **Examples**
+
+#### Testing Enhanced Search Query Enhancement
+```python
+def test_should_enhance_query_good_query(self):
+    """Test that good queries don't need enhancement"""
+    good_query = "how do you train for a half marathon?"
+    result = self.search_system.should_enhance_query(good_query)
+    self.assertFalse(result)
+```
+
+#### Testing Wizard Function Availability
+```bash
+test_assert_success "declare -f select_from_list &>/dev/null" \
+  "select_from_list function should be available"
+```
+
+### 10. **Exceptions**
+
+Tests are NOT required for:
+- Simple one-line utility functions
+- Configuration files
+- Documentation-only changes
+- Comments and formatting
+
+However, if in doubt, **add tests**.
+
+## Integration with CI/CD
+
+- Tests should be runnable in CI/CD pipelines
+- All tests must pass before merging
+- Test failures block deployment
+
+## Maintenance
+
+- Update tests when changing functionality
+- Remove obsolete tests
+- Refactor tests along with code
+- Keep test code clean and maintainable
+
+## Resources
+
+- Test helpers: `tests/test_helpers.sh`
+- Test runner: `tests/run_tests.sh`
+- Existing test examples: `tests/test_*.sh` and `tests/test_*.py`

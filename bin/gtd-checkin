@@ -24,11 +24,18 @@ if [[ -f "$DAILY_LOG_CONFIG" ]]; then
   source "$DAILY_LOG_CONFIG"
 fi
 
-# Additional paths
+# Ensure GTD paths are initialized
+if command -v init_gtd_paths &>/dev/null; then
+  init_gtd_paths
+fi
+
+# Additional paths (with fallbacks)
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
 HABITS_PATH="${GTD_BASE_DIR}/habits"
 TASKS_PATH="${GTD_BASE_DIR}/${GTD_TASKS_DIR:-1-tasks}"
 PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-3-projects}"
+AREAS_PATH="${AREAS_PATH:-${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}}"
 INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR:-0-inbox}"
 
 # Use common date helpers
@@ -497,6 +504,43 @@ EOF
   # Small delay to ensure all output is flushed before showing quick actions
   sleep 0.1
   
+  # Auto-scan for insights if enabled
+  if [[ "${GTD_INSIGHT_AUTO_SCAN:-true}" == "true" && "${GTD_INSIGHT_SCANNING_ENABLED:-true}" == "true" ]]; then
+    if command -v gtd-scan-insights &>/dev/null; then
+      # Run scan quietly in background (non-blocking)
+      gtd-scan-insights scan "${GTD_INSIGHT_SCAN_DAYS:-7}" quiet &
+    fi
+  fi
+  
+  # Check for draft notes from insight scanning
+  if command -v gtd-review-drafts &>/dev/null; then
+    SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+    DRAFTS_DIR="${SECOND_BRAIN}/Express/drafts"
+    if [[ -d "$DRAFTS_DIR" ]]; then
+      local draft_count=$(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+      if [[ $draft_count -gt 0 ]]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${BOLD}📝 Draft Notes for Review${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "I created ${draft_count} draft note(s) from your recent daily logs."
+        echo ""
+        echo "These are evergreen insights I detected - review them?"
+        echo ""
+        read -p "Review drafts now? (y/N): " review_drafts
+        
+        if [[ "$review_drafts" == "y" || "$review_drafts" == "Y" ]]; then
+          gtd-review-drafts
+        else
+          echo ""
+          echo "You can review them later with: gtd-review-drafts"
+          echo ""
+        fi
+      fi
+    fi
+  fi
+  
   # Check for pending suggestions
   SUGGESTIONS_DIR="${GTD_BASE_DIR}/suggestions"
   local pending_suggestions_count=0
@@ -744,7 +788,86 @@ evening_checkin() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   echo "Which areas got attention today?"
-  read -p "   " areas_attention
+  echo ""
+  
+  # List active areas
+  local areas=()
+  local area_names=()
+  local area_display_names=()
+  
+  if [[ -d "$AREAS_PATH" ]]; then
+    while IFS= read -r area_file; do
+      [[ ! -f "$area_file" ]] && continue
+      
+      local status=$(grep "^status:" "$area_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//' || echo "active")
+      if [[ "$status" == "active" ]]; then
+        local area_name=$(basename "$area_file" .md)
+        local display_name=$(echo "$area_name" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+        
+        areas+=("$area_file")
+        area_names+=("$area_name")
+        area_display_names+=("$display_name")
+      fi
+    done < <(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null | sort)
+  fi
+  
+  local selected_areas=()
+  
+  if [[ ${#areas[@]} -eq 0 ]]; then
+    echo "  No active areas defined yet."
+    echo "  Create one with: gtd-area create <name>"
+    echo ""
+    read -p "  Enter areas manually (or press Enter to skip): " areas_attention
+  else
+    # Show area list with numbers
+    local i=1
+    for display_name in "${area_display_names[@]}"; do
+      echo "  [$i] $display_name"
+      ((i++))
+    done
+    echo "  [a] All areas"
+    echo "  [n] None / Skip"
+    echo "  [m] Manual entry"
+    echo ""
+    
+    read -p "  Select areas (comma-separated numbers, e.g., 1,3,5): " area_selection
+    
+    if [[ -z "$area_selection" || "$area_selection" == "n" || "$area_selection" == "N" ]]; then
+      areas_attention=""
+    elif [[ "$area_selection" == "a" || "$area_selection" == "A" ]]; then
+      # Select all areas
+      selected_areas=("${area_display_names[@]}")
+      local old_ifs="$IFS"
+      IFS=', '
+      areas_attention="${selected_areas[*]}"
+      IFS="$old_ifs"
+    elif [[ "$area_selection" == "m" || "$area_selection" == "M" ]]; then
+      # Manual entry
+      read -p "  Enter areas manually: " areas_attention
+    else
+      # Parse comma-separated numbers
+      IFS=',' read -ra selections <<< "$area_selection"
+      for sel in "${selections[@]}"; do
+        sel=$(echo "$sel" | tr -d '[:space:]')
+        if [[ "$sel" =~ ^[0-9]+$ ]]; then
+          local idx=$((sel - 1))
+          if [[ $idx -ge 0 && $idx -lt ${#area_display_names[@]} ]]; then
+            selected_areas+=("${area_display_names[$idx]}")
+          fi
+        fi
+      done
+      
+      if [[ ${#selected_areas[@]} -gt 0 ]]; then
+        local old_ifs="$IFS"
+        IFS=', '
+        areas_attention="${selected_areas[*]}"
+        IFS="$old_ifs"
+      else
+        areas_attention=""
+      fi
+    fi
+  fi
+  
   echo ""
   
   # Tomorrow preview

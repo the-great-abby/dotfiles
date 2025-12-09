@@ -21,13 +21,29 @@ TOTAL_TESTS=0
 TOTAL_PASSED=0
 TOTAL_FAILED=0
 
-# Run each test file
+# Run bash test files
 for test_file in "$SCRIPT_DIR"/test_*.sh; do
   if [[ -f "$test_file" && "$(basename "$test_file")" != "test_helpers.sh" ]]; then
     echo -e "${YELLOW}Running: $(basename "$test_file")${NC}"
     echo ""
     
     if bash "$test_file"; then
+      TOTAL_PASSED=$((TOTAL_PASSED + 1))
+    else
+      TOTAL_FAILED=$((TOTAL_FAILED + 1))
+    fi
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    echo ""
+  fi
+done
+
+# Run Python test files
+for test_file in "$SCRIPT_DIR"/test_*.py; do
+  if [[ -f "$test_file" ]]; then
+    echo -e "${YELLOW}Running: $(basename "$test_file")${NC}"
+    echo ""
+    
+    if python3 "$test_file" 2>&1; then
       TOTAL_PASSED=$((TOTAL_PASSED + 1))
     else
       TOTAL_FAILED=$((TOTAL_FAILED + 1))

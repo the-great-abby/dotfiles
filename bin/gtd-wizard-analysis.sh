@@ -730,8 +730,10 @@ goal_tracking_wizard() {
   echo "  2) Update goal progress"
   echo "  3) View goal dashboard"
   echo "  4) List all goals"
-  echo "  5) Mark goal as complete"
-  echo "  6) 💬 Restructure with natural language"
+  echo "  5) View goal details"
+  echo "  6) Update goal properties (status, deadline, area, description)"
+  echo "  7) Mark goal as complete"
+  echo "  8) 💬 Restructure with natural language"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -777,9 +779,118 @@ goal_tracking_wizard() {
       
       echo ""
       echo -e "${YELLOW}What area of your life does this relate to?${NC}"
-      echo -e "${GREEN}Examples:${NC} Health, Career, Learning, Relationships, Finances, Hobbies"
       echo ""
-      read -p "Area (optional): " area
+      
+      # List available areas and let user select, or allow typing a new one
+      area=""
+      if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+        echo -e "${GREEN}Available areas:${NC}"
+        echo ""
+        # Source the select helper if available
+        SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+        if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
+          SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
+        fi
+        
+        if [[ -f "$SELECT_HELPER" ]]; then
+          source "$SELECT_HELPER"
+          selected_area=$(select_from_list "area" "$AREAS_PATH" "name")
+          if [[ -n "$selected_area" ]]; then
+            # Find the actual area file to get the slug (filename)
+            local area_file=$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null | while read -r file; do
+              local name=$(grep "^name:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || basename "$file" .md)
+              if [[ "$name" == "$selected_area" ]]; then
+                echo "$file"
+                break
+              fi
+            done)
+            
+            if [[ -n "$area_file" ]]; then
+              # Use the filename (without .md) as the area slug
+              area=$(basename "$area_file" .md)
+            else
+              # Fallback: convert display name to slug format
+              area=$(echo "$selected_area" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+            fi
+          fi
+        else
+          # Fallback: list areas manually
+          local areas=($(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null | sort))
+          local idx=1
+          declare -a area_names
+          for area_file in "${areas[@]}"; do
+            # Try to get name from frontmatter first
+            local area_name=$(grep "^name:" "$area_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//')
+            
+            # If no name field, try to get from first heading (# Title)
+            if [[ -z "$area_name" ]]; then
+              area_name=$(grep "^# " "$area_file" 2>/dev/null | head -1 | sed 's/^# //' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+            fi
+            
+            # Convert to readable format if it looks like a slug (contains - or &)
+            # This handles both cases: when heading is a slug, or when we fall back to filename
+            if [[ -z "$area_name" ]] || [[ "$area_name" =~ - ]] || [[ "$area_name" =~ "&" ]]; then
+              if [[ -z "$area_name" ]]; then
+                area_name=$(basename "$area_file" .md)
+              fi
+              # Convert slug to readable: work-&-career -> Work & Career
+              # Replace - with space, handle & specially, then capitalize words
+              area_name=$(echo "$area_name" | sed 's/-/ /g' | sed 's/ & / \& /g' | sed 's/^&/&/' | sed 's/&$/\&/' | awk '{
+                for(i=1;i<=NF;i++){
+                  word=$i
+                  if(word != "&" && word != "&") {
+                    $i=toupper(substr(word,1,1)) substr(word,2)
+                  }
+                }
+                print
+              }')
+            fi
+            
+            area_names[$idx]="$area_name"
+            echo "  ${idx}) $area_name"
+            ((idx++))
+          done
+          echo ""
+          echo -e "${GREEN}Or type a new area name (press Enter to skip):${NC}"
+          read -p "Select area (number) or type new area: " area_input
+          
+          if [[ -n "$area_input" ]]; then
+            if [[ "$area_input" =~ ^[0-9]+$ ]]; then
+              # User selected a number - get the corresponding area file
+              local selected_idx=$area_input
+              if [[ $selected_idx -ge 1 && $selected_idx -lt $idx ]]; then
+                local selected_display_name="${area_names[$selected_idx]}"
+                # Find the actual area file to get the slug
+                local area_file=$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null | while read -r file; do
+                  local name=$(grep "^name:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || basename "$file" .md)
+                  if [[ "$name" == "$selected_display_name" ]]; then
+                    echo "$file"
+                    break
+                  fi
+                done)
+                
+                if [[ -n "$area_file" ]]; then
+                  area=$(basename "$area_file" .md)
+                else
+                  # Fallback: convert display name to slug format
+                  area=$(echo "$selected_display_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+                fi
+              fi
+            else
+              # User typed a new area name - convert to slug format
+              area=$(echo "$area_input" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+            fi
+          fi
+        fi
+      else
+        echo -e "${GREEN}No areas found.${NC}"
+        echo -e "${GREEN}Examples:${NC} Health, Career, Learning, Relationships, Finances, Hobbies"
+        echo ""
+        read -p "Area (optional, or press Enter to skip): " area_input
+        if [[ -n "$area_input" ]]; then
+          area=$(echo "$area_input" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+        fi
+      fi
       
       echo ""
       echo -e "${YELLOW}Tell us more about this goal:${NC}"
@@ -854,6 +965,196 @@ goal_tracking_wizard() {
       ;;
     5)
       echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}📋 View Goal Details${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo -n "Goal name: "
+      read goal_name
+      if [[ -z "$goal_name" ]]; then
+        echo "❌ Goal name required"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        goal_tracking_wizard
+        return 0
+      fi
+      
+      # Use MCP server to get goal details if available, otherwise use gtd-goal
+      if command -v python3 &>/dev/null && [[ -f "$HOME/code/dotfiles/mcp/gtd_mcp_server.py" ]]; then
+        MCP_PYTHON=$(gtd_get_mcp_python)
+        if [[ -n "$MCP_PYTHON" ]]; then
+          RESULT=$("$MCP_PYTHON" <<PYTHON_SCRIPT 2>/dev/null
+import sys
+import json
+import asyncio
+from pathlib import Path
+
+mcp_dir = Path.home() / "code" / "dotfiles" / "mcp"
+if mcp_dir.exists():
+    sys.path.insert(0, str(mcp_dir))
+
+try:
+    from gtd_mcp_server import handle_call_tool
+    
+    result = asyncio.run(handle_call_tool(
+        "get_goal_details",
+        {"goal_name": "$goal_name"}
+    ))
+    
+    if result and len(result) > 0:
+        response_text = result[0].text if hasattr(result[0], 'text') else str(result[0])
+        print(response_text)
+    else:
+        print(json.dumps({"error": "No response from MCP server"}))
+except Exception as e:
+    print(json.dumps({"error": str(e)}))
+PYTHON_SCRIPT
+)
+          
+          # Parse and display nicely
+          echo "$RESULT" | "$MCP_PYTHON" -c "
+import sys
+import json
+try:
+    data = json.load(sys.stdin)
+    if 'error' in data:
+        print(f\"❌ Error: {data['error']}\")
+    else:
+        print(f\"🎯 Goal: {data.get('name', 'Unknown')}\")
+        print(f\"Status: {data.get('status', 'unknown')}\")
+        print(f\"Progress: {data.get('progress', 0)}%\")
+        if data.get('deadline'):
+            print(f\"Deadline: {data['deadline']}\")
+        if data.get('area'):
+            print(f\"Area: {data['area']}\")
+        if data.get('description'):
+            print(f\"\\nDescription:\\n{data['description']}\")
+        if data.get('content'):
+            print(f\"\\n{data['content']}\")
+except:
+    print('Error parsing response')
+" 2>/dev/null || echo "Error displaying goal details"
+        fi
+      fi
+      
+      # Fallback to viewing the file directly
+      GOALS_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}/goals"
+      goal_file="${GOALS_DIR}/${goal_name// /_}.md"
+      if [[ -f "$goal_file" ]]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        cat "$goal_file"
+        echo ""
+      else
+        echo "❌ Goal not found: $goal_name"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      goal_tracking_wizard
+      ;;
+    6)
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}✏️  Update Goal Properties${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo -n "Goal name: "
+      read goal_name
+      if [[ -z "$goal_name" ]]; then
+        echo "❌ Goal name required"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        goal_tracking_wizard
+        return 0
+      fi
+      
+      echo ""
+      echo "What would you like to update? (leave blank to skip)"
+      echo ""
+      
+      echo -n "Status (active/completed/on-hold): "
+      read status
+      
+      echo -n "Deadline (YYYY-MM-DD): "
+      read deadline
+      
+      echo -n "Area: "
+      read area
+      
+      echo -n "Description: "
+      read description
+      
+      # Use MCP server if available
+      if command -v python3 &>/dev/null && [[ -f "$HOME/code/dotfiles/mcp/gtd_mcp_server.py" ]]; then
+        MCP_PYTHON=$(gtd_get_mcp_python)
+        if [[ -n "$MCP_PYTHON" ]]; then
+          # Build update arguments
+          UPDATE_ARGS="{\"goal_name\": \"$goal_name\""
+          [[ -n "$status" ]] && UPDATE_ARGS="${UPDATE_ARGS}, \"status\": \"$status\""
+          [[ -n "$deadline" ]] && UPDATE_ARGS="${UPDATE_ARGS}, \"deadline\": \"$deadline\""
+          [[ -n "$area" ]] && UPDATE_ARGS="${UPDATE_ARGS}, \"area\": \"$area\""
+          [[ -n "$description" ]] && UPDATE_ARGS="${UPDATE_ARGS}, \"description\": \"$description\""
+          UPDATE_ARGS="${UPDATE_ARGS}}"
+          
+          RESULT=$("$MCP_PYTHON" <<PYTHON_SCRIPT 2>/dev/null
+import sys
+import json
+import asyncio
+from pathlib import Path
+
+mcp_dir = Path.home() / "code" / "dotfiles" / "mcp"
+if mcp_dir.exists():
+    sys.path.insert(0, str(mcp_dir))
+
+try:
+    from gtd_mcp_server import handle_call_tool
+    
+    update_args = $UPDATE_ARGS
+    
+    result = asyncio.run(handle_call_tool(
+        "update_goal",
+        update_args
+    ))
+    
+    if result and len(result) > 0:
+        response_text = result[0].text if hasattr(result[0], 'text') else str(result[0])
+        print(response_text)
+    else:
+        print(json.dumps({"error": "No response from MCP server"}))
+except Exception as e:
+    print(json.dumps({"error": str(e)}))
+PYTHON_SCRIPT
+)
+          
+          echo "$RESULT" | "$MCP_PYTHON" -c "
+import sys
+import json
+try:
+    data = json.load(sys.stdin)
+    if 'error' in data:
+        print(f\"❌ Error: {data['error']}\")
+    elif data.get('success'):
+        print(f\"✓ {data.get('message', 'Goal updated')}\")
+    else:
+        print('Goal updated successfully')
+except:
+    print('Error parsing response')
+" 2>/dev/null || echo "Error updating goal"
+        fi
+      else
+        echo "⚠️  MCP server not available. Some updates may require direct file editing."
+      fi
+      
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      goal_tracking_wizard
+      ;;
+    7)
+      echo ""
       echo -n "Goal name: "
       read goal_name
       if [[ -z "$goal_name" ]]; then
@@ -872,7 +1173,7 @@ goal_tracking_wizard() {
         echo "❌ gtd-goal command not found"
       fi
       ;;
-    6)
+    8)
       echo ""
       echo -e "${BOLD}💬 Restructure Goal with Natural Language${NC}"
       echo ""

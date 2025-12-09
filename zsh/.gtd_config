@@ -7,6 +7,10 @@ GTD_DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1444409779895275571/8B
 # User name used in persona prompts and reminders (default: "Abby")
 GTD_USER_NAME="${GTD_USER_NAME:-Abby}"
 
+# Computer mode: "work" or "home" (default: "home")
+# Used to customize behavior based on which computer you're using
+GTD_COMPUTER_MODE="${GTD_COMPUTER_MODE:-home}"
+
 # ============================================================================
 # Directory Structure
 # ============================================================================

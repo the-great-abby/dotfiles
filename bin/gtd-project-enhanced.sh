@@ -15,9 +15,9 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
 fi
 
 GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-PROJECTS_PATH="${GTD_BASE_DIR}/projects"
-TASKS_PATH="${GTD_BASE_DIR}/tasks"
-GOALS_DIR="${GTD_BASE_DIR}/goals"
+PROJECTS_PATH="${PROJECTS_PATH:-${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}}"
+TASKS_PATH="${TASKS_PATH:-${GTD_BASE_DIR}/${GTD_TASKS_DIR:-3-tasks}}"
+GOALS_DIR="${GOALS_DIR:-${GTD_BASE_DIR}/${GTD_GOALS_DIR:-goals}}"
 ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
 
 # Helper: Get frontmatter value

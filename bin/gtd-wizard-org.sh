@@ -1173,6 +1173,7 @@ project_wizard() {
     echo "  11) 🎯 Link Project to Goal"
     echo "  12) 🌳 Show Goal → Project → Task Hierarchy"
     echo "  13) 💬 Restructure with natural language"
+    echo "  14) 🤖 AI Planning Assistant"
     echo ""
     echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -1478,7 +1479,18 @@ project_wizard() {
       ;;
     8)
       echo ""
-      if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+      # Check for projects using the same method as gtd-project list
+      local projects=($(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null))
+      local has_projects=false
+      for project_dir in "${projects[@]}"; do
+        local readme="${project_dir}/README.md"
+        if [[ -f "$readme" ]]; then
+          has_projects=true
+          break
+        fi
+      done
+      
+      if [[ "$has_projects" == "true" ]]; then
         project_name=$(select_from_list "project" "$PROJECTS_PATH" "project")
         if [[ -n "$project_name" ]]; then
           # Convert to slug format
@@ -1517,10 +1529,77 @@ project_wizard() {
       ;;
     11)
       echo ""
-      if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
-        project_name=$(select_from_list "project" "$PROJECTS_PATH" "project")
-        if [[ -n "$project_name" ]]; then
-          project_slug=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+      # Check for projects using the same method as gtd-project list
+      local projects=($(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null))
+      local has_projects=false
+      for project_dir in "${projects[@]}"; do
+        local readme="${project_dir}/README.md"
+        if [[ -f "$readme" ]]; then
+          has_projects=true
+          break
+        fi
+      done
+      
+      if [[ "$has_projects" == "true" ]]; then
+        # Use select_from_list to get display name, then find the matching directory
+        project_display_name=$(select_from_list "project" "$PROJECTS_PATH" "project")
+        if [[ -n "$project_display_name" ]]; then
+          # Find the actual project directory by matching the display name
+          # Since select_from_list uses get_display_name which can return the directory name,
+          # we need to match using the same logic
+          project_slug=""
+          
+          # Normalize the selected display name for comparison
+          local selected_normalized=$(echo "$project_display_name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+          
+          # Check if the display name IS the directory name (common case)
+          if [[ -d "${PROJECTS_PATH}/${project_display_name}" ]]; then
+            project_slug="$project_display_name"
+          else
+            # Try to find by matching display names from README files
+            for project_dir in "${PROJECTS_PATH}"/*/; do
+              [[ ! -d "$project_dir" ]] && continue
+              local readme="${project_dir}README.md"
+              if [[ -f "$readme" ]]; then
+                # Use the same logic as get_display_name in select_from_list
+                local display_name=$(grep "^project:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+                if [[ -z "$display_name" ]]; then
+                  display_name=$(grep "^name:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+                fi
+                if [[ -z "$display_name" ]]; then
+                  display_name=$(basename "$project_dir")
+                fi
+                
+                # Normalize for comparison
+                local display_normalized=$(echo "$display_name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+                
+                if [[ "$display_normalized" == "$selected_normalized" ]]; then
+                  project_slug=$(basename "$project_dir")
+                  break
+                fi
+              fi
+            done
+          fi
+          
+          # Final fallback: try the display name as-is (in case it's already a slug)
+          if [[ -z "$project_slug" ]]; then
+            # Try various slug conversions
+            local try_slug=$(echo "$project_display_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+            if [[ -d "${PROJECTS_PATH}/${try_slug}" ]]; then
+              project_slug="$try_slug"
+            fi
+          fi
+          
+          # Verify the project directory exists
+          if [[ -z "$project_slug" ]] || [[ ! -d "${PROJECTS_PATH}/${project_slug}" ]]; then
+            echo "❌ Could not find project directory for: $project_display_name"
+            echo "   Searched in: ${PROJECTS_PATH}"
+            echo "   Tried slug: ${project_slug:-<empty>}"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            return 1
+          fi
           
           # List available goals
           echo ""
@@ -1576,7 +1655,18 @@ project_wizard() {
       echo ""
       echo -e "${BOLD}💬 Restructure Project with Natural Language${NC}"
       echo ""
-      if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+      # Check for projects using the same method as gtd-project list
+      local projects=($(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null))
+      local has_projects=false
+      for project_dir in "${projects[@]}"; do
+        local readme="${project_dir}/README.md"
+        if [[ -f "$readme" ]]; then
+          has_projects=true
+          break
+        fi
+      done
+      
+      if [[ "$has_projects" == "true" ]]; then
         echo "Available projects:"
         project_name=$(select_from_list "project" "$PROJECTS_PATH" "project")
         if [[ -n "$project_name" ]]; then
@@ -1600,16 +1690,34 @@ project_wizard() {
           fi
           
           echo ""
+          # Use thinking timer for AI-powered restructuring (gtd-common.sh is already sourced by main wizard)
           if command -v gtd-restructure &>/dev/null; then
-            gtd-restructure --project "$project_slug" --command "$nl_command"
+            run_with_thinking_timer "Restructuring project" gtd-restructure --project "$project_slug" --command "$nl_command"
           elif [[ -f "$HOME/code/dotfiles/bin/gtd-restructure" ]]; then
-            "$HOME/code/dotfiles/bin/gtd-restructure" --project "$project_slug" --command "$nl_command"
+            run_with_thinking_timer "Restructuring project" "$HOME/code/dotfiles/bin/gtd-restructure" --project "$project_slug" --command "$nl_command"
           else
             echo "❌ gtd-restructure command not found"
           fi
         fi
       else
         echo "No projects found."
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    14)
+      echo ""
+      echo -e "${BOLD}🤖 AI Planning Assistant${NC}"
+      echo ""
+      if command -v gtd-plan &>/dev/null; then
+        gtd-plan
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-plan" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-plan"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-plan" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-plan"
+      else
+        echo "❌ gtd-plan command not found"
       fi
       echo ""
       echo "Press Enter to continue..."
@@ -2587,6 +2695,12 @@ zettelkasten_wizard() {
       ;;
     7)
       echo ""
+      echo -e "${BOLD}Link Zettelkasten Note to GTD Item${NC}"
+      echo ""
+      
+      # Set SECOND_BRAIN if not already set
+      SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+      
       # Find notes in common locations
       local zet_inbox="${SECOND_BRAIN}/0-inbox"
       local zet_dir="${SECOND_BRAIN}/Zettelkasten"
@@ -2610,12 +2724,212 @@ zettelkasten_wizard() {
         fi
       fi
       
-      echo -n "GTD item path: "
-      read gtd_item
+      if [[ -z "$zet_note" ]]; then
+        echo "❌ No note selected"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        continue
+      fi
+      
+      # Set up GTD paths
+      GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+      AREAS_PATH="${AREAS_PATH:-${GTD_BASE_DIR}/2-areas}"
+      PROJECTS_PATH="${PROJECTS_PATH:-${GTD_BASE_DIR}/1-projects}"
+      TASKS_PATH="${TASKS_PATH:-${GTD_BASE_DIR}/3-tasks}"
+      GOALS_PATH="${GOALS_PATH:-${GTD_BASE_DIR}/goals}"
+      
+      # Show GTD item type selection menu
+      echo ""
+      echo -e "${BOLD}What type of GTD item?${NC}"
+      echo ""
+      echo "  1) Area"
+      echo "  2) Project"
+      echo "  3) Task"
+      echo "  4) Goal"
+      echo "  5) MOC (Map of Content)"
+      echo ""
+      echo -n "Choose: "
+      read gtd_type_choice
+      
+      local gtd_item=""
+      
+      case "$gtd_type_choice" in
+        1)
+          # Area selection
+          if [[ -d "$AREAS_PATH" ]]; then
+            local area_name=$(select_from_list "area" "$AREAS_PATH" "name")
+            if [[ -n "$area_name" ]]; then
+              # Find the area file
+              gtd_item=$(find "$AREAS_PATH" -name "${area_name}.md" -o -name "*${area_name}*.md" 2>/dev/null | head -1)
+              if [[ -z "$gtd_item" ]]; then
+                # Try to find by display name in frontmatter
+                while IFS= read -r area_file; do
+                  local file_name=$(grep "^name:" "$area_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+                  if [[ "$file_name" == "$area_name" ]]; then
+                    gtd_item="$area_file"
+                    break
+                  fi
+                done < <(find "$AREAS_PATH" -name "*.md" -type f 2>/dev/null)
+              fi
+            fi
+          fi
+          ;;
+        2)
+          # Project selection
+          if [[ -d "$PROJECTS_PATH" ]]; then
+            local project_name=$(select_from_list "project" "$PROJECTS_PATH" "project")
+            if [[ -n "$project_name" ]]; then
+              # Projects are directories with README.md
+              gtd_item=$(find "$PROJECTS_PATH" -type d -name "*${project_name}*" 2>/dev/null | head -1)
+              if [[ -n "$gtd_item" && -f "${gtd_item}/README.md" ]]; then
+                gtd_item="${gtd_item}/README.md"
+              else
+                # Try to find by display name in README.md
+                while IFS= read -r project_dir; do
+                  local readme="${project_dir}/README.md"
+                  if [[ -f "$readme" ]]; then
+                    local file_name=$(grep "^project:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+                    if [[ -z "$file_name" ]]; then
+                      file_name=$(grep "^name:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+                    fi
+                    if [[ "$file_name" == "$project_name" ]]; then
+                      gtd_item="$readme"
+                      break
+                    fi
+                  fi
+                done < <(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)
+              fi
+            fi
+          fi
+          ;;
+        3)
+          # Task selection
+          if [[ -d "$TASKS_PATH" ]]; then
+            # Use select_from_tasks if available, otherwise use select_from_list
+            if declare -f select_from_tasks &>/dev/null; then
+              local task_id=$(select_from_tasks "task")
+              if [[ -n "$task_id" ]]; then
+                gtd_item=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+                # Also check in projects
+                if [[ -z "$gtd_item" && -d "$PROJECTS_PATH" ]]; then
+                  gtd_item=$(find "$PROJECTS_PATH" -name "${task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
+                fi
+              fi
+            else
+              # Fallback to select_from_list
+              local task_name=$(select_from_list "task" "$TASKS_PATH" "name")
+              if [[ -n "$task_name" ]]; then
+                gtd_item=$(find "$TASKS_PATH" -name "*${task_name}*.md" 2>/dev/null | head -1)
+              fi
+            fi
+          fi
+          ;;
+        4)
+          # Goal selection
+          if [[ -d "$GOALS_PATH" ]]; then
+            local goal_name=$(select_from_list "goal" "$GOALS_PATH" "name")
+            if [[ -n "$goal_name" ]]; then
+              # Find the goal file
+              gtd_item=$(find "$GOALS_PATH" -name "${goal_name}.md" -o -name "*${goal_name}*.md" 2>/dev/null | head -1)
+              if [[ -z "$gtd_item" ]]; then
+                # Try to find by display name in frontmatter
+                while IFS= read -r goal_file; do
+                  local file_name=$(grep "^name:" "$goal_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+                  if [[ "$file_name" == "$goal_name" ]]; then
+                    gtd_item="$goal_file"
+                    break
+                  fi
+                done < <(find "$GOALS_PATH" -name "*.md" -type f 2>/dev/null)
+              fi
+            fi
+          fi
+          ;;
+        5)
+          # MOC selection
+          if declare -f get_moc_names_array &>/dev/null; then
+            local moc_names=()
+            while IFS= read -r moc_name; do
+              [[ -n "$moc_name" ]] && moc_names+=("$moc_name")
+            done < <(get_moc_names_array)
+            
+            if [[ ${#moc_names[@]} -eq 0 ]]; then
+              echo "No MOCs found."
+            else
+              local selected_moc=""
+              if declare -f select_from_numbered_list &>/dev/null; then
+                selected_moc=$(select_from_numbered_list "${moc_names[@]}")
+              else
+                # Fallback: simple selection
+                echo ""
+                for i in "${!moc_names[@]}"; do
+                  local num=$((i + 1))
+                  echo "  ${num}) ${moc_names[$i]}"
+                done
+                echo ""
+                echo -n "Select MOC (number): "
+                read moc_choice
+                if [[ "$moc_choice" =~ ^[0-9]+$ ]]; then
+                  local moc_index=$((moc_choice - 1))
+                  if [[ $moc_index -ge 0 && $moc_index -lt ${#moc_names[@]} ]]; then
+                    selected_moc="${moc_names[$moc_index]}"
+                  fi
+                fi
+              fi
+              
+              if [[ -n "$selected_moc" ]]; then
+                # MOCs are in SECOND_BRAIN/MOCs/
+                local moc_file="${SECOND_BRAIN}/MOCs/MOC - ${selected_moc}.md"
+                if [[ -f "$moc_file" ]]; then
+                  gtd_item="$moc_file"
+                else
+                  # Try alternative naming
+                  moc_file=$(find "${SECOND_BRAIN}/MOCs" -name "*${selected_moc}*.md" 2>/dev/null | head -1)
+                  if [[ -n "$moc_file" ]]; then
+                    gtd_item="$moc_file"
+                  fi
+                fi
+              fi
+            fi
+          fi
+          ;;
+        *)
+          echo "❌ Invalid choice"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+          ;;
+      esac
+      
+      if [[ -z "$gtd_item" ]]; then
+        echo "❌ No GTD item selected or item not found"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        continue
+      fi
+      
+      # Verify the file exists
+      if [[ ! -f "$gtd_item" ]]; then
+        echo "❌ GTD item file not found: $gtd_item"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        continue
+      fi
+      
+      # Link the note to the GTD item
       if [[ -n "$zet_note" && -n "$gtd_item" ]]; then
         zet-link gtd "$zet_note" "$gtd_item"
+        echo ""
+        echo "Press Enter to continue..."
+        read
       else
-        echo "❌ Both paths required"
+        echo "❌ Both note and GTD item required"
+        echo ""
+        echo "Press Enter to continue..."
+        read
       fi
       ;;
     8)

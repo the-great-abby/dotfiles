@@ -125,9 +125,12 @@ EOF
 # Detect changes in Obsidian (Daily Notes, Zettelkasten, etc.)
 detect_obsidian_changes() {
   local days_back="${1:-7}"
+  local quiet="${2:-false}"
   
-  echo "🔍 Detecting changes in Obsidian..."
-  echo ""
+  if [[ "$quiet" != "true" ]]; then
+    echo "🔍 Detecting changes in Obsidian..." >&2
+    echo "" >&2
+  fi
   
   init_sync_metadata
   
@@ -241,6 +244,71 @@ if zettelkasten_dir.exists():
                     "has_local_log": False
                 })
 
+# Check MOCs directory
+mocs_dir = second_brain / "MOCs"
+if mocs_dir.exists():
+    for moc_file in mocs_dir.rglob("*.md"):
+        file_path = str(moc_file)
+        rel_path = str(moc_file.relative_to(second_brain))
+        
+        stat = moc_file.stat()
+        mtime = datetime.fromtimestamp(stat.st_mtime)
+        
+        if rel_path in file_timestamps:
+            old_mtime = file_timestamps[rel_path].get("mtime", 0)
+            if stat.st_mtime > old_mtime:
+                changes.append({
+                    "path": rel_path,
+                    "full_path": file_path,
+                    "type": "modified",
+                    "last_modified": mtime.isoformat(),
+                    "mtime": stat.st_mtime,
+                    "has_local_log": False
+                })
+        else:
+            if mtime > cutoff_time:
+                new_files.append({
+                    "path": rel_path,
+                    "full_path": file_path,
+                    "type": "new",
+                    "created": mtime.isoformat(),
+                    "mtime": stat.st_mtime,
+                    "has_local_log": False
+                })
+
+# Check Resources, Projects, Areas directories
+for para_dir in ["Resources", "Projects", "Areas"]:
+    para_path = second_brain / para_dir
+    if para_path.exists():
+        for note_file in para_path.rglob("*.md"):
+            file_path = str(note_file)
+            rel_path = str(note_file.relative_to(second_brain))
+            
+            stat = note_file.stat()
+            mtime = datetime.fromtimestamp(stat.st_mtime)
+            
+            if rel_path in file_timestamps:
+                old_mtime = file_timestamps[rel_path].get("mtime", 0)
+                if stat.st_mtime > old_mtime:
+                    changes.append({
+                        "path": rel_path,
+                        "full_path": file_path,
+                        "type": "modified",
+                        "last_modified": mtime.isoformat(),
+                        "mtime": stat.st_mtime,
+                        "has_local_log": False
+                    })
+            else:
+                if mtime > cutoff_time:
+                    new_files.append({
+                        "path": rel_path,
+                        "full_path": file_path,
+                        "type": "new",
+                        "created": mtime.isoformat(),
+                        "mtime": stat.st_mtime,
+                        "has_local_log": False
+                    })
+
 result = {
     "changes": changes,
     "new_files": new_files,
@@ -258,12 +326,15 @@ merge_conflict() {
   local local_file="$1"
   local obsidian_file="$2"
   local conflict_type="${3:-content}"
+  local quiet="${4:-false}"
   
-  # Send conflict message to stderr (won't be captured)
-  echo "⚠️  Conflict detected: $conflict_type" >&2
-  echo "   Local: $local_file" >&2
-  echo "   Obsidian: $obsidian_file" >&2
-  echo "" >&2
+  # Send conflict message to stderr (won't be captured) unless quiet mode
+  if [[ "$quiet" != "true" ]]; then
+    echo "⚠️  Conflict detected: $conflict_type" >&2
+    echo "   Local: $local_file" >&2
+    echo "   Obsidian: $obsidian_file" >&2
+    echo "" >&2
+  fi
   
   python3 <<EOF
 import json
@@ -454,10 +525,19 @@ sync_daily_logs_bidirectional() {
         # Both exist - check which is newer and merge if needed
         local log_mtime=$(stat -f %m "$log_file" 2>/dev/null || stat -c %Y "$log_file" 2>/dev/null)
         
-        if [[ $note_mtime -gt $log_mtime ]]; then
-          # Obsidian is newer - need to merge
+        # Calculate time difference (in seconds)
+        local time_diff=$((note_mtime - log_mtime))
+        
+        # Only treat as conflict if:
+        # 1. Obsidian is significantly newer (more than 5 seconds) - likely edited in Obsidian
+        # 2. OR local is significantly newer - needs syncing
+        # This avoids false conflicts from sync operations that happen within seconds
+        
+        if [[ $time_diff -gt 5 ]]; then
+          # Obsidian is significantly newer - likely edited in Obsidian, need to merge
           echo "🔄 Merging changes from Obsidian: $date"
-          merged_content=$(merge_conflict "$log_file" "$note_file" "daily_log" "true")
+          # Use quiet mode to suppress conflict message (we already know it's a merge)
+          merged_content=$(merge_conflict "$log_file" "$note_file" "daily_log" "true" 2>/dev/null)
           if [[ -n "$merged_content" ]]; then
             echo "$merged_content" > "$log_file"
             echo "  ✓ Merged log entries successfully"
@@ -465,14 +545,18 @@ sync_daily_logs_bidirectional() {
           else
             echo "  ⚠️  Merge failed, keeping local version"
           fi
-        elif [[ $log_mtime -gt $note_mtime ]]; then
-          # Local is newer - sync to Obsidian
+        elif [[ $time_diff -lt -5 ]]; then
+          # Local is significantly newer - sync to Obsidian
           echo "📤 Syncing to Obsidian: $date"
           # Update Daily Note (but preserve structure)
           if command -v gtd-brain-sync-daily-logs &>/dev/null; then
             gtd-brain-sync-daily-logs "$date" >/dev/null 2>&1
           fi
           ((synced++))
+        else
+          # Files are within 5 seconds of each other - likely just synced, no action needed
+          # Silently skip to avoid false conflict messages
+          :
         fi
       fi
     fi
@@ -506,8 +590,8 @@ sync_all_notes() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   
-  # Detect changes
-  local changes_json=$(detect_obsidian_changes 7)
+  # Detect changes (quiet mode to avoid breaking JSON parsing)
+  local changes_json=$(detect_obsidian_changes 7 "true")
   
   python3 <<EOF
 import json
@@ -552,15 +636,28 @@ try:
             print("")
         
         print(f"💡 Run 'gtd-brain-bidirectional-sync sync-daily-logs' to sync daily logs")
+        print(f"💡 Note: Zettelkasten, MOCs, and other Second Brain files sync via Obsidian")
         print(f"💡 Or use 'gtd-brain-bidirectional-sync resolve' to handle changes manually")
         print("")
+except json.JSONDecodeError as e:
+    print(f"⚠️  Error parsing changes data: {e}")
+    print(f"   Raw output: {changes_json[:200]}...")
+    print("")
 except Exception as e:
     print(f"⚠️  Error detecting changes: {e}")
     print("")
 EOF
   
+  # Show detected changes
+  echo "🔍 Detecting changes in Obsidian..."
+  echo ""
+  
   # Sync daily logs
   sync_daily_logs_bidirectional
+  
+  # Note: Zettelkasten, MOCs, and other Second Brain files are already in Obsidian
+  # They don't need separate sync - Obsidian sync handles them
+  # The detection above is just for reporting what changed
   
   # Update sync metadata
   python3 <<EOF

@@ -1,0 +1,436 @@
+#!/bin/bash
+# GTD Insight Scanner - Automatically detect evergreen insights from daily logs
+# Creates draft notes in Second Brain for review
+
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Load GTD config for Second Brain path
+load_gtd_config
+init_gtd_paths
+
+# Load AI config for insight settings
+GTD_AI_CONFIG="$HOME/code/dotfiles/zsh/.gtd_config_ai"
+if [[ ! -f "$GTD_AI_CONFIG" && -f "$HOME/code/personal/dotfiles/zsh/.gtd_config_ai" ]]; then
+  GTD_AI_CONFIG="$HOME/code/personal/dotfiles/zsh/.gtd_config_ai"
+fi
+if [[ -f "$GTD_AI_CONFIG" ]]; then
+  source "$GTD_AI_CONFIG"
+fi
+
+# Default values (can be overridden by config)
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+DRAFTS_DIR="${SECOND_BRAIN}/Express/drafts"
+DAYS_TO_SCAN="${GTD_INSIGHT_SCAN_DAYS:-${DAYS_TO_SCAN:-7}}"  # How many days back to scan
+MIN_CONFIDENCE="${GTD_INSIGHT_MIN_CONFIDENCE:-${MIN_CONFIDENCE:-0.7}}"  # Minimum confidence for creating draft
+INSIGHT_PERSONA="${GTD_INSIGHT_PERSONA:-skippy}"  # Persona for insight detection
+
+# Find persona helper
+PERSONA_HELPER=""
+POSSIBLE_PATHS=(
+  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+  if [[ -f "$path" ]]; then
+    PERSONA_HELPER="$path"
+    break
+  fi
+done
+
+if [[ -z "$PERSONA_HELPER" || ! -f "$PERSONA_HELPER" ]]; then
+  echo "Error: gtd_persona_helper.py not found" >&2
+  exit 1
+fi
+
+# Use common date helpers
+TODAY=$(gtd_get_today)
+DATE_CMD=$(gtd_get_date_cmd)
+
+# Create drafts directory if it doesn't exist
+mkdir -p "$DRAFTS_DIR"
+
+# Get Python command
+PYTHON_CMD=$(gtd_get_mcp_python)
+if [[ -z "$PYTHON_CMD" ]]; then
+  PYTHON_CMD="python3"
+fi
+
+# Collect recent log entries
+collect_recent_logs() {
+  local days_back="$1"
+  local log_content=""
+  local entry_count=0
+  
+  for i in $(seq 0 $((days_back - 1))); do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
+      if [[ -f "$log_file" ]]; then
+        # Extract log entries (lines with timestamps or content sections)
+        local entries=$(grep -E "^[0-9]{2}:[0-9]{2} -|^## |^### " "$log_file" 2>/dev/null | head -50)
+        if [[ -n "$entries" ]]; then
+          if [[ -n "$log_content" ]]; then
+            log_content="${log_content}\n\n--- ${check_date} ---\n${entries}"
+          else
+            log_content="--- ${check_date} ---\n${entries}"
+          fi
+          local count=$(echo "$entries" | wc -l | tr -d ' ')
+          entry_count=$((entry_count + count))
+        fi
+      fi
+    fi
+  done
+  
+  echo "$log_content"
+}
+
+# Detect insights using AI
+detect_insights() {
+  local log_content="$1"
+  
+  if [[ -z "$log_content" ]]; then
+    return 1
+  fi
+  
+  # Create prompt for AI to detect evergreen insights
+  local prompt=$(cat <<EOF
+Analyze the following daily log entries and identify any "evergreen" insights - ideas, learnings, or realizations that have lasting value beyond the specific day they were written. 
+
+An evergreen insight is:
+- A principle, pattern, or lesson learned
+- A realization about how something works
+- A connection between ideas
+- Something that would be valuable to reference later
+- Not just a task completion or routine activity
+
+For each insight you find, provide:
+1. A clear, concise title (3-8 words)
+2. The insight itself (1-3 sentences)
+3. The original log entry that contains it
+4. Confidence level (0.0-1.0) - how confident you are this is truly an evergreen insight
+
+Format your response as JSON array:
+[
+  {
+    "title": "Title of the insight",
+    "insight": "The insight text",
+    "source_entry": "The original log entry",
+    "date": "YYYY-MM-DD",
+    "confidence": 0.85
+  }
+]
+
+If no insights are found, return an empty array: []
+
+Daily log entries:
+${log_content}
+EOF
+)
+  
+  # Get AI analysis
+  local quoted_prompt=$(printf '%q' "$prompt")
+  local response=""
+  
+  # Use thinking timer for AI call
+  timer_pid=""
+  if [[ -f "$GTD_COMMON" ]]; then
+    source "$GTD_COMMON"
+    show_thinking_timer "Analyzing logs for insights" &
+    timer_pid=$!
+    # Ensure timer is killed on exit
+    trap "stop_thinking_timer $timer_pid 2>/dev/null || true" EXIT INT TERM
+  fi
+  
+  if command -v gtimeout &>/dev/null; then
+    response=$(eval "gtimeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"${INSIGHT_PERSONA}\" $quoted_prompt" 2>/dev/null || echo "")
+  elif command -v timeout &>/dev/null; then
+    response=$(eval "timeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"${INSIGHT_PERSONA}\" $quoted_prompt" 2>/dev/null || echo "")
+  else
+    response=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"${INSIGHT_PERSONA}\" $quoted_prompt" 2>/dev/null || echo "")
+  fi
+  
+  if [[ -n "$timer_pid" ]]; then
+    trap - EXIT INT TERM  # Remove trap
+    stop_thinking_timer "$timer_pid" 2>/dev/null || true
+  fi
+  
+  # Extract JSON from response (might have extra text)
+  local json_response=$(echo "$response" | grep -o '\[.*\]' | head -1)
+  
+  if [[ -z "$json_response" ]]; then
+    # Try to find JSON array in response
+    json_response=$(echo "$response" | sed -n '/\[/,/\]/p' | tr -d '\n' | sed 's/.*\[/\[/' | sed 's/\].*/\]/')
+  fi
+  
+  echo "$json_response"
+}
+
+# Create draft note from insight
+create_draft_note() {
+  local title="$1"
+  local insight="$2"
+  local source_entry="$3"
+  local source_date="$4"
+  local confidence="$5"
+  
+  # Sanitize title for filename
+  local sanitized_title=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+  local timestamp=$(date +"%Y%m%d%H%M%S")
+  local filename="${timestamp}-${sanitized_title}.md"
+  local draft_path="${DRAFTS_DIR}/${filename}"
+  
+  # Check if similar draft already exists
+  local existing=$(find "$DRAFTS_DIR" -name "*${sanitized_title}*" -type f 2>/dev/null | head -1)
+  if [[ -n "$existing" ]]; then
+    echo "⚠️  Similar draft already exists: $(basename "$existing")"
+    return 1
+  fi
+  
+  # Create draft note
+  cat > "$draft_path" <<EOF
+# ${title}
+
+**Status:** draft  
+**Created:** $(date +"%Y-%m-%d %H:%M")  
+**Source Date:** ${source_date}  
+**Confidence:** ${confidence}  
+**Type:** evergreen-insight
+
+---
+
+## Insight
+
+${insight}
+
+---
+
+## Source
+
+**Original log entry (${source_date}):**
+> ${source_entry}
+
+---
+
+## Notes
+
+<!-- Add your thoughts, connections, and refinements here -->
+
+## Links
+
+<!-- Link to related notes using [[note name]] -->
+
+## Tags
+
+#evergreen-insight #draft #zettelkasten
+
+---
+
+*Auto-generated from daily log entry. Review and refine before promoting to permanent note.*
+EOF
+
+  echo "$draft_path"
+}
+
+# Main scanning function
+scan_for_insights() {
+  local days_back="${1:-$DAYS_TO_SCAN}"
+  local quiet="${2:-false}"
+  
+  if [[ "$quiet" != "true" ]]; then
+    echo "🔍 Scanning last ${days_back} days of daily logs for evergreen insights..."
+    echo ""
+  fi
+  
+  # Collect logs
+  local log_content=$(collect_recent_logs "$days_back")
+  
+  if [[ -z "$log_content" ]]; then
+    if [[ "$quiet" != "true" ]]; then
+      echo "No log entries found in the last ${days_back} days."
+    fi
+    return 1
+  fi
+  
+  # Detect insights
+  if [[ "$quiet" != "true" ]]; then
+    echo "🤔 Analyzing entries with AI..."
+  fi
+  
+  local insights_json=$(detect_insights "$log_content")
+  
+  if [[ -z "$insights_json" || "$insights_json" == "[]" ]]; then
+    if [[ "$quiet" != "true" ]]; then
+      echo "✓ No evergreen insights detected."
+    fi
+    return 0
+  fi
+  
+  # Parse JSON and create drafts
+  local created_count=0
+  local skipped_count=0
+  
+  # Use Python to parse JSON (more reliable than shell parsing)
+  local python_script=$(cat <<PYTHON_EOF
+import json
+import sys
+
+min_conf = ${MIN_CONFIDENCE}
+
+try:
+    insights = json.load(sys.stdin)
+    for insight in insights:
+        title = insight.get('title', 'Untitled')
+        insight_text = insight.get('insight', '')
+        source_entry = insight.get('source_entry', '')
+        date = insight.get('date', '')
+        confidence = insight.get('confidence', 0.0)
+        
+        # Only process if confidence meets threshold
+        if confidence >= min_conf:
+            print(f"{title}|{insight_text}|{source_entry}|{date}|{confidence}")
+except:
+    pass
+PYTHON_EOF
+)
+  
+  echo "$insights_json" | "$PYTHON_CMD" -c "$python_script" | while IFS='|' read -r title insight_text source_entry date confidence; do
+    if [[ -z "$title" ]]; then
+      continue
+    fi
+    
+    # Create draft note
+    local draft_path=$(create_draft_note "$title" "$insight_text" "$source_entry" "$date" "$confidence")
+    
+    if [[ -n "$draft_path" && -f "$draft_path" ]]; then
+      ((created_count++))
+      if [[ "$quiet" != "true" ]]; then
+        echo "✓ Created draft: $(basename "$draft_path")"
+        echo "  Title: $title"
+        echo "  Confidence: $confidence"
+        echo ""
+      fi
+    else
+      ((skipped_count++))
+    fi
+  done
+  
+  # Count created drafts (need to capture from subshell)
+  local final_count=$(echo "$insights_json" | "$PYTHON_CMD" -c "$python_script" | wc -l | tr -d ' ')
+  
+  if [[ "$quiet" != "true" ]]; then
+    if [[ $final_count -gt 0 ]]; then
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "✓ Created ${final_count} draft note(s) in: ${DRAFTS_DIR}"
+      echo "  Review them with: gtd-review-drafts"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    fi
+  fi
+  
+  return 0
+}
+
+# List pending drafts
+list_drafts() {
+  local count=$(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No draft notes found."
+    return 0
+  fi
+  
+  echo "Found ${count} draft note(s):"
+  echo ""
+  
+  find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | sort -r | while read -r draft; do
+    local title=$(grep "^# " "$draft" | head -1 | sed 's/^# //' || basename "$draft" .md)
+    local created=$(grep "^**Created:**" "$draft" | head -1 | sed 's/^**Created:**[[:space:]]*//' || echo "Unknown")
+    local confidence=$(grep "^**Confidence:**" "$draft" | head -1 | sed 's/^**Confidence:**[[:space:]]*//' || echo "N/A")
+    local source_date=$(grep "^**Source Date:**" "$draft" | head -1 | sed 's/^**Source Date:**[[:space:]]*//' || echo "Unknown")
+    
+    echo "  📝 $(basename "$draft")"
+    echo "     Title: $title"
+    echo "     Created: $created | Source: $source_date | Confidence: $confidence"
+    echo ""
+  done
+}
+
+# Show usage
+show_usage() {
+  cat <<EOF
+Usage: gtd-scan-insights [command] [options]
+
+Commands:
+  scan [days]          Scan daily logs for insights (default: 7 days)
+  list                 List all draft notes
+  help                 Show this help
+
+Examples:
+  gtd-scan-insights scan          # Scan last 7 days
+  gtd-scan-insights scan 3        # Scan last 3 days
+  gtd-scan-insights list          # List all drafts
+
+The scanner automatically:
+- Analyzes daily log entries for evergreen insights
+- Creates draft notes in Second Brain/Express/drafts/
+- Uses AI to detect valuable learnings and realizations
+
+Review drafts during morning check-in or with:
+  gtd-review-drafts
+EOF
+}
+
+# Main
+case "${1:-scan}" in
+  scan)
+    days="${2:-$DAYS_TO_SCAN}"
+    quiet="false"
+    # Check if second arg is "quiet" or if third arg is "quiet"
+    if [[ "$2" == "quiet" ]]; then
+      days="$DAYS_TO_SCAN"
+      quiet="true"
+    elif [[ "$3" == "quiet" ]]; then
+      quiet="true"
+    fi
+    scan_for_insights "$days" "$quiet"
+    ;;
+  list)
+    list_drafts
+    ;;
+  help|--help|-h)
+    show_usage
+    ;;
+  *)
+    echo "Unknown command: $1"
+    show_usage
+    exit 1
+    ;;
+esac

@@ -16,6 +16,21 @@ if [[ -f "$COMMON_ENV" ]]; then
   source "$COMMON_ENV"
 fi
 
+# Source common helpers for colors (if not already sourced)
+if [[ -z "${GREEN:-}" ]]; then
+  GTD_COMMON="$(dirname "$0")/gtd-common.sh"
+  if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+    GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+  fi
+  if [[ -f "$GTD_COMMON" ]]; then
+    source "$GTD_COMMON" 2>/dev/null || true
+  fi
+fi
+
+# Set default colors if still not available
+GREEN="${GREEN:-\\033[0;32m}"
+NC="${NC:-\\033[0m}"
+
 # Select from a list of items (projects, areas, notes, etc.)
 # Arguments:
 #   $1: item_type (for display purposes)
@@ -60,10 +75,25 @@ select_from_list() {
         # Extract from frontmatter
         local name=$(grep "^name:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
         if [[ -z "$name" ]]; then
+          # Try to get from first heading (# Title)
+          name=$(grep "^# " "$file" 2>/dev/null | head -1 | sed 's/^# //' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' || echo "")
+        fi
+        if [[ -z "$name" ]]; then
           name=$(grep "^title:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
         fi
         if [[ -z "$name" ]]; then
-          name=$(basename "$file" .md)
+          # Convert filename slug to readable format: work-&-career -> Work & Career
+          local filename=$(basename "$file" .md)
+          # Replace - with space, handle & specially, then capitalize words
+          name=$(echo "$filename" | sed 's/-/ /g' | sed 's/ & / \& /g' | sed 's/^&/&/' | sed 's/&$/\&/' | awk '{
+            for(i=1;i<=NF;i++){
+              word=$i
+              if(word != "&" && word != "&") {
+                $i=toupper(substr(word,1,1)) substr(word,2)
+              }
+            }
+            print
+          }')
         fi
         echo "$name"
         ;;
@@ -183,6 +213,58 @@ select_from_list() {
       echo "❌ Invalid input" >&2
       return 1
     fi
+  fi
+}
+
+# Select from a numbered list of items
+# Arguments:
+#   $@: array of items to select from
+# Returns: selected item via stdout, empty if cancelled
+select_from_numbered_list() {
+  local items=("$@")
+  local item_count=${#items[@]}
+  
+  if [[ $item_count -eq 0 ]]; then
+    echo "No items to select from" >&2
+    return 1
+  fi
+  
+  # Display numbered list to stderr so it shows even when capturing stdout
+  echo "" >&2
+  for i in "${!items[@]}"; do
+    local num=$((i + 1))
+    echo -e "  ${GREEN}${num})${NC} ${items[$i]}" >&2
+  done
+  echo "" >&2
+  
+  # Get user input (read from terminal, not captured)
+  echo -n "Select item (number): " >&2
+  read user_input
+  
+  if [[ -z "$user_input" ]]; then
+    return 1
+  fi
+  
+  # Check if it's a number
+  if [[ "$user_input" =~ ^[0-9]+$ ]]; then
+    local selected_index=$((user_input - 1))
+    if [[ $selected_index -ge 0 && $selected_index -lt $item_count ]]; then
+      echo "${items[$selected_index]}"
+      return 0
+    else
+      echo "❌ Invalid number. Please select 1-$item_count" >&2
+      return 1
+    fi
+  else
+    # Try to match by name
+    for i in "${!items[@]}"; do
+      if [[ "${items[$i]}" == *"$user_input"* ]]; then
+        echo "${items[$i]}"
+        return 0
+      fi
+    done
+    echo "❌ No match found" >&2
+    return 1
   fi
 }
 

@@ -32,7 +32,7 @@ MAX_TOKENS="1200"
 
 # Request timeout in seconds (default: 60 for local systems, can be increased for slower models)
 # When timeout is reached, the connection is closed and request is cancelled
-LM_STUDIO_TIMEOUT="60"
+LM_STUDIO_TIMEOUT="120"  # Increased to 120 seconds for planning operations
 
 # Daily log sync method (second-brain, cloud, git)
 # second-brain: Sync to Second Brain directory (uses Obsidian sync automatically)

@@ -243,6 +243,11 @@ list_projects() {
     
     local status=$(get_frontmatter_value "$readme" "status")
     
+    # Default to "active" if no status field exists (for projects without frontmatter)
+    if [[ -z "$status" ]]; then
+      status="active"
+    fi
+    
     if [[ "$status" != "$status_filter" && "$status_filter" != "all" ]]; then
       continue
     fi

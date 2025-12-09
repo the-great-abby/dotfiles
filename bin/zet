@@ -44,10 +44,11 @@ generate_filename_id() {
   echo "${base_id}${suffix}"
 }
 
-# Create a zettelkasten note
+  # Create a zettelkasten note
 create_zet_note() {
   local title="$1"
   local para_category="${2:-inbox}"  # inbox, zettelkasten, or PARA category
+  local skip_suggestions="${3:-false}"  # Skip AI suggestions if true
   local zet_id=$(generate_filename_id)
   local timestamp=$(date +"%Y-%m-%d %H:%M")
   local date_created=$(date +"%Y-%m-%d")
@@ -134,26 +135,28 @@ EOF
   echo -e "  ${CYAN}ID:${NC} $zet_id"
   echo -e "  ${CYAN}Category:${NC} $para_category"
   
-  # Suggest related notes
-  echo ""
-  echo -e "${CYAN}💡 AI Connection Suggestions:${NC}"
-  if command -v gtd-brain-suggest-connections &>/dev/null; then
-    suggestions=$(gtd-brain-suggest-connections suggest "$note_path" 5 2>/dev/null)
-    if [[ -n "$suggestions" ]]; then
-      echo "$suggestions" | sed 's/^/   /'
-      echo ""
-      echo -e "${YELLOW}   💡 Add links using: zet-link link \"$note_path\" <target-note>${NC}"
-    else
-      echo -e "   ${YELLOW}No suggestions available${NC}"
-    fi
-  elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-suggest-connections" ]]; then
-    suggestions=$("$HOME/code/dotfiles/bin/gtd-brain-suggest-connections" suggest "$note_path" 5 2>/dev/null)
-    if [[ -n "$suggestions" ]]; then
-      echo "$suggestions" | sed 's/^/   /'
-      echo ""
-      echo -e "${YELLOW}   💡 Add links using: zet-link link \"$note_path\" <target-note>${NC}"
-    else
-      echo -e "   ${YELLOW}No suggestions available${NC}"
+  # Suggest related notes (skip if --no-edit flag is used for faster batch creation)
+  if [[ "$skip_suggestions" != "true" ]]; then
+    echo ""
+    echo -e "${CYAN}💡 AI Connection Suggestions:${NC}"
+    if command -v gtd-brain-suggest-connections &>/dev/null; then
+      suggestions=$(gtd-brain-suggest-connections suggest "$note_path" 5 2>/dev/null)
+      if [[ -n "$suggestions" ]]; then
+        echo "$suggestions" | sed 's/^/   /'
+        echo ""
+        echo -e "${YELLOW}   💡 Add links using: zet-link link \"$note_path\" <target-note>${NC}"
+      else
+        echo -e "   ${YELLOW}No suggestions available${NC}"
+      fi
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-brain-suggest-connections" ]]; then
+      suggestions=$("$HOME/code/dotfiles/bin/gtd-brain-suggest-connections" suggest "$note_path" 5 2>/dev/null)
+      if [[ -n "$suggestions" ]]; then
+        echo "$suggestions" | sed 's/^/   /'
+        echo ""
+        echo -e "${YELLOW}   💡 Add links using: zet-link link \"$note_path\" <target-note>${NC}"
+      else
+        echo -e "   ${YELLOW}No suggestions available${NC}"
+      fi
     fi
   fi
   
@@ -175,6 +178,7 @@ Options:
   -a, --area           Create in Areas (PARA)
   -r, --resource       Create in Resources (PARA)
   -c, --category CAT   Create in specific PARA category
+  -n, --no-edit        Don't open in editor (faster for batch creation)
   -h, --help           Show this help
 
 Examples:
@@ -183,6 +187,11 @@ Examples:
   zet -r "Productivity Tips Collection"
   zet -c Projects "Project Kickoff Ideas"
   zet "Quick thought"  # Goes to inbox
+  
+  # Batch create without opening editor (faster)
+  zet -n "Note 1"
+  zet -n "Note 2"
+  zet -n "Note 3"
 
 Zettelkasten Principles:
   - One atomic idea per note
@@ -204,6 +213,7 @@ EOF
 title=""
 category="inbox"
 prompt_for_title=false
+open_editor=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -231,6 +241,10 @@ while [[ $# -gt 0 ]]; do
       category="$2"
       shift 2
       ;;
+    -n|--no-edit)
+      open_editor=false
+      shift
+      ;;
     -h|--help)
       show_usage
       exit 0
@@ -256,11 +270,15 @@ if [[ -z "$title" ]]; then
   fi
 fi
 
-# Create the note
-note_path=$(create_zet_note "$title" "$category")
+# Create the note (skip suggestions if --no-edit flag is used for faster batch creation)
+skip_suggestions="false"
+if [[ "$open_editor" == "false" ]]; then
+  skip_suggestions="true"
+fi
+note_path=$(create_zet_note "$title" "$category" "$skip_suggestions")
 
-# Open in Neovim
-if [[ -n "$note_path" && -f "$note_path" ]]; then
+# Open in Neovim (unless --no-edit flag is used)
+if [[ "$open_editor" == "true" && -n "$note_path" && -f "$note_path" ]]; then
   cd "$(dirname "$note_path")" || exit
   nvim '+ normal ggzzi' "$note_path"
 fi
