@@ -29,6 +29,16 @@ MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+# Helper function to capitalize first character (bash 3.2 compatible)
+capitalize_first() {
+  local str="$1"
+  if [[ -z "$str" ]]; then
+    echo ""
+    return
+  fi
+  echo "$(echo "${str:0:1}" | tr '[:lower:]' '[:upper:]')${str:1}"
+}
+
 # Initialize quiz directories
 init_quiz_dirs() {
   mkdir -p "$QUIZ_DATA_DIR"
@@ -79,7 +89,7 @@ run_quiz() {
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}🎯 Quiz: ${topic^}${NC}"
+  echo -e "${BOLD}${CYAN}🎯 Quiz: $(capitalize_first "$topic")${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   
@@ -137,7 +147,7 @@ quiz_menu() {
     clear
     echo ""
     echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}${CYAN}🎯 Quiz Menu: ${topic^}${NC}"
+    echo -e "${BOLD}${CYAN}🎯 Quiz Menu: $(capitalize_first "$topic")${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     
@@ -197,7 +207,7 @@ show_progress() {
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}📊 Quiz Progress: ${topic^}${NC}"
+  echo -e "${BOLD}${CYAN}📊 Quiz Progress: $(capitalize_first "$topic")${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   
@@ -215,7 +225,7 @@ show_achievements() {
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}🏆 Achievements: ${topic^}${NC}"
+  echo -e "${BOLD}${CYAN}🏆 Achievements: $(capitalize_first "$topic")${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   

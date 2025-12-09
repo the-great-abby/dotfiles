@@ -31,18 +31,34 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Starter areas with descriptions
-declare -A STARTER_AREAS=(
-  ["Health & Wellness"]="Physical and mental health - workouts, nutrition, medication, sleep"
-  ["Finances"]="Budgeting, bills, savings, investments, financial planning"
-  ["Home & Living Space"]="Cleaning, maintenance, organization, repairs, chores"
-  ["Relationships"]="Family, friends, romantic relationships, social connections"
-  ["Personal Development"]="Learning, skills, education, hobbies, growth"
-  ["Work & Career"]="Job performance, skill development, networking, career planning"
-  ["Administrative"]="Documents, insurance, legal, subscriptions, records"
-  ["Self-Care & Wellbeing"]="Stress management, relaxation, boundaries, emotional wellbeing"
-  ["Community & Giving"]="Volunteering, charitable giving, helping others, social causes"
-  ["Systems & Organization"]="GTD system, Second Brain, workflows, reviews"
-)
+# Helper functions for associative array simulation (bash 3.2 compatible)
+_set_array_value() {
+  local prefix="$1"
+  local key="$2"
+  local value="$3"
+  eval "${prefix}_${key}=\"\$value\""
+}
+
+_get_array_value() {
+  local prefix="$1"
+  local key="$2"
+  eval "echo \"\$${prefix}_${key}\""
+}
+
+# Initialize STARTER_AREAS (simulated associative array)
+_set_array_value "STARTER_AREAS" "Health & Wellness" "Physical and mental health - workouts, nutrition, medication, sleep"
+_set_array_value "STARTER_AREAS" "Finances" "Budgeting, bills, savings, investments, financial planning"
+_set_array_value "STARTER_AREAS" "Home & Living Space" "Cleaning, maintenance, organization, repairs, chores"
+_set_array_value "STARTER_AREAS" "Relationships" "Family, friends, romantic relationships, social connections"
+_set_array_value "STARTER_AREAS" "Personal Development" "Learning, skills, education, hobbies, growth"
+_set_array_value "STARTER_AREAS" "Work & Career" "Job performance, skill development, networking, career planning"
+_set_array_value "STARTER_AREAS" "Administrative" "Documents, insurance, legal, subscriptions, records"
+_set_array_value "STARTER_AREAS" "Self-Care & Wellbeing" "Stress management, relaxation, boundaries, emotional wellbeing"
+_set_array_value "STARTER_AREAS" "Community & Giving" "Volunteering, charitable giving, helping others, social causes"
+_set_array_value "STARTER_AREAS" "Systems & Organization" "GTD system, Second Brain, workflows, reviews"
+
+# Maintain array of keys for iteration
+STARTER_AREAS_KEYS=("Health & Wellness" "Finances" "Home & Living Space" "Relationships" "Personal Development" "Work & Career" "Administrative" "Self-Care & Wellbeing" "Community & Giving" "Systems & Organization")
 
 # Show starter areas menu
 show_starter_menu() {
@@ -58,8 +74,8 @@ show_starter_menu() {
   echo ""
   
   local i=1
-  for area_name in "${!STARTER_AREAS[@]}"; do
-    local description="${STARTER_AREAS[$area_name]}"
+  for area_name in "${STARTER_AREAS_KEYS[@]}"; do
+    local description="$(_get_array_value "STARTER_AREAS" "$area_name")"
     echo -e "${GREEN}$i)${NC} ${BOLD}$area_name${NC}"
     echo "   $description"
     echo ""

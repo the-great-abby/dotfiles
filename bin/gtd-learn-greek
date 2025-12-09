@@ -548,37 +548,39 @@ main() {
               sort -u)
             
             # Map common topic names to their canonical form
-            declare -A topic_canonical=(
-              ["Basics"]="basics"
-              ["Alphabet"]="basics"
-              ["Reading"]="reading"
-              ["Comprehension"]="reading"
-              ["Vocabulary"]="vocabulary"
-              ["Grammar"]="grammar"
-              ["Practice"]="practice"
-              ["Exercises"]="practice"
-            )
+            # Initialize topic_canonical (simulated associative array)
+            _set_array_value "topic_canonical" "Basics" "basics"
+            _set_array_value "topic_canonical" "Alphabet" "basics"
+            _set_array_value "topic_canonical" "Reading" "reading"
+            _set_array_value "topic_canonical" "Comprehension" "reading"
+            _set_array_value "topic_canonical" "Vocabulary" "vocabulary"
+            _set_array_value "topic_canonical" "Grammar" "grammar"
+            _set_array_value "topic_canonical" "Practice" "practice"
+            _set_array_value "topic_canonical" "Exercises" "practice"
             
             # Process found topics and add to menu
-            local seen_canonical=()
-            seen_canonical[""]=1  # Mark overall as seen
+            local seen_canonical_keys=("")
+            _set_array_value "seen_canonical" "" "1"  # Mark overall as seen
             
             while IFS= read -r found_topic; do
               [[ -z "$found_topic" ]] && continue
               
               # Get canonical form
-              local canonical="${topic_canonical[$found_topic]:-}"
+              local canonical="$(_get_array_value "topic_canonical" "$found_topic")"
+              [[ -z "$canonical" ]] && canonical=""
               if [[ -z "$canonical" ]]; then
                 # If not in map, use lowercase with hyphens
                 canonical=$(echo "$found_topic" | tr '[:upper:]' '[:lower:]' | sed 's/ /-/g')
               fi
               
               # Skip if we've already added this canonical topic
-              if [[ -n "${seen_canonical[$canonical]:-}" ]]; then
+              local seen_value="$(_get_array_value "seen_canonical" "$canonical")"
+              if [[ -n "$seen_value" ]]; then
                 continue
               fi
               
-              seen_canonical[$canonical]=1
+              _set_array_value "seen_canonical" "$canonical" "1"
+              seen_canonical_keys+=("$canonical")
               topic_map[$topic_index]="$canonical"
               echo -e "${GREEN}  ${topic_index})${NC} ${found_topic}"
               ((topic_index++))

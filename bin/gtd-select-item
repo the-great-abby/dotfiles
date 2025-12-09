@@ -132,8 +132,11 @@ for i in "${!ITEM_DISPLAY_NAMES[@]}"; do
   local display_name="${ITEM_DISPLAY_NAMES[$i]}"
   local file_base=$(basename "${ITEM_FULL_PATHS[$i]}" .md)
   
-  # Case-insensitive partial match
-  if [[ "${display_name,,}" == *"${user_input,,}"* ]] || [[ "${file_base,,}" == *"${user_input,,}"* ]]; then
+  # Case-insensitive partial match (bash 3.2 compatible)
+  local display_name_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+  local file_base_lower=$(echo "$file_base" | tr '[:upper:]' '[:lower:]')
+  local user_input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
+  if [[ "$display_name_lower" == *"$user_input_lower"* ]] || [[ "$file_base_lower" == *"$user_input_lower"* ]]; then
     MATCHES+=("$display_name")
     MATCH_INDICES+=($i)
   fi

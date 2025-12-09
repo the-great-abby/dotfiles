@@ -1183,41 +1183,53 @@ advise_random() {
   
   # Intelligent persona selection based on content (similar to zsh version)
   # Define keyword patterns for each expertise area
-  declare -A persona_keywords
-  persona_keywords["goggins"]="workout|exercise|fitness|gym|weight|lifting|strength training|cardio workout|endurance workout|mental toughness|stay hard|callous your mind|who's gonna carry the boats|physical limits|body limits|ultramarathon|endurance training|leg day|chest day|back day|shoulder day|arm day|workout session|fitness training|gym session|lifting session|physical training|PT session|fitness motivation|push your limits|break through barriers|physical barriers|body building|muscle building|powerlifting|crossfit|HIIT|high intensity|fitness challenge|physical challenge|fitness goal|training goal|bench press|squat|deadlift|barbell|dumbbell|kettlebell|pull up|push up|fitness routine|exercise routine|workout routine|training program|fitness program|muscle|muscle group|reps|sets|personal trainer|fitness coach|gym workout|home workout|strength workout"
-  persona_keywords["dean"]="marathon|ultra|ultramarathon|endurance|race|running race|jog|jogging|running workout|training run|long run|running pace|running form|running distance|ultra distance|endurance running|running miles|running km|ultra running|endurance race|50k|50 mile|100k|100 mile|trail running|road race"
-  persona_keywords["bioneer"]="workout|exercise|fitness|training|strength|movement|mobility|functional|form|technique|biomechanics|program|routine|muscle|muscle group"
-  persona_keywords["david"]="project|goal|task|inbox|process|organize|gtd|getting things done|next action|context|review|weekly|system|workflow|area|someday|waiting"
-  persona_keywords["cal"]="focus|distraction|deep work|concentration|flow|interruption|phone|social media|notification|attention|productivity|flow state|distracted|can't focus|interrupt"
-  persona_keywords["james"]="habit|routine|system|atomic|incremental|progress|track|consistency|behavior|pattern|daily|repeat|build habit|form habit|stuck with habit"
-  persona_keywords["marie"]="clutter|organize|declutter|spark joy|tidy|clean|minimal|simplify|stuff|things|belongings|space|messy|disorganized|too much stuff"
-  persona_keywords["warren"]="strategy|priority|prioritize|important|urgent|decision|invest|long term|value|focus|opportunity|business|plan|planning|strategic"
-  persona_keywords["sheryl"]="leadership|execute|execution|team|manage|lead|action|get things done|efficient|productivity|results|delegate|coordinate"
-  persona_keywords["tim"]="optimize|optimization|hack|system|experiment|test|trial|improve|efficiency|life hack|productivity tip|experiment|trial|test"
-  persona_keywords["bob"]="creative|art|paint|calm|stress|anxiety|peace|relax|breathe|joy|happy accident|mistake|process|meditation|mindful"
-  persona_keywords["fred"]="kind|self-care|self care|worth|value|overwhelmed|emotional|support|care|gentle|compassion|love yourself|feeling|feelings|sad|depressed"
-  persona_keywords["louiza"]="procrastinate|stuck|accountability|slacking|discipline|tracking|log|record|complete|done|finished|consequence|missed|failed|didn't do"
-  persona_keywords["esther"]="relationship|partner|intimacy|connection|communicate|date|romance|love|couple|together|relationship advice"
-  persona_keywords["gottman"]="relationship|partner|couple|marriage|communication|conflict|fight|argument|resolve|together|love language"
-  persona_keywords["gary"]="love language|partner|relationship|affection|touch|service|gift|time|words|appreciation|express love"
-  persona_keywords["brene"]="vulnerability|courage|connection|authentic|brave|shame|worth|belonging|daring|show up|present"
-  persona_keywords["romance"]="date|romantic|surprise|gesture|massage|backrub|special|treat|appreciate|show love|make feel special"
-  persona_keywords["kelsey"]="code|programming|software|engineering|overengineer|simple|ship|deploy|infrastructure|sre|system|tech"
-  persona_keywords["kent"]="code|programming|software|tdd|test|yagni|simple|refactor|design|pattern|architecture|engineering"
-  persona_keywords["charity"]="code|programming|software|observability|reliability|monitoring|sre|engineering|system|production|tech"
-  persona_keywords["rich"]="code|programming|software|design|architecture|complexity|simple|clojure|system|engineering|tech"
-  persona_keywords["spiderman"]="creative|problem|solve|challenge|stuck|juggling|balance|responsibility|creative solution|think outside"
-  persona_keywords["ironman"]="creative|innovation|engineering|adhd|hyperfocus|system|build|create|invent|tech|project"
-  persona_keywords["squirrelgirl"]="creative|positive|optimistic|problem|solve|communication|unconventional|think different|creative solution"
-  persona_keywords["harley"]="creative|chaos|unconventional|think outside|creative solution|problem|solve|different|unique"
-  persona_keywords["deadpool"]="creative|humor|funny|chaos|unconventional|problem|solve|think different|creative solution"
-  persona_keywords["rogue"]="creative|adapt|overwhelmed|control|problem|solve|creative solution|think different|unique"
-  persona_keywords["sandy"]="science|karate|texas|competitive|sport|athletic|training|discipline|focused|determined|strong|tough|challenge|win|competition"
-  persona_keywords["spongebob"]="optimism|enthusiasm|joy|happiness|work|job|fun|creative|friendship|positive|excited|energetic|cheerful|happy|smile"
+  # Using bash 3.2 compatible approach (simulated associative arrays)
+  # Helper functions for associative array simulation
+  _set_array_value() {
+    local prefix="$1"
+    local key="$2"
+    local value="$3"
+    eval "${prefix}_${key}=\"\$value\""
+  }
   
-  # Score each persona based on keyword matches
-  declare -A persona_scores
-  declare -A persona_match_counts
+  _get_array_value() {
+    local prefix="$1"
+    local key="$2"
+    eval "echo \"\$${prefix}_${key}\""
+  }
+  _set_array_value "persona_keywords" "goggins" "workout|exercise|fitness|gym|weight|lifting|strength training|cardio workout|endurance workout|mental toughness|stay hard|callous your mind|who's gonna carry the boats|physical limits|body limits|ultramarathon|endurance training|leg day|chest day|back day|shoulder day|arm day|workout session|fitness training|gym session|lifting session|physical training|PT session|fitness motivation|push your limits|break through barriers|physical barriers|body building|muscle building|powerlifting|crossfit|HIIT|high intensity|fitness challenge|physical challenge|fitness goal|training goal|bench press|squat|deadlift|barbell|dumbbell|kettlebell|pull up|push up|fitness routine|exercise routine|workout routine|training program|fitness program|muscle|muscle group|reps|sets|personal trainer|fitness coach|gym workout|home workout|strength workout"
+  _set_array_value "persona_keywords" "dean" "marathon|ultra|ultramarathon|endurance|race|running race|jog|jogging|running workout|training run|long run|running pace|running form|running distance|ultra distance|endurance running|running miles|running km|ultra running|endurance race|50k|50 mile|100k|100 mile|trail running|road race"
+  _set_array_value "persona_keywords" "bioneer" "workout|exercise|fitness|training|strength|movement|mobility|functional|form|technique|biomechanics|program|routine|muscle|muscle group"
+  _set_array_value "persona_keywords" "david" "project|goal|task|inbox|process|organize|gtd|getting things done|next action|context|review|weekly|system|workflow|area|someday|waiting"
+  _set_array_value "persona_keywords" "cal" "focus|distraction|deep work|concentration|flow|interruption|phone|social media|notification|attention|productivity|flow state|distracted|can't focus|interrupt"
+  _set_array_value "persona_keywords" "james" "habit|routine|system|atomic|incremental|progress|track|consistency|behavior|pattern|daily|repeat|build habit|form habit|stuck with habit"
+  _set_array_value "persona_keywords" "marie" "clutter|organize|declutter|spark joy|tidy|clean|minimal|simplify|stuff|things|belongings|space|messy|disorganized|too much stuff"
+  _set_array_value "persona_keywords" "warren" "strategy|priority|prioritize|important|urgent|decision|invest|long term|value|focus|opportunity|business|plan|planning|strategic"
+  _set_array_value "persona_keywords" "sheryl" "leadership|execute|execution|team|manage|lead|action|get things done|efficient|productivity|results|delegate|coordinate"
+  _set_array_value "persona_keywords" "tim" "optimize|optimization|hack|system|experiment|test|trial|improve|efficiency|life hack|productivity tip|experiment|trial|test"
+  _set_array_value "persona_keywords" "bob" "creative|art|paint|calm|stress|anxiety|peace|relax|breathe|joy|happy accident|mistake|process|meditation|mindful"
+  _set_array_value "persona_keywords" "fred" "kind|self-care|self care|worth|value|overwhelmed|emotional|support|care|gentle|compassion|love yourself|feeling|feelings|sad|depressed"
+  _set_array_value "persona_keywords" "louiza" "procrastinate|stuck|accountability|slacking|discipline|tracking|log|record|complete|done|finished|consequence|missed|failed|didn't do"
+  _set_array_value "persona_keywords" "esther" "relationship|partner|intimacy|connection|communicate|date|romance|love|couple|together|relationship advice"
+  _set_array_value "persona_keywords" "gottman" "relationship|partner|couple|marriage|communication|conflict|fight|argument|resolve|together|love language"
+  _set_array_value "persona_keywords" "gary" "love language|partner|relationship|affection|touch|service|gift|time|words|appreciation|express love"
+  _set_array_value "persona_keywords" "brene" "vulnerability|courage|connection|authentic|brave|shame|worth|belonging|daring|show up|present"
+  _set_array_value "persona_keywords" "romance" "date|romantic|surprise|gesture|massage|backrub|special|treat|appreciate|show love|make feel special"
+  _set_array_value "persona_keywords" "kelsey" "code|programming|software|engineering|overengineer|simple|ship|deploy|infrastructure|sre|system|tech"
+  _set_array_value "persona_keywords" "kent" "code|programming|software|tdd|test|yagni|simple|refactor|design|pattern|architecture|engineering"
+  _set_array_value "persona_keywords" "charity" "code|programming|software|observability|reliability|monitoring|sre|engineering|system|production|tech"
+  _set_array_value "persona_keywords" "rich" "code|programming|software|design|architecture|complexity|simple|clojure|system|engineering|tech"
+  _set_array_value "persona_keywords" "spiderman" "creative|problem|solve|challenge|stuck|juggling|balance|responsibility|creative solution|think outside"
+  _set_array_value "persona_keywords" "ironman" "creative|innovation|engineering|adhd|hyperfocus|system|build|create|invent|tech|project"
+  _set_array_value "persona_keywords" "squirrelgirl" "creative|positive|optimistic|problem|solve|communication|unconventional|think different|creative solution"
+  _set_array_value "persona_keywords" "harley" "creative|chaos|unconventional|think outside|creative solution|problem|solve|different|unique"
+  _set_array_value "persona_keywords" "deadpool" "creative|humor|funny|chaos|unconventional|problem|solve|think different|creative solution"
+  _set_array_value "persona_keywords" "rogue" "creative|adapt|overwhelmed|control|problem|solve|creative solution|think different|unique"
+  _set_array_value "persona_keywords" "sandy" "science|karate|texas|competitive|sport|athletic|training|discipline|focused|determined|strong|tough|challenge|win|competition"
+  _set_array_value "persona_keywords" "spongebob" "optimism|enthusiasm|joy|happiness|work|job|fun|creative|friendship|positive|excited|energetic|cheerful|happy|smile"
+  
+  # Score each persona based on keyword matches (simulated associative arrays)
+  # persona_scores and persona_match_counts will be initialized as needed
   local max_score=0
   local best_personas=()
   
@@ -1242,9 +1254,9 @@ advise_random() {
     # Count actual keyword matches for confidence scoring
     local matches_output=""
     if [[ "$use_rg" == true ]]; then
-      matches_output=$(echo "$content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+      matches_output=$(echo "$content" | "$search_cmd" -oiE "$(_get_array_value "persona_keywords" "$persona")" 2>/dev/null)
     else
-      matches_output=$(echo "$content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+      matches_output=$(echo "$content" | "$search_cmd" -oiE "$(_get_array_value "persona_keywords" "$persona")" 2>/dev/null)
     fi
     if [[ -n "$matches_output" ]]; then
       match_count=$(echo "$matches_output" | wc -l | tr -d ' ')
@@ -1255,8 +1267,8 @@ advise_random() {
     elif [[ $match_count -eq 1 ]]; then
       score=1  # Single match gets low score (likely false positive)
     fi
-    persona_scores[$persona]=$score
-    persona_match_counts[$persona]=$match_count
+    _set_array_value "persona_scores" "$persona" "$score"
+    _set_array_value "persona_match_counts" "$persona" "$match_count"
     if [[ $score -gt $max_score ]]; then
       max_score=$score
       best_personas=("$persona")
@@ -1273,9 +1285,9 @@ advise_random() {
     # Count actual keyword matches
     local matches_output=""
     if [[ "$use_rg" == true ]]; then
-      matches_output=$(echo "$content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+      matches_output=$(echo "$content" | "$search_cmd" -oiE "$(_get_array_value "persona_keywords" "$persona")" 2>/dev/null)
     else
-      matches_output=$(echo "$content" | "$search_cmd" -oiE "${persona_keywords[$persona]}" 2>/dev/null)
+      matches_output=$(echo "$content" | "$search_cmd" -oiE "$(_get_array_value "persona_keywords" "$persona")" 2>/dev/null)
     fi
     if [[ -n "$matches_output" ]]; then
       match_count=$(echo "$matches_output" | wc -l | tr -d ' ')
@@ -1283,8 +1295,8 @@ advise_random() {
     if [[ $match_count -gt 0 ]]; then
       score=$match_count
     fi
-    persona_scores[$persona]=$score
-    persona_match_counts[$persona]=$match_count
+    _set_array_value "persona_scores" "$persona" "$score"
+    _set_array_value "persona_match_counts" "$persona" "$match_count"
     if [[ $score -gt $max_score ]]; then
       max_score=$score
       best_personas=("$persona")
@@ -1312,12 +1324,12 @@ advise_random() {
       
       # Fitness coaches need higher confidence (at least 2 matches = score 4)
       if [[ "$is_fitness" == true ]]; then
-        if [[ ${persona_scores[$persona]} -ge 4 ]]; then  # 2+ matches * 2 = 4+
+        if [[ $(_get_array_value "persona_scores" "$persona") -ge 4 ]]; then  # 2+ matches * 2 = 4+
           confident_personas+=("$persona")
         fi
       else
         # Other personas need at least 1 match
-        if [[ ${persona_scores[$persona]} -ge $general_threshold ]]; then
+        if [[ $(_get_array_value "persona_scores" "$persona") -ge $general_threshold ]]; then
           confident_personas+=("$persona")
         fi
       fi

@@ -157,9 +157,21 @@ show_flashcard() {
   local topic="$1"
   
   # Flash card database
-  declare -A flashcards
+  # Helper functions for associative array simulation (bash 3.2 compatible)
+  _set_array_value() {
+    local prefix="$1"
+    local key="$2"
+    local value="$3"
+    eval "${prefix}_${key}=\"\$value\""
+  }
   
-  flashcards[pods]="Q: What is the smallest deployable unit in Kubernetes?
+  _get_array_value() {
+    local prefix="$1"
+    local key="$2"
+    eval "echo \"\$${prefix}_${key}\""
+  }
+  
+  _set_array_value "flashcards" "pods" "Q: What is the smallest deployable unit in Kubernetes?
 A: A Pod. Pods contain one or more containers and share storage and network.
 
 Q: How do you view logs from a pod?
@@ -168,7 +180,7 @@ A: kubectl logs <pod-name> or kubectl logs -f <pod-name> for follow mode.
 Q: How do you execute a command in a running pod?
 A: kubectl exec -it <pod-name> -- /bin/sh (or /bin/bash)"
 
-  flashcards[deployments]="Q: What manages replicated applications in Kubernetes?
+  _set_array_value "flashcards" "deployments" "Q: What manages replicated applications in Kubernetes?
 A: Deployments. They provide declarative updates and rollback capabilities.
 
 Q: How do you scale a deployment?
@@ -177,7 +189,7 @@ A: kubectl scale deployment <name> --replicas=<number>
 Q: How do you check rollout status?
 A: kubectl rollout status deployment/<name>"
 
-  flashcards[services]="Q: What exposes applications to network traffic?
+  _set_array_value "flashcards" "services" "Q: What exposes applications to network traffic?
 A: Services. They provide stable IP and DNS name.
 
 Q: What are the three main service types?
@@ -186,7 +198,7 @@ A: ClusterIP (internal), NodePort (external via node IP), LoadBalancer (cloud LB
 Q: How do you expose a deployment?
 A: kubectl expose deployment <name> --port=<port> --type=<type>"
 
-  flashcards[troubleshooting]="Q: How do you see recent events?
+  _set_array_value "flashcards" "troubleshooting" "Q: How do you see recent events?
 A: kubectl get events --sort-by='.lastTimestamp'
 
 Q: How do you check pod resource usage?
@@ -195,7 +207,7 @@ A: kubectl top pods (requires metrics-server)
 Q: How do you see detailed pod information?
 A: kubectl describe pod <name>"
 
-  local card="${flashcards[$topic]}"
+    local card="$(_get_array_value "flashcards" "$topic")"
   
   if [[ -z "$card" ]]; then
     # Default card

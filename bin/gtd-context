@@ -130,9 +130,23 @@ suggest_tasks() {
   echo "Current energy: $current_energy"
   echo ""
   
-  # Collect all tasks with scores
-  declare -A task_scores
-  declare -A task_files
+  # Collect all tasks with scores (bash 3.2 compatible)
+  # Helper functions for associative array simulation
+  _set_array_value() {
+    local prefix="$1"
+    local key="$2"
+    local value="$3"
+    eval "${prefix}_${key}=\"\$value\""
+  }
+  
+  _get_array_value() {
+    local prefix="$1"
+    local key="$2"
+    eval "echo \"\$${prefix}_${key}\""
+  }
+  
+  # Maintain array of keys for iteration
+  local task_keys=()
   
   # Search in tasks directory
   if [[ -d "$TASKS_PATH" ]]; then
@@ -140,8 +154,9 @@ suggest_tasks() {
       local score=$(score_task "$file" "$current_context" "$current_energy")
       if [[ $score -gt 0 ]]; then
         local task_id=$(basename "$file" .md)
-        task_scores["$task_id"]=$score
-        task_files["$task_id"]="$file"
+        _set_array_value "task_scores" "$task_id" "$score"
+        _set_array_value "task_files" "$task_id" "$file"
+        task_keys+=("$task_id")
       fi
     done < <(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null)
   fi
@@ -152,16 +167,17 @@ suggest_tasks() {
       local score=$(score_task "$file" "$current_context" "$current_energy")
       if [[ $score -gt 0 ]]; then
         local task_id=$(basename "$file" .md)
-        task_scores["$task_id"]=$score
-        task_files["$task_id"]="$file"
+        _set_array_value "task_scores" "$task_id" "$score"
+        _set_array_value "task_files" "$task_id" "$file"
+        task_keys+=("$task_id")
       fi
     done < <(find "$PROJECTS_PATH" -type f -name "*.md" ! -name "README.md" 2>/dev/null)
   fi
   
   # Sort by score
   local sorted_tasks=($(
-    for task_id in "${!task_scores[@]}"; do
-      echo "${task_scores[$task_id]} $task_id"
+    for task_id in "${task_keys[@]}"; do
+      echo "$(_get_array_value "task_scores" "$task_id") $task_id"
     done | sort -rn | head -$limit | awk '{print $2}'
   ))
   
@@ -179,8 +195,8 @@ suggest_tasks() {
   
   local rank=1
   for task_id in "${sorted_tasks[@]}"; do
-    local file="${task_files[$task_id]}"
-    local score="${task_scores[$task_id]}"
+    local file="$(_get_array_value "task_files" "$task_id")"
+    local score="$(_get_array_value "task_scores" "$task_id")"
     local task_name=$(head -20 "$file" | grep "^# " | head -1 | sed 's/^# //')
     local context=$(get_frontmatter_value "$file" "context")
     local energy=$(get_frontmatter_value "$file" "energy")

@@ -60,11 +60,23 @@ EOF
   fi
 }
 
-# Command sets for different topics
-declare -A COMMAND_SETS
+# Command sets for different topics (bash 3.2 compatible)
+# Helper functions for associative array simulation
+_set_array_value() {
+  local prefix="$1"
+  local key="$2"
+  local value="$3"
+  eval "${prefix}_${key}=\"\$value\""
+}
+
+_get_array_value() {
+  local prefix="$1"
+  local key="$2"
+  eval "echo \"\$${prefix}_${key}\""
+}
 
 # Basic commands (beginner)
-COMMAND_SETS[basic]="
+_set_array_value "COMMAND_SETS" "basic" "
 kubectl get pods
 kubectl get nodes
 kubectl get namespaces
@@ -82,7 +94,7 @@ kubectl delete pod my-pod
 "
 
 # Pod management (intermediate)
-COMMAND_SETS[pods]="
+_set_array_value "COMMAND_SETS" "pods" "
 kubectl create pod my-pod --image=nginx
 kubectl run my-pod --image=nginx
 kubectl get pod my-pod -o yaml
@@ -96,7 +108,7 @@ kubectl cp /local/file pod/my-pod:/remote/path
 "
 
 # Deployments (intermediate)
-COMMAND_SETS[deployments]="
+_set_array_value "COMMAND_SETS" "deployments" "
 kubectl create deployment my-app --image=nginx
 kubectl get deployments
 kubectl scale deployment my-app --replicas=3
@@ -110,7 +122,7 @@ kubectl autoscale deployment my-app --min=2 --max=10 --cpu-percent=80
 "
 
 # Services (intermediate)
-COMMAND_SETS[services]="
+_set_array_value "COMMAND_SETS" "services" "
 kubectl expose deployment my-app --port=80
 kubectl expose pod my-pod --port=80 --type=NodePort
 kubectl get services
@@ -122,7 +134,7 @@ kubectl delete service my-service
 "
 
 # ConfigMaps and Secrets (intermediate)
-COMMAND_SETS[config]="
+_set_array_value "COMMAND_SETS" "config" "
 kubectl create configmap my-config --from-literal=key1=value1
 kubectl create configmap my-config --from-file=config.properties
 kubectl get configmaps
@@ -136,7 +148,7 @@ kubectl get secret my-secret -o jsonpath='{.data.password}' | base64 -d
 "
 
 # Storage (advanced)
-COMMAND_SETS[storage]="
+_set_array_value "COMMAND_SETS" "storage" "
 kubectl get pv
 kubectl get pvc
 kubectl get storageclass
@@ -147,7 +159,7 @@ kubectl delete pvc my-pvc
 "
 
 # Troubleshooting (advanced)
-COMMAND_SETS[troubleshooting]="
+_set_array_value "COMMAND_SETS" "troubleshooting" "
 kubectl get events --sort-by='.lastTimestamp'
 kubectl get events -n default
 kubectl top nodes
@@ -162,7 +174,7 @@ kubectl get cs
 "
 
 # Exam-focused commands (all topics)
-COMMAND_SETS[exam]="
+_set_array_value "COMMAND_SETS" "exam" "
 kubectl get pods -n kube-system
 kubectl get pods --all-namespaces
 kubectl get nodes -o wide
@@ -190,7 +202,7 @@ kubectl cp /local/file pod/my-pod:/remote/path
 # Get random command from set
 get_random_command() {
   local topic="$1"
-  local commands="${COMMAND_SETS[$topic]}"
+  local commands="$(_get_array_value "COMMAND_SETS" "$topic")"
   
   if [[ -z "$commands" ]]; then
     echo ""

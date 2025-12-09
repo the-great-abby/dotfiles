@@ -769,8 +769,11 @@ select_from_tasks() {
     local task_name="${task_names[$i]}"
     local task_id="${task_ids[$i]}"
     
-    # Case-insensitive partial match
-    if [[ "${task_name,,}" == *"${user_input,,}"* ]] || [[ "${task_id,,}" == *"${user_input,,}"* ]]; then
+    # Case-insensitive partial match (bash 3.2 compatible)
+    local task_name_lower=$(echo "$task_name" | tr '[:upper:]' '[:lower:]')
+    local task_id_lower=$(echo "$task_id" | tr '[:upper:]' '[:lower:]')
+    local user_input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
+    if [[ "$task_name_lower" == *"$user_input_lower"* ]] || [[ "$task_id_lower" == *"$user_input_lower"* ]]; then
       matches+=("$task_name")
       match_indices+=($i)
     fi

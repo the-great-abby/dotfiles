@@ -31,18 +31,34 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Starter MOCs with descriptions
-declare -A STARTER_MOCS=(
-  ["Areas of Responsibility"]="Organize notes by life areas (Health, Finance, Relationships, etc.)"
-  ["Active Projects"]="Track all current projects in one place"
-  ["Learning & Study"]="Organize learning materials, courses, and study notes"
-  ["Health & Wellness"]="Track workouts, nutrition, medication, and health goals"
-  ["Kubernetes Learning"]="Centralize Kubernetes/CKA learning materials"
-  ["GTD System"]="Document GTD workflows and best practices"
-  ["Work & Career"]="Organize professional development and work-related notes"
-  ["Daily Reflections"]="Connect daily notes and extract insights over time"
-  ["Resources & References"]="Organize useful resources for later reference"
-  ["Ideas & Someday/Maybe"]="Capture ideas and future possibilities"
-)
+# Helper functions for associative array simulation (bash 3.2 compatible)
+_set_array_value() {
+  local prefix="$1"
+  local key="$2"
+  local value="$3"
+  eval "${prefix}_${key}=\"\$value\""
+}
+
+_get_array_value() {
+  local prefix="$1"
+  local key="$2"
+  eval "echo \"\$${prefix}_${key}\""
+}
+
+# Initialize STARTER_MOCS (simulated associative array)
+_set_array_value "STARTER_MOCS" "Areas of Responsibility" "Organize notes by life areas (Health, Finance, Relationships, etc.)"
+_set_array_value "STARTER_MOCS" "Active Projects" "Track all current projects in one place"
+_set_array_value "STARTER_MOCS" "Learning & Study" "Organize learning materials, courses, and study notes"
+_set_array_value "STARTER_MOCS" "Health & Wellness" "Track workouts, nutrition, medication, and health goals"
+_set_array_value "STARTER_MOCS" "Kubernetes Learning" "Centralize Kubernetes/CKA learning materials"
+_set_array_value "STARTER_MOCS" "GTD System" "Document GTD workflows and best practices"
+_set_array_value "STARTER_MOCS" "Work & Career" "Organize professional development and work-related notes"
+_set_array_value "STARTER_MOCS" "Daily Reflections" "Connect daily notes and extract insights over time"
+_set_array_value "STARTER_MOCS" "Resources & References" "Organize useful resources for later reference"
+_set_array_value "STARTER_MOCS" "Ideas & Someday/Maybe" "Capture ideas and future possibilities"
+
+# Maintain array of keys for iteration
+STARTER_MOCS_KEYS=("Areas of Responsibility" "Active Projects" "Learning & Study" "Health & Wellness" "Kubernetes Learning" "GTD System" "Work & Career" "Daily Reflections" "Resources & References" "Ideas & Someday/Maybe")
 
 # Show starter MOCs menu
 show_starter_menu() {
@@ -58,8 +74,8 @@ show_starter_menu() {
   echo ""
   
   local i=1
-  for moc_name in "${!STARTER_MOCS[@]}"; do
-    local description="${STARTER_MOCS[$moc_name]}"
+  for moc_name in "${STARTER_MOCS_KEYS[@]}"; do
+    local description="$(_get_array_value "STARTER_MOCS" "$moc_name")"
     echo -e "${GREEN}$i)${NC} ${BOLD}$moc_name${NC}"
     echo "   $description"
     echo ""
