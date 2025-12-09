@@ -267,6 +267,7 @@ git_sync_to_second_brain() {
   mkdir -p "$dest_dir"
   
   # Copy files to Second Brain (excluding ignored files)
+  # Include both .md and .txt files for daily logs
   local files_copied=0
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
@@ -281,7 +282,7 @@ git_sync_to_second_brain() {
         cp "$file" "$dest_file" 2>/dev/null && ((files_copied++))
       fi
     fi
-  done < <(find "$source_dir" -type f -name "*.md" ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
+  done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
   
   if [[ $files_copied -gt 0 ]]; then
     echo "  ✓ Copied ${files_copied} file(s) to Second Brain"
@@ -300,6 +301,7 @@ git_sync_from_second_brain() {
   mkdir -p "$dest_dir"
   
   # Copy files from Second Brain to local (only if newer)
+  # Include both .md and .txt files for daily logs
   local files_copied=0
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
@@ -314,7 +316,7 @@ git_sync_from_second_brain() {
         cp "$file" "$dest_file" 2>/dev/null && ((files_copied++))
       fi
     fi
-  done < <(find "$source_dir" -type f -name "*.md" ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
+  done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
   
   if [[ $files_copied -gt 0 ]]; then
     echo "  ✓ Pulled ${files_copied} file(s) from Second Brain"
