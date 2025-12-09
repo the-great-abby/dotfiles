@@ -581,6 +581,133 @@ sync_daily_logs_bidirectional() {
   echo ""
 }
 
+# Sync MOCs, Zettelkasten, and other Second Brain files
+# Updates metadata tracking for files that were created/modified in Obsidian
+sync_second_brain_files() {
+  local changes_json="$1"
+  
+  if [[ -z "$changes_json" ]]; then
+    return 0
+  fi
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}📚 Syncing Second Brain Files (MOCs, Zettelkasten, etc.)${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  python3 <<EOF
+import json
+from pathlib import Path
+from datetime import datetime
+
+changes_json = '''$changes_json'''
+second_brain = Path("$SECOND_BRAIN")
+sync_metadata_file = Path("$SYNC_METADATA_FILE")
+
+try:
+    changes_data = json.loads(changes_json)
+    new_files = changes_data.get("new_files", [])
+    changes = changes_data.get("changes", [])
+    
+    # Load metadata
+    if sync_metadata_file.exists():
+        with open(sync_metadata_file) as f:
+            metadata = json.load(f)
+    else:
+        metadata = {"file_timestamps": {}}
+    
+    file_timestamps = metadata.get("file_timestamps", {})
+    files_processed = 0
+    mocs_tracked = 0
+    zettelkasten_tracked = 0
+    resources_tracked = 0
+    
+    # Process new files (MOCs, Zettelkasten, etc.)
+    for file_info in new_files:
+        rel_path = file_info.get("path", "")
+        if not rel_path:
+            continue
+        
+        # Skip daily notes (handled separately)
+        if "Daily Notes" in rel_path:
+            continue
+        
+        full_path = second_brain / rel_path
+        if full_path.exists():
+            stat = full_path.stat()
+            file_timestamps[rel_path] = {
+                "mtime": stat.st_mtime,
+                "size": stat.st_size,
+                "last_synced": datetime.now().isoformat(),
+                "type": file_info.get("type", "new")
+            }
+            files_processed += 1
+            
+            # Count by type
+            if "MOCs" in rel_path or "MOC" in rel_path:
+                mocs_tracked += 1
+            elif "Zettelkasten" in rel_path:
+                zettelkasten_tracked += 1
+            elif "Resources" in rel_path:
+                resources_tracked += 1
+    
+    # Process modified files
+    for change_info in changes:
+        rel_path = change_info.get("path", "")
+        if not rel_path:
+            continue
+        
+        # Skip daily notes (handled separately)
+        if "Daily Notes" in rel_path:
+            continue
+        
+        full_path = second_brain / rel_path
+        if full_path.exists():
+            stat = full_path.stat()
+            file_timestamps[rel_path] = {
+                "mtime": stat.st_mtime,
+                "size": stat.st_size,
+                "last_synced": datetime.now().isoformat(),
+                "type": change_info.get("type", "modified")
+            }
+            files_processed += 1
+            
+            # Count by type
+            if "MOCs" in rel_path or "MOC" in rel_path:
+                mocs_tracked += 1
+            elif "Zettelkasten" in rel_path:
+                zettelkasten_tracked += 1
+            elif "Resources" in rel_path:
+                resources_tracked += 1
+    
+    # Save updated metadata
+    metadata["file_timestamps"] = file_timestamps
+    with open(sync_metadata_file, 'w') as f:
+        json.dump(metadata, f, indent=2)
+    
+    if files_processed > 0:
+        print(f"✓ Tracked {files_processed} Second Brain file(s):")
+        if mocs_tracked > 0:
+            print(f"   📚 MOCs: {mocs_tracked}")
+        if zettelkasten_tracked > 0:
+            print(f"   🔗 Zettelkasten: {zettelkasten_tracked}")
+        if resources_tracked > 0:
+            print(f"   📁 Resources: {resources_tracked}")
+        if files_processed - mocs_tracked - zettelkasten_tracked - resources_tracked > 0:
+            print(f"   📄 Other: {files_processed - mocs_tracked - zettelkasten_tracked - resources_tracked}")
+        print("")
+        print("💡 These files are already synced via Obsidian (iCloud/Dropbox)")
+        print("💡 Sync metadata has been updated to track them")
+        print("")
+    else:
+        print("✓ No new Second Brain files to track")
+        print("")
+except Exception as e:
+    # Silently fail - this is just metadata tracking
+    pass
+EOF
+}
+
 # Sync all Second Brain notes (detect changes)
 sync_all_notes() {
   local force="${1:-false}"
@@ -635,8 +762,8 @@ try:
                 print(f"   ✏️  {change['path']}")
             print("")
         
+        print(f"💡 MOCs, Zettelkasten, and other files will be tracked in sync metadata")
         print(f"💡 Run 'gtd-brain-bidirectional-sync sync-daily-logs' to sync daily logs")
-        print(f"💡 Note: Zettelkasten, MOCs, and other Second Brain files sync via Obsidian")
         print(f"💡 Or use 'gtd-brain-bidirectional-sync resolve' to handle changes manually")
         print("")
 except json.JSONDecodeError as e:
@@ -655,9 +782,9 @@ EOF
   # Sync daily logs
   sync_daily_logs_bidirectional
   
-  # Note: Zettelkasten, MOCs, and other Second Brain files are already in Obsidian
-  # They don't need separate sync - Obsidian sync handles them
-  # The detection above is just for reporting what changed
+  # Sync MOCs, Zettelkasten, and other Second Brain files
+  # (Update metadata tracking even though files are already synced via Obsidian)
+  sync_second_brain_files "$changes_json"
   
   # Update sync metadata
   python3 <<EOF
