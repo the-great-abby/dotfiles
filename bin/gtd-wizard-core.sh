@@ -586,7 +586,10 @@ computer_mode_wizard() {
       ;;
   esac
   
-  echo -e "Current mode: ${BOLD}${mode_emoji} ${current_mode^}${NC}"
+  # Capitalize first character (portable method)
+  local mode_capitalized="$(echo "${current_mode:0:1}" | tr '[:lower:]' '[:upper:]')${current_mode:1}"
+  
+  echo -e "Current mode: ${BOLD}${mode_emoji} ${mode_capitalized}${NC}"
   echo -e "  ${GRAY}${mode_desc}${NC}"
   echo ""
   echo "Switch to:"

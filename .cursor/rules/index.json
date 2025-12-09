@@ -30,6 +30,33 @@
       "categories": ["performance", "ux", "bash", "python"]
     },
     {
+      "id": "macos-bash-compatibility",
+      "file": "macos-bash-compatibility.mdc",
+      "description": "macOS bash compatibility - avoid bash 4+ features",
+      "filePatterns": [
+        "**/*.sh",
+        "**/bin/**"
+      ],
+      "matchStrings": [
+        "bad substitution",
+        "${var^}",
+        "${var^^}",
+        "${var,}",
+        "${var,,}",
+        "declare -A",
+        "associative array",
+        "bash 4",
+        "capitalize",
+        "uppercase",
+        "lowercase",
+        "macOS",
+        "mac os"
+      ],
+      "alwaysApply": true,
+      "priority": 10,
+      "categories": ["bash", "compatibility", "quality"]
+    },
+    {
       "id": "unit-testing",
       "file": "unit-testing.mdc",
       "description": "Require unit tests for all new code",
@@ -62,7 +89,8 @@
     "testing": "Rules related to testing and quality assurance",
     "quality": "Rules related to code quality",
     "bash": "Rules specific to bash/shell scripts",
-    "python": "Rules specific to Python code"
+    "python": "Rules specific to Python code",
+    "compatibility": "Rules related to cross-platform and version compatibility"
   },
   "matchLogic": {
     "description": "Rules are matched when ANY filePattern OR matchString matches",

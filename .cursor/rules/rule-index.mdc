@@ -49,6 +49,12 @@ When working on a file, the system:
 - **Priority**: 10 (high)
 - **Always applies**: Yes
 
+### macos-bash-compatibility
+- **Applies to**: Shell scripts, bin directory
+- **Triggers**: Bash 4+ features, bad substitution errors, macOS compatibility
+- **Priority**: 10 (high)
+- **Always applies**: Yes
+
 ### unit-testing
 - **Applies to**: All code files, test files
 - **Triggers**: Function definitions, test keywords, new features

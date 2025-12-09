@@ -1,0 +1,149 @@
+---
+description: macOS bash compatibility - avoid bash 4+ features
+globs: ["**/*.sh", "**/bin/**"]
+alwaysApply: true
+priority: 10
+---
+
+# macOS Bash Compatibility Rule
+
+**CRITICAL**: This codebase runs on macOS, which ships with bash 3.2 by default. Bash 4+ features are NOT available and will cause "bad substitution" errors.
+
+## macOS Bash Version
+
+- **Default bash version**: 3.2 (or older)
+- **Location**: `/bin/bash` (system bash)
+- **Bash 4+ features**: NOT SUPPORTED
+- **Compatibility**: Must use bash 3.2 compatible syntax
+
+## Forbidden Bash 4+ Features
+
+### ❌ DO NOT USE These Features
+
+1. **Case modification operators**:
+   - `${var^}` - Capitalize first character (bash 4.0+)
+   - `${var^^}` - Uppercase all (bash 4.0+)
+   - `${var,}` - Lowercase first character (bash 4.0+)
+   - `${var,,}` - Lowercase all (bash 4.0+)
+
+2. **Associative arrays**:
+   - `declare -A array` - Associative arrays (bash 4.0+)
+
+3. **Other bash 4+ features**:
+   - `mapfile` / `readarray` with certain options
+   - Various parameter expansion features
+
+## ✅ Compatible Alternatives
+
+### Capitalize First Character
+
+**Instead of**: `${var^}`
+
+**Use**:
+```bash
+# Method 1: Using tr (most portable)
+capitalized="$(echo "${var:0:1}" | tr '[:lower:]' '[:upper:]')${var:1}"
+
+# Method 2: Using case statement (for known values)
+case "$var" in
+  work) capitalized="Work" ;;
+  home) capitalized="Home" ;;
+  *) capitalized="$var" ;;
+esac
+```
+
+### Uppercase All
+
+**Instead of**: `${var^^}`
+
+**Use**:
+```bash
+uppercase=$(echo "$var" | tr '[:lower:]' '[:upper:]')
+# or
+uppercase=$(echo "$var" | awk '{print toupper($0)}')
+```
+
+### Lowercase All
+
+**Instead of**: `${var,,}`
+
+**Use**:
+```bash
+lowercase=$(echo "$var" | tr '[:upper:]' '[:lower:]')
+# or
+lowercase=$(echo "$var" | awk '{print tolower($0)}')
+```
+
+### Associative Arrays
+
+**Instead of**: `declare -A array`
+
+**Use**:
+```bash
+# Use regular arrays with key-value pairs
+# Or use separate arrays for keys and values
+# Or use a delimiter-based approach
+```
+
+## Common Error Messages
+
+If you see these errors, you're using bash 4+ features:
+
+- `bash: ${var^}: bad substitution`
+- `bash: ${var^^}: bad substitution`
+- `bash: ${var,}: bad substitution`
+- `bash: ${var,,}: bad substitution`
+- `bash: declare: -A: invalid option`
+
+## Testing Compatibility
+
+To verify bash version:
+```bash
+/bin/bash --version
+# Should show: GNU bash, version 3.2.x
+```
+
+To test if a feature works:
+```bash
+# This will fail on macOS bash 3.2
+test_var="hello"
+echo "${test_var^}"  # Will produce "bad substitution" error
+```
+
+## Code Generation Rules
+
+When generating or modifying shell scripts:
+
+1. **NEVER use bash 4+ parameter expansion operators**
+2. **Always use portable alternatives** (tr, awk, case statements)
+3. **Test on macOS bash 3.2** before committing
+4. **Check for bash 4+ features** in code reviews
+5. **Use `#!/bin/bash`** shebang (not `#!/usr/bin/env bash` which might use a newer version)
+
+## Examples of Fixed Code
+
+### Before (Bash 4+ - Won't Work)
+```bash
+mode="work"
+echo "Mode: ${mode^}"  # ❌ Bad substitution error
+```
+
+### After (Bash 3.2 Compatible)
+```bash
+mode="work"
+mode_capitalized="$(echo "${mode:0:1}" | tr '[:lower:]' '[:upper:]')${mode:1}"
+echo "Mode: $mode_capitalized"  # ✅ Works on macOS
+```
+
+## References
+
+- Bash 3.2 manual: https://www.gnu.org/software/bash/manual/bashref.html
+- Parameter expansion: Use only features available in bash 3.2
+- macOS bash limitations: https://apple.stackexchange.com/questions/193411/update-bash-to-version-4-0-on-osx
+
+## Priority
+
+This rule has **high priority (10)** because:
+- Bash 4+ features cause immediate runtime errors
+- Compatibility issues break scripts on macOS
+- Must be checked for all shell script modifications
