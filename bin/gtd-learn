@@ -27,6 +27,17 @@ if [[ -f "$DAILY_LOG_CONFIG" ]]; then
   source "$DAILY_LOG_CONFIG"
 fi
 
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
 # Colors
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
@@ -65,7 +76,7 @@ else
 fi
 
 # GTD base directory and study directories
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 STUDY_DIR="${GTD_BASE_DIR}/study"
 GTD_STUDY_DIR="${STUDY_DIR}/gtd-system"
 

@@ -1,0 +1,35 @@
+#!/bin/bash
+# Start GTD Deep Analysis Worker
+# Processes deep analysis queue from RabbitMQ or file queue
+
+# Find Python executable (check virtualenv first)
+MCP_DIR="$HOME/code/dotfiles/mcp"
+if [[ ! -d "$MCP_DIR" ]]; then
+    MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+fi
+
+VENV_PYTHON="${MCP_DIR}/venv/bin/python3"
+if [[ -f "$VENV_PYTHON" ]]; then
+    PYTHON_CMD="$VENV_PYTHON"
+else
+    PYTHON_CMD="python3"
+fi
+
+WORKER_SCRIPT="${MCP_DIR}/gtd_deep_analysis_worker.py"
+
+if [[ ! -f "$WORKER_SCRIPT" ]]; then
+    echo "Error: Worker script not found at $WORKER_SCRIPT"
+    exit 1
+fi
+
+# Check if processing file queue
+if [[ "$1" == "file" ]]; then
+    echo "Processing file queue..."
+    "$PYTHON_CMD" "$WORKER_SCRIPT" file
+else
+    echo "Starting deep analysis worker..."
+    echo "Queue: gtd_deep_analysis"
+    echo "Press Ctrl+C to stop"
+    echo ""
+    "$PYTHON_CMD" "$WORKER_SCRIPT"
+fi

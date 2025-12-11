@@ -203,23 +203,45 @@ class TestFilterRelevantAcronyms(unittest.TestCase):
 class TestExecuteWebSearch(unittest.TestCase):
     """Test cases for execute_web_search function"""
     
-    @patch('gtd_persona_helper.execute_web_search')
-    def test_execute_web_search_basic(self, mock_search):
+    @patch('gtd_persona_helper._execute_web_search_internal')
+    def test_execute_web_search_basic(self, mock_internal):
         """Test basic web search execution"""
-        mock_search.return_value = "Search results here"
+        mock_internal.return_value = "Search results here"
         
-        result = execute_web_search("test query")
+        result = execute_web_search("test query", use_enhanced_search=False)
         
         self.assertIsInstance(result, str)
+        self.assertEqual(result, "Search results here")
+        mock_internal.assert_called_once_with("test query")
     
-    @patch('gtd_persona_helper.execute_web_search')
-    def test_execute_web_search_with_enhanced(self, mock_search):
+    @patch('gtd_persona_helper.enhance_search_query')
+    @patch('gtd_persona_helper._execute_web_search_internal')
+    def test_execute_web_search_with_enhanced(self, mock_internal, mock_enhance):
         """Test web search with enhanced search enabled"""
-        mock_search.return_value = "Enhanced search results"
+        mock_enhance.return_value = {
+            'success': True,
+            'synthesis': "Enhanced search results",
+            'raw_results': "Raw results"
+        }
         
         result = execute_web_search("test query", use_enhanced_search=True)
         
         self.assertIsInstance(result, str)
+        self.assertEqual(result, "Enhanced search results")
+        mock_enhance.assert_called_once()
+    
+    @patch('gtd_persona_helper.enhance_search_query')
+    @patch('gtd_persona_helper._execute_web_search_internal')
+    def test_execute_web_search_enhanced_fallback(self, mock_internal, mock_enhance):
+        """Test web search falls back to basic when enhanced search fails"""
+        mock_enhance.side_effect = Exception("Enhanced search error")
+        mock_internal.return_value = "Basic search results"
+        
+        result = execute_web_search("test query", use_enhanced_search=True)
+        
+        self.assertIsInstance(result, str)
+        self.assertEqual(result, "Basic search results")
+        mock_internal.assert_called_once_with("test query")
 
 
 class TestCallPersona(unittest.TestCase):

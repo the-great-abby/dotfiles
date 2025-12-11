@@ -6,6 +6,7 @@
 # ============================================================================
 # AI Backend Configuration for Multiple Personas
 # ============================================================================
+# Default AI backend (used if mode-specific config not set)
 # AI backend to use: "lmstudio" or "ollama" (default: "lmstudio")
 AI_BACKEND="${AI_BACKEND:-lmstudio}"
 GTD_DEEP_MODEL_NAME="qwen/qwen3-4b-thinking-2507"
@@ -25,6 +26,26 @@ LM_STUDIO_EMBEDDING_MODEL="${LM_STUDIO_EMBEDDING_MODEL:-nomic-embed-text-v2-moe-
 # Ollama default port is 11434, uses OpenAI-compatible API
 OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434/v1/chat/completions}"
 OLLAMA_CHAT_MODEL="${OLLAMA_CHAT_MODEL:-gemma2:1b}"
+
+# ============================================================================
+# Mode-Specific AI Configuration (Work vs Home)
+# ============================================================================
+# These settings override the defaults above based on GTD_COMPUTER_MODE
+# Use this to have different AI systems/models for work vs home computers
+
+# Work Mode Configuration (when GTD_COMPUTER_MODE="work")
+# Example: Use Ollama with different models for work
+WORK_AI_BACKEND="${WORK_AI_BACKEND:-ollama}"
+WORK_LM_STUDIO_CHAT_MODEL="${WORK_LM_STUDIO_CHAT_MODEL:-google/gemma-3-1b}"
+WORK_OLLAMA_CHAT_MODEL="${WORK_OLLAMA_CHAT_MODEL:-google/gemma3:3b}"
+WORK_DEEP_MODEL_NAME="${WORK_DEEP_MODEL_NAME:-openai/gpt-oss-20b}"
+
+# Home Mode Configuration (when GTD_COMPUTER_MODE="home")
+# Example: Use LM Studio with Qwen models for home
+HOME_AI_BACKEND="${HOME_AI_BACKEND:-lmstudio}"
+HOME_LM_STUDIO_CHAT_MODEL="${HOME_LM_STUDIO_CHAT_MODEL:-qwen/qwen3-1.7b}"
+HOME_OLLAMA_CHAT_MODEL="${HOME_OLLAMA_CHAT_MODEL:-gemma2:1b}"
+HOME_DEEP_MODEL_NAME="${HOME_DEEP_MODEL_NAME:-qwen/qwen3-4b-thinking-2507}"
 
 # ============================================================================
 # Personas/Characters for different types of advice

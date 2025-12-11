@@ -82,7 +82,7 @@ if ! command -v "$PYTHON_CMD" &>/dev/null && [[ ! -f "$PYTHON_CMD" ]]; then
 fi
 
 # Available personas
-PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob")
+PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob" "matt" "brennan" "chris" "aabria" "jeremy")
 
 # Show persona info
 show_persona_info() {
@@ -132,6 +132,11 @@ show_persona_info() {
     picard) echo "Jean-Luc Picard - Strategic leadership, diplomatic guidance, principled decision-making, inspiring others" ;;
     sandy) echo "Sandy Squirrel (SpongeBob SquarePants) - Science, karate, Texas pride, competitive spirit, practical problem-solving" ;;
     spongebob) echo "SpongeBob SquarePants - Optimism, enthusiasm, creativity, friendship, finding joy in work, positive attitude" ;;
+    matt) echo "Matt Mercer - Storytelling, narrative structure, character development, epic adventures, emotional depth" ;;
+    brennan) echo "Brennan Lee Mulligan - Fast-paced gameplay, creative problem-solving, improvisation, high-energy storytelling" ;;
+    chris) echo "Chris Perkins - Game design, world-building, creative mechanics, memorable adventures, system design" ;;
+    aabria) echo "Aabria Iyengar - Collaborative storytelling, diverse narratives, inclusive stories, character development" ;;
+    jeremy) echo "Jeremy Crawford - Rules expertise, game mechanics, system design, understanding complex systems" ;;
     *) echo "Unknown persona" ;;
   esac
 }
@@ -149,7 +154,8 @@ list_personas() {
 
 # Get badge status and progress for advisors
 get_badge_status() {
-  local gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  # GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+  local gtd_base="${GTD_BASE_DIR}"
   local gamification_file="${gtd_base}/.gtd/gamification/gamification.json"
   
   if [[ ! -f "$gamification_file" ]]; then
@@ -342,18 +348,38 @@ get_progress_analysis() {
     return 1
   fi
   
-  # Find python
-  PYTHON_CMD=""
-  if [[ -f "/opt/homebrew/bin/python3" ]]; then
-    PYTHON_CMD="/opt/homebrew/bin/python3"
-  elif command -v python3 &>/dev/null; then
-    PYTHON_CMD="python3"
-  else
-    return 1
+  # Use the same Python environment as the wizard (MCP virtualenv)
+  # This ensures we use the same Python and packages as the rest of the system
+  local progress_python=$(gtd_get_mcp_python)
+  if [[ -z "$progress_python" ]]; then
+    # Fallback to system Python if MCP venv not available
+    if [[ -f "/opt/homebrew/bin/python3" ]]; then
+      progress_python="/opt/homebrew/bin/python3"
+    elif command -v python3 &>/dev/null; then
+      progress_python="python3"
+    else
+      return 1
+    fi
   fi
   
-  # Get summary (non-blocking, don't fail if script has issues)
-  local summary=$($PYTHON_CMD "$progress_analyzer" summary "$days" 2>/dev/null)
+  # Get summary with timeout (5 seconds max) - don't block for too long
+  # Progress analysis can be slow if it uses AI, so we timeout to avoid blocking
+  # On macOS, timeout might not be available, so we use a background process with kill
+  local summary=""
+  if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
+    # Use timeout if available (Linux) or gtimeout (macOS with GNU coreutils)
+    local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+    summary=$($timeout_cmd 5 $progress_python "$progress_analyzer" summary "$days" 2>/dev/null || echo "")
+  else
+    # Fallback: run in background and kill after 5 seconds
+    local temp_file=$(mktemp)
+    ($progress_python "$progress_analyzer" summary "$days" > "$temp_file" 2>/dev/null) &
+    local pid=$!
+    (sleep 5 && kill $pid 2>/dev/null) &
+    wait $pid 2>/dev/null || true
+    summary=$(cat "$temp_file" 2>/dev/null || echo "")
+    rm -f "$temp_file"
+  fi
   
   if [[ -n "$summary" ]]; then
     echo ""
@@ -368,7 +394,8 @@ get_progress_analysis() {
 
 # Get active goals from goals directory
 get_active_goals() {
-  local gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  # GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+  local gtd_base="${GTD_BASE_DIR}"
   local goals_dir="${gtd_base}/goals"
   
   if [[ ! -d "$goals_dir" ]]; then
@@ -446,7 +473,8 @@ get_habit_tracker_data() {
   fi
   
   # Load GTD config to find habits path
-  local gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  # GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+  local gtd_base="${GTD_BASE_DIR}"
   local habits_path="${gtd_base}/habits"
   
   if [[ ! -d "$habits_path" ]]; then
@@ -784,6 +812,12 @@ advise_single() {
     fi
   fi
   
+  # Start timer early for potentially slow operations (context gathering, MOC search, etc.)
+  # This ensures user sees feedback even if these operations take time
+  local persona_name=$(show_persona_info "$persona" 2>/dev/null | cut -d' ' -f1-2 2>/dev/null || echo "AI")
+  show_thinking_timer "Preparing context for ${persona_name}" 2 0 &
+  local prep_timer_pid=$!
+  
   # If daily log requested, load it and include habit tracker data, goals, and badges
   if [[ "$use_daily_log" == "true" ]]; then
     local log_content=$(get_daily_log_content "$date_range")
@@ -832,13 +866,20 @@ advise_single() {
       
       content=$(printf "Review my daily log and provide advice:\n\n%s\n\n%s" "$context_parts" "$content")
     fi
-  elif [[ "$simple_mode" == "false" ]]; then
+  fi
+  
+  if [[ "$simple_mode" == "false" ]]; then
     # Even if not reviewing daily log, include goals, badges, and progress for context
     # This helps advisors remind about goals, badges, and encourage recording completed work
     # BUT skip this if simple_mode is true (for factual questions)
-    local goals_data=$(get_active_goals)
-    local badge_data=$(get_badge_status)
-    local progress_data=$(get_progress_analysis 7)
+    # Get goals and badges first (fast operations)
+    local goals_data=$(get_active_goals 2>/dev/null)
+    local badge_data=$(get_badge_status 2>/dev/null)
+    
+    # Get progress analysis with timeout (may be slow if it uses AI)
+    # Limit it to 3 seconds max to avoid blocking too long
+    # Just call it directly - the function itself has a timeout built in
+    local progress_data=$(get_progress_analysis 7 2>/dev/null || echo "")
     
     local context_parts=""
     if [[ -n "$goals_data" ]]; then
@@ -862,6 +903,83 @@ advise_single() {
     if [[ -n "$context_parts" ]]; then
       content=$(printf "Here's my current status for context:\n%s\n\n%s" "$context_parts" "$content")
     fi
+  fi
+  
+  # Check if question mentions a MOC or topic that might have session notes
+  # Extract potential MOC/topic names from the question
+  # Timer is already running from above (if not in simple mode)
+  local moc_context=""
+  local session_notes=""
+  
+  # Common patterns: "MOC", "session notes", topic names
+  if echo "$content" | grep -qiE "(moc|map of content|session note|session write|pathfinder|kingmaker)"; then
+    # Try to find relevant MOC
+    # Check for "pathfinder kingmaker" specifically
+    if echo "$content" | grep -qi "pathfinder.*kingmaker\|kingmaker"; then
+      moc_context=$(gtd_get_moc_content "Pathfinder Kingmaker" 2>/dev/null)
+      if [[ -n "$moc_context" ]]; then
+        # Search for session notes - also check for specific session numbers
+        local session_num=$(echo "$content" | grep -oiE "session[[:space:]]+([0-9]+)" | grep -oE "[0-9]+" | head -1)
+        if [[ -n "$session_num" ]]; then
+          # Search for notes containing both the topic and session number
+          # Try multiple search patterns for flexibility
+          session_notes=$(gtd_find_related_notes "pathfinder kingmaker session ${session_num}" 10 2>/dev/null)
+          # If not found, try searching for just the session number (might be in a note title)
+          if [[ -z "$session_notes" ]]; then
+            session_notes=$(gtd_find_related_notes "session ${session_num}" 10 2>/dev/null)
+          fi
+          # If still not found, try broader search
+          if [[ -z "$session_notes" ]]; then
+            session_notes=$(gtd_find_related_notes "pathfinder kingmaker" 10 2>/dev/null)
+          fi
+        else
+          session_notes=$(gtd_find_related_notes "pathfinder kingmaker" 10 2>/dev/null)
+        fi
+      fi
+    else
+      # Try to extract topic name from question
+      # Look for patterns like "about X", "X campaign", "X notes"
+      local topic=$(echo "$content" | grep -oiE "(about|regarding|from|in|the) ([A-Za-z][A-Za-z ]{2,20})" | head -1 | sed 's/.*about //i' | sed 's/.*regarding //i' | sed 's/.*from //i' | sed 's/.*in //i' | sed 's/.*the //i' | sed 's/ campaign.*//i' | sed 's/ notes.*//i' | sed 's/ moc.*//i' | xargs)
+      
+      if [[ -n "$topic" && ${#topic} -gt 2 ]]; then
+        # Try to find MOC with this topic
+        moc_context=$(gtd_get_moc_content "$topic" 2>/dev/null)
+        if [[ -n "$moc_context" ]]; then
+          session_notes=$(gtd_find_related_notes "$topic" 5 2>/dev/null)
+        fi
+      fi
+    fi
+    
+    # If we found MOC or session notes, add them to context
+    if [[ -n "$moc_context" ]] || [[ -n "$session_notes" ]]; then
+      local brain_context=""
+      brain_context="${brain_context}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+      brain_context="${brain_context}📚 Relevant Information from Your Second Brain:\n"
+      brain_context="${brain_context}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+      
+      if [[ -n "$moc_context" ]]; then
+        brain_context="${brain_context}\n🗺️  Map of Content (MOC):\n${moc_context}\n"
+      fi
+      
+      if [[ -n "$session_notes" ]]; then
+        brain_context="${brain_context}\n📝 Related Session Notes:\n${session_notes}\n"
+      fi
+      
+      brain_context="${brain_context}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+      brain_context="${brain_context}\n⚠️  IMPORTANT: The content above (MOC and Session Notes) is the ACTUAL TEXT from your Second Brain that has been provided to me. I have direct access to this content - it is NOT an external link. Please read it carefully and use it to answer questions accurately.\n"
+      brain_context="${brain_context}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+      
+      # Prepend brain context to the question
+      content=$(printf "%s\n\n%s" "$brain_context" "$content")
+    fi
+  fi
+  
+  # Stop the preparation timer (it will be replaced by the AI call timer)
+  # NOTE: The timer reset here indicates when the LLM actually begins processing
+  # The "Preparing context" timer shows context gathering (goals, badges, MOC, etc.)
+  # The "Getting advice" timer shows the actual AI/LLM processing time
+  if [[ -n "$prep_timer_pid" ]]; then
+    stop_thinking_timer "$prep_timer_pid" 2>/dev/null
   fi
   
   # In simple mode, add explicit instruction to answer directly without GTD context
@@ -1140,7 +1258,8 @@ advise_review() {
   
   if [[ -z "$content" ]]; then
     # Try to get review content from recent review files
-    local review_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/weekly-reviews"
+    # Use standardized path variable (DRY - reuse existing helper)
+    local review_dir="${WEEKLY_REVIEWS_PATH:-${GTD_BASE_DIR}/weekly-reviews}"
     if [[ -d "$review_dir" ]]; then
       local latest_review=$(find "$review_dir" -name "*.md" -type f | sort -r | head -1)
       if [[ -n "$latest_review" && -f "$latest_review" ]]; then

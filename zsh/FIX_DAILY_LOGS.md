@@ -84,3 +84,4 @@ Now your Daily Notes will always be up to date in Obsidian! 🎉
 
 
 
+

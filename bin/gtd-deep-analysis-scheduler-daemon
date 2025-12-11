@@ -1,0 +1,112 @@
+#!/bin/bash
+# GTD Deep Analysis Scheduler Daemon
+# Runs the scheduler periodically to check for scheduled deep analysis jobs
+
+SCRIPT_DIR="$HOME/code/dotfiles"
+if [[ ! -d "$SCRIPT_DIR" ]]; then
+  SCRIPT_DIR="$HOME/code/personal/dotfiles"
+fi
+
+SCHEDULER="${SCRIPT_DIR}/bin/gtd-deep-analysis-scheduler"
+PID_FILE="/tmp/gtd-deep-analysis-scheduler-daemon.pid"
+LOG_FILE="${HOME}/.gtd-deep-analysis-scheduler.log"
+
+# Default check interval (minutes)
+INTERVAL="${DEEP_ANALYSIS_SCHEDULER_INTERVAL:-15}"
+
+start_daemon() {
+  if [[ -f "$PID_FILE" ]]; then
+    local pid=$(cat "$PID_FILE")
+    if ps -p "$pid" > /dev/null 2>&1; then
+      echo "Scheduler daemon is already running (PID: $pid)"
+      return 1
+    else
+      rm -f "$PID_FILE"
+    fi
+  fi
+  
+  echo "Starting deep analysis scheduler daemon..."
+  echo "Check interval: $INTERVAL minutes"
+  echo "Log file: $LOG_FILE"
+  
+  nohup bash -c "
+    while true; do
+      echo \"\$(date): Checking for scheduled deep analysis jobs...\" >> \"$LOG_FILE\"
+      \"$SCHEDULER\" >> \"$LOG_FILE\" 2>&1
+      sleep \$((INTERVAL * 60))
+    done
+  " &
+  
+  local daemon_pid=$!
+  echo $daemon_pid > "$PID_FILE"
+  echo "✅ Daemon started (PID: $daemon_pid)"
+  echo "   View logs: tail -f $LOG_FILE"
+}
+
+stop_daemon() {
+  if [[ ! -f "$PID_FILE" ]]; then
+    echo "Daemon is not running"
+    return 1
+  fi
+  
+  local pid=$(cat "$PID_FILE")
+  if ps -p "$pid" > /dev/null 2>&1; then
+    kill "$pid"
+    rm -f "$PID_FILE"
+    echo "✅ Daemon stopped"
+  else
+    rm -f "$PID_FILE"
+    echo "Daemon was not running (stale PID file)"
+  fi
+}
+
+status_daemon() {
+  if [[ ! -f "$PID_FILE" ]]; then
+    echo "❌ Daemon is not running"
+    return 1
+  fi
+  
+  local pid=$(cat "$PID_FILE")
+  if ps -p "$pid" > /dev/null 2>&1; then
+    echo "✅ Daemon is running (PID: $pid)"
+    echo "   Check interval: $INTERVAL minutes"
+    echo "   Log file: $LOG_FILE"
+    if [[ -f "$LOG_FILE" ]]; then
+      echo ""
+      echo "Last 5 log entries:"
+      tail -n 5 "$LOG_FILE" | sed 's/^/   /'
+    fi
+  else
+    echo "❌ Daemon is not running (stale PID file)"
+    rm -f "$PID_FILE"
+    return 1
+  fi
+}
+
+case "${1:-}" in
+  start)
+    start_daemon
+    ;;
+  stop)
+    stop_daemon
+    ;;
+  restart)
+    stop_daemon
+    sleep 1
+    start_daemon
+    ;;
+  status)
+    status_daemon
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}"
+    echo ""
+    echo "Manages the deep analysis scheduler daemon."
+    echo ""
+    echo "The daemon runs the scheduler every $INTERVAL minutes to check"
+    echo "for scheduled deep analysis jobs and automatically queue them."
+    echo ""
+    echo "Set DEEP_ANALYSIS_SCHEDULER_INTERVAL to change the check interval (minutes)."
+    exit 1
+    ;;
+esac

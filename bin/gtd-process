@@ -12,12 +12,9 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Additional paths (using common paths as base)
-INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR:-0-inbox}"
-REFERENCE_PATH="${GTD_BASE_DIR}/${GTD_REFERENCE_DIR:-3-reference}"
-SOMEDAY_PATH="${GTD_BASE_DIR}/${GTD_SOMEDAY_DIR:-4-someday-maybe}"
-WAITING_PATH="${GTD_BASE_DIR}/${GTD_WAITING_DIR:-5-waiting-for}"
-ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
+# Additional paths (INBOX_PATH, REFERENCE_PATH, SOMEDAY_PATH, WAITING_PATH, ARCHIVE_PATH 
+# are already set by init_gtd_paths in gtd-common.sh - DRY - reuse existing helper)
+# Keep directory name variables for backward compatibility if needed
 
 # Create directories if they don't exist
 mkdir -p "$INBOX_PATH" "$PROJECTS_PATH" "$AREAS_PATH" "$REFERENCE_PATH" "$SOMEDAY_PATH" "$WAITING_PATH" "$ARCHIVE_PATH"

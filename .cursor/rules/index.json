@@ -81,6 +81,32 @@
       "alwaysApply": true,
       "priority": 9,
       "categories": ["testing", "quality", "bash", "python"]
+    },
+    {
+      "id": "dry-principle",
+      "file": "dry-principle.mdc",
+      "description": "Don't Repeat Yourself - reuse existing code and functions",
+      "filePatterns": [
+        "**/*.sh",
+        "**/*.py",
+        "**/bin/**",
+        "**/zsh/functions/**"
+      ],
+      "matchStrings": [
+        "find.*PROJECTS_PATH",
+        "find.*AREAS_PATH",
+        "find.*TASKS_PATH",
+        "grep.*frontmatter",
+        "select.*project",
+        "list.*project",
+        "duplicate",
+        "reimplement",
+        "new function",
+        "create.*helper"
+      ],
+      "alwaysApply": true,
+      "priority": 9,
+      "categories": ["quality", "maintainability", "bash", "python"]
     }
   ],
   "categories": {

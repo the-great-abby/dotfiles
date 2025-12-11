@@ -24,19 +24,11 @@ if [[ -f "$DAILY_LOG_CONFIG" ]]; then
   source "$DAILY_LOG_CONFIG"
 fi
 
-# Ensure GTD paths are initialized
-if command -v init_gtd_paths &>/dev/null; then
-  init_gtd_paths
-fi
-
+# Paths are already initialized by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 # Additional paths (with fallbacks)
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-HABITS_PATH="${GTD_BASE_DIR}/habits"
-TASKS_PATH="${GTD_BASE_DIR}/${GTD_TASKS_DIR:-1-tasks}"
-PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-3-projects}"
-AREAS_PATH="${AREAS_PATH:-${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}}"
-INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR:-0-inbox}"
+HABITS_PATH="${HABITS_PATH:-${GTD_BASE_DIR}/habits}"
+# TASKS_PATH, PROJECTS_PATH, AREAS_PATH, INBOX_PATH are already set by init_gtd_paths
 
 # Use common date helpers
 TODAY=$(gtd_get_today)
@@ -605,14 +597,8 @@ EOF
           if [[ $selected_idx -ge 0 && $selected_idx -lt ${#task_ids[@]} ]]; then
             local selected_task_id="${task_ids[$selected_idx]}"
             
-            # Find the task file
-            local task_file=""
-            if [[ -d "$TASKS_PATH" ]]; then
-              task_file=$(find "$TASKS_PATH" -name "${selected_task_id}*.md" -type f 2>/dev/null | head -1)
-            fi
-            if [[ -z "$task_file" ]] && [[ -d "$PROJECTS_PATH" ]]; then
-              task_file=$(find "$PROJECTS_PATH" -name "${selected_task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
-            fi
+            # Use standardized helper function (DRY - reuse existing helper)
+            local task_file=$(find_task_file "${selected_task_id}")
             
             if [[ -n "$task_file" && -f "$task_file" ]]; then
               echo ""

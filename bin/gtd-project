@@ -12,11 +12,10 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Additional paths
-ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
-TASKS_PATH="${GTD_BASE_DIR}/tasks"
+# Additional paths (TASKS_PATH, ARCHIVE_PATH already set by init_gtd_paths in gtd-common.sh)
+# Only create directories if needed
+ARCHIVE_PATH="${ARCHIVE_PATH:-${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}}"
 GOALS_DIR="${GTD_BASE_DIR}/goals"
-
 mkdir -p "$PROJECTS_PATH" "$ARCHIVE_PATH" "$TASKS_PATH" "$GOALS_DIR"
 
 TODAY=$(gtd_get_today)
@@ -880,12 +879,22 @@ archive_project() {
     exit 1
   fi
   
-  project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  # Don't normalize - the project_name should already be the directory name
+  # Special characters in directory names are preserved as-is
+  
   local project_dir="${PROJECTS_PATH}/${project_name}"
   local readme="${project_dir}/README.md"
   
   if [[ ! -d "$project_dir" || ! -f "$readme" ]]; then
     echo "❌ Project not found: $project_name"
+    echo "   Searched in: $project_dir"
+    echo ""
+    echo "Available projects:"
+    if [[ -d "$PROJECTS_PATH" ]]; then
+      find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null | while read -r dir; do
+        echo "  - $(basename "$dir")"
+      done
+    fi
     exit 1
   fi
   

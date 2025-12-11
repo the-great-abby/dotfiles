@@ -22,9 +22,20 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
 # Default values
 SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/Second Brain}"
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 
 # Find all notes with a specific tag
 find_by_tag() {

@@ -1,0 +1,128 @@
+#!/bin/bash
+# Manage RabbitMQ Consumers (Workers)
+# Helper script to restart workers and ensure they connect to RabbitMQ
+
+set -e
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}🔌 Manage RabbitMQ Consumers${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Check if port-forward is running
+if ! nc -zv localhost 5672 &>/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  RabbitMQ port-forward not detected on port 5672${NC}"
+    echo ""
+    echo "Make sure port-forward is running:"
+    echo "  kubectl port-forward -n rabbitmq-system svc/rabbitmq 5672:5672 15672:15672 15692:15692"
+    echo ""
+    echo "Or use: ./bin/setup_rabbitmq_local.sh"
+    echo ""
+    read -p "Continue anyway? (y/n): " continue_choice
+    if [[ "$continue_choice" != "y" && "$continue_choice" != "Y" ]]; then
+        exit 1
+    fi
+fi
+
+echo "Checking current worker status..."
+echo ""
+
+# Deep Analysis Worker
+DEEP_PID=$(pgrep -f "gtd_deep_analysis_worker.py" || echo "")
+if [[ -n "$DEEP_PID" ]]; then
+    echo -e "${CYAN}Deep Analysis Worker:${NC} Running (PID: $DEEP_PID)"
+else
+    echo -e "${CYAN}Deep Analysis Worker:${NC} ${YELLOW}Not running${NC}"
+fi
+
+# Vectorization Worker
+VECTOR_PID=$(pgrep -f "gtd_vector_worker.py" || echo "")
+if [[ -n "$VECTOR_PID" ]]; then
+    echo -e "${CYAN}Vectorization Worker:${NC} Running (PID: $VECTOR_PID)"
+else
+    echo -e "${CYAN}Vectorization Worker:${NC} ${YELLOW}Not running${NC}"
+fi
+
+echo ""
+echo "What would you like to do?"
+echo ""
+echo "  1) Restart Deep Analysis Worker (to connect to RabbitMQ)"
+echo "  2) Restart Vectorization Worker (to connect to RabbitMQ)"
+echo "  3) Restart All Workers"
+echo "  4) Check RabbitMQ Consumer Status"
+echo "  0) Cancel"
+echo ""
+echo -n "Choose: "
+read choice
+
+case "$choice" in
+    1)
+        echo ""
+        echo -e "${CYAN}Restarting Deep Analysis Worker...${NC}"
+        if [[ -n "$DEEP_PID" ]]; then
+            echo "Stopping existing worker (PID: $DEEP_PID)..."
+            pkill -f "gtd_deep_analysis_worker.py"
+            sleep 2
+        fi
+        echo "Starting worker to connect to RabbitMQ..."
+        cd "$HOME/code/dotfiles" && make worker-deep-start
+        echo ""
+        echo -e "${GREEN}✓ Worker restarted${NC}"
+        echo "Check connection: make rabbitmq-status"
+        ;;
+    2)
+        echo ""
+        echo -e "${CYAN}Restarting Vectorization Worker...${NC}"
+        if [[ -n "$VECTOR_PID" ]]; then
+            echo "Stopping existing worker (PID: $VECTOR_PID)..."
+            pkill -f "gtd_vector_worker.py"
+            sleep 2
+        fi
+        echo "Starting worker to connect to RabbitMQ..."
+        cd "$HOME/code/dotfiles" && make worker-vector-start
+        echo ""
+        echo -e "${GREEN}✓ Worker restarted${NC}"
+        echo "Check connection: make rabbitmq-status"
+        ;;
+    3)
+        echo ""
+        echo -e "${CYAN}Restarting All Workers...${NC}"
+        if [[ -n "$DEEP_PID" ]]; then
+            echo "Stopping Deep Analysis Worker..."
+            pkill -f "gtd_deep_analysis_worker.py"
+        fi
+        if [[ -n "$VECTOR_PID" ]]; then
+            echo "Stopping Vectorization Worker..."
+            pkill -f "gtd_vector_worker.py"
+        fi
+        sleep 2
+        echo "Starting all workers..."
+        cd "$HOME/code/dotfiles" && make worker-deep-start && make worker-vector-start
+        echo ""
+        echo -e "${GREEN}✓ All workers restarted${NC}"
+        echo "Check connection: make rabbitmq-status"
+        ;;
+    4)
+        echo ""
+        cd "$HOME/code/dotfiles" && make rabbitmq-status
+        ;;
+    0)
+        echo "Cancelled"
+        exit 0
+        ;;
+    *)
+        echo "Invalid choice"
+        exit 1
+        ;;
+esac
+
+echo ""
+echo "Wait a few seconds, then check: make rabbitmq-status"

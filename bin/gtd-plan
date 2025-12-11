@@ -2,13 +2,22 @@
 # AI Planning Assistant - Interactive planning with local AI
 # Helps break down goals into projects, projects into tasks, and identify dependencies
 
-# Source common helpers
+# Source common helpers (provides PROJECTS_PATH, AREAS_PATH, TASKS_PATH, etc.)
 GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
 if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
   GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
 if [[ -f "$GTD_COMMON" ]]; then
   source "$GTD_COMMON"
+fi
+
+# Source selection helper (provides select_from_list function)
+SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
+  SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
+fi
+if [[ -f "$SELECT_HELPER" ]]; then
+  source "$SELECT_HELPER"
 fi
 
 # Get script directory
@@ -97,11 +106,9 @@ if [[ -z "$PLAN_TYPE" ]]; then
   if [[ "$PLAN_TYPE" != "general" ]]; then
     echo ""
     
-    # Show available items based on plan type
-    GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-    PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
-    TASKS_PATH="${GTD_BASE_DIR}/${GTD_TASKS_DIR:-3-tasks}"
-    GOALS_DIR="${GTD_BASE_DIR}/${GTD_GOALS_DIR:-goals}"
+    # Use standardized path initialization (DRY - reuse existing helper)
+    # Paths are already set by init_gtd_paths in gtd-common.sh, but set GOALS_DIR if needed
+    GOALS_DIR="${GOALS_DIR:-${GTD_BASE_DIR}/goals}"
     
     case "$PLAN_TYPE" in
       goal)
@@ -131,11 +138,13 @@ if [[ -z "$PLAN_TYPE" ]]; then
           # Use find to handle filenames with spaces
           while IFS= read -r goal_file; do
             [[ ! -f "$goal_file" ]] && continue
-            goal_name=$(grep "^name:" "$goal_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+            # Use standardized helper function (DRY - reuse existing helper)
+            goal_name=$(gtd_get_frontmatter_value "$goal_file" "name")
             if [[ -z "$goal_name" ]]; then
               goal_name=$(basename "$goal_file" .md | tr '_' ' ')
             fi
-            goal_status=$(grep "^status:" "$goal_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "active")
+            goal_status=$(gtd_get_frontmatter_value "$goal_file" "status")
+            [[ -z "$goal_status" ]] && goal_status="active"
             # Default to active if no status field
             if [[ -z "$goal_status" ]]; then
               goal_status="active"
@@ -194,39 +203,76 @@ if [[ -z "$PLAN_TYPE" ]]; then
       project)
         echo "Available projects:"
         echo ""
+        # Use common helper to list projects (DRY - don't reimplement)
         if command -v gtd-project &>/dev/null; then
-          gtd-project list --status=active 2>/dev/null | head -20
+          gtd-project list active 2>/dev/null | head -20
         elif [[ -f "$HOME/code/dotfiles/bin/gtd-project" ]]; then
-          "$HOME/code/dotfiles/bin/gtd-project" list --status=active 2>/dev/null | head -20
+          "$HOME/code/dotfiles/bin/gtd-project" list active 2>/dev/null | head -20
         else
           echo "  (gtd-project command not available)"
         fi
         echo ""
-        echo -n "Enter project name or number: "
-        read user_input
-        if [[ "$user_input" =~ ^[0-9]+$ ]]; then
-          # Try to extract project name from list (this is a bit hacky)
-          # For now, just use the number as-is and let the script try to find it
-          ITEM_NAME="$user_input"
-        elif [[ -n "$user_input" ]]; then
-          ITEM_NAME="$user_input"
+        
+        # Use select_from_list for consistent project selection (DRY - reuse existing helper)
+        if command -v select_from_list &>/dev/null && [[ -d "$PROJECTS_PATH" ]]; then
+          project_slug=$(select_from_list "project" "$PROJECTS_PATH" "project")
+          if [[ -n "$project_slug" ]]; then
+            ITEM_NAME="$project_slug"
+          fi
+        else
+          echo -n "Enter project name or number: "
+          read user_input
+          if [[ "$user_input" =~ ^[0-9]+$ ]]; then
+            # Try to extract project name from list (this is a bit hacky)
+            # For now, just use the number as-is and let the script try to find it
+            ITEM_NAME="$user_input"
+          elif [[ -n "$user_input" ]]; then
+            ITEM_NAME="$user_input"
+          fi
         fi
         ;;
       task)
         echo "Available tasks:"
         echo ""
+        # Use common helper to list tasks (DRY - don't reimplement)
+        # Save output for later parsing with get_task_id_by_number
+        local task_list_output=""
         if command -v gtd-task &>/dev/null; then
-          gtd-task list --status=active 2>/dev/null | head -20
+          task_list_output=$(gtd-task list --status=active 2>/dev/null)
+          echo "$task_list_output"
         elif [[ -f "$HOME/code/dotfiles/bin/gtd-task" ]]; then
-          "$HOME/code/dotfiles/bin/gtd-task" list --status=active 2>/dev/null | head -20
+          task_list_output=$("$HOME/code/dotfiles/bin/gtd-task" list --status=active 2>/dev/null)
+          echo "$task_list_output"
         else
           echo "  (gtd-task command not available)"
         fi
         echo ""
-        echo -n "Enter task ID or name: "
+        echo -n "Enter task number (from list above) or task ID: "
         read user_input
         if [[ -n "$user_input" ]]; then
-          ITEM_NAME="$user_input"
+          # Use get_task_id_by_number from gtd-wizard (standardized function used across codebase)
+          GTD_WIZARD="$HOME/code/dotfiles/bin/gtd-wizard"
+          if [[ ! -f "$GTD_WIZARD" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard" ]]; then
+            GTD_WIZARD="$HOME/code/personal/dotfiles/bin/gtd-wizard"
+          fi
+          if [[ -f "$GTD_WIZARD" ]]; then
+            source "$GTD_WIZARD" 2>/dev/null || true
+            if declare -f get_task_id_by_number &>/dev/null; then
+              local task_id=$(get_task_id_by_number "$user_input" "$task_list_output")
+              if [[ -n "$task_id" ]]; then
+                ITEM_NAME="$task_id"
+              else
+                # If not found, use input as-is (might be a task ID directly)
+                ITEM_NAME="$user_input"
+              fi
+            else
+              # Fallback: use input as-is
+              ITEM_NAME="$user_input"
+            fi
+          else
+            # Fallback: use input as-is
+            ITEM_NAME="$user_input"
+          fi
         fi
         ;;
     esac
@@ -236,11 +282,8 @@ fi
 # Get item details if provided
 ITEM_CONTEXT=""
 if [[ -n "$ITEM_NAME" || -n "$ITEM_ID" ]]; then
-  # Try to find and read the item
-  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-  PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
-  TASKS_PATH="${GTD_BASE_DIR}/${GTD_TASKS_DIR:-3-tasks}"
-  GOALS_DIR="${GTD_BASE_DIR}/${GTD_GOALS_DIR:-goals}"
+  # Paths are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+  GOALS_DIR="${GOALS_DIR:-${GTD_BASE_DIR}/goals}"
   
   case "$PLAN_TYPE" in
     goal)
@@ -260,10 +303,8 @@ if [[ -n "$ITEM_NAME" || -n "$ITEM_ID" ]]; then
         # Try to find by name
         for proj_dir in "${PROJECTS_PATH}"/*/; do
           if [[ -f "${proj_dir}README.md" ]]; then
-            local proj_name=$(grep "^project:" "${proj_dir}README.md" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
-            if [[ -z "$proj_name" ]]; then
-              proj_name=$(grep "^name:" "${proj_dir}README.md" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
-            fi
+            # Use standardized helper function (DRY - reuse existing helper)
+            local proj_name=$(get_project_name "${proj_dir}README.md")
             if [[ "$proj_name" == "$ITEM_NAME" ]] || [[ "$(basename "$proj_dir")" == "$ITEM_NAME" ]]; then
               ITEM_FILE="${proj_dir}README.md"
               break
@@ -276,12 +317,13 @@ if [[ -n "$ITEM_NAME" || -n "$ITEM_ID" ]]; then
       fi
       ;;
     task)
+      # Use standardized helper function to find task file (DRY - reuse existing helper)
       if [[ -n "$ITEM_ID" ]]; then
-        ITEM_FILE="${TASKS_PATH}/${ITEM_ID}.md"
+        ITEM_FILE=$(find_task_file "$ITEM_ID")
       else
-        ITEM_FILE="${TASKS_PATH}/${ITEM_NAME}.md"
+        ITEM_FILE=$(find_task_file "$ITEM_NAME")
       fi
-      if [[ -f "$ITEM_FILE" ]]; then
+      if [[ -n "$ITEM_FILE" && -f "$ITEM_FILE" ]]; then
         ITEM_CONTEXT=$(cat "$ITEM_FILE")
       fi
       ;;

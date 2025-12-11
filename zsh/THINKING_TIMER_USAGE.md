@@ -166,3 +166,4 @@ stop_thinking_timer $timer_pid
 ## Cursor Rule
 
 The `.cursorrules` file contains a rule that instructs AI to automatically add thinking timers when generating code for operations that might take > 2 seconds. This ensures consistent user experience across all scripts.
+

@@ -35,7 +35,19 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
 fi
 
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 PATTERNS_DIR="${GTD_BASE_DIR}/.patterns"
 mkdir -p "$PATTERNS_DIR"
 
@@ -163,7 +175,8 @@ EOF
 # Analyze task completion patterns
 analyze_task_patterns() {
   local patterns_file="${PATTERNS_DIR}/task_patterns.json"
-  local tasks_path="${GTD_BASE_DIR}/tasks"
+  # Use standardized path variable (DRY - reuse existing helper)
+  local tasks_path="${TASKS_PATH}"
   
   local total_tasks=0
   local completed_tasks=0

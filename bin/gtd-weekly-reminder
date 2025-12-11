@@ -25,8 +25,19 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
 # Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 GTD_WEEKLY_REVIEW_DAY="${GTD_WEEKLY_REVIEW_DAY:-0}"  # 0=Sunday
 GTD_WEEKLY_REVIEW_TIME="${GTD_WEEKLY_REVIEW_TIME:-09:00}"
 GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"

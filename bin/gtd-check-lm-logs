@@ -1,0 +1,42 @@
+#!/bin/bash
+# Check LM Studio request logs to debug timeouts and stuck requests
+
+LOG_FILE="$HOME/.gtd_logs/tool_calls.log"
+
+if [[ ! -f "$LOG_FILE" ]]; then
+  echo "❌ Log file doesn't exist yet: $LOG_FILE"
+  echo "   It will be created on first LM Studio request."
+  exit 1
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📋 LM Studio Request Logs"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Log file: $LOG_FILE"
+echo ""
+
+# Show last N lines (default 100)
+LINES="${1:-100}"
+
+echo "Last $LINES lines:"
+echo ""
+
+# Show with timestamps highlighted
+tail -n "$LINES" "$LOG_FILE" | grep -E "(Sending request|API Response|ERROR|timed out|elapsed)" | tail -20
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "💡 Tips:"
+echo "   - Look for 'Sending request' to see when requests start"
+echo "   - Look for 'API Response received' to see when they complete"
+echo "   - Look for 'ERROR' or 'timed out' to see failures"
+echo "   - Check 'elapsed' time to see how long requests took"
+echo ""
+echo "To see full recent logs:"
+echo "   tail -100 $LOG_FILE"
+echo ""
+echo "To watch logs in real-time:"
+echo "   tail -f $LOG_FILE"
+echo ""

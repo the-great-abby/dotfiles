@@ -44,7 +44,7 @@ if [[ -f "$SELECT_HELPER" ]]; then
 fi
 
 # Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 HABITS_PATH="${GTD_BASE_DIR}/habits"
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 TASKS_PATH="${GTD_BASE_DIR}/tasks"

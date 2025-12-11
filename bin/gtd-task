@@ -12,10 +12,9 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Additional paths
-TASKS_PATH="${GTD_BASE_DIR}/tasks"
-ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
-
+# Additional paths (TASKS_PATH, ARCHIVE_PATH already set by init_gtd_paths in gtd-common.sh)
+# Only create directories if needed
+ARCHIVE_PATH="${ARCHIVE_PATH:-${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}}"
 mkdir -p "$TASKS_PATH" "$PROJECTS_PATH" "$ARCHIVE_PATH"
 
 TODAY=$(gtd_get_today)
@@ -336,6 +335,25 @@ add_task() {
   if [[ -n "$repository" ]]; then
     echo "  Repository: $repository"
   fi
+  
+  # Vectorize the task if enabled
+  local task_id=$(basename "$filepath" .md)
+  local task_content="$task_desc"
+  if [[ -n "$project" ]]; then
+    task_content="Project: $project. $task_content"
+  fi
+  if [[ -n "$context" ]]; then
+    task_content="$task_content (Context: $context)"
+  fi
+  
+  # Vectorize in background (don't block user)
+  if command -v gtd-vectorize-content &>/dev/null; then
+    gtd-vectorize-content "task" "$task_id" "$task_content" &
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-vectorize-content" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-vectorize-content" "task" "$task_id" "$task_content" &
+  elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-vectorize-content" ]]; then
+    "$HOME/code/personal/dotfiles/bin/gtd-vectorize-content" "task" "$task_id" "$task_content" &
+  fi
 }
 
 # Find all task files (in tasks directory and project directories)
@@ -502,22 +520,9 @@ list_tasks() {
 }
 
 # Find task file by ID (searches both TASKS_PATH and project directories)
-find_task_file() {
-  local task_id="$1"
-  local task_file=""
-  
-  # Search in tasks directory
-  task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
-  
-  # If not found, search in project directories
-  if [[ -z "$task_file" || ! -f "$task_file" ]]; then
-    if [[ -d "$PROJECTS_PATH" ]]; then
-      task_file=$(find "$PROJECTS_PATH" -name "${task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
-    fi
-  fi
-  
-  echo "$task_file"
-}
+# NOTE: This function is now available in gtd-common.sh (which is sourced above)
+# The function from gtd-common.sh will be used automatically since it's sourced first
+# This comment is kept for documentation - the actual function is in gtd-common.sh
 
 # Complete task
 complete_task() {

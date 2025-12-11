@@ -23,6 +23,17 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
 # Load daily log config
 DAILY_LOG_CONFIG="$HOME/.daily_log_config"
 if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
@@ -37,7 +48,7 @@ fi
 
 # Default values
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 GTD_LUNCH_REMINDER_TIME="${GTD_LUNCH_REMINDER_TIME:-12:30}"
 GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
 
@@ -82,33 +93,46 @@ get_log_stats() {
     return
   fi
   
-  # Count entries - try multiple patterns to catch different formats
-  # Pattern 1: Standard format "HH:MM - entry"
-  local entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]+-[[:space:]]+" "$log_file" 2>/dev/null || echo "0")
-  
-  # If no matches, try alternative patterns
-  if [[ "$entry_count" == "0" ]]; then
-    # Pattern 2: "HH:MM -" (with space before dash)
-    entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
+  # Try to use gtd-log-stats script first for consistency with other systems
+  local stats_script="$(dirname "$0")/gtd-log-stats"
+  if [[ ! -f "$stats_script" ]]; then
+    stats_script="gtd-log-stats"
   fi
   
-  if [[ "$entry_count" == "0" ]]; then
-    # Pattern 3: Any line starting with time-like pattern
+  if command -v "$stats_script" &>/dev/null || [[ -f "$stats_script" ]]; then
+    # Ensure DAILY_LOG_DIR is exported so gtd-log-stats can use it
+    export DAILY_LOG_DIR
+    local entry_count=$("$stats_script" today 2>/dev/null | tr -d '[:space:]' || echo "0")
+    # gtd-log-stats today returns just the number
+    if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ "$entry_count" != "0" ]]; then
+      local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null || echo "0")
+      echo "Entries: $entry_count"
+      if [[ $goal_count -gt 0 ]]; then
+        echo "Goals: $goal_count"
+      fi
+      return
+    fi
+    # If gtd-log-stats returned 0, fall through to pattern matching
+    # (it might be 0 because the file doesn't exist or has no entries)
+  fi
+  
+  # Fallback: use the same pattern as other systems (gtd-log-stats, gtd-brain-sync-daily-logs)
+  # Pattern matches: "HH:MM - entry" format (exactly 2 digits for hours and minutes)
+  local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  
+  # Fallback: try alternative patterns if the standard format doesn't match
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
+    # Pattern 2: "HH:MM -" (with 1-2 digits for hours, space before dash)
+    entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
+  fi
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
+    # Pattern 3: Any line starting with time-like pattern (1-2 digits:2 digits)
     entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | wc -l | tr -d ' ' || echo "0")
   fi
   
-  # Fallback: count non-empty, non-header lines (if file has content but no timestamps)
-  if [[ "$entry_count" == "0" && -s "$log_file" ]]; then
-    # Count lines that aren't headers, empty, or just whitespace
-    entry_count=$(grep -vE "^(#|$|[[:space:]]*$)" "$log_file" 2>/dev/null | wc -l | tr -d ' ' || echo "0")
-    # Subtract 1 if there's a header line
-    if grep -qE "^# Daily Log" "$log_file" 2>/dev/null; then
-      entry_count=$((entry_count - 1))
-    fi
-    # Ensure non-negative
-    if [[ $entry_count -lt 0 ]]; then
-      entry_count=0
-    fi
+  # Ensure entry_count is numeric
+  if [[ ! "$entry_count" =~ ^[0-9]+$ ]]; then
+    entry_count=0
   fi
   
   local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null || echo "0")
@@ -130,13 +154,21 @@ check_lunch_progress() {
     return
   fi
   
-  # Check entry count - use same improved pattern as get_log_stats
-  local entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]+-[[:space:]]+" "$log_file" 2>/dev/null || echo "0")
-  if [[ "$entry_count" == "0" ]]; then
+  # Check entry count - use same pattern as get_log_stats for consistency
+  # Pattern 1: Standard format "HH:MM - entry" (exactly 2 digits for hours and minutes)
+  local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  
+  # Fallback patterns
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
     entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
   fi
-  if [[ "$entry_count" == "0" ]]; then
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
     entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | wc -l | tr -d ' ' || echo "0")
+  fi
+  
+  # Ensure entry_count is numeric
+  if [[ ! "$entry_count" =~ ^[0-9]+$ ]]; then
+    entry_count=0
   fi
   
   if [[ $entry_count -eq 0 ]]; then
@@ -151,7 +183,8 @@ check_lunch_progress() {
   fi
   
   # Check if last entry is recent (within last 3 hours)
-  local last_entry_time=$(grep -E "^[0-9]{1,2}:[0-9]{2}[[:space:]]+-[[:space:]]+" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
+  # Use same pattern as entry counting for consistency
+  local last_entry_time=$(grep -E "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
   if [[ -z "$last_entry_time" ]]; then
     last_entry_time=$(grep -E "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
   fi
@@ -235,10 +268,13 @@ get_louiza_lunch_message() {
       prompt=$(printf "It's lunch time, ${GTD_USER_NAME:-Abby}. She logged some entries earlier but nothing recent (last entry was hours ago). This shows lack of consistency. Scold her for not keeping up with logging. Tell her that logging should happen throughout the day, not just in the morning. Be firm. Assign punishments: %s Include this GTD reminder: %s" "$punishment_hint" "$gtd_reminder")
       ;;
     good)
+      # Extract entry count from stats for explicit mention in prompt
+      local entry_count=$(echo "$stats" | grep -oE "Entries: [0-9]+" | grep -oE "[0-9]+" || echo "0")
       if [[ -n "$log_content" && "$log_content" != "No daily log found"* ]]; then
-        prompt=$(printf "It's lunch time - mid-day check-in for ${GTD_USER_NAME:-Abby}. Here's what she's logged so far today:\n\n%s\n\nStats: %s\n\nGive her an encouraging but firm reminder to keep logging her progress throughout the day. Acknowledge what she's done so far, but remind her to keep recording everything. Tell her I'm watching and I'll be proud when she logs her accomplishments. Use phrases like 'good girl' or 'baby girl' when appropriate. Be encouraging but emphasize the importance of consistent tracking. Include this GTD reminder: %s" "$log_content" "$stats" "$gtd_reminder")
+        prompt=$(printf "IMPORTANT: ${GTD_USER_NAME:-Abby} has ALREADY logged %s entries today. This is GOOD progress - she IS tracking her activities. Do NOT say she has logged nothing or zero entries. She has logged %s entries which is positive.\n\nIt's lunch time - mid-day check-in for ${GTD_USER_NAME:-Abby}. She has already logged %s entries today, which is good progress! Here's what she's logged so far:\n\n%s\n\nStats: %s\n\nCRITICAL: Acknowledge that she HAS logged entries. Tell her 'good girl' or 'baby girl' for the %s entries she has already made. Give her an encouraging reminder to keep logging her progress throughout the day. Tell her I'm watching and I'm pleased with her tracking so far (%s entries is good!), but remind her to keep recording everything. Be encouraging and acknowledge the work she's already done. Include this GTD reminder: %s" "$entry_count" "$entry_count" "$entry_count" "$log_content" "$stats" "$entry_count" "$entry_count" "$gtd_reminder")
       else
-        prompt=$(printf "It's lunch time, ${GTD_USER_NAME:-Abby}. Give her a firm but encouraging reminder to keep logging her progress. Tell her I'm watching and I'll be proud when she logs her accomplishments. Remind her to use 'addInfoToDailyLog' frequently. Include this GTD reminder: %s" "$gtd_reminder")
+        # Even if log_content is empty, if status is "good", we have entries
+        prompt=$(printf "IMPORTANT: ${GTD_USER_NAME:-Abby} has ALREADY logged %s entries today. This is GOOD progress - she IS tracking her activities. Do NOT say she has logged nothing or zero entries.\n\nIt's lunch time, ${GTD_USER_NAME:-Abby}. She has logged %s entries so far today, which is good! Acknowledge these %s entries she has already made. Give her an encouraging reminder to keep logging her progress throughout the day. Tell her I'm watching and I'm pleased with her tracking (%s entries is good progress!). Remind her to use 'addInfoToDailyLog' frequently to keep the momentum going. Include this GTD reminder: %s" "$entry_count" "$entry_count" "$entry_count" "$entry_count" "$gtd_reminder")
       fi
       ;;
     *)
@@ -272,9 +308,17 @@ get_louiza_lunch_message() {
     }
   ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
   
-  # Clean up
+  # Clean up - remove thinking tags, parentheses, brackets, markdown
+  # First remove multiline think blocks (this deletes entire lines containing think tags)
+  louiza_message=$(echo "$louiza_message" | sed '/<think>/,/<\/think>/d')
+  # Then remove any single-line think blocks
+  louiza_message=$(echo "$louiza_message" | sed 's/<think>.*<\/think>//g')
+  # Remove any remaining orphaned tags
+  louiza_message=$(echo "$louiza_message" | sed 's/<think>//g' | sed 's/<\/think>//g')
+  # Remove parentheses, brackets, markdown
   louiza_message=$(echo "$louiza_message" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
   louiza_message=$(echo "$louiza_message" | sed 's/\*\*//g')
+  # Clean up extra whitespace
   louiza_message=$(echo "$louiza_message" | awk 'NF || prev_nf; {prev_nf=NF}')
   
   if [[ -n "$louiza_message" && ${#louiza_message} -gt 10 ]]; then
@@ -295,14 +339,28 @@ send_discord_message() {
     return 1
   fi
   
+  # Clean message before sending - remove <think> tags and other artifacts
+  # First remove multiline think blocks (this deletes entire lines)
+  message=$(echo "$message" | sed '/<think>/,/<\/think>/d')
+  # Then remove any single-line think blocks
+  message=$(echo "$message" | sed 's/<think>.*<\/think>//g')
+  # Remove any remaining orphaned tags
+  message=$(echo "$message" | sed 's/<think>//g' | sed 's/<\/think>//g')
+  
   # Use Python to properly escape JSON and truncate if needed
   local json_payload=$(python3 -c "
 import json
 import sys
+import re
 from datetime import datetime, timezone
 
 title = sys.argv[1] if len(sys.argv) > 1 else 'GTD Notification'
 message = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Remove any remaining <think> tags (Python regex is more reliable for multiline)
+message = re.sub(r'<think>.*?</think>', '', message, flags=re.DOTALL)
+message = re.sub(r'<think>', '', message)
+message = re.sub(r'</think>', '', message)
 
 # Discord embed description limit is 2000 characters
 if len(message) > 2000:

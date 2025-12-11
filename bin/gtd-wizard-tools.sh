@@ -2,6 +2,123 @@
 # GTD Wizard Tools Functions
 # Tools wizards for advice, config, learning, integrations
 
+# Helper function to handle follow-up questions
+handle_followup_questions() {
+  local persona="$1"
+  local initial_question="$2"
+  local initial_answer="$3"
+  local use_simple_mode="${4:-false}"
+  local use_web_search="${5:-false}"
+  
+  # Store conversation
+  local conversation_questions=("$initial_question")
+  local conversation_answers=("$initial_answer")
+  
+  # Ask if they want to continue the conversation
+  echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${BOLD}Do you have any follow-up questions?${NC}"
+  echo -e "${GREEN}y${NC} - Ask more questions"
+  echo -e "${GREEN}n${NC} - Done (save advice)"
+  echo ""
+  read -p "Choice: " continue_conv
+  echo ""
+  
+  if [[ "$continue_conv" == "y" || "$continue_conv" == "Y" ]]; then
+    # Conversation loop
+    while true; do
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      if [[ "$persona" == "random" ]]; then
+        echo -e "${BOLD}💬 Ask a follow-up question${NC}"
+      else
+        echo -e "${BOLD}💬 Ask ${persona} a follow-up question${NC}"
+      fi
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo -e "${YELLOW}Type your question (or 'done' to finish):${NC}"
+      echo ""
+      read -p "❓ Question: " followup_question
+      
+      if [[ -z "$followup_question" ]]; then
+        echo "Please enter a question or 'done' to continue."
+        echo ""
+        continue
+      fi
+      
+      if [[ "$followup_question" == "done" || "$followup_question" == "Done" || "$followup_question" == "DONE" ]]; then
+        echo ""
+        echo "✓ Finished asking questions."
+        echo ""
+        break
+      fi
+      
+      # Add to conversation
+      conversation_questions+=("$followup_question")
+      
+      echo ""
+      if [[ "$persona" == "random" ]]; then
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${CYAN}💬 Answer${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      else
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${CYAN}💬 Answer from ${persona}${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      fi
+      echo ""
+      
+      # Build follow-up prompt with context
+      local followup_prompt="Context: We were discussing: ${initial_question}\n\nFollow-up question: ${followup_question}\n\nAnswer this follow-up question about the same topic. Be specific and accurate."
+      
+      local followup_answer=""
+      if [[ "$use_simple_mode" == "true" ]]; then
+        if [[ "$use_web_search" == "true" ]]; then
+          # Build contextual search query
+          local search_query="${initial_question} ${followup_question}"
+          echo "🔍 Performing web search for follow-up question..."
+          echo ""
+          followup_answer=$(gtd-advise --simple --web-search "$persona" "$search_query" 2>&1)
+        else
+          followup_answer=$(gtd-advise --simple "$persona" "$followup_prompt" 2>&1)
+        fi
+      else
+        # Regular mode - include context from original question
+        if [[ "$persona" == "random" ]]; then
+          followup_answer=$(gtd-advise --random "$followup_prompt" 2>&1)
+        else
+          followup_answer=$(gtd-advise "$persona" "$followup_prompt" 2>&1)
+        fi
+      fi
+      
+      echo "$followup_answer"
+      conversation_answers+=("$followup_answer")
+      
+      echo ""
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+    done
+  fi
+  
+  # Build full conversation text
+  local full_conversation=""
+  for i in "${!conversation_questions[@]}"; do
+    local q_num=$((i+1))
+    full_conversation="${full_conversation}**Q${q_num}:** ${conversation_questions[$i]}
+
+**A${q_num}:**
+${conversation_answers[$i]}
+
+---
+
+"
+  done
+  
+  # Return conversation via global variable (bash limitation)
+  FOLLOWUP_CONVERSATION="$full_conversation"
+  FOLLOWUP_HAS_FOLLOWUPS=$(( ${#conversation_questions[@]} > 1 ? 1 : 0 ))
+}
+
 # Helper function to save advice conversation to GTD system
 save_advice_conversation() {
   local question="$1"
@@ -220,14 +337,37 @@ advice_wizard() {
       echo ""
       echo -n "What do you need advice about? "
       read question
-      if [[ -n "$question" ]]; then
-        local advice_output=$(gtd-advise --random "$question" 2>&1)
-        echo "$advice_output"
-        echo ""
-        echo -e "${BOLD}Save this advice? (y/n):${NC} "
-        read save_advice
-        if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-          save_advice_conversation "$question" "random" "$advice_output"
+        if [[ -n "$question" ]]; then
+          # Run gtd-advise - it uses run_with_thinking_timer internally
+          # Timer writes to stderr, advice to stdout
+          # Capture stdout while stderr (timer) displays to terminal
+          local temp_output=$(mktemp)
+          # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
+          # When done, display the saved output
+          gtd-advise --random "$question" > "$temp_output"
+          local advice_output=$(cat "$temp_output")
+          rm -f "$temp_output"
+          echo ""
+          echo "$advice_output"
+        
+        # Handle follow-up questions
+        handle_followup_questions "random" "$question" "$advice_output" "false" "false"
+        
+        # Save conversation if there were follow-ups, or ask to save if no follow-ups
+        if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
+          echo ""
+          echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+          read save_advice
+          if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+            save_advice_conversation "$question" "random" "$FOLLOWUP_CONVERSATION"
+          fi
+        else
+          echo ""
+          echo -e "${BOLD}Save this advice? (y/n):${NC} "
+          read save_advice
+          if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+            save_advice_conversation "$question" "random" "$advice_output"
+          fi
         fi
       fi
       ;;
@@ -239,13 +379,34 @@ advice_wizard() {
         echo -n "Your question: "
         read question
         if [[ -n "$question" ]]; then
-          local advice_output=$(gtd-advise "$persona" "$question" 2>&1)
-          echo "$advice_output"
+          # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
+          # When done, display the saved output
+          # IMPORTANT: Only redirect stdout, NOT stderr, so timer can display
+          local temp_output=$(mktemp)
+          gtd-advise "$persona" "$question" > "$temp_output"
+          local advice_output=$(cat "$temp_output")
+          rm -f "$temp_output"
           echo ""
-          echo -e "${BOLD}Save this advice? (y/n):${NC} "
-          read save_advice
-          if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-            save_advice_conversation "$question" "$persona" "$advice_output"
+          echo "$advice_output"
+          
+          # Handle follow-up questions
+          handle_followup_questions "$persona" "$question" "$advice_output" "false" "false"
+          
+          # Save conversation if there were follow-ups, or ask to save if no follow-ups
+          if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
+            echo ""
+            echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+            read save_advice
+            if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+              save_advice_conversation "$question" "$persona" "$FOLLOWUP_CONVERSATION"
+            fi
+          else
+            echo ""
+            echo -e "${BOLD}Save this advice? (y/n):${NC} "
+            read save_advice
+            if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+              save_advice_conversation "$question" "$persona" "$advice_output"
+            fi
           fi
         fi
       fi
@@ -255,8 +416,19 @@ advice_wizard() {
       echo -n "What do you need advice about? "
       read question
       if [[ -n "$question" ]]; then
-        local advice_output=$(gtd-advise --all "$question" 2>&1)
+        # Run gtd-advise directly - timer writes to stderr, output to stdout
+        # Capture stdout to temp file while stderr (timer) displays to terminal
+        local temp_output=$(mktemp)
+        # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
+        # When done, display the saved output
+        gtd-advise --all "$question" > "$temp_output"
+        local advice_output=$(cat "$temp_output")
+        rm -f "$temp_output"
+        echo ""
         echo "$advice_output"
+        
+        # Note: For "all personas", follow-ups would be complex (which persona to ask?)
+        # So we'll just offer to save the initial multi-persona response
         echo ""
         echo -e "${BOLD}Save this advice? (y/n):${NC} "
         read save_advice
@@ -268,13 +440,34 @@ advice_wizard() {
     4)
       echo ""
       echo "Reviewing your daily log..."
-      local advice_output=$(gtd-advise --daily-log 2>&1)
-      echo "$advice_output"
+      # Run gtd-advise - timer writes to /dev/tty (displays), advice to stdout (save to file)
+      # When done, display the saved output
+      local temp_output=$(mktemp)
+      gtd-advise --daily-log > "$temp_output"
+      local advice_output=$(cat "$temp_output")
+      rm -f "$temp_output"
       echo ""
-      echo -e "${BOLD}Save this review? (y/n):${NC} "
-      read save_advice
-      if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-        save_advice_conversation "Daily log review" "default persona" "$advice_output"
+      echo "$advice_output"
+      
+      # Handle follow-up questions (using default persona)
+      local default_persona="${GTD_DEFAULT_PERSONA:-skippy}"
+      handle_followup_questions "$default_persona" "Daily log review" "$advice_output" "false" "false"
+      
+      # Save conversation if there were follow-ups, or ask to save if no follow-ups
+      if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
+        echo ""
+        echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+        read save_advice
+        if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+          save_advice_conversation "Daily log review" "$default_persona" "$FOLLOWUP_CONVERSATION"
+        fi
+      else
+        echo ""
+        echo -e "${BOLD}Save this review? (y/n):${NC} "
+        read save_advice
+        if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+          save_advice_conversation "Daily log review" "default persona" "$advice_output"
+        fi
       fi
       ;;
     5)
@@ -324,138 +517,474 @@ advice_wizard() {
           
           local answer_output=$(gtd-advise --simple --web-search "$persona" "$question" 2>&1)
           echo "$answer_output"
-          conversation_answers+=("$answer_output")
         else
           local answer_output=$(gtd-advise --simple "$persona" "$question" 2>&1)
           echo "$answer_output"
-          conversation_answers+=("$answer_output")
         fi
         
-        echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
+        # Handle follow-up questions using the helper function
+        handle_followup_questions "$persona" "$question" "$answer_output" "true" "$use_search"
         
-        # Ask if they want to continue the conversation
-        echo -e "${BOLD}Do you have any follow-up questions?${NC}"
-        echo -e "${GREEN}y${NC} - Ask more questions"
-        echo -e "${GREEN}n${NC} - Done"
-        echo ""
-        read -p "Choice: " continue_conv
-        echo ""
-        
-        if [[ "$continue_conv" == "y" || "$continue_conv" == "Y" ]]; then
-          # Conversation loop
-          while true; do
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${BOLD}💬 Ask ${persona} a follow-up question${NC}"
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo -e "${YELLOW}Type your question (or 'done' to finish):${NC}"
-            echo ""
-            read -p "❓ Question: " followup_question
-            
-            if [[ -z "$followup_question" ]]; then
-              echo "Please enter a question or 'done' to continue."
-              echo ""
-              continue
-            fi
-            
-            if [[ "$followup_question" == "done" || "$followup_question" == "Done" || "$followup_question" == "DONE" ]]; then
-              echo ""
-              echo "✓ Finished asking questions."
-              echo ""
-              break
-            fi
-            
-            # Add to conversation
-            conversation_questions+=("$followup_question")
-            
-            echo ""
-            echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${BOLD}${CYAN}💬 Answer from ${persona}${NC}"
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            
-            # Build a contextual search query that combines original topic with follow-up
-            local original_context=""
-            
-            # Extract years (4-digit numbers, likely years)
-            if echo "$question" | grep -qE '\b[0-9]{4}\b'; then
-              local year=$(echo "$question" | grep -oE '\b[0-9]{4}\b' | head -1)
-              original_context="${year}"
-            fi
-            
-            # Extract capitalized multi-word phrases (likely proper nouns/topics)
-            local key_phrases=$(echo "$question" | grep -oE '[A-Z][a-z]+([ ]([A-Z][a-z]+|of|the|and|or)[ ]?)+[A-Z][a-z]+' | head -3)
-            if [[ -n "$key_phrases" ]]; then
-              original_context="${original_context} ${key_phrases}"
-            fi
-            
-            # Also extract single capitalized words if they're likely proper nouns
-            local single_proper=$(echo "$question" | grep -oE '([Ww]ho|[Ww]hat|[Ww]hen|[Ww]here|[Aa]bout|[Tt]ell|[Ss]how)[ ]+[A-Z][a-z]+' | grep -oE '[A-Z][a-z]+$' | head -2)
-            if [[ -n "$single_proper" ]]; then
-              original_context="${original_context} ${single_proper}"
-            fi
-            
-            # Clean up extra spaces
-            original_context=$(echo "$original_context" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]]\{2,\}/ /g')
-            
-            # Build the search query: original context + follow-up question
-            local search_query="${followup_question}"
-            if [[ -n "$original_context" ]]; then
-              search_query="${original_context} ${followup_question}"
-            else
-              search_query="${question} ${followup_question}"
-            fi
-            
-            # Create a clear prompt that includes context
-            local followup_prompt="Context: We were discussing: ${question}\n\nFollow-up question: ${followup_question}\n\nAnswer this follow-up question about the same topic. Be specific and accurate."
-            
-            local followup_answer=""
-            if [[ -n "$search_flag" ]]; then
-              # For web search, use the contextual search query
-              echo "🔍 Performing web search for follow-up question..."
-              echo ""
-              followup_answer=$(gtd-advise --simple --web-search "$persona" "$search_query" 2>&1)
-              echo "$followup_answer"
-            else
-              # Without web search, use the formatted prompt with context
-              followup_answer=$(gtd-advise --simple "$persona" "$followup_prompt" 2>&1)
-              echo "$followup_answer"
-            fi
-            
-            conversation_answers+=("$followup_answer")
-            
-            echo ""
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-          done
-        fi
-        
-        # After conversation ends, offer to save
-        if [[ ${#conversation_questions[@]} -gt 0 ]]; then
-          # Build full conversation text
-          local full_conversation=""
-          for i in "${!conversation_questions[@]}"; do
-            local q_num=$((i+1))
-            full_conversation="${full_conversation}**Q${q_num}:** ${conversation_questions[$i]}
-
-**A${q_num}:**
-${conversation_answers[$i]}
-
----
-
-"
-          done
-          
+        # Save conversation if there were follow-ups, or ask to save if no follow-ups
+        if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
           echo ""
           echo -e "${BOLD}Save this conversation? (y/n):${NC} "
           read save_conv
           if [[ "$save_conv" == "y" || "$save_conv" == "Y" ]]; then
-            save_advice_conversation "$question" "$persona" "$full_conversation"
+            save_advice_conversation "$question" "$persona" "$FOLLOWUP_CONVERSATION"
+          fi
+        else
+          echo ""
+          echo -e "${BOLD}Save this advice? (y/n):${NC} "
+          read save_conv
+          if [[ "$save_conv" == "y" || "$save_conv" == "Y" ]]; then
+            save_advice_conversation "$question" "$persona" "$answer_output"
           fi
         fi
       fi
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+configure_mode_specific_ai() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🎯 Configure Mode-Specific AI (Work vs Home)${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Source wizard core to get computer mode functions
+  if [[ -f "$HOME/code/dotfiles/bin/gtd-wizard-core.sh" ]]; then
+    source "$HOME/code/dotfiles/bin/gtd-wizard-core.sh" 2>/dev/null || true
+  elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh" ]]; then
+    source "$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh" 2>/dev/null || true
+  fi
+  
+  # Get current mode
+  local current_mode="home"
+  if declare -f get_computer_mode &>/dev/null; then
+    current_mode=$(get_computer_mode)
+  else
+    # Fallback: read from config
+    local gtd_config="$HOME/code/dotfiles/zsh/.gtd_config"
+    if [[ ! -f "$gtd_config" ]]; then
+      gtd_config="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+    fi
+    if [[ -f "$gtd_config" ]]; then
+      source "$gtd_config" 2>/dev/null || true
+      current_mode="${GTD_COMPUTER_MODE:-home}"
+    fi
+  fi
+  
+  # Find config file
+  local GTD_AI_CONFIG="$HOME/code/dotfiles/zsh/.gtd_config_ai"
+  if [[ ! -f "$GTD_AI_CONFIG" ]]; then
+    GTD_AI_CONFIG="$HOME/code/personal/dotfiles/zsh/.gtd_config_ai"
+  fi
+  
+  if [[ ! -f "$GTD_AI_CONFIG" ]]; then
+    echo -e "${RED}❌ Config file not found:${NC}"
+    echo "   $GTD_AI_CONFIG"
+    echo ""
+    echo "Press Enter to continue..."
+    read
+    return 1
+  fi
+  
+  echo -e "Current computer mode: ${BOLD}${CYAN}$current_mode${NC}"
+  echo ""
+  echo "This allows you to configure different AI systems/models for work vs home."
+  echo "For example:"
+  echo "  • Work: Ollama with gpt-oss-20b or gemma3-1b"
+  echo "  • Home: LM Studio with qwen/qwen3-1.7b"
+  echo ""
+  echo "What would you like to configure?"
+  echo ""
+  echo "  1) 💼 Configure Work Mode AI"
+  echo "  2) 🏠 Configure Home Mode AI"
+  echo "  3) 📋 View Current Mode-Specific Settings"
+  echo "  4) 🔄 Clear Mode-Specific Settings (use defaults)"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back"
+  echo ""
+  echo -n "Choose: "
+  read choice
+  
+  case "$choice" in
+    1)
+      configure_mode_ai "work" "$GTD_AI_CONFIG"
+      ;;
+    2)
+      configure_mode_ai "home" "$GTD_AI_CONFIG"
+      ;;
+    3)
+      view_mode_ai_settings "$GTD_AI_CONFIG"
+      ;;
+    4)
+      clear_mode_ai_settings "$GTD_AI_CONFIG"
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+  esac
+}
+
+configure_mode_ai() {
+  local mode="$1"
+  local config_file="$2"
+  local mode_prefix=""
+  local mode_display=""
+  
+  if [[ "$mode" == "work" ]]; then
+    mode_prefix="WORK_"
+    mode_display="💼 Work"
+  else
+    mode_prefix="HOME_"
+    mode_display="🏠 Home"
+  fi
+  
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}Configure ${mode_display} Mode AI${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Read current settings
+  local current_backend=""
+  local current_lm_model=""
+  local current_ollama_model=""
+  local current_deep_model=""
+  
+  if [[ -f "$config_file" ]]; then
+    if grep -q "^${mode_prefix}AI_BACKEND=" "$config_file" 2>/dev/null; then
+      current_backend=$(grep "^${mode_prefix}AI_BACKEND=" "$config_file" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]')
+    fi
+    if grep -q "^${mode_prefix}LM_STUDIO_CHAT_MODEL=" "$config_file" 2>/dev/null; then
+      current_lm_model=$(grep "^${mode_prefix}LM_STUDIO_CHAT_MODEL=" "$config_file" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    fi
+    if grep -q "^${mode_prefix}OLLAMA_CHAT_MODEL=" "$config_file" 2>/dev/null; then
+      current_ollama_model=$(grep "^${mode_prefix}OLLAMA_CHAT_MODEL=" "$config_file" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    fi
+    if grep -q "^${mode_prefix}DEEP_MODEL_NAME=" "$config_file" 2>/dev/null; then
+      current_deep_model=$(grep "^${mode_prefix}DEEP_MODEL_NAME=" "$config_file" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    fi
+  fi
+  
+  echo -e "${BOLD}Current ${mode_display} Settings:${NC}"
+  echo "  AI Backend: ${current_backend:-<not set, using default>}"
+  echo "  LM Studio Model: ${current_lm_model:-<not set, using default>}"
+  echo "  Ollama Model: ${current_ollama_model:-<not set, using default>}"
+  echo "  Deep Model: ${current_deep_model:-<not set, using default>}"
+  echo ""
+  echo "Configure:"
+  echo ""
+  echo "  1) AI Backend (lmstudio or ollama)"
+  echo "  2) LM Studio Chat Model (e.g., qwen/qwen3-1.7b, google/gemma-3-1b)"
+  echo "  3) Ollama Chat Model (e.g., gemma2:1b, llama3.1:8b)"
+  echo "  4) Deep Model (e.g., gpt-oss-20b, qwen/qwen3-4b-thinking-2507)"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back"
+  echo ""
+  echo -n "Choose: "
+  read sub_choice
+  
+  case "$sub_choice" in
+    1)
+      echo ""
+      echo "Select AI Backend for ${mode_display} mode:"
+      echo ""
+      echo "  1) LM Studio"
+      echo "  2) Ollama"
+      echo ""
+      echo -n "Choose: "
+      read backend_choice
+      
+      local new_backend=""
+      case "$backend_choice" in
+        1) new_backend="lmstudio" ;;
+        2) new_backend="ollama" ;;
+        *)
+          echo "Invalid choice"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          return
+          ;;
+      esac
+      
+      update_config_value "$config_file" "${mode_prefix}AI_BACKEND" "$new_backend"
+      echo ""
+      echo -e "${GREEN}✅ ${mode_display} AI backend set to: $new_backend${NC}"
+      ;;
+    2)
+      echo ""
+      echo "Enter LM Studio chat model name:"
+      echo "Examples: qwen/qwen3-1.7b, google/gemma-3-1b, openai/gpt-oss-20b"
+      echo ""
+      echo -n "Model name (or press Enter to clear): "
+      read model_name
+      
+      if [[ -n "$model_name" ]]; then
+        update_config_value "$config_file" "${mode_prefix}LM_STUDIO_CHAT_MODEL" "$model_name"
+        echo ""
+        echo -e "${GREEN}✅ ${mode_display} LM Studio model set to: $model_name${NC}"
+      else
+        update_config_value "$config_file" "${mode_prefix}LM_STUDIO_CHAT_MODEL" ""
+        echo ""
+        echo -e "${GREEN}✅ ${mode_display} LM Studio model cleared (will use default)${NC}"
+      fi
+      ;;
+    3)
+      echo ""
+      echo "Enter Ollama chat model name:"
+      echo "Examples: gemma2:1b, llama3.1:8b, qwen2.5:7b"
+      echo ""
+      echo -n "Model name (or press Enter to clear): "
+      read model_name
+      
+      if [[ -n "$model_name" ]]; then
+        update_config_value "$config_file" "${mode_prefix}OLLAMA_CHAT_MODEL" "$model_name"
+        echo ""
+        echo -e "${GREEN}✅ ${mode_display} Ollama model set to: $model_name${NC}"
+      else
+        update_config_value "$config_file" "${mode_prefix}OLLAMA_CHAT_MODEL" ""
+        echo ""
+        echo -e "${GREEN}✅ ${mode_display} Ollama model cleared (will use default)${NC}"
+      fi
+      ;;
+    4)
+      echo ""
+      echo "Enter deep model name (for complex analysis):"
+      echo "Examples: gpt-oss-20b, qwen/qwen3-4b-thinking-2507"
+      echo ""
+      echo -n "Model name (or press Enter to clear): "
+      read model_name
+      
+      if [[ -n "$model_name" ]]; then
+        update_config_value "$config_file" "${mode_prefix}DEEP_MODEL_NAME" "$model_name"
+        echo ""
+        echo -e "${GREEN}✅ ${mode_display} deep model set to: $model_name${NC}"
+      else
+        update_config_value "$config_file" "${mode_prefix}DEEP_MODEL_NAME" ""
+        echo ""
+        echo -e "${GREEN}✅ ${mode_display} deep model cleared (will use default)${NC}"
+      fi
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+update_config_value() {
+  local config_file="$1"
+  local key="$2"
+  local value="$3"
+  
+  if [[ ! -f "$config_file" ]]; then
+    echo -e "${RED}❌ Config file not found: $config_file${NC}" >&2
+    return 1
+  fi
+  
+  # Check if key exists
+  if grep -q "^${key}=" "$config_file" 2>/dev/null; then
+    # Update existing line
+    if [[ "$(uname)" == "Darwin" ]]; then
+      if [[ -n "$value" ]]; then
+        sed -i '' "s|^${key}=.*|${key}=\"${value}\"|" "$config_file"
+      else
+        sed -i '' "s|^${key}=.*|${key}=\"\"|" "$config_file"
+      fi
+    else
+      if [[ -n "$value" ]]; then
+        sed -i "s|^${key}=.*|${key}=\"${value}\"|" "$config_file"
+      else
+        sed -i "s|^${key}=.*|${key}=\"\"|" "$config_file"
+      fi
+    fi
+  else
+    # Add new line after mode-specific config section
+    if grep -q "# Mode-Specific AI Configuration" "$config_file" 2>/dev/null; then
+      # Find the line after the section header
+      local insert_after="# Mode-Specific AI Configuration"
+      if [[ "$(uname)" == "Darwin" ]]; then
+        if [[ -n "$value" ]]; then
+          sed -i '' "/^${insert_after}/a\\
+${key}=\"${value}\"
+" "$config_file"
+        else
+          sed -i '' "/^${insert_after}/a\\
+${key}=\"\"\\
+" "$config_file"
+        fi
+      else
+        if [[ -n "$value" ]]; then
+          sed -i "/^${insert_after}/a ${key}=\"${value}\"" "$config_file"
+        else
+          sed -i "/^${insert_after}/a ${key}=\"\"" "$config_file"
+        fi
+      fi
+    else
+      # Append to end of file
+      if [[ -n "$value" ]]; then
+        echo "${key}=\"${value}\"" >> "$config_file"
+      else
+        echo "${key}=\"\"" >> "$config_file"
+      fi
+    fi
+  fi
+}
+
+view_mode_ai_settings() {
+  local config_file="$1"
+  
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📋 Mode-Specific AI Settings${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  if [[ ! -f "$config_file" ]]; then
+    echo -e "${RED}❌ Config file not found${NC}"
+    echo ""
+    echo "Press Enter to continue..."
+    read
+    return 1
+  fi
+  
+  echo -e "${BOLD}💼 Work Mode:${NC}"
+  local work_backend=$(grep "^WORK_AI_BACKEND=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "<not set>")
+  local work_lm=$(grep "^WORK_LM_STUDIO_CHAT_MODEL=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "<not set>")
+  local work_ollama=$(grep "^WORK_OLLAMA_CHAT_MODEL=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "<not set>")
+  local work_deep=$(grep "^WORK_DEEP_MODEL_NAME=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "<not set>")
+  
+  echo "  Backend: $work_backend"
+  echo "  LM Studio Model: $work_lm"
+  echo "  Ollama Model: $work_ollama"
+  echo "  Deep Model: $work_deep"
+  echo ""
+  
+  echo -e "${BOLD}🏠 Home Mode:${NC}"
+  local home_backend=$(grep "^HOME_AI_BACKEND=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "<not set>")
+  local home_lm=$(grep "^HOME_LM_STUDIO_CHAT_MODEL=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "<not set>")
+  local home_ollama=$(grep "^HOME_OLLAMA_CHAT_MODEL=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "<not set>")
+  local home_deep=$(grep "^HOME_DEEP_MODEL_NAME=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "<not set>")
+  
+  echo "  Backend: $home_backend"
+  echo "  LM Studio Model: $home_lm"
+  echo "  Ollama Model: $home_ollama"
+  echo "  Deep Model: $home_deep"
+  echo ""
+  
+  echo "Press Enter to continue..."
+  read
+}
+
+clear_mode_ai_settings() {
+  local config_file="$1"
+  
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔄 Clear Mode-Specific AI Settings${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  echo "This will remove all mode-specific settings and use defaults."
+  echo ""
+  echo "What would you like to clear?"
+  echo ""
+  echo "  1) Clear Work Mode settings only"
+  echo "  2) Clear Home Mode settings only"
+  echo "  3) Clear all mode-specific settings"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Cancel"
+  echo ""
+  echo -n "Choose: "
+  read choice
+  
+  case "$choice" in
+    1)
+      # Clear work settings
+      if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' '/^WORK_AI_BACKEND=/d' "$config_file"
+        sed -i '' '/^WORK_LM_STUDIO_CHAT_MODEL=/d' "$config_file"
+        sed -i '' '/^WORK_OLLAMA_CHAT_MODEL=/d' "$config_file"
+        sed -i '' '/^WORK_DEEP_MODEL_NAME=/d' "$config_file"
+      else
+        sed -i '/^WORK_AI_BACKEND=/d' "$config_file"
+        sed -i '/^WORK_LM_STUDIO_CHAT_MODEL=/d' "$config_file"
+        sed -i '/^WORK_OLLAMA_CHAT_MODEL=/d' "$config_file"
+        sed -i '/^WORK_DEEP_MODEL_NAME=/d' "$config_file"
+      fi
+      echo ""
+      echo -e "${GREEN}✅ Work mode settings cleared${NC}"
+      ;;
+    2)
+      # Clear home settings
+      if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' '/^HOME_AI_BACKEND=/d' "$config_file"
+        sed -i '' '/^HOME_LM_STUDIO_CHAT_MODEL=/d' "$config_file"
+        sed -i '' '/^HOME_OLLAMA_CHAT_MODEL=/d' "$config_file"
+        sed -i '' '/^HOME_DEEP_MODEL_NAME=/d' "$config_file"
+      else
+        sed -i '/^HOME_AI_BACKEND=/d' "$config_file"
+        sed -i '/^HOME_LM_STUDIO_CHAT_MODEL=/d' "$config_file"
+        sed -i '/^HOME_OLLAMA_CHAT_MODEL=/d' "$config_file"
+        sed -i '/^HOME_DEEP_MODEL_NAME=/d' "$config_file"
+      fi
+      echo ""
+      echo -e "${GREEN}✅ Home mode settings cleared${NC}"
+      ;;
+    3)
+      # Clear all
+      if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' '/^WORK_AI_BACKEND=/d' "$config_file"
+        sed -i '' '/^WORK_LM_STUDIO_CHAT_MODEL=/d' "$config_file"
+        sed -i '' '/^WORK_OLLAMA_CHAT_MODEL=/d' "$config_file"
+        sed -i '' '/^WORK_DEEP_MODEL_NAME=/d' "$config_file"
+        sed -i '' '/^HOME_AI_BACKEND=/d' "$config_file"
+        sed -i '' '/^HOME_LM_STUDIO_CHAT_MODEL=/d' "$config_file"
+        sed -i '' '/^HOME_OLLAMA_CHAT_MODEL=/d' "$config_file"
+        sed -i '' '/^HOME_DEEP_MODEL_NAME=/d' "$config_file"
+      else
+        sed -i '/^WORK_AI_BACKEND=/d' "$config_file"
+        sed -i '/^WORK_LM_STUDIO_CHAT_MODEL=/d' "$config_file"
+        sed -i '/^WORK_OLLAMA_CHAT_MODEL=/d' "$config_file"
+        sed -i '/^WORK_DEEP_MODEL_NAME=/d' "$config_file"
+        sed -i '/^HOME_AI_BACKEND=/d' "$config_file"
+        sed -i '/^HOME_LM_STUDIO_CHAT_MODEL=/d' "$config_file"
+        sed -i '/^HOME_OLLAMA_CHAT_MODEL=/d' "$config_file"
+        sed -i '/^HOME_DEEP_MODEL_NAME=/d' "$config_file"
+      fi
+      echo ""
+      echo -e "${GREEN}✅ All mode-specific settings cleared${NC}"
       ;;
     0|"")
       return 0
@@ -481,12 +1010,16 @@ config_wizard() {
   echo "What would you like to configure?"
   echo ""
   echo "  1) 🤖 Switch AI Backend (LM Studio ↔ Ollama)"
-  echo "  2) 🔍 Check AI Backend Status"
-  echo "  3) 📋 View Current Configuration"
-  echo "  4) 📖 Installation Instructions"
-  echo "  5) 🔧 Setup MCP Server & Virtualenv"
-  echo "  6) 🤖 Manage AI Models (Check & Load)"
-  echo "  7) ✏️  Edit Configuration Files (via vim)"
+  echo "  2) 🎯 Configure Mode-Specific AI (Work vs Home)"
+  echo "  3) 🔍 Check AI Backend Status"
+  echo "  4) 📋 View Current Configuration"
+  echo "  5) 📖 Installation Instructions"
+  echo "  6) 🔧 Setup MCP Server & Virtualenv"
+  echo "  7) 🤖 Manage AI Models (Check & Load)"
+  echo "  8) ✏️  Edit Configuration Files (via vim)"
+  echo "  9) 🐰 Setup RabbitMQ Connection"
+  echo "  10) 📁 Setup Vector Filewatcher (Auto-queue files)"
+  echo "  11) 🧠 Setup Deep Analysis Auto-Scheduler (Auto-submit jobs)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -691,7 +1224,7 @@ AI_BACKEND=\"$new_backend\"
         fi
       fi
       ;;
-    3)
+    4)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -745,7 +1278,7 @@ AI_BACKEND=\"$new_backend\"
         echo -e "  ${RED}❌ Not found${NC}"
       fi
       ;;
-    4)
+    5)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -776,7 +1309,7 @@ AI_BACKEND=\"$new_backend\"
       echo "    ~/.daily_log_config"
       echo "  Set: AI_BACKEND=\"lmstudio\" or AI_BACKEND=\"ollama\""
       ;;
-    5)
+    6)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -874,7 +1407,27 @@ AI_BACKEND=\"$new_backend\"
         echo "Next steps:"
         echo "  1. Configure MCP server in Cursor (see mcp/README.md)"
         echo "  2. Start LM Studio or Ollama"
-        echo "  3. Test with: Generate banter for log entry (option 4 in AI Suggestions menu)"
+        echo "  3. (Optional) Set up Vector Filewatcher for auto-vectorization"
+        echo "  4. Test with: Generate banter for log entry (option 4 in AI Suggestions menu)"
+        echo ""
+        echo -n "Would you like to configure the Vector Filewatcher now? (y/n): "
+        read setup_filewatcher
+        
+        if [[ "$setup_filewatcher" == "y" || "$setup_filewatcher" == "Y" ]]; then
+          echo ""
+          echo "Installing watchdog (required for filewatcher)..."
+          VENV_PIP="$VENV_DIR/bin/pip"
+          if [[ -f "$VENV_PIP" ]]; then
+            "$VENV_PIP" install watchdog
+            echo "✅ watchdog installed"
+          else
+            echo "⚠️  Could not install watchdog automatically"
+          fi
+          
+          echo ""
+          echo "Filewatcher can monitor directories and automatically queue files for vectorization."
+          echo "You can configure it later via: Configuration & Setup → Setup Vector Filewatcher"
+        fi
       else
         echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -890,7 +1443,7 @@ AI_BACKEND=\"$new_backend\"
       echo "  cd $MCP_DIR && ./setup.sh"
       fi
       ;;
-    6)
+    7)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1009,7 +1562,7 @@ except:
         fi
       fi
       ;;
-    7)
+    8)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1140,6 +1693,996 @@ except:
         echo ""
         echo -e "${YELLOW}⚠️  File editing cancelled or failed${NC}"
       fi
+      ;;
+    9)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🐰 Setup RabbitMQ Connection${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Find config directory
+      GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+      if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+        GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+      fi
+      
+      CONFIG_DB_FILE="${GTD_CONFIG_DIR}/.gtd_config_database"
+      
+      echo "RabbitMQ Setup Options:"
+      echo ""
+      echo "  1) 🔍 Test RabbitMQ Connection"
+      echo "  2) 🔌 Start Port-Forward (for Kubernetes RabbitMQ)"
+      echo "  3) ⚙️  Configure RabbitMQ Credentials"
+      echo "  4) 📋 View Current RabbitMQ Configuration"
+      echo "  5) 📊 View RabbitMQ Queue Status"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose: "
+      read rabbitmq_choice
+      
+      case "$rabbitmq_choice" in
+        1)
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          # Check if test script exists
+          TEST_SCRIPT="$HOME/code/dotfiles/bin/test_rabbitmq_connection.sh"
+          if [[ ! -f "$TEST_SCRIPT" ]]; then
+            TEST_SCRIPT="$HOME/code/personal/dotfiles/bin/test_rabbitmq_connection.sh"
+          fi
+          
+          if [[ -f "$TEST_SCRIPT" ]]; then
+            bash "$TEST_SCRIPT"
+          else
+            echo -e "${RED}❌ Test script not found${NC}"
+            echo "Expected at: $TEST_SCRIPT"
+          fi
+          ;;
+        2)
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          # Use the enhanced setup script if available
+          SETUP_SCRIPT="$HOME/code/dotfiles/bin/setup_rabbitmq_local.sh"
+          if [[ ! -f "$SETUP_SCRIPT" ]]; then
+            SETUP_SCRIPT="$HOME/code/personal/dotfiles/bin/setup_rabbitmq_local.sh"
+          fi
+          
+          if [[ -f "$SETUP_SCRIPT" ]]; then
+            echo -e "${GREEN}Using enhanced port-forward script...${NC}"
+            echo ""
+            bash "$SETUP_SCRIPT"
+          else
+            # Fallback to direct kubectl command
+            echo "Starting RabbitMQ port-forward..."
+            echo ""
+            
+            # Check if kubectl is available
+            if ! command -v kubectl &> /dev/null; then
+              echo -e "${RED}❌ kubectl not found${NC}"
+              echo "kubectl is required for port-forwarding to Kubernetes RabbitMQ."
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              return 0
+            fi
+            
+            # Check if RabbitMQ service exists
+            if ! kubectl get svc -n rabbitmq-system rabbitmq &> /dev/null; then
+              echo -e "${YELLOW}⚠️  RabbitMQ service not found in rabbitmq-system namespace${NC}"
+              echo ""
+              echo "Available RabbitMQ services:"
+              kubectl get svc -A | grep rabbitmq || echo "  None found"
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              return 0
+            fi
+            
+            echo -e "${GREEN}Starting port-forward...${NC}"
+            echo ""
+            echo "Ports being forwarded:"
+            echo "  📨 AMQP: localhost:5672 → rabbitmq:5672 (for queue connections)"
+            echo "  🌐 Management UI: localhost:15672 → rabbitmq:15672 (web interface)"
+            echo "  📊 Prometheus: localhost:15692 → rabbitmq:15692 (metrics)"
+            echo ""
+            echo -e "${YELLOW}Note:${NC} This will run in the foreground. Press Ctrl+C to stop."
+            echo ""
+            echo "Press Enter to start..."
+            read
+            
+            kubectl port-forward -n rabbitmq-system svc/rabbitmq 5672:5672 15672:15672 15692:15692
+          fi
+          ;;
+        3)
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          # Load current config
+          if [[ -f "$CONFIG_DB_FILE" ]]; then
+            source "$CONFIG_DB_FILE"
+          fi
+          
+          # Get current values
+          CURRENT_URL="${RABBITMQ_URL:-amqp://localhost:5672}"
+          CURRENT_USER="${RABBITMQ_USER:-guest}"
+          CURRENT_PASS="${RABBITMQ_PASS:-guest}"
+          
+          echo "Current RabbitMQ Configuration:"
+          echo "  URL: $CURRENT_URL"
+          echo "  User: $CURRENT_USER"
+          echo "  Password: ${CURRENT_PASS:+***}"
+          echo ""
+          echo "Enter new values (press Enter to keep current):"
+          echo ""
+          
+          echo -n "RabbitMQ URL [$CURRENT_URL]: "
+          read new_url
+          new_url="${new_url:-$CURRENT_URL}"
+          
+          echo -n "RabbitMQ Username [$CURRENT_USER]: "
+          read new_user
+          new_user="${new_user:-$CURRENT_USER}"
+          
+          echo -n "RabbitMQ Password [${CURRENT_PASS:+***}]: "
+          read -s new_pass
+          echo ""
+          new_pass="${new_pass:-$CURRENT_PASS}"
+          
+          # Create config file if it doesn't exist
+          if [[ ! -f "$CONFIG_DB_FILE" ]]; then
+            mkdir -p "$GTD_CONFIG_DIR"
+            echo "# RabbitMQ Configuration" > "$CONFIG_DB_FILE"
+          fi
+          
+          # Update or add RabbitMQ config
+          if grep -q "^RABBITMQ_URL=" "$CONFIG_DB_FILE" 2>/dev/null; then
+            sed -i.bak "s|^RABBITMQ_URL=.*|RABBITMQ_URL=\"${new_url}\"|" "$CONFIG_DB_FILE"
+          else
+            echo "RABBITMQ_URL=\"${new_url}\"" >> "$CONFIG_DB_FILE"
+          fi
+          
+          if grep -q "^RABBITMQ_USER=" "$CONFIG_DB_FILE" 2>/dev/null; then
+            sed -i.bak "s|^RABBITMQ_USER=.*|RABBITMQ_USER=\"${new_user}\"|" "$CONFIG_DB_FILE"
+          else
+            echo "RABBITMQ_USER=\"${new_user}\"" >> "$CONFIG_DB_FILE"
+          fi
+          
+          if grep -q "^RABBITMQ_PASS=" "$CONFIG_DB_FILE" 2>/dev/null; then
+            sed -i.bak "s|^RABBITMQ_PASS=.*|RABBITMQ_PASS=\"${new_pass}\"|" "$CONFIG_DB_FILE"
+          else
+            echo "RABBITMQ_PASS=\"${new_pass}\"" >> "$CONFIG_DB_FILE"
+          fi
+          
+          # Clean up backup file
+          rm -f "${CONFIG_DB_FILE}.bak"
+          
+          echo ""
+          echo -e "${GREEN}✅ RabbitMQ configuration updated!${NC}"
+          echo ""
+          echo "Configuration saved to: $CONFIG_DB_FILE"
+          ;;
+        4)
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          if [[ -f "$CONFIG_DB_FILE" ]]; then
+            echo "RabbitMQ Configuration (from $CONFIG_DB_FILE):"
+            echo ""
+            grep "^RABBITMQ" "$CONFIG_DB_FILE" | while IFS='=' read -r key value; do
+              if [[ "$key" == *"PASS"* ]]; then
+                echo "  ${key}=\"***\""
+              else
+                echo "  ${key}=${value}"
+              fi
+            done
+          else
+            echo -e "${YELLOW}⚠️  Configuration file not found${NC}"
+            echo "Expected at: $CONFIG_DB_FILE"
+            echo ""
+            echo "Using defaults:"
+            echo "  RABBITMQ_URL=\"amqp://localhost:5672\""
+            echo "  RABBITMQ_USER=\"guest\""
+            echo "  RABBITMQ_PASS=\"guest\""
+          fi
+          
+          echo ""
+          echo "Current Environment Variables:"
+          env | grep -i rabbitmq | sed 's/\(.*PASS.*=\).*/\1***/' | sed 's/^/  /' || echo "  (none set)"
+          ;;
+        5)
+          # View RabbitMQ Queue Status
+          echo ""
+          if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-rabbitmq-status"
+          else
+            echo -e "${YELLOW}⚠️  RabbitMQ status script not found${NC}"
+          fi
+          ;;
+        0|"")
+          return 0
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+          ;;
+    10)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📁 Setup Vector Filewatcher${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "The filewatcher automatically monitors directories and queues files"
+      echo "for vectorization when they're created or modified."
+      echo ""
+      echo "Filewatcher Options:"
+      echo ""
+      echo "  1) 📋 View Current Filewatcher Configuration"
+      echo "  2) ⚙️  Configure Watch Directories"
+      echo "  3) 🔗 Setup Symlinks for External Directories"
+      echo "  4) 📁 Configure Watched Directory Location (for symlinks)"
+      echo "  5) ▶️  Start Filewatcher"
+      echo "  6) ⏹️  Stop Filewatcher"
+      echo "  7) 📊 Check Filewatcher Status"
+      echo "  8) 📦 Install Required Dependencies (watchdog)"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose: "
+      read filewatcher_choice
+      
+      # Find Python and config paths
+      MCP_VENV_PYTHON="$HOME/code/dotfiles/mcp/venv/bin/python3"
+      if [[ ! -f "$MCP_VENV_PYTHON" ]]; then
+        MCP_VENV_PYTHON="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+      fi
+      MCP_VENV_DIR="${MCP_VENV_PYTHON%/bin/python3}"
+      if [[ -f "$MCP_VENV_PYTHON" ]]; then
+        PYTHON_CMD="$MCP_VENV_PYTHON"
+      else
+        PYTHON_CMD="python3"
+        MCP_VENV_DIR=""
+      fi
+      
+      GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+      if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+        GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+      fi
+      CONFIG_DB_FILE="${GTD_CONFIG_DIR}/.gtd_config_database"
+      
+      case "$filewatcher_choice" in
+            1)
+              echo ""
+              echo -e "${BOLD}Current Filewatcher Configuration:${NC}"
+              echo ""
+              
+              if [[ -f "$CONFIG_DB_FILE" ]]; then
+                source "$CONFIG_DB_FILE"
+              fi
+              
+              # Also load GTD config for defaults
+              GTD_CONFIG_FILE="$HOME/.gtd_config"
+              if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+                source "$HOME/code/dotfiles/zsh/.gtd_config"
+              elif [[ -f "$GTD_CONFIG_FILE" ]]; then
+                source "$GTD_CONFIG_FILE"
+              fi
+              
+              echo "Watch Directories:"
+              if [[ -n "${VECTOR_WATCH_DIRS:-}" ]]; then
+                echo "$VECTOR_WATCH_DIRS" | tr ',' '\n' | sed 's/^/  📂 /'
+              else
+                echo -e "  ${CYAN}Using defaults:${NC}"
+                echo -e "    📂 ${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+                echo -e "    📂 ${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+              fi
+              echo ""
+              echo "Watched Directory (for symlinks): ${VECTOR_WATCH_DIR:-$HOME/Documents/gtd/watched}"
+              echo "Filewatcher Enabled: ${VECTOR_FILEWATCHER_ENABLED:-false}"
+              echo "Vectorization Enabled: ${GTD_VECTORIZATION_ENABLED:-true}"
+              echo ""
+              
+              # Check if running
+              if pgrep -f "gtd_vector_filewatcher.py" >/dev/null; then
+                pid=$(pgrep -f "gtd_vector_filewatcher.py")
+                echo -e "${GREEN}✅ Filewatcher running (PID: $pid)${NC}"
+              else
+                echo -e "${CYAN}ℹ️  Filewatcher not running${NC}"
+              fi
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            2)
+              echo ""
+              echo -e "${BOLD}Configure Watch Directories:${NC}"
+              echo ""
+              echo "Enter directories to watch (comma-separated):"
+              echo "Example: $HOME/Documents/gtd,$HOME/Documents/daily_logs"
+              echo ""
+              echo "The filewatcher will monitor these directories for new/modified files"
+              echo "and automatically queue them for vectorization."
+              echo ""
+              
+              if [[ -f "$CONFIG_DB_FILE" ]]; then
+                source "$CONFIG_DB_FILE"
+              fi
+              
+              # Also load GTD config for defaults
+              if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+                source "$HOME/code/dotfiles/zsh/.gtd_config"
+              elif [[ -f "$HOME/.gtd_config" ]]; then
+                source "$HOME/.gtd_config"
+              fi
+              
+              CURRENT_DIRS="${VECTOR_WATCH_DIRS:-}"
+              if [[ -z "$CURRENT_DIRS" ]]; then
+                CURRENT_DIRS="${GTD_BASE_DIR:-$HOME/Documents/gtd},${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+              fi
+              
+              echo -n "Watch directories [$CURRENT_DIRS]: "
+              read new_dirs
+              new_dirs="${new_dirs:-$CURRENT_DIRS}"
+              
+              # Create config file if needed
+              if [[ ! -f "$CONFIG_DB_FILE" ]]; then
+                mkdir -p "$GTD_CONFIG_DIR"
+                touch "$CONFIG_DB_FILE"
+              fi
+              
+              # Update or add VECTOR_WATCH_DIRS
+              if grep -q "^VECTOR_WATCH_DIRS=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i.bak "s|^VECTOR_WATCH_DIRS=.*|VECTOR_WATCH_DIRS=\"${new_dirs}\"|" "$CONFIG_DB_FILE"
+                else
+                  sed -i "s|^VECTOR_WATCH_DIRS=.*|VECTOR_WATCH_DIRS=\"${new_dirs}\"|" "$CONFIG_DB_FILE"
+                fi
+              else
+                echo "" >> "$CONFIG_DB_FILE"
+                echo "# Vector Filewatcher Configuration" >> "$CONFIG_DB_FILE"
+                echo "VECTOR_WATCH_DIRS=\"${new_dirs}\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              # Enable filewatcher if not set
+              if ! grep -q "^VECTOR_FILEWATCHER_ENABLED=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                echo "VECTOR_FILEWATCHER_ENABLED=\"${VECTOR_FILEWATCHER_ENABLED:-true}\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              echo ""
+              echo -e "${GREEN}✅ Configuration updated!${NC}"
+              echo "   Updated: $CONFIG_DB_FILE"
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            3)
+              echo ""
+              echo -e "${BOLD}Setup Symlinks for External Directories:${NC}"
+              echo ""
+              echo "This will help you set up symlinks so the filewatcher can monitor"
+              echo "external directories (like ones outside ~/Documents/gtd)."
+              echo ""
+              
+              # Load current config
+              if [[ -f "$CONFIG_DB_FILE" ]]; then
+                source "$CONFIG_DB_FILE"
+              fi
+              
+              # Get watched directory location (default or configured)
+              WATCHED_DIR="${VECTOR_WATCH_DIR:-$HOME/Documents/gtd/watched}"
+              
+              echo "Watched directory location: $WATCHED_DIR"
+              echo ""
+              echo "We'll create this directory and help you symlink external dirs into it."
+              echo ""
+              
+              echo -e "${CYAN}Step 1: Create watched directory${NC}"
+              mkdir -p "$WATCHED_DIR"
+              echo -e "${GREEN}✅ Created: $WATCHED_DIR${NC}"
+              echo ""
+              
+              echo -e "${CYAN}Step 2: Create symlinks${NC}"
+              echo ""
+              echo "Enter directories to symlink (one at a time, or press Enter to finish):"
+              echo ""
+              
+              symlinks_created=0
+              while true; do
+                echo -n "Directory to symlink (or Enter to finish): "
+                read external_dir
+                
+                if [[ -z "$external_dir" ]]; then
+                  break
+                fi
+                
+                # Expand user home and tildes
+                external_dir="${external_dir//\~/$HOME}"
+                external_path=$(realpath "$external_dir" 2>/dev/null || echo "")
+                
+                if [[ -z "$external_path" || ! -d "$external_path" ]]; then
+                  echo -e "${YELLOW}⚠️  Directory not found: $external_dir${NC}"
+                  continue
+                fi
+                
+                # Create symlink name from directory name
+                link_name=$(basename "$external_path")
+                link_path="$WATCHED_DIR/$link_name"
+                
+                if [[ -e "$link_path" ]]; then
+                  echo -e "${YELLOW}⚠️  Symlink already exists: $link_path${NC}"
+                  echo -n "  Replace? (y/n): "
+                  read replace
+                  if [[ "$replace" != "y" && "$replace" != "Y" ]]; then
+                    continue
+                  fi
+                  rm "$link_path"
+                fi
+                
+                # Create symlink
+                ln -s "$external_path" "$link_path"
+                echo -e "${GREEN}✅ Created symlink: $link_name → $external_path${NC}"
+                symlinks_created=$((symlinks_created + 1))
+                echo ""
+              done
+              
+              if [[ $symlinks_created -gt 0 ]]; then
+                echo ""
+                echo -e "${CYAN}Step 3: Configure filewatcher to use watched directory${NC}"
+                echo ""
+                echo -n "Update configuration to watch $WATCHED_DIR? (y/n): "
+                read update_config
+                
+                if [[ "$update_config" == "y" || "$update_config" == "Y" ]]; then
+                  if [[ ! -f "$CONFIG_DB_FILE" ]]; then
+                    mkdir -p "$GTD_CONFIG_DIR"
+                    touch "$CONFIG_DB_FILE"
+                  fi
+                  
+                  if grep -q "^VECTOR_WATCH_DIRS=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                    if [[ "$(uname)" == "Darwin" ]]; then
+                      sed -i.bak "s|^VECTOR_WATCH_DIRS=.*|VECTOR_WATCH_DIRS=\"${WATCHED_DIR}\"|" "$CONFIG_DB_FILE"
+                    else
+                      sed -i "s|^VECTOR_WATCH_DIRS=.*|VECTOR_WATCH_DIRS=\"${WATCHED_DIR}\"|" "$CONFIG_DB_FILE"
+                    fi
+                  else
+                    echo "" >> "$CONFIG_DB_FILE"
+                    echo "# Vector Filewatcher Configuration" >> "$CONFIG_DB_FILE"
+                    echo "VECTOR_WATCH_DIRS=\"${WATCHED_DIR}\"" >> "$CONFIG_DB_FILE"
+                  fi
+                  
+                  echo -e "${GREEN}✅ Configuration updated!${NC}"
+                fi
+                
+                echo ""
+                echo "Symlinks created in: $WATCHED_DIR"
+                echo "The filewatcher will automatically follow these symlinks."
+              fi
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            4)
+              echo ""
+              echo -e "${BOLD}Configure Watched Directory Location:${NC}"
+              echo ""
+              echo "This is where symlinks to external directories will be created."
+              echo "The filewatcher will watch this directory and follow symlinks."
+              echo ""
+              
+              # Load current config
+              if [[ -f "$CONFIG_DB_FILE" ]]; then
+                source "$CONFIG_DB_FILE"
+              fi
+              
+              CURRENT_WATCH_DIR="${VECTOR_WATCH_DIR:-$HOME/Documents/gtd/watched}"
+              
+              echo "Current watched directory: $CURRENT_WATCH_DIR"
+              echo ""
+              echo -n "Enter new watched directory path (or Enter to keep current): "
+              read new_watch_dir
+              
+              if [[ -z "$new_watch_dir" ]]; then
+                echo "No change made."
+                echo ""
+                echo "Press Enter to continue..."
+                read
+                continue
+              fi
+              
+              # Expand user home
+              new_watch_dir="${new_watch_dir//\~/$HOME}"
+              new_watch_dir=$(realpath -m "$new_watch_dir" 2>/dev/null || echo "$new_watch_dir")
+              
+              # Create config file if needed
+              if [[ ! -f "$CONFIG_DB_FILE" ]]; then
+                mkdir -p "$GTD_CONFIG_DIR"
+                touch "$CONFIG_DB_FILE"
+              fi
+              
+              # Update or add VECTOR_WATCH_DIR
+              if grep -q "^VECTOR_WATCH_DIR=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i.bak "s|^VECTOR_WATCH_DIR=.*|VECTOR_WATCH_DIR=\"${new_watch_dir}\"|" "$CONFIG_DB_FILE"
+                else
+                  sed -i "s|^VECTOR_WATCH_DIR=.*|VECTOR_WATCH_DIR=\"${new_watch_dir}\"|" "$CONFIG_DB_FILE"
+                fi
+              else
+                echo "" >> "$CONFIG_DB_FILE"
+                echo "# Vector Filewatcher Configuration" >> "$CONFIG_DB_FILE"
+                echo "VECTOR_WATCH_DIR=\"${new_watch_dir}\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              echo ""
+              echo -e "${GREEN}✅ Configuration updated!${NC}"
+              echo "   Watched directory: $new_watch_dir"
+              echo ""
+              echo "Note: You'll need to recreate symlinks in the new location if you changed it."
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            5)
+              echo ""
+              echo -e "${CYAN}Starting Vector Filewatcher...${NC}"
+              echo ""
+              
+              # Check if watchdog is installed
+              if ! "$PYTHON_CMD" -c "import watchdog" 2>/dev/null; then
+                echo -e "${YELLOW}⚠️  watchdog library not installed${NC}"
+                echo ""
+                echo "Install it first (option 8), or install now? (y/n): "
+                read install_now
+                if [[ "$install_now" == "y" || "$install_now" == "Y" ]]; then
+                  if [[ -n "$MCP_VENV_DIR" && -d "$MCP_VENV_DIR" ]]; then
+                    echo "Installing watchdog..."
+                    "$MCP_VENV_DIR/bin/pip" install watchdog
+                  else
+                    echo "Please install manually: pip3 install watchdog"
+                    echo ""
+                    echo "Press Enter to continue..."
+                    read
+                    continue
+                  fi
+                else
+                  echo ""
+                  echo "Press Enter to continue..."
+                  read
+                  continue
+                fi
+              fi
+              
+              cd "$HOME/code/dotfiles" && make filewatcher-start
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            6)
+              echo ""
+              echo -e "${CYAN}Stopping Vector Filewatcher...${NC}"
+              echo ""
+              cd "$HOME/code/dotfiles" && make filewatcher-stop
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            7)
+              echo ""
+              cd "$HOME/code/dotfiles" && make filewatcher-status
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            8)
+              echo ""
+              echo -e "${BOLD}Install Required Dependencies${NC}"
+              echo ""
+              echo "Installing watchdog library..."
+              echo ""
+              
+              if [[ -n "$MCP_VENV_DIR" && -d "$MCP_VENV_DIR" ]]; then
+                echo "Installing into virtualenv: $MCP_VENV_DIR"
+                "$MCP_VENV_DIR/bin/pip" install watchdog
+              else
+                echo "Installing system-wide..."
+                pip3 install watchdog
+              fi
+              
+              echo ""
+              if "$PYTHON_CMD" -c "import watchdog" 2>/dev/null; then
+                echo -e "${GREEN}✅ watchdog installed successfully${NC}"
+              else
+                echo -e "${YELLOW}⚠️  Installation may have failed. Check output above.${NC}"
+              fi
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            0)
+              ;;
+            *)
+              echo "Invalid choice"
+              ;;
+      esac
+      ;;
+    11)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🧠 Setup Deep Analysis Auto-Scheduler${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "The scheduler automatically submits deep analysis jobs to the queue"
+      echo "based on schedules and triggers (weekly reviews, energy analysis, etc.)."
+      echo ""
+      echo "Scheduler Options:"
+      echo ""
+      echo "  1) 📋 View Current Configuration"
+      echo "  2) ⚙️  Configure Scheduled Analyses"
+      echo "  3) 🎯 Configure Event-Driven Triggers"
+      echo "  4) 🔔 Configure Notifications & Auto-Scan"
+      echo "  5) ▶️  Start Scheduler Daemon"
+      echo "  6) ⏹️  Stop Scheduler Daemon"
+      echo "  7) 📊 Check Scheduler Status"
+      echo "  8) 🔄 Run Scheduler Now (one-time check)"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose: "
+      read scheduler_choice
+      
+      GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+      if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+        GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+      fi
+      CONFIG_DB_FILE="${GTD_CONFIG_DIR}/.gtd_config_database"
+      
+      case "$scheduler_choice" in
+            1)
+              echo ""
+              echo -e "${BOLD}Current Scheduler Configuration:${NC}"
+              echo ""
+              
+              if [[ -f "$CONFIG_DB_FILE" ]]; then
+                source "$CONFIG_DB_FILE"
+              fi
+              
+              echo "Scheduled Analyses:"
+              echo "  Weekly Review: ${DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW:-false}"
+              if [[ "${DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW:-false}" == "true" ]]; then
+                echo "    Day: ${DEEP_ANALYSIS_WEEKLY_REVIEW_DAY:-monday}"
+                echo "    Time: ${DEEP_ANALYSIS_WEEKLY_REVIEW_TIME:-09:00}"
+              fi
+              echo "  Energy Analysis: ${DEEP_ANALYSIS_AUTO_ENERGY:-false}"
+              if [[ "${DEEP_ANALYSIS_AUTO_ENERGY:-false}" == "true" ]]; then
+                echo "    Interval: Every ${DEEP_ANALYSIS_ENERGY_INTERVAL:-3} days"
+                echo "    Analyze last: ${DEEP_ANALYSIS_ENERGY_DAYS:-7} days"
+              fi
+              echo "  Insights: ${DEEP_ANALYSIS_AUTO_INSIGHTS:-false}"
+              if [[ "${DEEP_ANALYSIS_AUTO_INSIGHTS:-false}" == "true" ]]; then
+                echo "    Interval: Every ${DEEP_ANALYSIS_INSIGHTS_INTERVAL:-1} days"
+              fi
+              echo "  Connections: ${DEEP_ANALYSIS_AUTO_CONNECTIONS:-false}"
+              if [[ "${DEEP_ANALYSIS_AUTO_CONNECTIONS:-false}" == "true" ]]; then
+                echo "    Interval: Every ${DEEP_ANALYSIS_CONNECTIONS_INTERVAL:-7} days"
+              fi
+              echo ""
+              echo "Event-Driven Triggers:"
+              echo "  Energy on Daily Log: ${DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG:-false}"
+              echo "  Insights on Content: ${DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT:-false}"
+              echo "  Connections on Task: ${DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK:-false}"
+              echo ""
+              echo "Notifications & Auto-Scan:"
+              echo "  macOS Notifications: ${GTD_NOTIFICATIONS:-true}"
+              echo "  Auto-Scan to Suggestions: ${DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS:-false}"
+              if [[ "${DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS:-false}" == "true" ]]; then
+                echo "    Scan Types: ${DEEP_ANALYSIS_AUTO_SCAN_TYPES:-connections,insights}"
+              fi
+              echo ""
+              
+              # Check if daemon is running
+              if [[ -f "/tmp/gtd-deep-analysis-scheduler-daemon.pid" ]]; then
+                pid=$(cat /tmp/gtd-deep-analysis-scheduler-daemon.pid)
+                if ps -p "$pid" > /dev/null 2>&1; then
+                  echo -e "${GREEN}✅ Scheduler daemon running (PID: $pid)${NC}"
+                else
+                  echo -e "${CYAN}ℹ️  Scheduler daemon not running${NC}"
+                fi
+              else
+                echo -e "${CYAN}ℹ️  Scheduler daemon not running${NC}"
+              fi
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            2)
+              echo ""
+              echo -e "${BOLD}Configure Scheduled Analyses:${NC}"
+              echo ""
+              echo "This allows you to set up automatic scheduled deep analysis jobs."
+              echo ""
+              
+              if [[ ! -f "$CONFIG_DB_FILE" ]]; then
+                mkdir -p "$GTD_CONFIG_DIR"
+                touch "$CONFIG_DB_FILE"
+              fi
+              
+              # Weekly Review
+              echo "Weekly Review:"
+              echo -n "  Enable automatic weekly review? (y/n, current: ${DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW:-false}): "
+              read enable_weekly
+              if [[ "$enable_weekly" == "y" || "$enable_weekly" == "Y" ]]; then
+                echo -n "  Day (monday-sunday, current: ${DEEP_ANALYSIS_WEEKLY_REVIEW_DAY:-monday}): "
+                read review_day
+                review_day="${review_day:-monday}"
+                echo -n "  Time (HH:MM, current: ${DEEP_ANALYSIS_WEEKLY_REVIEW_TIME:-09:00}): "
+                read review_time
+                review_time="${review_time:-09:00}"
+                
+                for setting in "DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=true" "DEEP_ANALYSIS_WEEKLY_REVIEW_DAY=\"$review_day\"" "DEEP_ANALYSIS_WEEKLY_REVIEW_TIME=\"$review_time\""; do
+                  key=$(echo "$setting" | cut -d'=' -f1)
+                  if grep -q "^$key=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                    if [[ "$(uname)" == "Darwin" ]]; then
+                      sed -i.bak "s|^$key=.*|$setting|" "$CONFIG_DB_FILE"
+                    else
+                      sed -i "s|^$key=.*|$setting|" "$CONFIG_DB_FILE"
+                    fi
+                  else
+                    echo "" >> "$CONFIG_DB_FILE"
+                    echo "# Deep Analysis Automatic Scheduler Configuration" >> "$CONFIG_DB_FILE"
+                    echo "$setting" >> "$CONFIG_DB_FILE"
+                  fi
+                done
+              fi
+              
+              echo ""
+              echo "Energy Analysis:"
+              echo -n "  Enable automatic energy analysis? (y/n, current: ${DEEP_ANALYSIS_AUTO_ENERGY:-false}): "
+              read enable_energy
+              if [[ "$enable_energy" == "y" || "$enable_energy" == "Y" ]]; then
+                echo -n "  Run every N days (current: ${DEEP_ANALYSIS_ENERGY_INTERVAL:-3}): "
+                read energy_interval
+                energy_interval="${energy_interval:-3}"
+                echo -n "  Analyze last N days (current: ${DEEP_ANALYSIS_ENERGY_DAYS:-7}): "
+                read energy_days
+                energy_days="${energy_days:-7}"
+                
+                for setting in "DEEP_ANALYSIS_AUTO_ENERGY=true" "DEEP_ANALYSIS_ENERGY_INTERVAL=$energy_interval" "DEEP_ANALYSIS_ENERGY_DAYS=$energy_days"; do
+                  key=$(echo "$setting" | cut -d'=' -f1)
+                  if grep -q "^$key=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                    if [[ "$(uname)" == "Darwin" ]]; then
+                      sed -i.bak "s|^$key=.*|$setting|" "$CONFIG_DB_FILE"
+                    else
+                      sed -i "s|^$key=.*|$setting|" "$CONFIG_DB_FILE"
+                    fi
+                  else
+                    echo "$setting" >> "$CONFIG_DB_FILE"
+                  fi
+                done
+              fi
+              
+              echo ""
+              echo -e "${GREEN}✅ Configuration updated!${NC}"
+              echo "Press Enter to continue..."
+              read
+              ;;
+            3)
+              echo ""
+              echo -e "${BOLD}Configure Event-Driven Triggers:${NC}"
+              echo ""
+              echo "These trigger deep analysis automatically when content is created."
+              echo ""
+              
+              if [[ ! -f "$CONFIG_DB_FILE" ]]; then
+                mkdir -p "$GTD_CONFIG_DIR"
+                touch "$CONFIG_DB_FILE"
+              fi
+              
+              echo -n "Trigger energy analysis when daily log is created? (y/n, current: ${DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG:-false}): "
+              read trigger_energy
+              if [[ "$trigger_energy" == "y" || "$trigger_energy" == "Y" ]]; then
+                value="true"
+              else
+                value="false"
+              fi
+              key="DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG"
+              if grep -q "^$key=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i.bak "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                else
+                  sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                fi
+              else
+                echo "" >> "$CONFIG_DB_FILE"
+                echo "$key=\"$value\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              echo -n "Trigger insights when content is created? (y/n, current: ${DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT:-false}): "
+              read trigger_insights
+              if [[ "$trigger_insights" == "y" || "$trigger_insights" == "Y" ]]; then
+                value="true"
+              else
+                value="false"
+              fi
+              key="DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT"
+              if grep -q "^$key=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i.bak "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                else
+                  sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                fi
+              else
+                echo "$key=\"$value\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              echo -n "Trigger connections when task is created? (y/n, current: ${DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK:-false}): "
+              read trigger_connections
+              if [[ "$trigger_connections" == "y" || "$trigger_connections" == "Y" ]]; then
+                value="true"
+              else
+                value="false"
+              fi
+              key="DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK"
+              if grep -q "^$key=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i.bak "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                else
+                  sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                fi
+              else
+                echo "$key=\"$value\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              echo ""
+              echo -e "${GREEN}✅ Configuration updated!${NC}"
+              echo "Press Enter to continue..."
+              read
+              ;;
+            4)
+              echo ""
+              echo -e "${BOLD}Configure Notifications & Auto-Scan:${NC}"
+              echo ""
+              echo "These settings control how you're notified when analysis results are ready"
+              echo "and whether suggestions are automatically created from results."
+              echo ""
+              
+              if [[ ! -f "$CONFIG_DB_FILE" ]]; then
+                mkdir -p "$GTD_CONFIG_DIR"
+                touch "$CONFIG_DB_FILE"
+              fi
+              
+              # Load current config
+              if [[ -f "$CONFIG_DB_FILE" ]]; then
+                source "$CONFIG_DB_FILE"
+              fi
+              
+              echo "Notifications:"
+              echo -n "  Enable macOS notifications when results are ready? (y/n, current: ${GTD_NOTIFICATIONS:-true}): "
+              read enable_notify
+              if [[ "$enable_notify" == "y" || "$enable_notify" == "Y" ]]; then
+                value="true"
+              else
+                value="false"
+              fi
+              key="GTD_NOTIFICATIONS"
+              if grep -q "^$key=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i.bak "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                else
+                  sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                fi
+              else
+                echo "" >> "$CONFIG_DB_FILE"
+                echo "# Notifications" >> "$CONFIG_DB_FILE"
+                echo "$key=\"$value\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              echo ""
+              echo "Auto-Scan & Suggestions:"
+              echo "  When enabled, analysis results are automatically scanned and"
+              echo "  actionable suggestions are created for you to review."
+              echo ""
+              echo -n "  Enable auto-scan results into suggestions? (y/n, current: ${DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS:-false}): "
+              read enable_scan
+              if [[ "$enable_scan" == "y" || "$enable_scan" == "Y" ]]; then
+                value="true"
+                echo ""
+                echo -n "  Which analysis types to scan? (comma-separated: connections,insights,weekly_review,analyze_energy, default: connections,insights): "
+                read scan_types
+                scan_types="${scan_types:-connections,insights}"
+              else
+                value="false"
+                scan_types="${DEEP_ANALYSIS_AUTO_SCAN_TYPES:-connections,insights}"
+              fi
+              
+              key="DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS"
+              if grep -q "^$key=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i.bak "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                else
+                  sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_DB_FILE"
+                fi
+              else
+                echo "" >> "$CONFIG_DB_FILE"
+                echo "# Auto-scan suggestions from analysis results" >> "$CONFIG_DB_FILE"
+                echo "$key=\"$value\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              key2="DEEP_ANALYSIS_AUTO_SCAN_TYPES"
+              if grep -q "^$key2=" "$CONFIG_DB_FILE" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i.bak "s|^$key2=.*|$key2=\"$scan_types\"|" "$CONFIG_DB_FILE"
+                else
+                  sed -i "s|^$key2=.*|$key2=\"$scan_types\"|" "$CONFIG_DB_FILE"
+                fi
+              else
+                echo "$key2=\"$scan_types\"" >> "$CONFIG_DB_FILE"
+              fi
+              
+              echo ""
+              echo -e "${GREEN}✅ Configuration updated!${NC}"
+              echo ""
+              if [[ "$value" == "true" ]]; then
+                echo "When analysis completes, suggestions will be automatically created from:"
+                echo "$scan_types" | tr ',' '\n' | sed 's/^/  - /'
+                echo ""
+                echo "Review suggestions: gtd-wizard → AI Suggestions → Review pending suggestions"
+              fi
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            5)
+              echo ""
+              echo -e "${CYAN}Starting Scheduler Daemon...${NC}"
+              echo ""
+              cd "$HOME/code/dotfiles" && make scheduler-start
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            6)
+              echo ""
+              echo -e "${CYAN}Stopping Scheduler Daemon...${NC}"
+              echo ""
+              cd "$HOME/code/dotfiles" && make scheduler-stop
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            7)
+              echo ""
+              cd "$HOME/code/dotfiles" && make scheduler-status
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            8)
+              echo ""
+              echo -e "${CYAN}Running scheduler (one-time check)...${NC}"
+              echo ""
+              cd "$HOME/code/dotfiles" && make scheduler-run
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            0)
+              ;;
+            *)
+              echo "Invalid choice"
+              ;;
+          esac
+      ;;
+    0|"")
+      return 0
       ;;
     *)
       echo "Invalid choice"
@@ -3265,12 +4808,15 @@ healthkit_wizard() {
           done || echo "   No health entries found"
         fi
         
-        echo ""
-        echo "Press Enter to continue..."
-        read
-        ;;
-      2)
-        clear
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    2)
+      configure_mode_specific_ai
+      ;;
+    3)
+      clear
         echo ""
         echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${BOLD}${CYAN}📅 Health Data for Specific Date${NC}"

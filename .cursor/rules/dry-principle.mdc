@@ -1,0 +1,213 @@
+# DRY (Don't Repeat Yourself) Principle Rule
+
+**CRITICAL**: Always reuse existing code and functions instead of duplicating functionality. Code duplication leads to bugs, inconsistencies, and maintenance nightmares.
+
+## Common Functions Available
+
+### Project Management
+- **`gtd-project list [status]`** - List projects (use this, don't reimplement)
+- **`list_projects()`** - Function in `gtd-project` script
+- **`select_from_list "project" "$PROJECTS_PATH" "project"`** - Interactive project selection
+
+### Area Management
+- **`gtd-area list`** - List areas (use this, don't reimplement)
+- **`select_from_list "area" "$AREAS_PATH" "name"`** - Interactive area selection
+
+### Task Management
+- **`gtd-task list [options]`** - List tasks (use this, don't reimplement)
+- **`select_from_list "task" "$TASKS_PATH" "name"`** - Interactive task selection
+
+### Goal Management
+- **`gtd-goal list`** - List goals (use this, don't reimplement)
+
+### Selection Helpers
+- **`select_from_list <type> <path> <format>`** - Universal selection helper
+  - Use this for all interactive selection (projects, areas, tasks, notes)
+  - Returns directory name for projects, display name for others
+  - Handles numbers, partial names, and special characters correctly
+
+### Path Helpers
+- **`init_gtd_paths`** - Sets all GTD paths (PROJECTS_PATH, AREAS_PATH, etc.)
+- **`gtd_get_frontmatter_value <file> <key>`** - Read frontmatter values
+- **`update_frontmatter_value <file> <key> <value>`** - Update frontmatter
+
+### Helper Functions (NEW)
+- **`get_project_name <readme_file>`** - Get project name (checks project:, name:, then directory name)
+- **`directory_has_files <directory> [pattern]`** - Check if directory has files matching pattern (default: *.md)
+- **`find_task_file <task_id>`** - Find task file in TASKS_PATH or PROJECTS_PATH
+
+## Before Writing New Code
+
+### ✅ DO THIS:
+1. **Search for existing functions**: `grep -r "function_name" bin/`
+2. **Check common helpers**: Look in `gtd-common.sh`, `gtd-select-helper.sh`
+3. **Use command-line tools**: `gtd-project list`, `gtd-task list`, etc.
+4. **Reuse selection helpers**: `select_from_list` for all interactive selection
+5. **Source common files**: `source "$HOME/code/dotfiles/bin/gtd-common.sh"`
+
+### ❌ DON'T DO THIS:
+1. **Don't reimplement `find "$PROJECTS_PATH"`** - Use `gtd-project list` or `list_projects()`
+2. **Don't create new selection logic** - Use `select_from_list`
+3. **Don't duplicate frontmatter parsing** - Use `gtd_get_frontmatter_value`
+4. **Don't hardcode paths** - Use `init_gtd_paths` and path variables
+5. **Don't create new project/area/task listing** - Use existing commands
+
+## Examples of Code Duplication to Avoid
+
+### ❌ BAD: Duplicating project listing
+```bash
+# DON'T DO THIS
+projects=($(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null))
+for project_dir in "${projects[@]}"; do
+  # ... manual parsing ...
+done
+```
+
+### ✅ GOOD: Using existing function
+```bash
+# DO THIS INSTEAD
+if command -v gtd-project &>/dev/null; then
+  gtd-project list active
+elif [[ -f "$HOME/code/dotfiles/bin/gtd-project" ]]; then
+  "$HOME/code/dotfiles/bin/gtd-project" list active
+fi
+```
+
+### ❌ BAD: Creating new selection logic
+```bash
+# DON'T DO THIS
+echo "Select project:"
+count=0
+for proj in ...; do
+  ((count++))
+  echo "$count) $proj"
+done
+read choice
+# ... manual parsing ...
+```
+
+### ✅ GOOD: Using selection helper
+```bash
+# DO THIS INSTEAD
+source "$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+project_slug=$(select_from_list "project" "$PROJECTS_PATH" "project")
+```
+
+## Common Patterns
+
+### Listing Items
+```bash
+# Projects
+gtd-project list [status]
+
+# Areas  
+gtd-area list
+
+# Tasks
+gtd-task list [options]
+
+# Goals
+gtd-goal list
+```
+
+### Selecting Items
+```bash
+# Always use select_from_list for interactive selection
+source "$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+
+# Projects (returns directory name)
+project=$(select_from_list "project" "$PROJECTS_PATH" "project")
+
+# Areas (returns display name)
+area=$(select_from_list "area" "$AREAS_PATH" "name")
+
+# Tasks (returns display name)
+task=$(select_from_list "task" "$TASKS_PATH" "name")
+```
+
+### Reading Frontmatter
+```bash
+# Use common helper
+status=$(gtd_get_frontmatter_value "$readme" "status")
+name=$(gtd_get_frontmatter_value "$readme" "name")
+```
+
+### Finding Task Files
+```bash
+# ✅ GOOD: Use standardized helper
+task_file=$(find_task_file "$task_id")
+if [[ -n "$task_file" && -f "$task_file" ]]; then
+  # Process task file
+fi
+
+# ❌ BAD: Manual find commands
+task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
+if [[ -z "$task_file" ]]; then
+  task_file=$(find "$PROJECTS_PATH" -name "${task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
+fi
+```
+
+### Getting Project Names
+```bash
+# ✅ GOOD: Use standardized helper
+project_name=$(get_project_name "$readme_file")
+
+# ❌ BAD: Manual frontmatter parsing
+proj_name=$(grep "^project:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+if [[ -z "$proj_name" ]]; then
+  proj_name=$(grep "^name:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+fi
+if [[ -z "$proj_name" ]]; then
+  proj_name=$(basename "$(dirname "$readme")")
+fi
+```
+
+### Checking Directories
+```bash
+# ✅ GOOD: Use standardized helper
+if directory_has_files "$AREAS_PATH"; then
+  # Process areas
+fi
+
+# ❌ BAD: Manual find check
+if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+  # Process areas
+fi
+```
+
+## When Adding New Functionality
+
+1. **Check if it exists**: Search codebase for similar functionality
+2. **Extend existing**: Add to existing functions/scripts rather than creating new ones
+3. **Use helpers**: Leverage `gtd-common.sh`, `gtd-select-helper.sh`
+4. **Document**: If you must create new code, document why existing code wasn't sufficient
+5. **Make reusable**: If creating new code, make it a reusable function in a common file
+
+## Code Review Checklist
+
+- [ ] Are there existing functions/commands that do this?
+- [ ] Am I using `select_from_list` for interactive selection?
+- [ ] Am I using `gtd-project list` / `gtd-task list` / etc. instead of manual `find`?
+- [ ] Am I using `gtd_get_frontmatter_value` instead of manual `grep`?
+- [ ] Am I using `get_project_name` instead of manual project name extraction?
+- [ ] Am I using `find_task_file` instead of manual task file finding?
+- [ ] Am I using `directory_has_files` instead of manual directory checks?
+- [ ] Am I using path variables (PROJECTS_PATH, etc.) instead of hardcoding?
+- [ ] Have I checked `gtd-common.sh` for existing helpers?
+- [ ] Is this code duplicated elsewhere in the codebase?
+
+## Benefits
+
+- **Consistency**: All scripts behave the same way
+- **Maintainability**: Fix bugs in one place, not many
+- **Reliability**: Reused code is tested and proven
+- **Less code**: Smaller codebase is easier to understand
+- **Fewer bugs**: Less duplication = fewer places for bugs to hide
+
+## Priority
+
+This rule has **high priority (9)** because:
+- Code duplication causes bugs and inconsistencies
+- Maintenance becomes exponentially harder with duplication
+- User experience suffers when different parts behave differently
+- Must be checked for all new code and refactoring

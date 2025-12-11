@@ -189,3 +189,4 @@ Now your Daily Notes will show up beautifully in Obsidian! 🎉
 
 
 
+

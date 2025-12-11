@@ -23,8 +23,18 @@ echo -e "${BOLD}${CYAN}🌙 Evening Wrap-Up${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
 # 1. Process inbox
-inbox_count=$(ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | tr -d ' ')
+# Use standardized path variable (DRY - reuse existing helper)
+inbox_count=$(ls -1 "${INBOX_PATH:-$HOME/Documents/gtd/0-inbox}"/*.md 2>/dev/null | wc -l | tr -d ' ')
 if [[ $inbox_count -gt 0 ]]; then
   echo -e "${YELLOW}📥 Inbox: ${inbox_count} item(s)${NC}"
   read -p "Process inbox? (y/n) " -n 1 -r

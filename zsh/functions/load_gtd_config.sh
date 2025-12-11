@@ -25,6 +25,7 @@ MODULAR_CONFIGS=(
   ".gtd_config_capture"        # Capture and processing
   ".gtd_config_reviews"         # Review system
   ".gtd_config_integrations"    # Second Brain, calendar, etc.
+  ".gtd_config_database"        # Vector database and RabbitMQ settings
   ".gtd_config_calendar"       # Calendar integration
   ".gtd_config_notifications"  # Notifications and reminders
   ".gtd_config_advanced"       # Advanced features and analytics

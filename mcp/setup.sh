@@ -80,6 +80,18 @@ except Exception as e:
     sys.exit(1)
 "
 
+# Optional: Install watchdog for filewatcher
+echo ""
+echo -n "Install watchdog (for Vector Filewatcher)? (y/N): "
+read install_watchdog
+if [[ "$install_watchdog" == "y" || "$install_watchdog" == "Y" ]]; then
+    echo "📦 Installing watchdog..."
+    source "$VENV_DIR/bin/activate"
+    pip install watchdog || echo "⚠️  Failed to install watchdog (optional)"
+    deactivate
+    echo "✓ watchdog installed (optional - for filewatcher)"
+fi
+
 echo ""
 echo "✅ Setup complete!"
 echo ""
@@ -87,7 +99,8 @@ echo "Next steps:"
 echo "1. Configure MCP server in Cursor (see README.md)"
 echo "2. Start LM Studio and load your model"
 echo "3. (Optional) Set up RabbitMQ for background processing"
-echo "4. Test with: $VENV_DIR/bin/python3 $SCRIPT_DIR/gtd_auto_suggest.py entry 'test entry'"
+echo "4. (Optional) Set up Vector Filewatcher: Configuration & Setup → Setup Vector Filewatcher"
+echo "5. Test with: $VENV_DIR/bin/python3 $SCRIPT_DIR/gtd_auto_suggest.py entry 'test entry'"
 echo ""
 echo "💡 Note: MCP scripts will automatically use the virtualenv at: $VENV_DIR"
 

@@ -148,3 +148,4 @@ When adding a new wizard function:
 - Tests validate both function existence and proper usage
 - Menu structure tests check for visual consistency (colors, formatting)
 - All tests are non-destructive (read-only validation)
+

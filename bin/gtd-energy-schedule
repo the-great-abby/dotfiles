@@ -23,9 +23,19 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# GTD_BASE_DIR and TASKS_PATH are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 PATTERNS_DIR="${GTD_BASE_DIR}/.patterns"
-TASKS_PATH="${GTD_BASE_DIR}/tasks"
 
 # Get date command
 get_date_cmd() {
@@ -89,19 +99,16 @@ suggest_tasks_for_energy() {
   echo ""
   
   # Extract frontmatter value
-  get_frontmatter_value() {
-    local file="$1"
-    local key="$2"
-    grep "^${key}:" "$file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
-  }
+  # Use standardized helper from gtd-common.sh (DRY - reuse existing helper)
+  # gtd_get_frontmatter_value is available as gtd_gtd_get_frontmatter_value
   
   # Score task for energy match
   score_task() {
     local file="$1"
-    local task_energy=$(get_frontmatter_value "$file" "energy")
-    local priority=$(get_frontmatter_value "$file" "priority")
-    local status=$(get_frontmatter_value "$file" "status")
-    local due=$(get_frontmatter_value "$file" "due")
+    local task_energy=$(gtd_get_frontmatter_value "$file" "energy")
+    local priority=$(gtd_get_frontmatter_value "$file" "priority")
+    local status=$(gtd_get_frontmatter_value "$file" "status")
+    local due=$(gtd_get_frontmatter_value "$file" "due")
     
     local score=0
     
@@ -155,9 +162,9 @@ suggest_tasks_for_energy() {
       
       local score=$(score_task "$task_file")
       if [[ $score -gt 0 ]]; then
-        local title=$(get_frontmatter_value "$task_file" "title")
-        local task_energy=$(get_frontmatter_value "$task_file" "energy")
-        local priority=$(get_frontmatter_value "$task_file" "priority")
+        local title=$(gtd_get_frontmatter_value "$task_file" "title")
+        local task_energy=$(gtd_get_frontmatter_value "$task_file" "energy")
+        local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
         
         tasks+=("$score|$title|$task_energy|$priority|$task_file")
       fi
@@ -208,7 +215,8 @@ schedule_for_energy() {
   # Find task file
   local task_file=""
   if [[ -d "$TASKS_PATH" ]]; then
-    task_file=$(find "$TASKS_PATH" -name "*${task_id}*.md" -type f | head -1)
+    # Use standardized helper function (DRY - reuse existing helper)
+    task_file=$(find_task_file "${task_id}")
   fi
   
   if [[ -z "$task_file" || ! -f "$task_file" ]]; then

@@ -24,7 +24,7 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 STUDY_DIR="${GTD_BASE_DIR}/study"
 K8S_STUDY_DIR="${STUDY_DIR}/kubernetes-cka"
 

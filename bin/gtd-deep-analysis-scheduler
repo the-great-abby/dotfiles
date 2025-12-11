@@ -1,0 +1,16 @@
+#!/bin/bash
+# GTD Deep Analysis Scheduler Wrapper
+
+SCRIPT_DIR="$HOME/code/dotfiles"
+if [[ ! -d "$SCRIPT_DIR" ]]; then
+  SCRIPT_DIR="$HOME/code/personal/dotfiles"
+fi
+
+PYTHON_SCRIPT="${SCRIPT_DIR}/mcp/gtd_deep_analysis_scheduler.py"
+VENV_PYTHON="${SCRIPT_DIR}/mcp/venv/bin/python3"
+
+if [[ -f "$VENV_PYTHON" ]]; then
+  exec "$VENV_PYTHON" "$PYTHON_SCRIPT" "$@"
+else
+  exec python3 "$PYTHON_SCRIPT" "$@"
+fi

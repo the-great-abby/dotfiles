@@ -13,8 +13,18 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-TASKS_PATH="${GTD_BASE_DIR}/tasks"
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# GTD_BASE_DIR and TASKS_PATH are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 
 # Calendar configuration
 GOOGLE_CALENDAR="${GTD_GOOGLE_CALENDAR:-}"
@@ -907,11 +917,8 @@ sync_task_to_calendar() {
   local calendar_type="${2:-google}"  # google or office365
   local when="${3:-}"
   
-  # Find task
-  local task_file=""
-  if [[ -d "$TASKS_PATH" ]]; then
-    task_file=$(find "$TASKS_PATH" -name "*${task_id}*.md" -type f | head -1)
-  fi
+  # Use standardized helper function (DRY - reuse existing helper)
+  local task_file=$(find_task_file "${task_id}")
   
   if [[ -z "$task_file" || ! -f "$task_file" ]]; then
     echo "Error: Task not found"

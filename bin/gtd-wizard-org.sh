@@ -4,17 +4,9 @@
 
 # Show Eisenhower Matrix Dashboard
 show_matrix_dashboard() {
-  # Ensure paths are set
-  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-  PROJECTS_PATH="${PROJECTS_PATH:-${GTD_BASE_DIR}/projects}"
-  TASKS_PATH="${TASKS_PATH:-${GTD_BASE_DIR}/tasks}"
-  
-  # Helper function to get frontmatter value
-  get_frontmatter_value() {
-    local file="$1"
-    local key="$2"
-    grep "^${key}:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' || echo ""
-  }
+  # Paths are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+  # Use standardized helper function for frontmatter (DRY - reuse existing helper)
+  # gtd_get_frontmatter_value is available from gtd-common.sh
   
   # Collect all active tasks
   local all_tasks=()
@@ -23,7 +15,8 @@ show_matrix_dashboard() {
   if [[ -d "$TASKS_PATH" ]]; then
     while IFS= read -r task_file; do
       [[ ! -f "$task_file" ]] && continue
-      local status=$(get_frontmatter_value "$task_file" "status")
+      # Use standardized helper function (DRY - reuse existing helper)
+      local status=$(gtd_get_frontmatter_value "$task_file" "status")
       if [[ "$status" == "active" ]]; then
         all_tasks+=("$task_file")
       fi
@@ -34,7 +27,8 @@ show_matrix_dashboard() {
   if [[ -d "$PROJECTS_PATH" ]]; then
     while IFS= read -r task_file; do
       [[ ! -f "$task_file" || "$task_file" == */README.md ]] && continue
-      local status=$(get_frontmatter_value "$task_file" "status")
+      # Use standardized helper function (DRY - reuse existing helper)
+      local status=$(gtd_get_frontmatter_value "$task_file" "status")
       if [[ "$status" == "active" ]]; then
         all_tasks+=("$task_file")
       fi
@@ -49,11 +43,12 @@ show_matrix_dashboard() {
   local no_priority=()
   
   for task_file in "${all_tasks[@]}"; do
-    local priority=$(get_frontmatter_value "$task_file" "priority")
+    # Use standardized helper functions (DRY - reuse existing helpers)
+    local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
     local task_name=$(head -20 "$task_file" | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
     local task_id=$(basename "$task_file" .md)
-    local project=$(get_frontmatter_value "$task_file" "project")
-    local context=$(get_frontmatter_value "$task_file" "context")
+    local project=$(gtd_get_frontmatter_value "$task_file" "project")
+    local context=$(gtd_get_frontmatter_value "$task_file" "context")
     
     case "$priority" in
       urgent_important)
@@ -269,9 +264,10 @@ prioritization_wizard() {
         echo ""
         echo "Areas with current priorities:"
         echo ""
-        if [[ -d "${GTD_BASE_DIR:-$HOME/Documents/gtd}/2-areas" ]]; then
+        # Use standardized path variable (DRY - reuse existing helper)
+        if [[ -d "$AREAS_PATH" ]]; then
           local found_areas=false
-          for area_dir in "${GTD_BASE_DIR:-$HOME/Documents/gtd}/2-areas"/*/; do
+          for area_dir in "$AREAS_PATH"/*/; do
             if [[ -d "$area_dir" ]]; then
               local area_name=$(basename "$area_dir")
               local area_file="${area_dir}${area_name}.md"
@@ -307,9 +303,10 @@ prioritization_wizard() {
         echo ""
         echo "Projects with high-priority tasks:"
         echo ""
-        if [[ -d "${GTD_BASE_DIR:-$HOME/Documents/gtd}/1-projects" ]]; then
+        # Use standardized path variable (DRY - reuse existing helper)
+        if [[ -d "$PROJECTS_PATH" ]]; then
           local found_projects=false
-          for project_dir in "${GTD_BASE_DIR:-$HOME/Documents/gtd}/1-projects"/*/; do
+          for project_dir in "$PROJECTS_PATH"/*/; do
             if [[ -d "$project_dir" ]]; then
               local project_name=$(basename "$project_dir")
               # Check for high-priority tasks in this project
@@ -415,8 +412,9 @@ prioritization_wizard() {
             echo ""
             echo "Projects with tasks (review priorities by reviewing project tasks):"
             echo ""
-            if [[ -d "${GTD_BASE_DIR:-$HOME/Documents/gtd}/1-projects" ]]; then
-              ls -1 "${GTD_BASE_DIR:-$HOME/Documents/gtd}/1-projects" 2>/dev/null | head -10
+            # Use standardized path variable (DRY - reuse existing helper)
+            if [[ -d "$PROJECTS_PATH" ]]; then
+              ls -1 "$PROJECTS_PATH" 2>/dev/null | head -10
             fi
             echo ""
             echo "Use 'gtd-wizard → Manage projects → Review project' to review project priorities"
@@ -717,15 +715,10 @@ task_wizard() {
       fi
       
       # Find the task file
-      local task_file=""
-      if [[ -d "$TASKS_PATH" ]]; then
-        task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
-      fi
-      if [[ -z "$task_file" ]] && [[ -d "$PROJECTS_PATH" ]]; then
-        task_file=$(find "$PROJECTS_PATH" -name "${task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
-      fi
+      # Use standardized helper function (DRY - reuse existing helper)
+      local task_file=$(find_task_file "$task_id")
       
-      if [[ ! -f "$task_file" ]]; then
+      if [[ -z "$task_file" || ! -f "$task_file" ]]; then
         echo "❌ Task file not found: $task_id"
         echo "Press Enter to continue..."
         read
@@ -733,7 +726,8 @@ task_wizard() {
       fi
       
       echo ""
-      if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+      # Use standardized helper function (DRY - reuse existing helper)
+      if directory_has_files "$AREAS_PATH"; then
         echo "Select area to move task to:"
         area_name=$(select_from_list "area" "$AREAS_PATH" "name")
         if [[ -n "$area_name" ]]; then
@@ -811,13 +805,21 @@ area: ${area_slug}
       fi
       
       # Check if task has existing notes
-      declare -a existing_note_files
-      declare -a existing_note_titles
-      
-      if get_task_notes "$task_id" existing_note_files existing_note_titles && [[ ${#existing_note_files[@]} -gt 0 ]]; then
-        # Notes exist - show menu
-        echo ""
-        echo "This task already has ${#existing_note_files[@]} note(s)."
+      # bash 3.2 compatible - get_task_notes uses global variables with prefix
+      local notes_prefix="existing"
+      if get_task_notes "$task_id" "$notes_prefix"; then
+        # Access arrays using eval (bash 3.2 compatible)
+        local note_count=$(eval "echo \${#${notes_prefix}_notes_files[@]}")
+        if [[ $note_count -gt 0 ]]; then
+          # Copy to local arrays for easier access
+          local existing_note_files=()
+          local existing_note_titles=()
+          eval "existing_note_files=(\"\${${notes_prefix}_notes_files[@]}\")"
+          eval "existing_note_titles=(\"\${${notes_prefix}_notes_titles[@]}\")"
+          
+          # Notes exist - show menu
+          echo ""
+          echo "This task already has ${#existing_note_files[@]} note(s)."
         echo ""
         echo "Existing notes:"
         local note_index=1
@@ -875,10 +877,11 @@ area: ${area_slug}
               gtd-task add-note "$task_id"
             fi
             ;;
-          *)
-            echo "Invalid choice"
-            ;;
-        esac
+            *)
+              echo "Invalid choice"
+              ;;
+          esac
+        fi
       else
         # No existing notes, just create new one
         echo ""
@@ -1022,7 +1025,8 @@ area_wizard() {
       ;;
     4)
       echo ""
-      if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+      # Use standardized helper function (DRY - reuse existing helper)
+      if directory_has_files "$AREAS_PATH"; then
         area_name=$(select_from_list "area" "$AREAS_PATH" "name")
         if [[ -n "$area_name" ]]; then
           gtd-area view "$area_name"
@@ -1033,7 +1037,8 @@ area_wizard() {
       ;;
     5)
       echo ""
-      if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+      # Use standardized helper function (DRY - reuse existing helper)
+      if directory_has_files "$AREAS_PATH"; then
         area_name=$(select_from_list "area" "$AREAS_PATH" "name")
         if [[ -n "$area_name" ]]; then
           echo -n "New description: "
@@ -1048,7 +1053,8 @@ area_wizard() {
       ;;
     6)
       echo ""
-      if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+      # Use standardized helper function (DRY - reuse existing helper)
+      if directory_has_files "$AREAS_PATH"; then
         area_name=$(select_from_list "area" "$AREAS_PATH" "name")
         if [[ -n "$area_name" ]]; then
           echo -n "Note title: "
@@ -1065,7 +1071,8 @@ area_wizard() {
       ;;
     7)
       echo ""
-      if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+      # Use standardized helper function (DRY - reuse existing helper)
+      if directory_has_files "$AREAS_PATH"; then
         area_name=$(select_from_list "area" "$AREAS_PATH" "name")
         if [[ -n "$area_name" ]]; then
           gtd-area archive "$area_name"
@@ -1083,7 +1090,8 @@ area_wizard() {
       echo ""
       echo -e "${BOLD}💬 Restructure Area with Natural Language${NC}"
       echo ""
-      if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+      # Use standardized helper function (DRY - reuse existing helper)
+      if directory_has_files "$AREAS_PATH"; then
         echo "Available areas:"
         area_name=$(select_from_list "area" "$AREAS_PATH" "name")
         if [[ -n "$area_name" ]]; then
@@ -1141,10 +1149,7 @@ area_wizard() {
 project_wizard() {
   push_menu "Main Menu"
   
-  # Ensure paths are set
-  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-  PROJECTS_PATH="${PROJECTS_PATH:-${GTD_BASE_DIR}/projects}"
-  TASKS_PATH="${TASKS_PATH:-${GTD_BASE_DIR}/tasks}"
+  # Paths are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
   GOALS_DIR="${GOALS_DIR:-${GTD_BASE_DIR}/goals}"
   
   while true; do
@@ -1195,10 +1200,39 @@ project_wizard() {
       echo -n "Repository URL (GitHub/GitLab, or press Enter to skip): "
       read repo_url
       
+      local project_created=false
       if [[ -n "$repo_url" ]]; then
-        gtd-project create "$project_name" --repository="$repo_url"
+        if gtd-project create "$project_name" --repository="$repo_url"; then
+          project_created=true
+        fi
       else
-        gtd-project create "$project_name"
+        if gtd-project create "$project_name"; then
+          project_created=true
+        fi
+      fi
+      
+      # Vectorize the project if created successfully
+      if [[ "$project_created" == "true" ]]; then
+        # Get project content (read from README if available)
+        local project_slug=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+        local project_dir="${PROJECTS_PATH}/${project_slug}"
+        local project_readme="${project_dir}/README.md"
+        local project_content=""
+        
+        if [[ -f "$project_readme" ]]; then
+          project_content=$(cat "$project_readme" | head -100)  # First 100 lines
+        else
+          project_content="$project_name"
+        fi
+        
+        # Vectorize in background (don't block user)
+        if command -v gtd-vectorize-content &>/dev/null; then
+          gtd-vectorize-content "project" "$project_slug" "$project_content" &
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-vectorize-content" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-vectorize-content" "project" "$project_slug" "$project_content" &
+        elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-vectorize-content" ]]; then
+          "$HOME/code/personal/dotfiles/bin/gtd-vectorize-content" "project" "$project_slug" "$project_content" &
+        fi
       fi
       ;;
     2)
@@ -1456,7 +1490,8 @@ project_wizard() {
           project_slug=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
           
           echo ""
-          if [[ -d "$AREAS_PATH" ]] && [[ -n "$(find "$AREAS_PATH" -type f -name "*.md" 2>/dev/null)" ]]; then
+          # Use standardized helper function (DRY - reuse existing helper)
+      if directory_has_files "$AREAS_PATH"; then
             echo "Select area to assign project to:"
             area_name=$(select_from_list "area" "$AREAS_PATH" "name")
             if [[ -n "$area_name" ]]; then
@@ -1491,11 +1526,18 @@ project_wizard() {
       done
       
       if [[ "$has_projects" == "true" ]]; then
-        project_name=$(select_from_list "project" "$PROJECTS_PATH" "project")
-        if [[ -n "$project_name" ]]; then
-          # Convert to slug format
-          project_slug=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
-          gtd-project archive "$project_slug"
+        # select_from_list now returns the directory name for projects (not display name)
+        project_slug=$(select_from_list "project" "$PROJECTS_PATH" "project")
+        if [[ -n "$project_slug" ]]; then
+          # Verify the project exists before archiving
+          if [[ -d "${PROJECTS_PATH}/${project_slug}" && -f "${PROJECTS_PATH}/${project_slug}/README.md" ]]; then
+            gtd-project archive "$project_slug"
+          else
+            echo "❌ Project directory not found: $project_slug"
+            echo "   Searched in: ${PROJECTS_PATH}/${project_slug}"
+            echo "Press Enter to continue..."
+            read
+          fi
         fi
       else
         echo "No projects found."
@@ -1562,10 +1604,8 @@ project_wizard() {
               local readme="${project_dir}README.md"
               if [[ -f "$readme" ]]; then
                 # Use the same logic as get_display_name in select_from_list
-                local display_name=$(grep "^project:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
-                if [[ -z "$display_name" ]]; then
-                  display_name=$(grep "^name:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
-                fi
+                # Use standardized helper function (DRY - reuse existing helper)
+                local display_name=$(get_project_name "$readme")
                 if [[ -z "$display_name" ]]; then
                   display_name=$(basename "$project_dir")
                 fi
@@ -2021,10 +2061,8 @@ moc_wizard() {
         # Find task file
         local task_file=""
         if [[ -d "$TASKS_PATH" ]]; then
-          task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
-        fi
-        if [[ -z "$task_file" ]] && [[ -d "$PROJECTS_PATH" ]]; then
-          task_file=$(find "$PROJECTS_PATH" -name "${task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
+          # Use standardized helper function (DRY - reuse existing helper)
+          task_file=$(find_task_file "$task_id")
         fi
         
         if [[ -z "$task_file" || ! -f "$task_file" ]]; then
@@ -2335,8 +2373,8 @@ quick_complete_habits() {
     source "$GTD_CONFIG_FILE"
   fi
   
-  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-  HABITS_PATH="${GTD_BASE_DIR}/habits"
+  # Paths are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+  HABITS_PATH="${HABITS_PATH:-${GTD_BASE_DIR}/habits}"
   
   # Get date command
   get_date_cmd() {
@@ -2733,10 +2771,7 @@ zettelkasten_wizard() {
       fi
       
       # Set up GTD paths
-      GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-      AREAS_PATH="${AREAS_PATH:-${GTD_BASE_DIR}/2-areas}"
-      PROJECTS_PATH="${PROJECTS_PATH:-${GTD_BASE_DIR}/1-projects}"
-      TASKS_PATH="${TASKS_PATH:-${GTD_BASE_DIR}/3-tasks}"
+      # Paths are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
       GOALS_PATH="${GOALS_PATH:-${GTD_BASE_DIR}/goals}"
       
       # Show GTD item type selection menu
@@ -2765,7 +2800,8 @@ zettelkasten_wizard() {
               if [[ -z "$gtd_item" ]]; then
                 # Try to find by display name in frontmatter
                 while IFS= read -r area_file; do
-                  local file_name=$(grep "^name:" "$area_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+                  # Use standardized helper function (DRY - reuse existing helper)
+                  local file_name=$(gtd_get_frontmatter_value "$area_file" "name")
                   if [[ "$file_name" == "$area_name" ]]; then
                     gtd_item="$area_file"
                     break
@@ -2789,10 +2825,8 @@ zettelkasten_wizard() {
                 while IFS= read -r project_dir; do
                   local readme="${project_dir}/README.md"
                   if [[ -f "$readme" ]]; then
-                    local file_name=$(grep "^project:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
-                    if [[ -z "$file_name" ]]; then
-                      file_name=$(grep "^name:" "$readme" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
-                    fi
+                    # Use standardized helper function (DRY - reuse existing helper)
+                    local file_name=$(get_project_name "$readme")
                     if [[ "$file_name" == "$project_name" ]]; then
                       gtd_item="$readme"
                       break
@@ -2810,11 +2844,8 @@ zettelkasten_wizard() {
             if declare -f select_from_tasks &>/dev/null; then
               local task_id=$(select_from_tasks "task")
               if [[ -n "$task_id" ]]; then
-                gtd_item=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
-                # Also check in projects
-                if [[ -z "$gtd_item" && -d "$PROJECTS_PATH" ]]; then
-                  gtd_item=$(find "$PROJECTS_PATH" -name "${task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
-                fi
+                # Use standardized helper function (DRY - reuse existing helper)
+                gtd_item=$(find_task_file "$task_id")
               fi
             else
               # Fallback to select_from_list
@@ -2835,7 +2866,8 @@ zettelkasten_wizard() {
               if [[ -z "$gtd_item" ]]; then
                 # Try to find by display name in frontmatter
                 while IFS= read -r goal_file; do
-                  local file_name=$(grep "^name:" "$goal_file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+                  # Use standardized helper function (DRY - reuse existing helper)
+                  local file_name=$(gtd_get_frontmatter_value "$goal_file" "name")
                   if [[ "$file_name" == "$goal_name" ]]; then
                     gtd_item="$goal_file"
                     break

@@ -1,0 +1,122 @@
+# ============================================================================
+# Vector Database Configuration (PostgreSQL with pgvector)
+# ============================================================================
+# PostgreSQL connection settings for vector storage
+# Database is available at localhost:13003
+VECTOR_DB_HOST="${VECTOR_DB_HOST:-localhost}"
+VECTOR_DB_PORT="${VECTOR_DB_PORT:-13003}"
+VECTOR_DB_NAME="${VECTOR_DB_NAME:-gtd_organization_system}"
+VECTOR_DB_USER="${VECTOR_DB_USER:-gtd_organization_system}"
+VECTOR_DB_PASSWORD="${VECTOR_DB_PASSWORD:-gtd_organization_system}"
+
+# Enable vectorization (true/false)
+GTD_VECTORIZATION_ENABLED="${GTD_VECTORIZATION_ENABLED:-true}"
+
+# Vectorization batch size (number of items to process at once)
+VECTOR_BATCH_SIZE="${VECTOR_BATCH_SIZE:-10}"
+
+# Vector dimension (must match embedding model output)
+# nomic-embed-text-v2-moe-GGUF outputs 768 dimensions
+VECTOR_DIMENSION="${VECTOR_DIMENSION:-768}"
+
+# ============================================================================
+# RabbitMQ Configuration (for background processing)
+# ============================================================================
+# RabbitMQ connection settings (optional, for async vectorization)
+# For Kubernetes: Use port-forward or service URL
+#   kubectl port-forward -n rabbitmq-system svc/rabbitmq 5672:5672
+RABBITMQ_ENABLED="${RABBITMQ_ENABLED:-true}"
+RABBITMQ_URL="${RABBITMQ_URL:-amqp://localhost:5672}"
+# Username and password (optional - can also be in URL as amqp://user:pass@host:port)
+RABBITMQ_USER="${RABBITMQ_USER:-guest}"
+RABBITMQ_PASS="${RABBITMQ_PASS:-guest}"
+RABBITMQ_VECTOR_QUEUE="${RABBITMQ_VECTOR_QUEUE:-gtd_vectorization}"
+
+# RabbitMQ connection retry settings
+RABBITMQ_MAX_RETRIES="${RABBITMQ_MAX_RETRIES:-3}"
+RABBITMQ_RETRY_DELAY="${RABBITMQ_RETRY_DELAY:-5}"
+
+# ============================================================================
+# Vectorization Settings
+# ============================================================================
+# What to vectorize (comma-separated list)
+# Options: daily_logs, tasks, projects, notes, suggestions, all
+VECTORIZE_CONTENT="${VECTORIZE_CONTENT:-daily_logs,tasks,projects}"
+
+# Auto-vectorize on creation (true/false)
+VECTORIZE_ON_CREATE="${VECTORIZE_ON_CREATE:-true}"
+
+# Auto-vectorize on update (true/false)
+VECTORIZE_ON_UPDATE="${VECTORIZE_ON_UPDATE:-true}"
+
+# Chunk size for large documents (characters per chunk)
+VECTOR_CHUNK_SIZE="${VECTOR_CHUNK_SIZE:-1000}"
+
+# Chunk overlap (characters to overlap between chunks)
+VECTOR_CHUNK_OVERLAP="${VECTOR_CHUNK_OVERLAP:-200}"
+
+# ============================================================================
+# Search Settings
+# ============================================================================
+# Default similarity threshold for vector search (0.0-1.0)
+VECTOR_SIMILARITY_THRESHOLD="${VECTOR_SIMILARITY_THRESHOLD:-0.7}"
+
+# Maximum results to return from vector search
+VECTOR_MAX_RESULTS="${VECTOR_MAX_RESULTS:-10}"
+
+# Enable hybrid search (combine vector + keyword search)
+VECTOR_HYBRID_SEARCH="${VECTOR_HYBRID_SEARCH:-true}"
+
+# ============================================================================
+# Vector Filewatcher Configuration
+# ============================================================================
+# Directories to watch for automatic vectorization (comma-separated)
+# Can include symlinks - they will be followed automatically
+# Defaults: GTD_BASE_DIR and DAILY_LOG_DIR
+VECTOR_WATCH_DIRS="/Users/abby/Documents/gtd,/Users/abby/Documents/daily_logs"
+
+# Watched directory location (for symlinks to external directories)
+# Default: $HOME/Documents/gtd/watched
+# You can change this to any location you prefer
+VECTOR_WATCH_DIR="${VECTOR_WATCH_DIR:-$HOME/Documents/gtd/watched}"
+
+# Enable filewatcher (true/false)
+VECTOR_FILEWATCHER_ENABLED="${VECTOR_FILEWATCHER_ENABLED:-false}"
+
+# ============================================================================
+# Deep Analysis Automatic Scheduler Configuration
+# ============================================================================
+# Automatically submit deep analysis jobs to the queue
+
+# Weekly review scheduling
+DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=true
+DEEP_ANALYSIS_WEEKLY_REVIEW_DAY="sunday"
+DEEP_ANALYSIS_WEEKLY_REVIEW_TIME="04:00"
+
+# Energy analysis scheduling
+DEEP_ANALYSIS_AUTO_ENERGY=true
+DEEP_ANALYSIS_ENERGY_INTERVAL=3
+DEEP_ANALYSIS_ENERGY_DAYS=7
+
+# Insights scheduling
+DEEP_ANALYSIS_AUTO_INSIGHTS="${DEEP_ANALYSIS_AUTO_INSIGHTS:-false}"
+DEEP_ANALYSIS_INSIGHTS_INTERVAL="${DEEP_ANALYSIS_INSIGHTS_INTERVAL:-1}"  # Every N days
+
+# Connections scheduling
+DEEP_ANALYSIS_AUTO_CONNECTIONS="${DEEP_ANALYSIS_AUTO_CONNECTIONS:-false}"
+DEEP_ANALYSIS_CONNECTIONS_INTERVAL="${DEEP_ANALYSIS_CONNECTIONS_INTERVAL:-7}"  # Every N days
+
+# Event-driven triggers (automatic on content creation)
+DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG="true"
+DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT="true"
+DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK="true"
+
+# Automatic suggestion creation from analysis results
+# When true, automatically scans analysis results and creates suggestions
+# Types to scan (comma-separated: connections,insights,weekly_review,analyze_energy)
+DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS="${DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS:-false}"
+DEEP_ANALYSIS_AUTO_SCAN_TYPES="${DEEP_ANALYSIS_AUTO_SCAN_TYPES:-connections,insights}"
+
+# Notifications (macOS/terminal notifications when results are ready)
+GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
+

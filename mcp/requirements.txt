@@ -6,6 +6,9 @@ mcp>=0.9.0
 # Optional: RabbitMQ for background processing
 pika>=1.3.0
 
+# Optional: Filewatcher for automatic vectorization
+watchdog>=3.0.0
+
 # Google Health/Fitness integration (optional)
 # Install with: pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
 google-auth>=2.0.0

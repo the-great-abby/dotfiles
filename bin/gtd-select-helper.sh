@@ -48,9 +48,10 @@ select_from_list() {
   fi
   
   # Collect items
-  declare -a items
-  declare -a item_names
-  declare -a item_paths
+  # bash 3.2 compatible - no declare -a
+  items=()
+  item_names=()
+  item_paths=()
   
   # Function to extract display name
   get_display_name() {
@@ -59,27 +60,21 @@ select_from_list() {
     
     case "$fmt" in
       project)
-        # For projects, read from README.md
+        # For projects, use standardized helper function (DRY - reuse existing helper)
         if [[ -f "$file" ]]; then
-          local name=$(grep "^project:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
-          if [[ -z "$name" ]]; then
-            name=$(grep "^name:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
-          fi
-          if [[ -z "$name" ]]; then
-            name=$(basename "$(dirname "$file")")
-          fi
+          local name=$(get_project_name "$file")
           echo "$name"
         fi
         ;;
       name)
-        # Extract from frontmatter
-        local name=$(grep "^name:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+        # Extract from frontmatter using standardized helper (DRY - reuse existing helper)
+        local name=$(gtd_get_frontmatter_value "$file" "name")
         if [[ -z "$name" ]]; then
           # Try to get from first heading (# Title)
           name=$(grep "^# " "$file" 2>/dev/null | head -1 | sed 's/^# //' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' || echo "")
         fi
         if [[ -z "$name" ]]; then
-          name=$(grep "^title:" "$file" 2>/dev/null | cut -d':' -f2- | sed 's/^[[:space:]]*//' || echo "")
+          name=$(gtd_get_frontmatter_value "$file" "title")
         fi
         if [[ -z "$name" ]]; then
           # Convert filename slug to readable format: work-&-career -> Work & Career
@@ -150,7 +145,14 @@ select_from_list() {
   if [[ "$user_input" =~ ^[0-9]+$ ]]; then
     local selected_index=$((user_input - 1))
     if [[ $selected_index -ge 0 && $selected_index -lt $item_count ]]; then
-      echo "${item_names[$selected_index]}"
+      # For projects, return the directory name (basename of directory containing README)
+      # For other items, return the display name
+      if [[ "$item_type" == "project" ]]; then
+        local readme_path="${item_paths[$selected_index]}"
+        echo "$(basename "$(dirname "$readme_path")")"
+      else
+        echo "${item_names[$selected_index]}"
+      fi
       return 0
     else
       echo "❌ Invalid number. Please select 1-$item_count" >&2
@@ -159,8 +161,9 @@ select_from_list() {
   fi
   
   # Try partial name matching (case-insensitive)
-  declare -a matches
-  declare -a match_indices
+  # bash 3.2 compatible - no declare -a
+  matches=()
+  match_indices=()
   
   for i in "${!item_names[@]}"; do
     local display_name="${item_names[$i]}"
@@ -203,7 +206,14 @@ select_from_list() {
     if [[ "$user_input" =~ ^[0-9]+$ ]]; then
       local selected_index=$((user_input - 1))
       if [[ $selected_index -ge 0 && $selected_index -lt $match_count ]]; then
-        echo "${matches[$selected_index]}"
+        # For projects, return the directory name instead of display name
+        if [[ "$item_type" == "project" ]]; then
+          local match_array_index="${match_indices[$selected_index]}"
+          local readme_path="${item_paths[$match_array_index]}"
+          echo "$(basename "$(dirname "$readme_path")")"
+        else
+          echo "${matches[$selected_index]}"
+        fi
         return 0
       else
         echo "❌ Invalid number. Please select 1-$match_count" >&2
@@ -271,8 +281,8 @@ select_from_numbered_list() {
 # Select a persona from the available list
 # Returns: persona key (e.g., "hank", "david") via stdout, empty if cancelled
 select_persona() {
-  # Available personas array
-  declare -a personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob")
+  # Available personas array (bash 3.2 compatible - no declare -a)
+  personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob" "matt" "brennan" "chris" "aabria" "jeremy")
   
   # Function to get persona display info
   get_persona_info() {
@@ -322,6 +332,11 @@ select_persona() {
       picard) echo "Jean-Luc Picard - Strategic leadership, diplomatic guidance, principled decision-making, inspiring others" ;;
       sandy) echo "Sandy Squirrel (SpongeBob SquarePants) - Science, karate, Texas pride, competitive spirit, practical problem-solving" ;;
       spongebob) echo "SpongeBob SquarePants - Optimism, enthusiasm, creativity, friendship, finding joy in work, positive attitude" ;;
+      matt) echo "Matt Mercer - Storytelling, narrative structure, character development, epic adventures, emotional depth" ;;
+      brennan) echo "Brennan Lee Mulligan - Fast-paced gameplay, creative problem-solving, improvisation, high-energy storytelling" ;;
+      chris) echo "Chris Perkins - Game design, world-building, creative mechanics, memorable adventures, system design" ;;
+      aabria) echo "Aabria Iyengar - Collaborative storytelling, diverse narratives, inclusive stories, character development" ;;
+      jeremy) echo "Jeremy Crawford - Rules expertise, game mechanics, system design, understanding complex systems" ;;
       *) echo "Unknown persona" ;;
     esac
   }
@@ -361,8 +376,9 @@ select_persona() {
   fi
   
   # Try partial name matching (case-insensitive)
-  declare -a matches
-  declare -a match_indices
+  # bash 3.2 compatible - no declare -a
+  matches=()
+  match_indices=()
   
   for i in "${!personas[@]}"; do
     local persona_key="${personas[$i]}"

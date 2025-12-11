@@ -1,0 +1,38 @@
+#!/bin/bash
+# GTD Vector Filewatcher
+# Monitors directories and automatically queues files for vectorization
+
+# Source common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Find Python executable (prefer virtualenv)
+MCP_VENV="$HOME/code/dotfiles/mcp/venv/bin/python3"
+if [[ ! -f "$MCP_VENV" ]]; then
+  MCP_VENV="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+fi
+
+if [[ -f "$MCP_VENV" ]]; then
+  PYTHON_CMD="$MCP_VENV"
+else
+  PYTHON_CMD="python3"
+fi
+
+# Find Python script
+WATCHER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_vector_filewatcher.py"
+if [[ ! -f "$WATCHER_SCRIPT" ]]; then
+  WATCHER_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_vector_filewatcher.py"
+fi
+
+if [[ ! -f "$WATCHER_SCRIPT" ]]; then
+  echo "Error: Filewatcher script not found at $WATCHER_SCRIPT"
+  exit 1
+fi
+
+# Run the filewatcher
+"$PYTHON_CMD" "$WATCHER_SCRIPT" "$@"

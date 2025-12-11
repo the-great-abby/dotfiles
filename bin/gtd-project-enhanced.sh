@@ -14,7 +14,18 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 PROJECTS_PATH="${PROJECTS_PATH:-${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}}"
 TASKS_PATH="${TASKS_PATH:-${GTD_BASE_DIR}/${GTD_TASKS_DIR:-3-tasks}}"
 GOALS_DIR="${GOALS_DIR:-${GTD_BASE_DIR}/${GTD_GOALS_DIR:-goals}}"

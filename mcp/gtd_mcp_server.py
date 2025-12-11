@@ -32,7 +32,7 @@ try:
         EmbeddedResource,
     )
 except ImportError:
-    print("Error: mcp package not installed. Install with: pip install mcp")
+    print("Error: mcp package not installed. Install with: pip install mcp", file=sys.stderr)
     sys.exit(1)
 
 # Add parent directory to path for imports
@@ -91,7 +91,38 @@ DEEP_MODEL_URL = os.getenv("GTD_DEEP_MODEL_URL", LM_CONFIG.get("url", "http://lo
 DEEP_MODEL_NAME = os.getenv("GTD_DEEP_MODEL_NAME", os.getenv("GTD_DEEP_MODEL", "gpt-oss-20b"))
 
 # RabbitMQ config for background processing
-RABBITMQ_URL = os.getenv("GTD_RABBITMQ_URL", "amqp://localhost:5672")
+def get_rabbitmq_url() -> str:
+    """Get RabbitMQ URL with optional credentials."""
+    url = os.getenv("GTD_RABBITMQ_URL", "amqp://localhost:5672")
+    
+    # If URL already has credentials, use it as-is
+    if "//" in url:
+        url_parts = url.split("//", 1)
+        if len(url_parts) == 2 and "@" in url_parts[1]:
+            return url  # Already has credentials
+    
+    # Otherwise, check for separate username/password
+    username = os.getenv("RABBITMQ_USER") or os.getenv("GTD_RABBITMQ_USER")
+    password = os.getenv("RABBITMQ_PASS") or os.getenv("GTD_RABBITMQ_PASS")
+    
+    if username:
+        # Extract host:port from URL
+        if "//" in url:
+            url_parts = url.split("//", 1)
+            host_part = url_parts[1]
+            protocol = url_parts[0] + "//"
+        else:
+            host_part = url
+            protocol = "amqp://"
+        
+        if password:
+            url = f"{protocol}{username}:{password}@{host_part}"
+        else:
+            url = f"{protocol}{username}@{host_part}"
+    
+    return url
+
+RABBITMQ_URL = get_rabbitmq_url()
 RABBITMQ_QUEUE = os.getenv("GTD_RABBITMQ_QUEUE", "gtd_deep_analysis")
 
 # Initialize MCP server

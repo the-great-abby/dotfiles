@@ -12,10 +12,9 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Additional paths
-TASKS_PATH="${GTD_BASE_DIR}/tasks"
-ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
-
+# Additional paths (TASKS_PATH, ARCHIVE_PATH already set by init_gtd_paths in gtd-common.sh)
+# Only create directories if needed
+ARCHIVE_PATH="${ARCHIVE_PATH:-${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}}"
 mkdir -p "$AREAS_PATH" "$ARCHIVE_PATH"
 
 TODAY=$(gtd_get_today)

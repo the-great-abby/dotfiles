@@ -12,8 +12,7 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Additional paths
-TASKS_PATH="${GTD_BASE_DIR}/tasks"
+# Additional paths (TASKS_PATH already set by init_gtd_paths in gtd-common.sh - DRY - reuse existing helper)
 
 # Use common frontmatter helper (aliased for backward compatibility)
 alias get_frontmatter_value='gtd_get_frontmatter_value'

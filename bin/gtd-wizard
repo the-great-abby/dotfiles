@@ -598,23 +598,19 @@ show_checkin_guide() {
 }
 
 # Get existing notes for a task
+# bash 3.2 compatible - uses global variables with prefix instead of nameref
+# Usage: get_task_notes <task_id> <array_prefix>
+# Creates: ${array_prefix}_notes_files and ${array_prefix}_notes_titles arrays
 get_task_notes() {
   local task_id="$1"
-  local -n notes_array="$2"
-  local -n titles_array="$3"
+  local array_prefix="${2:-task_notes}"
   
-  notes_array=()
-  titles_array=()
+  # Clear arrays using eval (bash 3.2 compatible)
+  eval "${array_prefix}_notes_files=()"
+  eval "${array_prefix}_notes_titles=()"
   
-  # Find task file
-  local task_file=""
-  if [[ -d "$TASKS_PATH" ]]; then
-    task_file=$(find "$TASKS_PATH" -name "${task_id}*.md" 2>/dev/null | head -1)
-  fi
-  
-  if [[ -z "$task_file" ]] && [[ -d "$PROJECTS_PATH" ]]; then
-    task_file=$(find "$PROJECTS_PATH" -name "${task_id}*.md" ! -name "README.md" 2>/dev/null | head -1)
-  fi
+  # Use standardized helper function to find task file (DRY - reuse existing helper)
+  local task_file=$(find_task_file "$task_id")
   
   if [[ -z "$task_file" || ! -f "$task_file" ]]; then
     return 1
@@ -630,6 +626,7 @@ get_task_notes() {
   fi
   
   # Find notes and extract titles
+  # Use eval to append to arrays (bash 3.2 compatible)
   while IFS= read -r note_file; do
     if [[ -f "$note_file" ]]; then
       local note_title=$(grep "^# " "$note_file" 2>/dev/null | head -1 | sed 's/^# //' || echo "")
@@ -637,8 +634,9 @@ get_task_notes() {
         note_title=$(basename "$note_file" .md | sed 's/^[0-9]*-//')
       fi
       if [[ -n "$note_title" ]]; then
-        notes_array+=("$note_file")
-        titles_array+=("$note_title")
+        # Append to arrays using eval (bash 3.2 compatible)
+        eval "${array_prefix}_notes_files+=(\"$note_file\")"
+        eval "${array_prefix}_notes_titles+=(\"$note_title\")"
       fi
     fi
   done < <(find "$notes_dir" -type f -name "*.md" 2>/dev/null | sort)

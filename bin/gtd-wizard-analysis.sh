@@ -62,6 +62,7 @@ status_wizard() {
   echo "  4) Full System Status (All Checks)"
   echo "  5) 🚀 Kubernetes Deployment Status"
   echo "  6) 📋 View Kubernetes Pod Logs (Debug)"
+  echo "  7) 📝 View LM Studio Request Logs (Debug)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -183,259 +184,449 @@ status_wizard() {
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       echo ""
       
-      # Check Kubernetes
-      echo -e "${BOLD}Kubernetes Worker:${NC}"
-      if command -v kubectl &>/dev/null; then
-        if kubectl get deployment gtd-deep-analysis-worker &>/dev/null 2>&1; then
-          replicas=$(kubectl get deployment gtd-deep-analysis-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-          desired=$(kubectl get deployment gtd-deep-analysis-worker -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
-          if [[ "$replicas" -gt 0 && "$replicas" == "$desired" ]]; then
-            echo -e "  ${GREEN}✅ Running ($replicas/$desired)${NC}"
-          else
-            echo -e "  ${YELLOW}⚠️  Not fully ready ($replicas/$desired)${NC}"
-          fi
-        else
-          echo -e "  ${CYAN}ℹ️  Not deployed${NC}"
-        fi
-      else
-        echo -e "  ${CYAN}ℹ️  kubectl not available${NC}"
-      fi
+      # Check local workers
+      echo -e "${BOLD}Local Workers:${NC}"
       echo ""
       
-      # Check local worker
-      echo -e "${BOLD}Local Worker Process:${NC}"
+      # Deep Analysis Worker
+      echo -e "${CYAN}Deep Analysis Worker:${NC}"
       if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
         pid=$(pgrep -f "gtd_deep_analysis_worker.py")
         echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
-        echo ""
-        echo "What would you like to do?"
-        echo "  1) Stop worker"
-        echo "  2) Restart worker"
-        echo "  3) View worker logs"
-        echo "  0) Back"
-        echo ""
-        echo -n "Choose: "
-        read worker_action
-        case "$worker_action" in
-          1)
-            echo ""
-            echo "Stopping worker..."
-            kill "$pid" 2>/dev/null
-            sleep 1
-            if ! pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
-              echo -e "${GREEN}✅ Worker stopped${NC}"
-            else
-              echo -e "${YELLOW}⚠️  Worker still running, trying force kill...${NC}"
-              kill -9 "$pid" 2>/dev/null
-              sleep 1
-              if ! pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
-                echo -e "${GREEN}✅ Worker stopped${NC}"
-              else
-                echo -e "${RED}❌ Could not stop worker${NC}"
-              fi
-            fi
-            echo ""
-            echo "Press Enter to continue..."
-            read
-            ;;
-          2)
-            echo ""
-            echo "Restarting worker..."
-            kill "$pid" 2>/dev/null
-            sleep 2
-            # Start worker (will be done below)
-            worker_action="start"
-            ;;
-          3)
-            echo ""
-            echo -e "${BOLD}Worker Logs (last 50 lines):${NC}"
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            # Try to find log file or show process output
-            echo "Note: If worker was started in a terminal, check that terminal for logs."
-            echo "Worker PID: $pid"
-            echo ""
-            echo "Press Enter to continue..."
-            read
-            ;;
-        esac
+        DEEP_WORKER_RUNNING=true
       else
         echo -e "  ${CYAN}ℹ️  Not running${NC}"
-        echo ""
-        echo "Would you like to start the local worker?"
-        echo "  1) Start worker (background)"
-        echo "  2) Start worker (foreground - see logs)"
-        echo "  0) Back"
-        echo ""
-        echo -n "Choose: "
-        read worker_action
+        DEEP_WORKER_RUNNING=false
       fi
+      echo ""
       
-      # Start worker if requested
-      if [[ "$worker_action" == "1" || "$worker_action" == "start" ]]; then
-        echo ""
-        echo "Starting worker in background..."
-        
-        # Find worker script
-        WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_deep_analysis_worker.py"
-        if [[ ! -f "$WORKER_SCRIPT" ]]; then
-          WORKER_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_deep_analysis_worker.py"
-        fi
-        
-        if [[ ! -f "$WORKER_SCRIPT" ]]; then
-          echo -e "${RED}❌ Worker script not found${NC}"
-          echo "Expected at: $HOME/code/dotfiles/mcp/gtd_deep_analysis_worker.py"
-          echo "or: $HOME/code/personal/dotfiles/mcp/gtd_deep_analysis_worker.py"
-        else
-          # Ensure queue file and directories exist
-          GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-          QUEUE_FILE="${GTD_BASE_DIR}/deep_analysis_queue.jsonl"
-          RESULTS_DIR="${GTD_BASE_DIR}/deep_analysis_results"
-          
-          echo "Setting up worker environment..."
-          mkdir -p "$GTD_BASE_DIR" "$RESULTS_DIR"
-          
-          if [[ ! -f "$QUEUE_FILE" ]]; then
-            touch "$QUEUE_FILE"
-            echo -e "${GREEN}✓${NC} Created job queue file"
-            echo "   Location: ${CYAN}$QUEUE_FILE${NC}"
-            echo "   Purpose: Stores background analysis jobs (weekly reviews, energy analysis, etc.)"
+      # Vectorization Worker
+      echo -e "${CYAN}Vectorization Worker:${NC}"
+      if pgrep -f "gtd_vector_worker.py" >/dev/null; then
+        pid=$(pgrep -f "gtd_vector_worker.py")
+        echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+        VECTOR_WORKER_RUNNING=true
+      else
+        echo -e "  ${CYAN}ℹ️  Not running${NC}"
+        VECTOR_WORKER_RUNNING=false
+      fi
+      echo ""
+      
+      # Show RabbitMQ Queue Status inline
+      echo -e "${BOLD}RabbitMQ Queue Status:${NC}"
+      if nc -zv localhost 5672 &>/dev/null 2>&1; then
+        if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+          # Call status script and show key info
+          QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
+          if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
+            # Extract queue info
+            echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
+            echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
           else
-            queue_count=$(wc -l < "$QUEUE_FILE" 2>/dev/null | tr -d ' ')
-            if [[ "$queue_count" -gt 0 ]]; then
-              echo -e "${CYAN}ℹ️  Queue file exists with $queue_count job(s) waiting${NC}"
-            else
-              echo -e "${GREEN}✓${NC} Queue file ready (empty)"
-            fi
-            echo "   Location: ${CYAN}$QUEUE_FILE${NC}"
+            echo "  ⚠️  Connection issue - check port-forward"
+          fi
+        else
+          echo -e "  ${CYAN}ℹ️  Status script not available${NC}"
+        fi
+      else
+        echo -e "  ${YELLOW}⚠️  Port-forward not active (port 5672 not accessible)${NC}"
+        echo "  Start port-forward: gtd-wizard → 9) Setup RabbitMQ → 2) Start Port-Forward"
+      fi
+      echo ""
+      
+      echo "What would you like to do?"
+      echo "  1) Manage Deep Analysis Worker"
+      echo "  2) Manage Vectorization Worker"
+      echo "  3) Start All Workers"
+      echo "  4) Stop All Workers"
+      echo "  5) View RabbitMQ Queue Status"
+      echo "  6) Restart All Workers (Reconnect to RabbitMQ)"
+      echo "  0) Back"
+      echo ""
+      echo -n "Choose: "
+      read worker_action
+      case "$worker_action" in
+        1)
+          # Manage Deep Analysis Worker
+          manage_worker "gtd_deep_analysis_worker.py" "Deep Analysis"
+          ;;
+        2)
+          # Manage Vectorization Worker
+          manage_worker "gtd_vector_worker.py" "Vectorization"
+          ;;
+        3)
+          # Start all workers
+          echo ""
+          echo "Starting all workers..."
+          make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+          make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        4)
+          # Stop all workers
+          echo ""
+          echo "Stopping all workers..."
+          make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
+          make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        5)
+          # View RabbitMQ Queue Status
+          echo ""
+          if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-rabbitmq-status"
+          else
+            echo -e "${YELLOW}⚠️  RabbitMQ status script not found${NC}"
           fi
           echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        6)
+          # Restart all workers to reconnect to RabbitMQ
+          echo ""
+          echo -e "${CYAN}Restarting workers to connect to RabbitMQ...${NC}"
+          echo ""
           
-          # Find Python executable
-          MCP_PYTHON=$(gtd_get_mcp_python)
-          if [[ -z "$MCP_PYTHON" ]]; then
-            MCP_PYTHON="python3"
+          # Stop workers
+          if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+            echo "Stopping Deep Analysis Worker..."
+            make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
+          fi
+          if pgrep -f "gtd_vector_worker.py" >/dev/null; then
+            echo "Stopping Vectorization Worker..."
+            make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
           fi
           
-          echo "Starting worker process..."
-          # Start worker in background
-          nohup "$MCP_PYTHON" "$WORKER_SCRIPT" file >/dev/null 2>&1 &
           sleep 2
           
-          if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
-            new_pid=$(pgrep -f "gtd_deep_analysis_worker.py")
-            echo -e "${GREEN}✅ Worker started successfully (PID: $new_pid)${NC}"
-            echo ""
-            echo "Worker Status:"
-            echo -e "  📋 Queue file: ${CYAN}$QUEUE_FILE${NC}"
-            echo -e "  📊 Results dir: ${CYAN}$RESULTS_DIR${NC}"
-            echo "  🔄 Worker will process jobs from the queue automatically"
-            echo ""
-            echo "To add jobs: Use MCP tools (weekly_review, analyze_energy, etc.)"
-            echo "To view logs: Check the terminal or run worker in foreground mode"
+          # Start workers
+          echo ""
+          echo "Starting workers..."
+          make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+          make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+          
+          echo ""
+          echo -e "${GREEN}✓ Workers restarted${NC}"
+          echo ""
+          echo "Wait a few seconds, then check connection:"
+          echo "  make rabbitmq-status"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        0)
+          return 0
+          ;;
+      esac
+      ;;
+      
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+}
+
+manage_worker() {
+  local worker_script="$1"
+  local worker_name="$2"
+  local pid
+  local worker_action
+  
+  if pgrep -f "$worker_script" >/dev/null; then
+    pid=$(pgrep -f "$worker_script")
+    echo ""
+    echo -e "${BOLD}${worker_name} Worker${NC}"
+    echo -e "  Status: ${GREEN}✅ Running (PID: $pid)${NC}"
+    echo ""
+    echo "Options:"
+    echo "  1) Stop worker"
+    echo "  2) Restart worker"
+    echo "  3) View worker logs"
+    echo "  0) Back"
+    echo ""
+    echo -n "Choose: "
+    read worker_action
+    
+    case "$worker_action" in
+      1)
+        echo ""
+        echo "Stopping ${worker_name} worker..."
+        kill "$pid" 2>/dev/null
+        sleep 1
+        if ! pgrep -f "$worker_script" >/dev/null; then
+          echo -e "${GREEN}✅ Worker stopped${NC}"
+        else
+          echo -e "${YELLOW}⚠️  Worker still running, trying force kill...${NC}"
+          kill -9 "$pid" 2>/dev/null
+          sleep 1
+          if ! pgrep -f "$worker_script" >/dev/null; then
+            echo -e "${GREEN}✅ Worker stopped${NC}"
           else
-            echo -e "${RED}❌ Failed to start worker${NC}"
-            echo ""
-            echo "Troubleshooting:"
-            echo "  1. Check Python: $MCP_PYTHON --version"
-            echo "  2. Check worker script: $WORKER_SCRIPT"
-            echo "  3. Try starting manually:"
-            echo "     ${CYAN}$MCP_PYTHON $WORKER_SCRIPT file${NC}"
-            echo "  4. Check for errors in the output above"
+            echo -e "${RED}❌ Could not stop worker${NC}"
           fi
         fi
         echo ""
         echo "Press Enter to continue..."
         read
-      elif [[ "$worker_action" == "2" ]]; then
+        ;;
+      2)
         echo ""
-        echo "Starting worker in foreground (you'll see logs)..."
+        echo "Restarting ${worker_name} worker..."
+        kill "$pid" 2>/dev/null
+        sleep 2
+        if ! pgrep -f "$worker_script" >/dev/null; then
+          echo -e "${GREEN}✓ Worker stopped, restarting...${NC}"
+          start_worker "$worker_script" "$worker_name" "background"
+        else
+          echo -e "${YELLOW}⚠️  Worker still running${NC}"
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      3)
+        # View worker logs
+        echo ""
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${worker_name} Worker Logs${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        
+        # Determine log file based on worker type
+        if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
+          LOG_FILE="/tmp/deep-worker.log"
+        elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
+          LOG_FILE="/tmp/vector-worker.log"
+        else
+          LOG_FILE="/tmp/worker.log"
+        fi
+        
+        echo "Worker PID: $pid"
+        echo "Log file: $LOG_FILE"
+        echo ""
+        
+        if [[ -f "$LOG_FILE" ]]; then
+          LOG_SIZE=$(wc -l < "$LOG_FILE" 2>/dev/null || echo "0")
+          if [[ "$LOG_SIZE" -gt 0 ]]; then
+            echo "Showing last 30 lines (${LOG_SIZE} total lines):"
+            echo ""
+            tail -30 "$LOG_FILE"
+            echo ""
+            echo "Options:"
+            echo "  1) View more logs (last 50 lines)"
+            echo "  2) Follow logs (tail -f)"
+            echo "  3) View full log file"
+            echo "  0) Back"
+            echo ""
+            echo -n "Choose: "
+            read log_choice
+            case "$log_choice" in
+              1)
+                echo ""
+                tail -50 "$LOG_FILE"
+                echo ""
+                echo "Press Enter to continue..."
+                read
+                ;;
+              2)
+                echo ""
+                echo "Following logs (Ctrl+C to stop)..."
+                tail -f "$LOG_FILE"
+                ;;
+              3)
+                echo ""
+                cat "$LOG_FILE"
+                echo ""
+                echo "Press Enter to continue..."
+                read
+                ;;
+            esac
+          else
+            echo -e "${YELLOW}⚠️  Log file is empty${NC}"
+            echo "The worker may have just started or logs are being written elsewhere."
+            echo ""
+            echo "Press Enter to continue..."
+            read
+          fi
+        else
+          echo -e "${YELLOW}⚠️  Log file not found: $LOG_FILE${NC}"
+          echo "The worker may have been started in a different terminal or log location."
+          echo ""
+          echo "Press Enter to continue..."
+          read
+        fi
+        ;;
+      0)
+        return 0
+        ;;
+    esac
+  else
+    echo ""
+    echo -e "${BOLD}${worker_name} Worker${NC}"
+    echo -e "  Status: ${CYAN}ℹ️  Not running${NC}"
+    echo ""
+    echo "Would you like to start the ${worker_name} worker?"
+    echo "  1) Start worker (background)"
+    echo "  2) Start worker (foreground - see logs)"
+    echo "  0) Back"
+    echo ""
+    echo -n "Choose: "
+    read worker_action
+    
+    # Start worker if requested
+    if [[ "$worker_action" == "1" || "$worker_action" == "start" ]]; then
+      start_worker "$worker_script" "$worker_name" "background"
+    elif [[ "$worker_action" == "2" ]]; then
+      start_worker "$worker_script" "$worker_name" "foreground"
+    fi
+  fi
+}
+
+start_worker() {
+  local worker_script="$1"
+  local worker_name="$2"
+  local mode="${3:-background}"  # background or foreground
+  
+  # Map script name to actual file
+  if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
+    WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_deep_analysis_worker.py"
+    WORKER_CMD="gtd-deep-analysis-worker"
+    QUEUE_FILE="$HOME/Documents/gtd/deep_analysis_queue.jsonl"
+    RESULTS_DIR="$HOME/Documents/gtd/deep_analysis_results"
+  elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
+    WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_vector_worker.py"
+    WORKER_CMD="gtd-vector-worker"
+    QUEUE_FILE="$HOME/Documents/gtd/vectorization_queue.jsonl"
+    RESULTS_DIR=""  # Vector worker doesn't have results dir
+  else
+    echo -e "${RED}❌ Unknown worker script: $worker_script${NC}"
+    return 1
+  fi
+  
+  if [[ ! -f "$WORKER_SCRIPT" ]]; then
+    if [[ ! -f "$HOME/code/personal/dotfiles/mcp/$worker_script" ]]; then
+      echo -e "${RED}❌ Worker script not found${NC}"
+      echo "Expected at: $WORKER_SCRIPT"
+      echo "or: $HOME/code/personal/dotfiles/mcp/$worker_script"
+      return 1
+    else
+      WORKER_SCRIPT="$HOME/code/personal/dotfiles/mcp/$worker_script"
+    fi
+  fi
+  
+  if [[ "$mode" == "background" ]]; then
+    echo ""
+    echo "Starting ${worker_name} worker in background..."
+    
+    if [[ -n "$QUEUE_FILE" ]]; then
+      mkdir -p "$(dirname "$QUEUE_FILE")"
+      if [[ ! -f "$QUEUE_FILE" ]]; then
+        touch "$QUEUE_FILE"
+        echo -e "${GREEN}✓${NC} Created queue file: ${CYAN}$QUEUE_FILE${NC}"
+      fi
+    fi
+    
+    if [[ -n "$RESULTS_DIR" ]]; then
+      mkdir -p "$RESULTS_DIR"
+    fi
+    
+    # Use worker command if available, otherwise use Python directly
+    if command -v "$WORKER_CMD" &>/dev/null; then
+      nohup "$WORKER_CMD" >/tmp/${worker_script%.py}.log 2>&1 &
+    else
+      MCP_PYTHON=$(gtd_get_mcp_python)
+      if [[ -z "$MCP_PYTHON" ]]; then
+        MCP_PYTHON="python3"
+      fi
+      nohup "$MCP_PYTHON" "$WORKER_SCRIPT" >/tmp/${worker_script%.py}.log 2>&1 &
+    fi
+    
+    sleep 2
+    
+    if pgrep -f "$worker_script" >/dev/null; then
+      new_pid=$(pgrep -f "$worker_script")
+      echo -e "${GREEN}✅ Worker started successfully (PID: $new_pid)${NC}"
+      echo ""
+      echo "Worker Status:"
+      if [[ -n "$QUEUE_FILE" ]]; then
+        echo -e "  📋 Queue file: ${CYAN}$QUEUE_FILE${NC}"
+      fi
+      if [[ -n "$RESULTS_DIR" ]]; then
+        echo -e "  📊 Results dir: ${CYAN}$RESULTS_DIR${NC}"
+      fi
+      echo -e "  📝 Logs: ${CYAN}/tmp/${worker_script%.py}.log${NC}"
+      echo "  🔄 Worker will process jobs from the queue automatically"
+    else
+      echo -e "${RED}❌ Failed to start worker${NC}"
+      echo ""
+      echo "Troubleshooting:"
+      echo "  1. Check log file: /tmp/${worker_script%.py}.log"
+      echo "  2. Try starting manually: ${CYAN}$WORKER_CMD${NC}"
+    fi
+  else
+        echo ""
+        echo "Starting ${worker_name} worker in foreground (you'll see logs)..."
         echo "Press Ctrl+C to stop"
         echo ""
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
         
-        # Find worker script
-        WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_deep_analysis_worker.py"
-        if [[ ! -f "$WORKER_SCRIPT" ]]; then
-          WORKER_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_deep_analysis_worker.py"
-        fi
-        
-        if [[ ! -f "$WORKER_SCRIPT" ]]; then
-          echo -e "${RED}❌ Worker script not found${NC}"
-        else
-          # Ensure queue file and directories exist
-          GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-          QUEUE_FILE="${GTD_BASE_DIR}/deep_analysis_queue.jsonl"
-          RESULTS_DIR="${GTD_BASE_DIR}/deep_analysis_results"
-          
-          echo "Setting up worker environment..."
-          mkdir -p "$GTD_BASE_DIR" "$RESULTS_DIR"
-          
+        if [[ -n "$QUEUE_FILE" ]]; then
+          mkdir -p "$(dirname "$QUEUE_FILE")"
           if [[ ! -f "$QUEUE_FILE" ]]; then
             touch "$QUEUE_FILE"
-            echo -e "${GREEN}✓${NC} Created job queue file"
-            echo "   Location: ${CYAN}$QUEUE_FILE${NC}"
-            echo "   Purpose: Stores background analysis jobs (weekly reviews, energy analysis, etc.)"
-            echo ""
-          else
-            queue_count=$(wc -l < "$QUEUE_FILE" 2>/dev/null | tr -d ' ')
-            if [[ "$queue_count" -gt 0 ]]; then
-              echo -e "${CYAN}ℹ️  Queue file exists with $queue_count job(s) waiting${NC}"
-            else
-              echo -e "${GREEN}✓${NC} Queue file ready (empty)"
-            fi
-            echo "   Location: ${CYAN}$QUEUE_FILE${NC}"
-            echo ""
+            echo -e "${GREEN}✓${NC} Created queue file"
           fi
-          
-          # Find Python executable
-          MCP_PYTHON=$(gtd_get_mcp_python)
-          if [[ -z "$MCP_PYTHON" ]]; then
-            MCP_PYTHON="python3"
-          fi
-          
-          echo "Starting worker (foreground mode - you'll see live logs)..."
-          echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-          echo ""
-          
-          # Start worker in foreground
-          "$MCP_PYTHON" "$WORKER_SCRIPT" file
         fi
-      fi
-      echo ""
-      
-      # Check queue
-      echo -e "${BOLD}Queue Status:${NC}"
-      QUEUE_FILE="${HOME}/Documents/gtd/deep_analysis_queue.jsonl"
-      if [[ -f "$QUEUE_FILE" ]]; then
-        queue_count=$(wc -l < "$QUEUE_FILE" 2>/dev/null || echo "0")
-        if [[ "$queue_count" -gt 0 ]]; then
-          echo -e "  ${YELLOW}⚠️  $queue_count item(s) in queue${NC}"
-        else
-          echo -e "  ${GREEN}✅ Queue empty${NC}"
+        
+        if [[ -n "$RESULTS_DIR" ]]; then
+          mkdir -p "$RESULTS_DIR"
         fi
-      else
-        echo -e "  ${CYAN}ℹ️  No queue file${NC}"
-      fi
-      echo ""
-      
-      # Check results
-      echo -e "${BOLD}Analysis Results:${NC}"
-      RESULTS_DIR="${HOME}/Documents/gtd/deep_analysis_results"
-      if [[ -d "$RESULTS_DIR" ]]; then
-        result_count=$(find "$RESULTS_DIR" -name "*.json" 2>/dev/null | wc -l | tr -d ' ')
-        if [[ "$result_count" -gt 0 ]]; then
-          echo -e "  ${GREEN}✅ $result_count result(s)${NC}"
-          latest=$(ls -t "$RESULTS_DIR"/*.json 2>/dev/null | head -1)
-          if [[ -n "$latest" ]]; then
-            echo "  Latest: $(basename "$latest")"
-          fi
-        else
-          echo -e "  ${CYAN}ℹ️  No results yet${NC}"
+        
+        # Find Python executable
+        MCP_PYTHON=$(gtd_get_mcp_python)
+        if [[ -z "$MCP_PYTHON" ]]; then
+          MCP_PYTHON="python3"
         fi
-      else
-        echo -e "  ${CYAN}ℹ️  No results directory${NC}"
-      fi
+        
+        # Run in foreground
+        "$MCP_PYTHON" "$WORKER_SCRIPT"
+  fi
+}
+
+status_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📊 System Status & Health Checks${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "  1) Quick Status Overview"
+  echo "  2) Detailed Component Status"
+  echo "  3) Background Worker Status"
+  echo "  4) Full System Status"
+  echo "  5) Kubernetes Deployment Status"
+  echo "  6) Kubernetes Pod Logs (Debug)"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back to Main Menu"
+  echo ""
+  echo -n "Choose: "
+  read status_choice
+  
+  case "$status_choice" in
+    1)
+      # Quick status - already handled above
+      ;;
+    2)
+      # Detailed component status
+      ;;
+    3)
+      # Background worker status - handled in main wizard
       ;;
     4)
       clear
@@ -646,6 +837,57 @@ status_wizard() {
       
       echo ""
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    7)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📝 LM Studio Request Logs (Debug)${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Check if gtd-check-lm-logs exists
+      if command -v gtd-check-lm-logs &>/dev/null; then
+        gtd-check-lm-logs 100
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-check-lm-logs" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-check-lm-logs" 100
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-check-lm-logs" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-check-lm-logs" 100
+      else
+        # Fallback: show logs directly
+        LOG_FILE="$HOME/.gtd_logs/tool_calls.log"
+        if [[ ! -f "$LOG_FILE" ]]; then
+          echo -e "${YELLOW}⚠️  Log file doesn't exist yet: $LOG_FILE${NC}"
+          echo "   It will be created on first LM Studio request."
+        else
+          echo "Log file: $LOG_FILE"
+          echo ""
+          echo "Last 100 lines (filtered for key events):"
+          echo ""
+          tail -100 "$LOG_FILE" | grep -E "(Sending request|API Response|ERROR|timed out|elapsed)" | tail -30
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "💡 Tips:"
+          echo "   - Look for 'Sending request' to see when requests start"
+          echo "   - Look for 'API Response received' to see when they complete"
+          echo "   - Look for 'ERROR' or 'timed out' to see failures"
+          echo "   - Check 'elapsed' time to see how long requests took"
+          echo ""
+          echo "To see full recent logs:"
+          echo "   tail -100 $LOG_FILE"
+          echo ""
+          echo "To watch logs in real-time:"
+          echo "   tail -f $LOG_FILE"
+        fi
+      fi
+      
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
     *)
       # Default to basic status if invalid choice

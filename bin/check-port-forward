@@ -1,0 +1,30 @@
+#!/bin/bash
+# Quick check if RabbitMQ port-forward is working
+
+PORT=5672
+
+if nc -zv localhost $PORT &>/dev/null 2>&1; then
+    echo "✅ Port $PORT is accessible"
+    
+    # Check if kubectl port-forward process exists
+    if ps aux | grep -E "kubectl port-forward.*$PORT" | grep -v grep >/dev/null; then
+        echo "✅ Port-forward process is running"
+        exit 0
+    else
+        echo "⚠️  Port is accessible but no kubectl port-forward process found"
+        exit 1
+    fi
+else
+    echo "❌ Port $PORT is NOT accessible"
+    
+    # Check if process exists but not working
+    if ps aux | grep -E "kubectl port-forward.*$PORT" | grep -v grep >/dev/null; then
+        echo "⚠️  Port-forward process exists but port not accessible"
+        echo "   The port-forward may have disconnected"
+        echo "   Restart it: ./bin/setup_rabbitmq_local.sh"
+    else
+        echo "⚠️  No port-forward process found"
+        echo "   Start it: ./bin/setup_rabbitmq_local.sh"
+    fi
+    exit 1
+fi

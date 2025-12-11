@@ -5,6 +5,7 @@ Integrates with existing web search functionality to improve search quality.
 """
 
 import json
+import sys
 import urllib.request
 import urllib.error
 from typing import List, Dict, Any, Optional
@@ -191,7 +192,7 @@ Queries:"""
             return cleaned_queries[:3]  # Max 3 queries
         except Exception as e:
             # If LLM call fails, return original phrase
-            print(f"Warning: Query generation failed: {e}", file=__import__('sys').stderr)
+            print(f"Warning: Query generation failed: {e}", file=sys.stderr)
             return [user_phrase]
     
     def synthesize_results(self, user_phrase: str, search_results: str, 
@@ -249,7 +250,7 @@ Response:"""
             return response.strip()
         except Exception as e:
             # If synthesis fails, return the raw search results
-            print(f"Warning: Result synthesis failed: {e}", file=__import__('sys').stderr)
+            print(f"Warning: Result synthesis failed: {e}", file=sys.stderr)
             return search_results
     
     def get_user_context(self) -> Dict[str, Any]:

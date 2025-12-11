@@ -2,6 +2,7 @@ GLIBC_VER=2.31-r0
 
 # GTD System Commands
 .PHONY: gtd-wizard gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status gtd-diagram
+.PHONY: worker-deep-start worker-deep-stop worker-vector-start worker-vector-stop worker-status worker-deep-status worker-vector-status rabbitmq-status filewatcher-start filewatcher-stop filewatcher-status scheduler-start scheduler-stop scheduler-status scheduler-run
 
 # GTD Interactive Wizard
 gtd-wizard:
@@ -691,5 +692,193 @@ rb_notion_run:
 	# https://stackoverflow.com/questions/1789594/how-do-i-write-the-cd-command-in-a-makefile
 	cd ~/code/research/notion/; \
 		make -f Makefile.dotfile run
+
+# Background Workers
+worker-deep-start:
+	@echo "Starting Deep Analysis Worker..."
+	@if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then \
+		echo "⚠️  Worker already running (PID: $$(pgrep -f 'gtd_deep_analysis_worker.py'))"; \
+	else \
+		nohup $(HOME)/code/dotfiles/bin/gtd-deep-analysis-worker >/tmp/deep-worker.log 2>&1 & \
+		echo "✅ Worker started in background"; \
+		echo "   Logs: /tmp/deep-worker.log"; \
+		echo "   Check status: make worker-status"; \
+	fi
+
+worker-deep-stop:
+	@echo "Stopping Deep Analysis Worker..."
+	@if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then \
+		pkill -f "gtd_deep_analysis_worker.py"; \
+		sleep 1; \
+		if ! pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then \
+			echo "✅ Worker stopped"; \
+		else \
+			pkill -9 -f "gtd_deep_analysis_worker.py"; \
+			echo "✅ Worker force stopped"; \
+		fi; \
+	else \
+		echo "ℹ️  Worker not running"; \
+	fi
+
+worker-vector-start:
+	@echo "Starting Vectorization Worker..."
+	@if pgrep -f "gtd_vector_worker.py" >/dev/null; then \
+		echo "⚠️  Worker already running (PID: $$(pgrep -f 'gtd_vector_worker.py'))"; \
+	else \
+		nohup $(HOME)/code/dotfiles/bin/gtd-vector-worker >/tmp/vector-worker.log 2>&1 & \
+		echo "✅ Worker started in background"; \
+		echo "   Logs: /tmp/vector-worker.log"; \
+		echo "   Check status: make worker-status"; \
+	fi
+
+worker-vector-stop:
+	@echo "Stopping Vectorization Worker..."
+	@if pgrep -f "gtd_vector_worker.py" >/dev/null; then \
+		pkill -f "gtd_vector_worker.py"; \
+		sleep 1; \
+		if ! pgrep -f "gtd_vector_worker.py" >/dev/null; then \
+			echo "✅ Worker stopped"; \
+		else \
+			pkill -9 -f "gtd_vector_worker.py"; \
+			echo "✅ Worker force stopped"; \
+		fi; \
+	else \
+		echo "ℹ️  Worker not running"; \
+	fi
+
+worker-status:
+	@echo "📊 Background Worker Status"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "Deep Analysis Worker:"
+	@if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_deep_analysis_worker.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Start: make worker-deep-start"; \
+		echo "  Stop:  make worker-deep-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make worker-deep-start"; \
+	fi
+	@echo ""
+	@echo "Vectorization Worker:"
+	@if pgrep -f "gtd_vector_worker.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_vector_worker.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Start: make worker-vector-start"; \
+		echo "  Stop:  make worker-vector-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make worker-vector-start"; \
+	fi
+	@echo ""
+	@echo ""
+	@echo "Vector Filewatcher:"
+	@if pgrep -f "gtd_vector_filewatcher.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_vector_filewatcher.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Stop:  make filewatcher-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make filewatcher-start"; \
+	fi
+	@echo ""
+	@echo "For detailed status: gtd-worker-status"
+	@echo "RabbitMQ queue status: make rabbitmq-status"
+	@echo "Via wizard: gtd-wizard → Status & Health Checks → Background Worker Status"
+
+filewatcher-start:
+	@echo "Starting Vector Filewatcher..."
+	@if pgrep -f "gtd_vector_filewatcher.py" >/dev/null; then \
+		echo "⚠️  Filewatcher already running (PID: $$(pgrep -f 'gtd_vector_filewatcher.py'))"; \
+	else \
+		nohup $(HOME)/code/dotfiles/bin/gtd-vector-filewatcher >/tmp/vector-filewatcher.log 2>&1 & \
+		echo "✅ Filewatcher started in background"; \
+		echo "   Logs: /tmp/vector-filewatcher.log"; \
+		echo "   Monitors directories and queues files for vectorization"; \
+	fi
+
+filewatcher-stop:
+	@echo "Stopping Vector Filewatcher..."
+	@if pgrep -f "gtd_vector_filewatcher.py" >/dev/null; then \
+		pkill -f "gtd_vector_filewatcher.py"; \
+		sleep 1; \
+		if ! pgrep -f "gtd_vector_filewatcher.py" >/dev/null; then \
+			echo "✅ Filewatcher stopped"; \
+		else \
+			pkill -9 -f "gtd_vector_filewatcher.py"; \
+			echo "✅ Filewatcher force stopped"; \
+		fi; \
+	else \
+		echo "ℹ️  Filewatcher not running"; \
+	fi
+
+filewatcher-status:
+	@echo "📁 Vector Filewatcher Status"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+
+scheduler-start:
+	@echo "Starting Deep Analysis Scheduler Daemon..."
+	@$(HOME)/code/dotfiles/bin/gtd-deep-analysis-scheduler-daemon start
+
+scheduler-stop:
+	@echo "Stopping Deep Analysis Scheduler Daemon..."
+	@$(HOME)/code/dotfiles/bin/gtd-deep-analysis-scheduler-daemon stop
+
+scheduler-status:
+	@$(HOME)/code/dotfiles/bin/gtd-deep-analysis-scheduler-daemon status
+
+scheduler-run:
+	@echo "Running deep analysis scheduler (one-time check)..."
+	@$(HOME)/code/dotfiles/bin/gtd-deep-analysis-scheduler
+
+	@if pgrep -f "gtd_vector_filewatcher.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_vector_filewatcher.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Logs: tail -f /tmp/vector-filewatcher.log"; \
+		echo "  Stop:  make filewatcher-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make filewatcher-start"; \
+		echo "  Setup: See FILEWATCHER_SETUP.md"; \
+	fi
+	@echo ""
+
+# Convenience targets (aliases for worker-status)
+worker-deep-status:
+	@echo "📊 Deep Analysis Worker Status"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_deep_analysis_worker.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Logs: tail -f /tmp/deep-worker.log"; \
+		echo "  Stop:  make worker-deep-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make worker-deep-start"; \
+	fi
+	@echo ""
+	@echo "For full worker status: make worker-status"
+
+worker-vector-status:
+	@echo "📊 Vectorization Worker Status"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@if pgrep -f "gtd_vector_worker.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_vector_worker.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Logs: tail -f /tmp/vector-worker.log"; \
+		echo "  Stop:  make worker-vector-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make worker-vector-start"; \
+	fi
+	@echo ""
+	@echo "For full worker status: make worker-status"
+
+rabbitmq-status:
+	@$(HOME)/code/dotfiles/bin/gtd-rabbitmq-status
 
 

@@ -81,7 +81,38 @@ if os.getenv("GTD_DEBUG"):
     print(f"DEBUG: GTD_CONFIG keys: {list(GTD_CONFIG.keys())}", file=sys.stderr)
     print(f"DEBUG: deep_model_timeout from config: {GTD_CONFIG.get('deep_model_timeout')}", file=sys.stderr)
     print(f"DEBUG: DEEP_MODEL_TIMEOUT from env: {os.getenv('DEEP_MODEL_TIMEOUT')}", file=sys.stderr)
-RABBITMQ_URL = os.getenv("GTD_RABBITMQ_URL", "amqp://localhost:5672")
+def get_rabbitmq_url() -> str:
+    """Get RabbitMQ URL with optional credentials."""
+    url = os.getenv("GTD_RABBITMQ_URL", "amqp://localhost:5672")
+    
+    # If URL already has credentials, use it as-is
+    if "//" in url:
+        url_parts = url.split("//", 1)
+        if len(url_parts) == 2 and "@" in url_parts[1]:
+            return url  # Already has credentials
+    
+    # Otherwise, check for separate username/password
+    username = os.getenv("RABBITMQ_USER") or os.getenv("GTD_RABBITMQ_USER")
+    password = os.getenv("RABBITMQ_PASS") or os.getenv("GTD_RABBITMQ_PASS")
+    
+    if username:
+        # Extract host:port from URL
+        if "//" in url:
+            url_parts = url.split("//", 1)
+            host_part = url_parts[1]
+            protocol = url_parts[0] + "//"
+        else:
+            host_part = url
+            protocol = "amqp://"
+        
+        if password:
+            url = f"{protocol}{username}:{password}@{host_part}"
+        else:
+            url = f"{protocol}{username}@{host_part}"
+    
+    return url
+
+RABBITMQ_URL = get_rabbitmq_url()
 RABBITMQ_QUEUE = os.getenv("GTD_RABBITMQ_QUEUE", "gtd_deep_analysis")
 RESULT_DIR = Path.home() / "Documents" / "gtd" / "deep_analysis_results"
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -676,6 +707,123 @@ def send_discord_notification_for_result(analysis_type: str, result: Dict[str, A
         return False
 
 
+def send_local_notification_for_result(analysis_type: str, result: Dict[str, Any], result_file: Path) -> bool:
+    """Send a local macOS/terminal notification when deep analysis results are saved."""
+    try:
+        import subprocess
+        import os
+        
+        # Check if notifications are enabled
+        notifications_enabled = os.getenv("GTD_NOTIFICATIONS", "true").lower() == "true"
+        if not notifications_enabled:
+            return False
+        
+        # Map analysis types to friendly names
+        type_names = {
+            "weekly_review": "Weekly Review",
+            "analyze_energy": "Energy Analysis",
+            "find_connections": "Connection Analysis",
+            "generate_insights": "Insights"
+        }
+        
+        friendly_name = type_names.get(analysis_type, analysis_type.replace("_", " ").title())
+        
+        # Build notification message
+        if "error" in result:
+            title = f"❌ {friendly_name} Failed"
+            message = f"Error: {result.get('error', 'Unknown error')}"
+        else:
+            title = f"✅ {friendly_name} Complete"
+            
+            # Get a preview of the result
+            preview = ""
+            if "analysis" in result:
+                preview = str(result["analysis"])
+            elif "insights" in result:
+                preview = str(result["insights"])
+            elif "connections" in result:
+                preview = str(result["connections"])
+            
+            if preview:
+                # Truncate preview for notification
+                if len(preview) > 100:
+                    preview = preview[:97] + "..."
+                message = preview
+            else:
+                message = f"Analysis complete. View results for details."
+        
+        # Try to use gtd-notify if available
+        notify_cmd = os.path.expanduser("~/code/dotfiles/bin/gtd-notify")
+        if not os.path.exists(notify_cmd):
+            notify_cmd = os.path.expanduser("~/code/personal/dotfiles/bin/gtd-notify")
+        
+        if os.path.exists(notify_cmd):
+            # Use gtd-notify command
+            subprocess.run([
+                notify_cmd,
+                title,
+                message,
+                "View results",
+                "Glass"
+            ], timeout=5, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        else:
+            # Fallback to osascript on macOS
+            if sys.platform == "darwin":
+                applescript = f'''
+                display notification "{message}" with title "{title}" sound name "Glass"
+                '''
+                subprocess.run(
+                    ["osascript", "-e", applescript],
+                    timeout=5,
+                    stderr=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL
+                )
+        
+        return True
+    except Exception as e:
+        # Silently fail - don't break result saving if notification fails
+        print(f"Local notification failed (non-critical): {e}")
+        return False
+
+
+def auto_scan_and_create_suggestions(result_file: Path, analysis_type: str):
+    """Automatically scan a result file and create suggestions from it."""
+    try:
+        # Import here to avoid circular dependencies
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        
+        from gtd_mcp_server import scan_analysis_results_for_suggestions
+        
+        # Read the result file
+        with open(result_file) as f:
+            result_data = json.load(f)
+        
+        # Check if this result type should be scanned
+        auto_scan_types = os.getenv("DEEP_ANALYSIS_AUTO_SCAN_TYPES", "connections,insights").split(",")
+        if analysis_type not in [t.strip() for t in auto_scan_types]:
+            return
+        
+        # Scan just this one file's results
+        # We'll use a temporary approach: scan results from the last hour
+        cutoff = datetime.now() - timedelta(hours=1)
+        if result_file.stat().st_mtime >= cutoff.timestamp():
+            # Extract suggestions from this specific result
+            analysis_content = result_data.get("analysis") or result_data.get("insights", "")
+            if analysis_content and "error" not in result_data:
+                from gtd_mcp_server import extract_suggestions_from_analysis, save_suggestion
+                
+                suggestions = extract_suggestions_from_analysis(analysis_type, analysis_content, result_file)
+                for suggestion_data in suggestions:
+                    save_suggestion(suggestion_data)
+                
+                if suggestions:
+                    print(f"✅ Created {len(suggestions)} suggestion(s) from {analysis_type}")
+    except Exception as e:
+        # Silently fail - don't break result saving if auto-scan fails
+        print(f"Auto-scan failed (non-critical): {e}")
+
+
 def process_analysis_request(message: Dict[str, Any]) -> Dict[str, Any]:
     """Process a single analysis request."""
     analysis_type = message.get("type")
@@ -703,6 +851,17 @@ def process_analysis_request(message: Dict[str, Any]) -> Dict[str, Any]:
         
         # Send Discord notification
         send_discord_notification_for_result(analysis_type, result, result_file)
+        
+        # Send macOS/local notification
+        send_local_notification_for_result(analysis_type, result, result_file)
+        
+        # Optionally auto-scan and create suggestions
+        auto_scan_enabled = os.getenv("DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS", "false").lower() == "true"
+        if auto_scan_enabled:
+            try:
+                auto_scan_and_create_suggestions(result_file, analysis_type)
+            except Exception as e:
+                print(f"Auto-scan failed (non-critical): {e}")
         
         return result
     
@@ -751,7 +910,9 @@ def process_rabbitmq_queue():
 
 
 def process_file_queue():
-    """Process messages from file-based queue (fallback)."""
+    """Process messages from file-based queue (fallback). Runs continuously, checking for new messages."""
+    import time
+    
     # Ensure queue file exists (create if it doesn't)
     QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not QUEUE_FILE.exists():
@@ -761,30 +922,53 @@ def process_file_queue():
     else:
         print(f"✓ Queue file ready: {QUEUE_FILE}")
     
-    processed = []
-    with open(QUEUE_FILE, 'r') as f:
-        for line in f:
-            if line.strip():
-                try:
-                    message = json.loads(line)
-                    print(f"Processing: {message.get('type')} at {datetime.now()}")
-                    result = process_analysis_request(message)
-                    print(f"Completed: {message.get('type')}")
-                    processed.append(line)
-                except Exception as e:
-                    print(f"Error processing message: {e}")
+    print(f"Waiting for messages. To exit press CTRL+C")
+    print("")
     
-    # Remove processed messages
-    if processed:
-        with open(QUEUE_FILE, 'r') as f:
-            lines = f.readlines()
-        
-        remaining = [l for l in lines if l not in processed]
-        
-        with open(QUEUE_FILE, 'w') as f:
-            f.writelines(remaining)
-        
-        print(f"Processed {len(processed)} messages")
+    # Keep processing in a loop
+    while True:
+        try:
+            processed = []
+            
+            # Read and process messages
+            if QUEUE_FILE.exists() and os.path.getsize(QUEUE_FILE) > 0:
+                with open(QUEUE_FILE, 'r') as f:
+                    lines = f.readlines()
+                
+                for line in lines:
+                    if line.strip():
+                        try:
+                            message = json.loads(line)
+                            print(f"Processing: {message.get('type')} at {datetime.now()}")
+                            result = process_analysis_request(message)
+                            print(f"Completed: {message.get('type')}")
+                            processed.append(line)
+                        except json.JSONDecodeError as e:
+                            print(f"Error decoding message: {e}")
+                            processed.append(line)  # Remove invalid messages
+                        except Exception as e:
+                            print(f"Error processing message: {e}")
+                            # Don't remove failed messages - keep for retry
+                
+                # Remove processed messages
+                if processed:
+                    remaining = [l for l in lines if l not in processed]
+                    
+                    with open(QUEUE_FILE, 'w') as f:
+                        f.writelines(remaining)
+                    
+                    print(f"Processed {len(processed)} message(s)")
+                    print("")
+            
+            # Wait before checking again
+            time.sleep(5)  # Check every 5 seconds
+            
+        except KeyboardInterrupt:
+            print("\nStopping worker...")
+            break
+        except Exception as e:
+            print(f"Error in file queue processing: {e}")
+            time.sleep(10)  # Wait longer on error before retrying
 
 
 if __name__ == "__main__":

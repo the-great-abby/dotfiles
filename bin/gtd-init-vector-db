@@ -1,0 +1,60 @@
+#!/bin/bash
+# GTD Vector Database Initialization Script
+# Initializes PostgreSQL database schema for vector storage
+
+set -e
+
+# Source common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/gtd-common.sh" 2>/dev/null || true
+
+# Find config directory
+GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+  GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+fi
+
+# Load database config
+if [[ -f "$GTD_CONFIG_DIR/.gtd_config_database" ]]; then
+  source "$GTD_CONFIG_DIR/.gtd_config_database"
+elif [[ -f "$HOME/.gtd_config_database" ]]; then
+  source "$HOME/.gtd_config_database"
+fi
+
+# Default values
+VECTOR_DB_HOST="${VECTOR_DB_HOST:-localhost}"
+VECTOR_DB_PORT="${VECTOR_DB_PORT:-13003}"
+VECTOR_DB_NAME="${VECTOR_DB_NAME:-vector}"
+VECTOR_DB_USER="${VECTOR_DB_USER:-postgres}"
+VECTOR_DB_PASSWORD="${VECTOR_DB_PASSWORD:-}"
+
+echo "Initializing vector database..."
+echo "  Host: $VECTOR_DB_HOST"
+echo "  Port: $VECTOR_DB_PORT"
+echo "  Database: $VECTOR_DB_NAME"
+echo "  User: $VECTOR_DB_USER"
+echo ""
+
+# Run Python initialization script
+PYTHON_SCRIPT="$HOME/code/dotfiles/zsh/functions/gtd_vectorization.py"
+if [[ ! -f "$PYTHON_SCRIPT" ]]; then
+  PYTHON_SCRIPT="$HOME/code/personal/dotfiles/zsh/functions/gtd_vectorization.py"
+fi
+
+if [[ ! -f "$PYTHON_SCRIPT" ]]; then
+  echo "Error: gtd_vectorization.py not found" >&2
+  exit 1
+fi
+
+# Initialize schema using Python script
+python3 "$PYTHON_SCRIPT" init-schema
+
+if [[ $? -eq 0 ]]; then
+  echo ""
+  echo "✓ Vector database schema initialized successfully"
+else
+  echo ""
+  echo "✗ Failed to initialize schema" >&2
+  exit 1
+fi
+

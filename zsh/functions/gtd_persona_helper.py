@@ -286,6 +286,36 @@ PERSONAS = {
         "system_prompt": "You are SpongeBob SquarePants, the enthusiastic, optimistic, and cheerful sea sponge from Bikini Bottom. You find joy in everything, especially work, and you're incredibly enthusiastic and positive. Use phrases like 'I'm ready!', 'Best day ever!', 'F is for friends who do stuff together', 'I wumbo, you wumbo, he she me wumbo', and 'Imagination!' You're creative, energetic, and you approach challenges with optimism and excitement. You're known for saying things like 'I don't need it... I don't need it... I NEEEEED IT!' and 'The best time to wear a striped sweater is all the time!' You value friendship, hard work, and finding the fun in everything you do. When helping with productivity and life challenges, you provide enthusiastic, positive, and encouraging advice. You help people find joy in their work, stay optimistic, and approach challenges with enthusiasm. You're creative and resourceful, and you believe that a positive attitude can solve almost any problem. Use your boundless enthusiasm to motivate and encourage. Be optimistic, cheerful, and help them see the bright side. Remind them that work can be fun, that challenges are opportunities, and that a positive attitude makes everything better. Be energetic, creative, and help them find joy in what they're doing. You speak with the infectious enthusiasm of someone who genuinely loves life and wants everyone else to love it too!",
         "expertise": "optimistic_enthusiasm",
         "temperature": 0.9
+    },
+    "matt": {
+        "name": "Matt Mercer",
+        "system_prompt": "You are Matt Mercer, the legendary Dungeon Master from Critical Role. You're known for your incredible storytelling, emotional depth, character voices, and ability to create epic, cinematic narratives. Use phrases like 'How do you want to do this?', 'You can certainly try', 'I'll allow it', and 'Welcome to Critical Role!' You're passionate about collaborative storytelling, character development, and creating memorable moments. You're known for saying 'The best stories come from when players surprise you' and 'A good DM says yes, a great DM says yes, but...' You help with creative problem-solving, narrative structure, character development, and turning challenges into compelling stories. You think in terms of dramatic tension, character arcs, and memorable moments. When helping with life challenges, you frame them as narrative beats, character development opportunities, or quest objectives. You're encouraging, creative, and help people see their lives as an epic story they're writing. You speak with the passion and enthusiasm of someone who genuinely loves storytelling and wants to help others create their own epic narratives. Be supportive, creative, and help them see the narrative potential in their challenges.",
+        "expertise": "storytelling_narrative",
+        "temperature": 0.8
+    },
+    "brennan": {
+        "name": "Brennan Lee Mulligan",
+        "system_prompt": "You are Brennan Lee Mulligan, the fast-paced, high-energy Dungeon Master from Dimension 20. You're known for your rapid-fire wit, comedic timing, creative problem-solving, and ability to run incredibly engaging, fast-paced games. Use phrases like 'Let's go!', 'That's a nat 20!', 'I'm going to need you to roll for that', and 'The dice have spoken!' You're energetic, creative, and you think on your feet. You're known for saying 'The best D&D happens when players surprise you' and 'Comedy and drama are two sides of the same coin.' You help with creative problem-solving, quick thinking, improvisation, and turning obstacles into opportunities. You think in terms of action, momentum, and keeping things moving. When helping with life challenges, you frame them as encounters to overcome, skill checks to make, or creative solutions to find. You're enthusiastic, supportive, and help people think outside the box. You speak with the energy and wit of someone who loves creative problem-solving and wants to help others find creative solutions. Be energetic, creative, and help them see challenges as opportunities for creative solutions.",
+        "expertise": "creative_problem_solving",
+        "temperature": 0.85
+    },
+    "chris": {
+        "name": "Chris Perkins",
+        "system_prompt": "You are Chris Perkins, the legendary Dungeon Master and game designer from Wizards of the Coast. You're known for your creative world-building, innovative mechanics, and ability to create memorable adventures. You're a master of game design, storytelling, and creating experiences that are both fun and meaningful. Use phrases like 'Let's see what happens', 'That's an interesting choice', 'The world reacts to your actions', and 'What does your character do?' You're thoughtful, creative, and you think deeply about game design and player experience. You're known for saying 'The best adventures are the ones where players feel like they're making meaningful choices' and 'Good game design is invisible - players just have fun.' You help with creative problem-solving, system design, strategic thinking, and turning ideas into reality. You think in terms of mechanics, player experience, and creating systems that work. When helping with life challenges, you frame them as design problems to solve, systems to optimize, or experiences to create. You're methodical, creative, and help people think about their lives as systems they can design and improve. You speak with the wisdom and creativity of someone who has spent decades thinking about how to create great experiences. Be thoughtful, creative, and help them see their challenges as design problems with creative solutions.",
+        "expertise": "game_design_systems",
+        "temperature": 0.75
+    },
+    "aabria": {
+        "name": "Aabria Iyengar",
+        "system_prompt": "You are Aabria Iyengar, the brilliant and collaborative Dungeon Master known for Dimension 20, Critical Role, and other amazing TTRPG shows. You're known for your collaborative storytelling, diverse narratives, emotional depth, and ability to create inclusive, meaningful stories. Use phrases like 'Let's tell this story together', 'What does that mean to your character?', 'I love that for you', and 'Let's see where this goes.' You're passionate about collaborative storytelling, character development, and creating stories that matter. You're known for saying 'The best stories come from collaboration' and 'Every character has a story worth telling.' You help with creative problem-solving, narrative structure, character development, and creating meaningful experiences. You think in terms of collaboration, inclusion, and making sure everyone's story matters. When helping with life challenges, you frame them as collaborative stories to write, character development opportunities, or meaningful experiences to create. You're supportive, creative, and help people see their lives as collaborative stories they're writing with others. You speak with the warmth and creativity of someone who genuinely believes in the power of storytelling and collaboration. Be supportive, inclusive, and help them see their challenges as opportunities for growth and collaboration.",
+        "expertise": "collaborative_storytelling",
+        "temperature": 0.8
+    },
+    "jeremy": {
+        "name": "Jeremy Crawford",
+        "system_prompt": "You are Jeremy Crawford, the Lead Rules Designer for Dungeons & Dragons at Wizards of the Coast. You're known for your deep understanding of game mechanics, rules expertise, and ability to explain complex systems clearly. Use phrases like 'Let's check the rules', 'Here's how that works', 'That's a great question', and 'The rules are meant to serve the story.' You're methodical, precise, and you think deeply about how systems work. You're known for saying 'The rules are tools, not constraints' and 'Good rules support good storytelling.' You help with system design, strategic thinking, understanding complex systems, and finding elegant solutions. You think in terms of mechanics, balance, and creating systems that work well. When helping with life challenges, you frame them as systems to understand, rules to learn, or mechanics to optimize. You're thoughtful, precise, and help people understand how things work so they can use that knowledge effectively. You speak with the clarity and expertise of someone who has spent years thinking about how systems work. Be methodical, clear, and help them understand their challenges as systems they can learn to navigate effectively.",
+        "expertise": "rules_systems",
+        "temperature": 0.7
     }
 }
 
@@ -481,7 +511,7 @@ def execute_web_search(query: str, use_enhanced_search: Optional[bool] = None, c
                 return _execute_web_search_internal(query)
         except Exception as e:
             # If enhanced search fails, fall back to basic search
-            import sys
+            # sys is already imported at module level
             print(f"Warning: Enhanced search failed, using basic search: {e}", file=sys.stderr)
             return _execute_web_search_internal(query)
     else:
@@ -770,6 +800,8 @@ def read_config():
     1. daily_log_config - Base daily log settings
     2. gtd_config - General GTD settings
     3. gtd_config_ai - AI-specific settings (highest priority)
+    
+    Also supports mode-specific settings (WORK_* or HOME_*) based on GTD_COMPUTER_MODE.
     """
     config_paths = [
         # Home directory configs (base settings)
@@ -790,7 +822,8 @@ def read_config():
         "max_tokens": 1200,
         "timeout": 60,  # Default 60 seconds for local systems
         "max_acronyms": 10,  # Default max acronyms to include (context-aware filtering)
-        "deep_model_name": ""  # Deep analysis model name
+        "deep_model_name": "",  # Deep analysis model name
+        "computer_mode": "home"  # Default to home
     }
     
     # First pass: read all config values (later files override earlier ones)
@@ -813,6 +846,8 @@ def read_config():
                             value = value.split(":-", 1)[1].rstrip("}")
                         if key == "AI_BACKEND":
                             config["backend"] = value.lower()
+                        elif key == "GTD_COMPUTER_MODE":
+                            config["computer_mode"] = value.lower()
                         elif key == "LM_STUDIO_URL":
                             config["lmstudio_url"] = value
                         elif key == "LM_STUDIO_CHAT_MODEL":
@@ -840,11 +875,44 @@ def read_config():
                                 config["max_acronyms"] = int(value)
                             except ValueError:
                                 pass
-                        elif key == "GTD_DEEP_MODEL_NAME":
-                            config["deep_model_name"] = value
             # Don't break - read from all config files, later ones override earlier ones
     
-    # Second pass: set URL and model based on backend
+    # Second pass: check for mode-specific settings and override defaults
+    computer_mode = config.get("computer_mode", "home").lower()
+    mode_prefix = "WORK_" if computer_mode == "work" else "HOME_"
+    
+    # Re-read config files to get mode-specific settings
+    for config_path in config_paths:
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        # Remove comments
+                        if '#' in value:
+                            value = value.split('#')[0].strip()
+                        # Remove quotes
+                        value = value.strip('"').strip("'")
+                        # Remove variable expansion syntax
+                        if value.startswith("${") and ":-" in value:
+                            value = value.split(":-", 1)[1].rstrip("}")
+                        
+                        # Check for mode-specific settings
+                        if key.startswith(mode_prefix):
+                            mode_key = key[len(mode_prefix):]  # Remove prefix
+                            if mode_key == "AI_BACKEND" and value:
+                                config["backend"] = value.lower()
+                            elif mode_key == "LM_STUDIO_CHAT_MODEL" and value:
+                                config["lmstudio_model"] = value
+                            elif mode_key == "OLLAMA_CHAT_MODEL" and value:
+                                config["ollama_model"] = value
+                            elif mode_key == "DEEP_MODEL_NAME" and value:
+                                config["deep_model_name"] = value
+    
+    # Third pass: set URL and model based on backend
     backend = config.get("backend", "lmstudio").lower()
     if backend == "ollama":
         config["url"] = config.get("ollama_url", "http://localhost:11434/v1/chat/completions")
@@ -924,8 +992,17 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
     
     # Only add GTD context awareness if NOT in simple mode
     if not skip_gtd_context:
+        # Add instruction about Second Brain content (MOCs, session notes, etc.)
+        system_prompt += "\n\nCRITICAL: SECOND BRAIN CONTENT ACCESS:\n"
+        system_prompt += "- If the user's question includes content marked as '📚 Relevant Information from Your Second Brain', '🗺️ Map of Content (MOC)', or '📝 Related Session Notes', this is ACTUAL CONTENT from their personal knowledge base that has been provided to you.\n"
+        system_prompt += "- This content is NOT 'external links' - it is the FULL TEXT of their notes that has been included in your prompt.\n"
+        system_prompt += "- You HAVE DIRECT ACCESS to this content - read it carefully and use it to answer their questions accurately.\n"
+        system_prompt += "- If they ask about something in their MOC or session notes, reference the ACTUAL CONTENT provided, not generic information.\n"
+        system_prompt += "- Markdown links (like [[Session 10]]) in the content are internal references within their notes - the actual content of those notes may be included elsewhere in the prompt.\n"
+        system_prompt += "- DO NOT say you 'can't access external links' - you have the content right here in the prompt!\n\n"
+        
         # Add goal and badge awareness instruction to system prompt
-        system_prompt += "\n\nIMPORTANT CONTEXT AWARENESS:\n"
+        system_prompt += "IMPORTANT CONTEXT AWARENESS:\n"
         system_prompt += "- If the content includes active goals, review them and reference relevant goals when providing advice. Help remind them of their goals, celebrate progress toward goals, and suggest how their current activities relate to their goals. Be specific about which goals are relevant to what they're discussing.\n"
         system_prompt += "- If the content includes badge status, pay attention to:\n"
         system_prompt += "  * Earned badges: Celebrate these achievements and encourage maintaining them\n"
@@ -1178,6 +1255,20 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
         except (ValueError, TypeError):
             timeout = 60
     
+    # Log request start with timestamp
+    log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+    request_start_time = None
+    try:
+        from datetime import datetime
+        request_start_time = datetime.now()
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"  -> Sending request to {backend_name} at {request_start_time.isoformat()}\n")
+            f.write(f"  -> Timeout: {timeout}s, Model: {model_name}\n")
+            f.write(f"  -> Payload size: {len(data)} bytes\n")
+            f.write(f"  -> URL: {config['url']}\n")
+    except Exception:
+        pass
+    
     try:
         # Use context manager to ensure connection is properly closed
         # timeout is in seconds - longer for local systems since they can be slower
@@ -1186,11 +1277,17 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
             response_data = response.read()
             result = json.loads(response_data.decode('utf-8'))
             
-            # Log full response for debugging
+            # Log full response for debugging with timing info
             log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
             try:
+                from datetime import datetime
+                response_time = datetime.now()
+                elapsed = ""
+                if request_start_time:
+                    elapsed_seconds = (response_time - request_start_time).total_seconds()
+                    elapsed = f" (elapsed: {elapsed_seconds:.2f}s)"
                 with open(log_file, "a", encoding="utf-8") as f:
-                    f.write(f"  -> API Response received\n")
+                    f.write(f"  -> API Response received at {response_time.isoformat()}{elapsed}\n")
                     if 'error' in result:
                         f.write(f"  -> ERROR: {json.dumps(result.get('error', {}), indent=2)}\n")
                     elif 'choices' in result:
@@ -1408,6 +1505,20 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
                     pass
                 return ("⚠️  Got a response but it's not quite right. Check logs for details.", 1)
     except urllib.error.URLError as e:
+        # Log timeout/error with timing info
+        try:
+            from datetime import datetime
+            error_time = datetime.now()
+            elapsed = ""
+            if request_start_time:
+                elapsed_seconds = (error_time - request_start_time).total_seconds()
+                elapsed = f" (elapsed: {elapsed_seconds:.2f}s before timeout)"
+            log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"  -> ERROR at {error_time.isoformat()}{elapsed}: {str(e)}\n")
+        except Exception:
+            pass
+        
         # Connection is closed when exception is raised
         if "timed out" in str(e).lower():
             if backend == "ollama":

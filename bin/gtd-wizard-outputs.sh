@@ -2,14 +2,23 @@
 # GTD Wizard Output Functions
 # Functions for viewing reviews, analysis results, and generating suggestions
 
-# Ensure we have common functions
-if ! type load_gtd_config &>/dev/null 2>&1; then
-  source "$(dirname "$0")/gtd-common.sh" 2>/dev/null || true
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
-# Load config
-load_gtd_config 2>/dev/null || true
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# Load config (if load_gtd_config function exists)
+if type load_gtd_config &>/dev/null 2>&1; then
+  load_gtd_config 2>/dev/null || true
+fi
+
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 DEEP_ANALYSIS_DIR="${GTD_BASE_DIR}/deep_analysis_results"
 
 # Review Wizard

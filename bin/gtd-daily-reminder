@@ -250,10 +250,14 @@ get_louiza_daily_reminder() {
       prompt=$(printf "It's evening, ${GTD_USER_NAME:-Abby}. She logged some entries earlier but nothing recent (last entry was hours ago). This shows she started but didn't maintain consistency. Scold her for not keeping up with logging throughout the day. Tell her that logging should happen continuously, not just in the morning. Be firm. Assign punishments: %s Include this GTD reminder: %s" "$punishment_hint" "$gtd_reminder")
       ;;
     good)
+      # Extract entry count from stats for explicit mention in prompt
+      local entry_count=$(echo "$stats" | grep -oE "Entries: [0-9]+" | grep -oE "[0-9]+" || echo "0")
+      
       if [[ -n "$log_content" && "$log_content" != "No daily log found"* ]]; then
-        prompt=$(printf "It's evening and time for ${GTD_USER_NAME:-Abby}'s daily review. Here's today's daily log:\n\n%s\n\nStats: %s\n\nGive her a firm but encouraging reminder to do her evening review. Review what she accomplished today, what she logged, and what needs attention. Use phrases like 'good girl', 'baby girl' when celebrating wins. Be direct about doing the evening review with 'gtd-review daily'. You can be detailed - this will be sent as a full message to Discord. Include this GTD reminder: %s" "$log_content" "$stats" "$gtd_reminder")
+        prompt=$(printf "IMPORTANT: ${GTD_USER_NAME:-Abby} has logged %s entries today. This is GOOD progress - she HAS been tracking her activities. Do NOT say she has logged nothing or zero entries.\n\nIt's evening and time for ${GTD_USER_NAME:-Abby}'s daily review. She has logged %s entries today, which is excellent! Here's today's daily log:\n\n%s\n\nStats: %s\n\nAcknowledge the %s entries she has made today. Give her a firm but encouraging reminder to do her evening review. Review what she accomplished today, what she logged, and what needs attention. Tell her 'good girl' or 'baby girl' for the %s entries. Be direct about doing the evening review with 'gtd-review daily'. You can be detailed - this will be sent as a full message to Discord. Include this GTD reminder: %s" "$entry_count" "$entry_count" "$log_content" "$stats" "$entry_count" "$entry_count" "$gtd_reminder")
       else
-        prompt=$(printf "It's evening, ${GTD_USER_NAME:-Abby}. Give her a reminder to do her evening review with 'gtd-review daily'. Include this GTD reminder: %s" "$gtd_reminder")
+        # Even if log_content is empty, if status is "good", we have entries
+        prompt=$(printf "IMPORTANT: ${GTD_USER_NAME:-Abby} has logged %s entries today. This is GOOD progress.\n\nIt's evening, ${GTD_USER_NAME:-Abby}. She has logged %s entries so far today, which is good! Acknowledge these entries. Give her a reminder to do her evening review with 'gtd-review daily'. Include this GTD reminder: %s" "$entry_count" "$entry_count" "$gtd_reminder")
       fi
       ;;
     *)
@@ -287,9 +291,17 @@ get_louiza_daily_reminder() {
     }
   ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
   
-  # Clean up the message - remove stage directions but preserve newlines for Discord
+  # Clean up the message - remove thinking tags, stage directions, but preserve newlines for Discord
+  # First remove multiline think blocks (this deletes entire lines containing think tags)
+  louiza_message=$(echo "$louiza_message" | sed '/<think>/,/<\/think>/d')
+  # Then remove any single-line think blocks
+  louiza_message=$(echo "$louiza_message" | sed 's/<think>.*<\/think>//g')
+  # Remove any remaining orphaned tags
+  louiza_message=$(echo "$louiza_message" | sed 's/<think>//g' | sed 's/<\/think>//g')
+  # Remove parentheses, brackets, markdown
   louiza_message=$(echo "$louiza_message" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
   louiza_message=$(echo "$louiza_message" | sed 's/\*\*//g')
+  # Clean up extra whitespace
   louiza_message=$(echo "$louiza_message" | awk 'NF || prev_nf; {prev_nf=NF}')
   
   if [[ -n "$louiza_message" && ${#louiza_message} -gt 10 ]]; then
@@ -310,14 +322,28 @@ send_discord_message() {
     return 1
   fi
   
+  # Clean message before sending - remove <think> tags and other artifacts
+  # First remove multiline think blocks (this deletes entire lines)
+  message=$(echo "$message" | sed '/<think>/,/<\/think>/d')
+  # Then remove any single-line think blocks
+  message=$(echo "$message" | sed 's/<think>.*<\/think>//g')
+  # Remove any remaining orphaned tags
+  message=$(echo "$message" | sed 's/<think>//g' | sed 's/<\/think>//g')
+  
   # Use Python to properly escape JSON and truncate if needed
   local json_payload=$(python3 -c "
 import json
 import sys
+import re
 from datetime import datetime, timezone
 
 title = sys.argv[1] if len(sys.argv) > 1 else 'GTD Notification'
 message = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Remove any remaining <think> tags (Python regex is more reliable for multiline)
+message = re.sub(r'<think>.*?</think>', '', message, flags=re.DOTALL)
+message = re.sub(r'<think>', '', message)
+message = re.sub(r'</think>', '', message)
 
 # Discord embed description limit is 2000 characters
 if len(message) > 2000:

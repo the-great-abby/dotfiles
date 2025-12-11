@@ -35,9 +35,20 @@ if [[ -f "$DAILY_LOG_CONFIG" ]]; then
   source "$DAILY_LOG_CONFIG"
 fi
 
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
 # Default values
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 GTD_MORNING_REMINDER_TIME="${GTD_MORNING_REMINDER_TIME:-08:00}"
 GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
 
@@ -83,8 +94,22 @@ check_lack_of_progress() {
     return
   fi
   
-  # Check entry count
+  # Check entry count - use same pattern as other reminders for consistency
+  # Pattern 1: Standard format "HH:MM - entry" (exactly 2 digits for hours and minutes)
   local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+  
+  # Fallback patterns
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
+    entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
+  fi
+  if [[ "$entry_count" == "0" ]] || [[ -z "$entry_count" ]]; then
+    entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | wc -l | tr -d ' ' || echo "0")
+  fi
+  
+  # Ensure entry_count is numeric
+  if [[ ! "$entry_count" =~ ^[0-9]+$ ]]; then
+    entry_count=0
+  fi
   
   # Check if last entry is old (more than 2 hours ago for morning, more than 4 hours for lunch)
   local last_entry_time=$(grep "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null | tail -1 | cut -d' ' -f1)
@@ -165,7 +190,7 @@ get_louiza_morning_message() {
   case "$progress_status" in
     no_log)
       punishment_hint="Consider assigning punishments like: write an accountability letter, process entire inbox, log every hour for rest of day, or complete 3 tasks immediately."
-      prompt="Good morning, ${GTD_USER_NAME:-Abby}. It's a new day and I see NO logging activity yet. This is unacceptable. I'm watching, and I expect to see progress. Scold ${GTD_USER_NAME:-Abby} firmly but constructively. Remind her that tracking everything is non-negotiable. Tell her to use 'addInfoToDailyLog' immediately. Be strict - no excuses. Use phrases like 'we need to talk' or 'this is not acceptable' when scolding, but also encourage with 'good girl' when she does log. Consider assigning a punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
+      prompt="Good morning, ${GTD_USER_NAME:-Abby}. It's a new day and I see NO logging activity yet. This is unacceptable. I'm watching, and I expect to see progress. Give her a full, detailed morning message (at least 3-4 sentences). Scold ${GTD_USER_NAME:-Abby} firmly but constructively. Remind her that tracking everything is non-negotiable. Tell her to use 'addInfoToDailyLog' immediately. Be strict - no excuses. Use phrases like 'we need to talk' or 'this is not acceptable' when scolding, but also encourage with 'good girl' when she does log. Consider assigning a punishment: ${punishment_hint} Make this a complete, engaging message that sets the tone for the day. Include this GTD reminder: ${gtd_reminder}"
       ;;
     no_entries|old_entries)
       punishment_hint="Consider assigning punishments like: reconstruct the day from memory, process inbox, log every hour, or complete 2 tasks immediately."
@@ -176,14 +201,32 @@ get_louiza_morning_message() {
       prompt="Good morning, ${GTD_USER_NAME:-Abby}. She has only 1 entry so far today. That's a start, but it's not enough. Be firm but encouraging. Remind her that I expect to see regular logging throughout the day. Tell her to keep using 'addInfoToDailyLog' frequently. Consider a light punishment: ${punishment_hint} Include this GTD reminder: ${gtd_reminder}"
       ;;
     good)
-      if [[ "$has_log" == "yes" ]]; then
-        prompt="Good morning, ${GTD_USER_NAME:-Abby}! She's already started logging today with multiple entries. That's good - acknowledge this. Give her a motivating message to encourage her to keep recording her progress throughout the day. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Include this GTD reminder: ${gtd_reminder}"
+      # Get stats to extract entry count
+      local stats=""
+      if command -v gtd_get_log_stats &>/dev/null; then
+        stats=$(gtd_get_log_stats)
       else
-        prompt="Good morning, ${GTD_USER_NAME:-Abby}! It's a new day. Give her a motivating morning message to encourage her to start logging her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Include this GTD reminder: ${gtd_reminder}"
+        # Fallback: try to get stats manually
+        local today=$(get_today)
+        local log_file="${DAILY_LOG_DIR}/${today}.md"
+        if [[ -f "$log_file" ]]; then
+          local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
+          if [[ "$entry_count" == "0" ]]; then
+            entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")
+          fi
+          stats="Entries: $entry_count"
+        fi
+      fi
+      local entry_count=$(echo "$stats" | grep -oE "Entries: [0-9]+" | grep -oE "[0-9]+" || echo "0")
+      
+      if [[ "$has_log" == "yes" && "$entry_count" != "0" ]]; then
+        prompt="IMPORTANT: ${GTD_USER_NAME:-Abby} has ALREADY logged ${entry_count} entries today. This is GOOD progress - she IS tracking her activities. Do NOT say she has logged nothing or zero entries.\n\nGood morning, ${GTD_USER_NAME:-Abby}! She has already logged ${entry_count} entries today, which is excellent! Acknowledge these ${entry_count} entries she has already made. Give her a motivating message to encourage her to keep recording her progress throughout the day. Tell her 'good girl' or 'baby girl' for the ${entry_count} entries. Remind her that I'm watching and I'm pleased with her tracking so far (${entry_count} entries is great progress!). Be encouraging and acknowledge the work she's already done. Include this GTD reminder: ${gtd_reminder}"
+      else
+        prompt="Good morning, ${GTD_USER_NAME:-Abby}! It's a new day. Give her a full, detailed morning message (at least 3-4 sentences) to encourage her to start logging her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Use phrases like 'good girl' or 'baby girl'. Be encouraging but firm about the importance of tracking everything. Make this a complete, engaging message that motivates her for the day ahead. Include this GTD reminder: ${gtd_reminder}"
       fi
       ;;
     *)
-      prompt="Good morning, ${GTD_USER_NAME:-Abby}. Give her a motivating morning message to encourage her to log her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Include this GTD reminder: ${gtd_reminder}"
+      prompt="Good morning, ${GTD_USER_NAME:-Abby}. Give her a full, detailed morning message (at least 3-4 sentences) to encourage her to log her daily progress. Remind her that I'm watching and I'll be proud when she logs her accomplishments. Tell her to use 'addInfoToDailyLog' to record what she does. Make this a complete, engaging message. Include this GTD reminder: ${gtd_reminder}"
       ;;
   esac
   
@@ -213,9 +256,17 @@ get_louiza_morning_message() {
     }
   ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
   
-  # Clean up
+  # Clean up - remove thinking tags, parentheses, brackets, markdown
+  # First remove multiline think blocks (this deletes entire lines containing think tags)
+  louiza_message=$(echo "$louiza_message" | sed '/<think>/,/<\/think>/d')
+  # Then remove any single-line think blocks
+  louiza_message=$(echo "$louiza_message" | sed 's/<think>.*<\/think>//g')
+  # Remove any remaining orphaned tags
+  louiza_message=$(echo "$louiza_message" | sed 's/<think>//g' | sed 's/<\/think>//g')
+  # Remove parentheses, brackets, markdown
   louiza_message=$(echo "$louiza_message" | sed 's/([^)]*)//g' | sed 's/\[[^\]]*\]//g')
   louiza_message=$(echo "$louiza_message" | sed 's/\*\*//g')
+  # Clean up extra whitespace
   louiza_message=$(echo "$louiza_message" | awk 'NF || prev_nf; {prev_nf=NF}')
   
   if [[ -n "$louiza_message" && ${#louiza_message} -gt 10 ]]; then
@@ -236,15 +287,29 @@ send_discord_message() {
     return 1
   fi
   
+  # Clean message before sending - remove <think> tags and other artifacts
+  # First remove multiline think blocks (this deletes entire lines containing think tags)
+  message=$(echo "$message" | sed '/<think>/,/<\/think>/d')
+  # Then remove any single-line think blocks
+  message=$(echo "$message" | sed 's/<think>.*<\/think>//g')
+  # Remove any remaining orphaned tags
+  message=$(echo "$message" | sed 's/<think>//g' | sed 's/<\/think>//g')
+  
   # Use Python to properly escape JSON and truncate if needed
   # Pass as arguments to avoid stdin issues
   local json_payload=$(python3 -c "
 import json
 import sys
+import re
 from datetime import datetime, timezone
 
 title = sys.argv[1] if len(sys.argv) > 1 else 'GTD Notification'
 message = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Remove any remaining <think> tags (Python regex is more reliable for multiline)
+message = re.sub(r'<think>.*?</think>', '', message, flags=re.DOTALL)
+message = re.sub(r'<think>', '', message)
+message = re.sub(r'</think>', '', message)
 
 # Discord embed description limit is 2000 characters
 if len(message) > 2000:
@@ -332,8 +397,19 @@ send_morning_reminder() {
         echo "✓ Sent to Discord" >&2
       fi
     else
-      local fallback="Good morning! Time to start logging your day. Use \`addInfoToDailyLog \"your entry\"\` to record your progress. I'll be watching! 👀"
-      send_discord_message "GTD Morning Reminder" "$fallback"
+      # Enhanced fallback with more context
+      local fallback=""
+      if [[ "$has_log" == "yes" ]]; then
+        local entry_count=$(echo "$log_content" | grep -cE "^[0-9]{1,2}:[0-9]{2}" 2>/dev/null || echo "0")
+        if [[ "$entry_count" -gt 0 ]]; then
+          fallback="Good morning, ${GTD_USER_NAME:-Abby}! I see you've already logged ${entry_count} entry/entries today - that's great! Keep up the momentum and continue logging throughout the day. Use \`addInfoToDailyLog \"your entry\"\` to record your progress. I'm watching and I'm proud of your consistency! 👀"
+        else
+          fallback="Good morning, ${GTD_USER_NAME:-Abby}! I see you started a log file but haven't added any entries yet. Let's change that! Use \`addInfoToDailyLog \"your entry\"\` to start recording your day. I'm watching and I expect to see progress! 👀"
+        fi
+      else
+        fallback="Good morning, ${GTD_USER_NAME:-Abby}! It's a new day and time to start logging. I'm watching and I expect to see you track your progress throughout the day. Use \`addInfoToDailyLog \"your entry\"\` to record what you're doing. Let's make today count! 👀"
+      fi
+      send_discord_message "Mistress Louiza - Good Morning" "$fallback"
     fi
   fi
   

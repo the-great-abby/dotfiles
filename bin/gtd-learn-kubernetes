@@ -66,7 +66,7 @@ else
 fi
 
 # GTD base directory
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 STUDY_DIR="${GTD_BASE_DIR}/study"
 K8S_STUDY_DIR="${STUDY_DIR}/kubernetes-cka"
 
@@ -92,8 +92,8 @@ gather_k8s_study_data() {
   
   # Default paths
   SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
-  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
-  PROJECTS_PATH="${PROJECTS_PATH:-$GTD_BASE_DIR/1-projects}"
+  # GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+  # PROJECTS_PATH is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
   
   local study_data=""
   

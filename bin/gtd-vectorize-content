@@ -1,0 +1,72 @@
+#!/bin/bash
+# GTD Vectorization Helper - Vectorize content after creation/update
+# This script is called automatically after content is created/updated
+
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Find config directory
+GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+  GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+fi
+
+# Load database config
+if [[ -f "$GTD_CONFIG_DIR/.gtd_config_database" ]]; then
+  source "$GTD_CONFIG_DIR/.gtd_config_database"
+elif [[ -f "$HOME/.gtd_config_database" ]]; then
+  source "$HOME/.gtd_config_database"
+fi
+
+# Check if vectorization is enabled
+if [[ "${GTD_VECTORIZATION_ENABLED:-true}" != "true" ]]; then
+  exit 0  # Vectorization disabled, silently exit
+fi
+
+# Get arguments
+CONTENT_TYPE="${1:-}"
+CONTENT_ID="${2:-}"
+CONTENT_TEXT="${3:-}"
+
+if [[ -z "$CONTENT_TYPE" || -z "$CONTENT_ID" || -z "$CONTENT_TEXT" ]]; then
+  # Silently exit if not enough arguments (don't spam errors)
+  exit 0
+fi
+
+# Check if RabbitMQ is enabled for async processing
+if [[ "${RABBITMQ_ENABLED:-false}" == "true" ]]; then
+  # Use async mode - queue to RabbitMQ
+  PYTHON_SCRIPT="$HOME/code/dotfiles/zsh/functions/gtd_vectorization.py"
+  if [[ ! -f "$PYTHON_SCRIPT" ]]; then
+    PYTHON_SCRIPT="$HOME/code/personal/dotfiles/zsh/functions/gtd_vectorization.py"
+  fi
+  
+  if [[ -f "$PYTHON_SCRIPT" ]]; then
+    # Queue for async processing (this returns immediately)
+    python3 "$PYTHON_SCRIPT" queue "$CONTENT_TYPE" "$CONTENT_ID" "$CONTENT_TEXT" 2>&1 | grep -v "^$" >&2 || true
+    exit 0
+  fi
+fi
+
+# Fallback to synchronous vectorization (original behavior)
+PYTHON_SCRIPT="$HOME/code/dotfiles/zsh/functions/gtd_vectorization.py"
+if [[ ! -f "$PYTHON_SCRIPT" ]]; then
+  PYTHON_SCRIPT="$HOME/code/personal/dotfiles/zsh/functions/gtd_vectorization.py"
+fi
+
+if [[ ! -f "$PYTHON_SCRIPT" ]]; then
+  # Silently exit if script not found (don't spam errors)
+  exit 0
+fi
+
+# Vectorize content (run in background to not block)
+# Only show output if there's an error
+python3 "$PYTHON_SCRIPT" vectorize "$CONTENT_TYPE" "$CONTENT_ID" "$CONTENT_TEXT" 2>&1 | grep -v "^$" >&2 || true
+
+exit 0

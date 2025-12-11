@@ -12,9 +12,17 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Set
 
-# Import AI helper from MCP server
+# Import AI helper from MCP server (with graceful error handling)
 sys.path.insert(0, str(Path(__file__).parent))
-from gtd_mcp_server import call_fast_ai
+try:
+    from gtd_mcp_server import call_fast_ai
+    MCP_AVAILABLE = True
+except (ImportError, SystemExit):
+    # MCP server not available - define a fallback function
+    MCP_AVAILABLE = False
+    def call_fast_ai(prompt: str, system_prompt: str = None) -> str:
+        """Fallback when MCP server is not available."""
+        return "MCP server not available - cannot analyze with AI"
 
 # Import config from persona helper
 sys.path.insert(0, str(Path(__file__).parent.parent / "zsh" / "functions"))
@@ -138,7 +146,16 @@ IMPORTANT: Return ONLY the JSON array, no other text, no markdown, no explanatio
 
     system_prompt = f"""You are {USER_NAME}'s GTD assistant. You analyze daily logs to find completed work that should be tracked. Be thorough but accurate - only suggest items that clearly indicate completion."""
 
+    # Check if MCP is available before calling
+    if not MCP_AVAILABLE:
+        # Return empty list if MCP is not available
+        return []
+    
     response = call_fast_ai(prompt, system_prompt)
+    
+    # Check if we got the fallback error message
+    if response and "MCP server not available" in response:
+        return []
     
     # Extract JSON array
     completed_items = []

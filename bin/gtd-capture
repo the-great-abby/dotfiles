@@ -21,10 +21,20 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
-# Default values
-GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+# Source common GTD helpers (DRY - reuse existing helpers)
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# GTD_BASE_DIR and INBOX_PATH are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+# Keep directory name variable for backward compatibility
 GTD_INBOX_DIR="${GTD_INBOX_DIR:-0-inbox}"
-INBOX_PATH="${GTD_BASE_DIR}/${GTD_INBOX_DIR}"
 
 # Create directories if they don't exist
 mkdir -p "$INBOX_PATH"

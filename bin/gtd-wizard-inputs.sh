@@ -588,14 +588,19 @@ log_wizard() {
   fi
   
   # Use gtd-daily-log script (standalone version of addInfoToDailyLog)
+  local log_saved=false
   if command -v gtd-daily-log &>/dev/null; then
     gtd-daily-log "$log_entry"
+    log_saved=true
   elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
     "$HOME/code/dotfiles/bin/gtd-daily-log" "$log_entry"
+    log_saved=true
   elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-daily-log" ]]; then
     "$HOME/code/personal/dotfiles/bin/gtd-daily-log" "$log_entry"
+    log_saved=true
   elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
     addInfoToDailyLog "$log_entry"
+    log_saved=true
   else
     echo "❌ Daily log command not found."
     echo "   Trying fallback method..."
@@ -611,6 +616,31 @@ log_wizard() {
     fi
     echo "${current_time} - ${log_entry}" >> "$log_file"
     echo "✓ Added: ${current_time} - ${log_entry}"
+    log_saved=true
+  fi
+  
+  # Vectorize the log entry if saved successfully
+  if [[ "$log_saved" == "true" ]]; then
+    local today=$(date +"%Y-%m-%d")
+    local current_time=$(date +"%H:%M")
+    local entry_id="${today}_${current_time}"
+    # Vectorize in background (don't block user)
+    if command -v gtd-vectorize-content &>/dev/null; then
+      gtd-vectorize-content "daily_log" "$entry_id" "$log_entry" &
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-vectorize-content" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-vectorize-content" "daily_log" "$entry_id" "$log_entry" &
+    elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-vectorize-content" ]]; then
+      "$HOME/code/personal/dotfiles/bin/gtd-vectorize-content" "daily_log" "$entry_id" "$log_entry" &
+    fi
+    
+    # Trigger energy analysis if enabled (event-driven)
+    if command -v gtd-deep-analysis-scheduler &>/dev/null; then
+      gtd-deep-analysis-scheduler --trigger energy &
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-deep-analysis-scheduler" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-deep-analysis-scheduler" --trigger energy &
+    elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-deep-analysis-scheduler" ]]; then
+      "$HOME/code/personal/dotfiles/bin/gtd-deep-analysis-scheduler" --trigger energy &
+    fi
   fi
   
   # Ask if user wants to log weather
