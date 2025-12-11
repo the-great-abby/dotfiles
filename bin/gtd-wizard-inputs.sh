@@ -39,6 +39,477 @@ get_log_inspiration() {
   
   echo -e "${YELLOW}${messages[$message_index]}${NC}"
 }
+
+# Oncall capture wizard - guided workflow for oncall shifts
+oncall_capture_wizard() {
+  while true; do
+    clear
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}📞 Oncall Capture Wizard${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    # Show oncall guide if function exists
+    if command -v show_oncall_guide &>/dev/null || type show_oncall_guide &>/dev/null 2>/dev/null; then
+      show_oncall_guide
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-guides.sh" ]]; then
+      source "$HOME/code/dotfiles/bin/gtd-guides.sh" 2>/dev/null
+      if command -v gtd_show_oncall_guide &>/dev/null; then
+        gtd_show_oncall_guide
+      fi
+    fi
+    echo ""
+    echo "What would you like to capture?"
+    echo ""
+    echo "  1) Shift start (begin oncall shift)"
+    echo "  2) Shift end (complete oncall shift)"
+    echo "  3) Incident (track an incident)"
+    echo "  4) Post-mortem (create post-mortem task/note)"
+    echo "  5) Runbook update (documentation improvement)"
+    echo "  6) Alert tuning (reduce noise/improve alerts)"
+    echo "  7) Oncall task (general oncall action item)"
+    echo "  8) Oncall note (general oncall observation)"
+    echo "  9) Handoff notes (shift handoff information)"
+    echo ""
+    echo -e "${YELLOW}  0) Back to capture menu${NC}"
+    echo ""
+    echo -n "Choose: "
+    read oncall_choice
+    
+    if [[ "$oncall_choice" == "0" ]]; then
+      return 0
+    fi
+    
+    case "$oncall_choice" in
+      1)
+        # Shift start
+        clear
+        echo ""
+        echo -e "${BOLD}${GREEN}📞 Starting Oncall Shift${NC}"
+        echo ""
+        local shift_start_time=$(date +"%Y-%m-%d %H:%M")
+        local shift_date=$(date +"%Y-%m-%d")
+        echo "Shift start time: $shift_start_time"
+        echo ""
+        echo -n "Any notes about this shift? (press Enter to skip): "
+        read shift_notes
+        
+        local shift_content="Oncall shift started at $shift_start_time"
+        if [[ -n "$shift_notes" ]]; then
+          shift_content="$shift_content - $shift_notes"
+        fi
+        
+        # Log to daily log with oncall tag
+        if command -v gtd-daily-log &>/dev/null; then
+          gtd-daily-log "📞 $shift_content" --tags="oncall,shift-start"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-daily-log" "📞 $shift_content" --tags="oncall,shift-start"
+        elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
+          addInfoToDailyLog "📞 $shift_content (oncall,shift-start)"
+        else
+          # Fallback
+          local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+          local log_file="${log_dir}/${shift_date}.md"
+          mkdir -p "$log_dir"
+          if [[ ! -f "$log_file" ]]; then
+            echo "# Daily Log - $shift_date" > "$log_file"
+            echo "" >> "$log_file"
+          fi
+          echo "$(date +"%H:%M") - 📞 $shift_content #oncall #shift-start" >> "$log_file"
+        fi
+        
+        # Create a task to track shift completion
+        if command -v gtd-task &>/dev/null; then
+          gtd-task add "Complete oncall shift handoff" --area="Work & Career" --tags="oncall,shift-end" 2>/dev/null || true
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✓ Oncall shift started and logged!${NC}"
+        ;;
+      2)
+        # Shift end
+        clear
+        echo ""
+        echo -e "${BOLD}${GREEN}✅ Ending Oncall Shift${NC}"
+        echo ""
+        local shift_end_time=$(date +"%Y-%m-%d %H:%M")
+        local shift_date=$(date +"%Y-%m-%d")
+        echo "Shift end time: $shift_end_time"
+        echo ""
+        echo -n "How many incidents did you handle? (press Enter to skip): "
+        read incident_count
+        echo -n "Any notable issues or observations? (press Enter to skip): "
+        read shift_summary
+        
+        local shift_content="Oncall shift ended at $shift_end_time"
+        if [[ -n "$incident_count" ]] && [[ "$incident_count" =~ ^[0-9]+$ ]]; then
+          shift_content="$shift_content - Handled $incident_count incident(s)"
+        fi
+        if [[ -n "$shift_summary" ]]; then
+          shift_content="$shift_content - $shift_summary"
+        fi
+        
+        # Log to daily log
+        if command -v gtd-daily-log &>/dev/null; then
+          gtd-daily-log "✅ $shift_content" --tags="oncall,shift-end"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-daily-log" "✅ $shift_content" --tags="oncall,shift-end"
+        elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
+          addInfoToDailyLog "✅ $shift_content (oncall,shift-end)"
+        else
+          # Fallback
+          local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+          local log_file="${log_dir}/${shift_date}.md"
+          mkdir -p "$log_dir"
+          if [[ ! -f "$log_file" ]]; then
+            echo "# Daily Log - $shift_date" > "$log_file"
+            echo "" >> "$log_file"
+          fi
+          echo "$(date +"%H:%M") - ✅ $shift_content #oncall #shift-end" >> "$log_file"
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✓ Oncall shift completed and logged!${NC}"
+        ;;
+      3)
+        # Incident tracking
+        clear
+        echo ""
+        echo -e "${BOLD}${RED}🚨 Incident Tracking${NC}"
+        echo ""
+        echo -n "Incident title/description: "
+        read incident_title
+        if [[ -z "$incident_title" ]]; then
+          echo "❌ Incident title required"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+        fi
+        
+        echo ""
+        echo "Severity level:"
+        echo "  1) P0 - Critical (service down)"
+        echo "  2) P1 - High (major impact)"
+        echo "  3) P2 - Medium (moderate impact)"
+        echo "  4) P3 - Low (minor impact)"
+        echo "  0) Skip severity"
+        echo ""
+        echo -n "Choose: "
+        read severity_choice
+        
+        local severity=""
+        case "$severity_choice" in
+          1) severity="P0" ;;
+          2) severity="P1" ;;
+          3) severity="P2" ;;
+          4) severity="P3" ;;
+        esac
+        
+        echo ""
+        echo -n "Time to detection (minutes, press Enter to skip): "
+        read mttd
+        echo -n "Time to resolution (minutes, press Enter to skip): "
+        read mttr
+        echo -n "Additional notes (press Enter to skip): "
+        read incident_notes
+        
+        local incident_content="Incident: $incident_title"
+        if [[ -n "$severity" ]]; then
+          incident_content="$incident_content [Severity: $severity]"
+        fi
+        if [[ -n "$mttd" ]] && [[ "$mttd" =~ ^[0-9]+$ ]]; then
+          incident_content="$incident_content [MTTD: ${mttd}m]"
+        fi
+        if [[ -n "$mttr" ]] && [[ "$mttr" =~ ^[0-9]+$ ]]; then
+          incident_content="$incident_content [MTTR: ${mttr}m]"
+        fi
+        if [[ -n "$incident_notes" ]]; then
+          incident_content="$incident_content - $incident_notes"
+        fi
+        
+        # Log to daily log
+        if command -v gtd-daily-log &>/dev/null; then
+          gtd-daily-log "🚨 $incident_content" --tags="oncall,incident${severity:+,$severity}"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-daily-log" "🚨 $incident_content" --tags="oncall,incident${severity:+,$severity}"
+        elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
+          addInfoToDailyLog "🚨 $incident_content (oncall,incident${severity:+,$severity})"
+        else
+          # Fallback
+          local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+          local today=$(date +"%Y-%m-%d")
+          local log_file="${log_dir}/${today}.md"
+          mkdir -p "$log_dir"
+          if [[ ! -f "$log_file" ]]; then
+            echo "# Daily Log - $today" > "$log_file"
+            echo "" >> "$log_file"
+          fi
+          echo "$(date +"%H:%M") - 🚨 $incident_content #oncall #incident${severity:+ #$severity}" >> "$log_file"
+        fi
+        
+        # Create post-mortem task if P0 or P1
+        if [[ "$severity" == "P0" ]] || [[ "$severity" == "P1" ]]; then
+          if command -v gtd-task &>/dev/null; then
+            gtd-task add "Post-mortem: $incident_title" --area="Work & Career" --tags="oncall,post-mortem,$severity" 2>/dev/null || true
+            echo ""
+            echo -e "${YELLOW}📝 Post-mortem task created (P0/P1 incidents require post-mortems)${NC}"
+          fi
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✓ Incident logged!${NC}"
+        ;;
+      4)
+        # Post-mortem
+        clear
+        echo ""
+        echo -e "${BOLD}${BLUE}📝 Post-Mortem${NC}"
+        echo ""
+        echo -n "Post-mortem title (incident name): "
+        read pm_title
+        if [[ -z "$pm_title" ]]; then
+          echo "❌ Post-mortem title required"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+        fi
+        
+        echo ""
+        echo "What would you like to do?"
+        echo "  1) Create post-mortem task"
+        echo "  2) Create post-mortem note"
+        echo "  3) Both (task + note)"
+        echo ""
+        echo -n "Choose: "
+        read pm_choice
+        
+        case "$pm_choice" in
+          1|3)
+            # Create task
+            if command -v gtd-task &>/dev/null; then
+              gtd-task add "Post-mortem: $pm_title" --area="Work & Career" --tags="oncall,post-mortem" 2>/dev/null || true
+              echo -e "${GREEN}✓ Post-mortem task created${NC}"
+            else
+              gtd-capture --type=task "Post-mortem: $pm_title #oncall #post-mortem"
+              echo -e "${GREEN}✓ Post-mortem task captured${NC}"
+            fi
+            ;;
+        esac
+        
+        case "$pm_choice" in
+          2|3)
+            # Create note
+            echo ""
+            echo -n "Post-mortem notes (press Enter to skip): "
+            read pm_notes
+            local pm_content="Post-mortem: $pm_title"
+            if [[ -n "$pm_notes" ]]; then
+              pm_content="$pm_content - $pm_notes"
+            fi
+            gtd-capture --type=note "$pm_content #oncall #post-mortem"
+            echo -e "${GREEN}✓ Post-mortem note captured${NC}"
+            ;;
+        esac
+        ;;
+      5)
+        # Runbook update
+        clear
+        echo ""
+        echo -e "${BOLD}${BLUE}📚 Runbook Update${NC}"
+        echo ""
+        echo -n "What runbook needs updating? "
+        read runbook_name
+        if [[ -z "$runbook_name" ]]; then
+          echo "❌ Runbook name required"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+        fi
+        
+        echo ""
+        echo -n "What needs to be updated? "
+        read update_details
+        
+        local runbook_content="Update runbook: $runbook_name"
+        if [[ -n "$update_details" ]]; then
+          runbook_content="$runbook_content - $update_details"
+        fi
+        
+        # Create task
+        if command -v gtd-task &>/dev/null; then
+          gtd-task add "$runbook_content" --area="Work & Career" --tags="oncall,runbook,documentation" 2>/dev/null || true
+          echo ""
+          echo -e "${GREEN}✓ Runbook update task created${NC}"
+        else
+          gtd-capture --type=task "$runbook_content #oncall #runbook #documentation"
+          echo ""
+          echo -e "${GREEN}✓ Runbook update captured${NC}"
+        fi
+        ;;
+      6)
+        # Alert tuning
+        clear
+        echo ""
+        echo -e "${BOLD}${YELLOW}🔔 Alert Tuning${NC}"
+        echo ""
+        echo -n "What alert needs tuning? "
+        read alert_name
+        if [[ -z "$alert_name" ]]; then
+          echo "❌ Alert name required"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+        fi
+        
+        echo ""
+        echo "What action is needed?"
+        echo "  1) Reduce noise (too many false positives)"
+        echo "  2) Increase sensitivity (missed incidents)"
+        echo "  3) Update threshold"
+        echo "  4) Disable alert"
+        echo "  5) Other"
+        echo ""
+        echo -n "Choose: "
+        read alert_action_choice
+        
+        local action_desc=""
+        case "$alert_action_choice" in
+          1) action_desc="Reduce noise (too many false positives)" ;;
+          2) action_desc="Increase sensitivity (missed incidents)" ;;
+          3) action_desc="Update threshold" ;;
+          4) action_desc="Disable alert" ;;
+          5)
+            echo -n "Describe the action needed: "
+            read action_desc
+            ;;
+        esac
+        
+        echo ""
+        echo -n "Additional notes (press Enter to skip): "
+        read alert_notes
+        
+        local alert_content="Alert tuning: $alert_name - $action_desc"
+        if [[ -n "$alert_notes" ]]; then
+          alert_content="$alert_content - $alert_notes"
+        fi
+        
+        # Create task
+        if command -v gtd-task &>/dev/null; then
+          gtd-task add "$alert_content" --area="Work & Career" --tags="oncall,alert-tuning,monitoring" 2>/dev/null || true
+          echo ""
+          echo -e "${GREEN}✓ Alert tuning task created${NC}"
+        else
+          gtd-capture --type=task "$alert_content #oncall #alert-tuning #monitoring"
+          echo ""
+          echo -e "${GREEN}✓ Alert tuning captured${NC}"
+        fi
+        ;;
+      7)
+        # Oncall task
+        clear
+        echo ""
+        echo -e "${BOLD}${CYAN}✅ Oncall Task${NC}"
+        echo ""
+        echo -n "What task needs to be done? "
+        read task_content
+        if [[ -z "$task_content" ]]; then
+          echo "❌ Task description required"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+        fi
+        
+        # Create task with oncall tag
+        if command -v gtd-task &>/dev/null; then
+          gtd-task add "$task_content" --area="Work & Career" --tags="oncall" 2>/dev/null || true
+          echo ""
+          echo -e "${GREEN}✓ Oncall task created${NC}"
+        else
+          gtd-capture --type=task "$task_content #oncall"
+          echo ""
+          echo -e "${GREEN}✓ Oncall task captured${NC}"
+        fi
+        ;;
+      8)
+        # Oncall note
+        clear
+        echo ""
+        echo -e "${BOLD}${CYAN}📝 Oncall Note${NC}"
+        echo ""
+        echo -n "What would you like to note? "
+        read note_content
+        if [[ -z "$note_content" ]]; then
+          echo "❌ Note content required"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+        fi
+        
+        # Log to daily log
+        if command -v gtd-daily-log &>/dev/null; then
+          gtd-daily-log "📝 Oncall: $note_content" --tags="oncall"
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-daily-log" "📝 Oncall: $note_content" --tags="oncall"
+        elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
+          addInfoToDailyLog "📝 Oncall: $note_content (oncall)"
+        else
+          gtd-capture --type=note "$note_content #oncall"
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✓ Oncall note captured!${NC}"
+        ;;
+      9)
+        # Handoff notes
+        clear
+        echo ""
+        echo -e "${BOLD}${CYAN}🤝 Shift Handoff Notes${NC}"
+        echo ""
+        echo -n "Handoff notes for next oncall engineer: "
+        read handoff_content
+        if [[ -z "$handoff_content" ]]; then
+          echo "❌ Handoff notes required"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          continue
+        fi
+        
+        # Create note with handoff tag
+        gtd-capture --type=note "Handoff: $handoff_content #oncall #handoff"
+        echo ""
+        echo -e "${GREEN}✓ Handoff notes captured!${NC}"
+        ;;
+      *)
+        echo "❌ Invalid choice"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        continue
+        ;;
+    esac
+    
+    echo ""
+    echo "What would you like to do next?"
+    echo "  1) Capture another oncall item"
+    echo "  2) Back to capture menu"
+    echo ""
+    echo -n "Choose: "
+    read continue_choice
+    
+    if [[ "$continue_choice" == "2" ]]; then
+      return 0
+    fi
+    # If choice is 1 or anything else, loop continues
+  done
+}
+
 # Capture wizard
 capture_wizard() {
   # Loop to stay in capture mode
@@ -61,6 +532,7 @@ capture_wizard() {
     echo "  7) General note"
     echo "  8) Zettelkasten note (atomic idea)"
     echo "  9) Daily log entry"
+    echo " 10) Oncall capture (guided oncall workflow)"
     echo ""
     echo -e "${YELLOW}  0) Exit capture mode${NC}"
     echo ""
@@ -324,6 +796,10 @@ capture_wizard() {
           echo "${current_time} - ${capture_content}" >> "$log_file"
           echo "✓ Added: ${current_time} - ${capture_content}"
         fi
+        ;;
+      10)
+        # Oncall capture - guided workflow
+        oncall_capture_wizard
         ;;
       *)
         gtd-capture "$capture_content"

@@ -1756,6 +1756,104 @@ template_wizard() {
 }
 
 # Diagram Wizard
+# Review Draft Notes Wizard
+review_drafts_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📝 Review Draft Notes (Evergreen Insights)${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "The system automatically scans your daily logs and creates draft notes"
+  echo "for evergreen insights - ideas, learnings, or realizations with lasting value."
+  echo ""
+  echo "These drafts are in: ${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}/Express/drafts/"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) 📝 Review all draft notes (interactive)"
+  echo "  2) 📋 List all draft notes"
+  echo "  3) 🔍 Scan for new insights (analyze recent logs)"
+  echo "  4) 📊 Show summary (count of drafts)"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back to Main Menu"
+  echo ""
+  echo -n "Choose: "
+  read choice
+  
+  case "$choice" in
+    1)
+      if command -v gtd-review-drafts &>/dev/null; then
+        gtd-review-drafts
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-review-drafts" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-review-drafts"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-review-drafts" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-review-drafts"
+      else
+        echo "❌ gtd-review-drafts command not found"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+      fi
+      ;;
+    2)
+      if command -v gtd-review-drafts &>/dev/null; then
+        gtd-review-drafts list
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-review-drafts" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-review-drafts" list
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-review-drafts" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-review-drafts" list
+      else
+        echo "❌ gtd-review-drafts command not found"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    3)
+      if command -v gtd-scan-insights &>/dev/null; then
+        gtd-scan-insights scan
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-scan-insights" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-scan-insights" scan
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-scan-insights" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-scan-insights" scan
+      else
+        echo "❌ gtd-scan-insights command not found"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    4)
+      SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+      DRAFTS_DIR="${SECOND_BRAIN}/Express/drafts"
+      if [[ -d "$DRAFTS_DIR" ]]; then
+        local draft_count=$(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+        echo ""
+        echo "📝 Draft Notes Summary:"
+        echo "   Total drafts: ${draft_count}"
+        echo "   Location: ${DRAFTS_DIR}"
+        echo ""
+        if [[ $draft_count -gt 0 ]]; then
+          echo "💡 Review them with: gtd-review-drafts"
+        fi
+      else
+        echo "📝 Draft directory not found: ${DRAFTS_DIR}"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      sleep 1
+      ;;
+  esac
+}
+
 diagram_wizard() {
   clear
   echo ""

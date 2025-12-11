@@ -236,6 +236,7 @@ alias show_checkin_guide='gtd_show_checkin_guide'
 alias show_organization_guide='gtd_show_organization_guide'
 alias show_review_guide='gtd_show_review_guide'
 alias show_capture_guide='gtd_show_capture_guide'
+alias show_oncall_guide='gtd_show_oncall_guide'
 alias show_process_guide='gtd_show_process_guide'
 alias show_sync_guide='gtd_show_sync_guide'
 alias show_advice_guide='gtd_show_advice_guide'
@@ -309,6 +310,10 @@ show_review_guide() {
 
 show_capture_guide() {
   gtd_show_capture_guide
+}
+
+show_oncall_guide() {
+  gtd_show_oncall_guide
 }
 
 show_process_guide() {

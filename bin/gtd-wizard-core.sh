@@ -70,6 +70,218 @@ GTD_COMPUTER_MODE=\"$mode\"
     # Update current session
     export GTD_COMPUTER_MODE="$mode"
     echo "Computer mode set to: $mode"
+    
+    # Update RabbitMQ and background processing settings in .gtd_config_database
+    local db_config="$HOME/code/dotfiles/zsh/.gtd_config_database"
+    if [[ ! -f "$db_config" ]]; then
+      db_config="$HOME/code/personal/dotfiles/zsh/.gtd_config_database"
+    fi
+    
+    if [[ -f "$db_config" ]]; then
+      local is_macos=""
+      if [[ "$(uname)" == "Darwin" ]]; then
+        is_macos="true"
+      fi
+      
+      if [[ "$mode" == "work" ]]; then
+        # Work mode: Disable RabbitMQ and AI/background processing features
+        echo "  Disabling RabbitMQ and background processing for work mode..."
+        
+        # Disable RabbitMQ
+        if grep -q "^RABBITMQ_ENABLED=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^RABBITMQ_ENABLED=.*/RABBITMQ_ENABLED=false/" "$db_config"
+          else
+            sed -i "s/^RABBITMQ_ENABLED=.*/RABBITMQ_ENABLED=false/" "$db_config"
+          fi
+        else
+          # Add after RABBITMQ_URL line if found, otherwise append
+          if grep -q "^RABBITMQ_URL=" "$db_config" 2>/dev/null; then
+            if [[ -n "$is_macos" ]]; then
+              sed -i '' "/^RABBITMQ_URL=/a\\
+RABBITMQ_ENABLED=false
+" "$db_config"
+            else
+              sed -i "/^RABBITMQ_URL=/a RABBITMQ_ENABLED=false" "$db_config"
+            fi
+          else
+            echo "RABBITMQ_ENABLED=false" >> "$db_config"
+          fi
+        fi
+        
+        # Disable vectorization
+        if grep -q "^GTD_VECTORIZATION_ENABLED=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^GTD_VECTORIZATION_ENABLED=.*/GTD_VECTORIZATION_ENABLED=false/" "$db_config"
+          else
+            sed -i "s/^GTD_VECTORIZATION_ENABLED=.*/GTD_VECTORIZATION_ENABLED=false/" "$db_config"
+          fi
+        fi
+        
+        # Disable auto-vectorization
+        if grep -q "^VECTORIZE_ON_CREATE=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^VECTORIZE_ON_CREATE=.*/VECTORIZE_ON_CREATE=false/" "$db_config"
+          else
+            sed -i "s/^VECTORIZE_ON_CREATE=.*/VECTORIZE_ON_CREATE=false/" "$db_config"
+          fi
+        fi
+        if grep -q "^VECTORIZE_ON_UPDATE=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^VECTORIZE_ON_UPDATE=.*/VECTORIZE_ON_UPDATE=false/" "$db_config"
+          else
+            sed -i "s/^VECTORIZE_ON_UPDATE=.*/VECTORIZE_ON_UPDATE=false/" "$db_config"
+          fi
+        fi
+        
+        # Disable filewatcher
+        if grep -q "^VECTOR_FILEWATCHER_ENABLED=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^VECTOR_FILEWATCHER_ENABLED=.*/VECTOR_FILEWATCHER_ENABLED=false/" "$db_config"
+          else
+            sed -i "s/^VECTOR_FILEWATCHER_ENABLED=.*/VECTOR_FILEWATCHER_ENABLED=false/" "$db_config"
+          fi
+        fi
+        
+        # Disable deep analysis triggers
+        if grep -q "^DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=.*/DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=false/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=.*/DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=false/" "$db_config"
+          fi
+        fi
+        if grep -q "^DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=.*/DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=false/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=.*/DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=false/" "$db_config"
+          fi
+        fi
+        if grep -q "^DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=.*/DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=false/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=.*/DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=false/" "$db_config"
+          fi
+        fi
+        
+        # Disable auto deep analysis scheduling
+        if grep -q "^DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=.*/DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=false/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=.*/DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=false/" "$db_config"
+          fi
+        fi
+        if grep -q "^DEEP_ANALYSIS_AUTO_ENERGY=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_AUTO_ENERGY=.*/DEEP_ANALYSIS_AUTO_ENERGY=false/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_AUTO_ENERGY=.*/DEEP_ANALYSIS_AUTO_ENERGY=false/" "$db_config"
+          fi
+        fi
+        
+        echo "  ✓ RabbitMQ and background processing disabled"
+      else
+        # Home mode: Enable RabbitMQ and AI/background processing features
+        echo "  Enabling RabbitMQ and background processing for home mode..."
+        
+        # Enable RabbitMQ
+        if grep -q "^RABBITMQ_ENABLED=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^RABBITMQ_ENABLED=.*/RABBITMQ_ENABLED=true/" "$db_config"
+          else
+            sed -i "s/^RABBITMQ_ENABLED=.*/RABBITMQ_ENABLED=true/" "$db_config"
+          fi
+        else
+          # Add after RABBITMQ_URL line if found, otherwise append
+          if grep -q "^RABBITMQ_URL=" "$db_config" 2>/dev/null; then
+            if [[ "$(uname)" == "Darwin" ]]; then
+              sed -i '' "/^RABBITMQ_URL=/a\\
+RABBITMQ_ENABLED=true
+" "$db_config"
+            else
+              sed -i "/^RABBITMQ_URL=/a RABBITMQ_ENABLED=true" "$db_config"
+            fi
+          else
+            echo "RABBITMQ_ENABLED=true" >> "$db_config"
+          fi
+        fi
+        
+        # Enable vectorization
+        if grep -q "^GTD_VECTORIZATION_ENABLED=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^GTD_VECTORIZATION_ENABLED=.*/GTD_VECTORIZATION_ENABLED=true/" "$db_config"
+          else
+            sed -i "s/^GTD_VECTORIZATION_ENABLED=.*/GTD_VECTORIZATION_ENABLED=true/" "$db_config"
+          fi
+        fi
+        
+        # Enable auto-vectorization
+        if grep -q "^VECTORIZE_ON_CREATE=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^VECTORIZE_ON_CREATE=.*/VECTORIZE_ON_CREATE=true/" "$db_config"
+          else
+            sed -i "s/^VECTORIZE_ON_CREATE=.*/VECTORIZE_ON_CREATE=true/" "$db_config"
+          fi
+        fi
+        if grep -q "^VECTORIZE_ON_UPDATE=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^VECTORIZE_ON_UPDATE=.*/VECTORIZE_ON_UPDATE=true/" "$db_config"
+          else
+            sed -i "s/^VECTORIZE_ON_UPDATE=.*/VECTORIZE_ON_UPDATE=true/" "$db_config"
+          fi
+        fi
+        
+        # Enable filewatcher (optional, keep current setting)
+        # VECTOR_FILEWATCHER_ENABLED is typically false by default, so we won't force enable it
+        
+        # Enable deep analysis triggers
+        if grep -q "^DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=.*/DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=true/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=.*/DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=true/" "$db_config"
+          fi
+        fi
+        if grep -q "^DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=.*/DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=true/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=.*/DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=true/" "$db_config"
+          fi
+        fi
+        if grep -q "^DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=.*/DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=true/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=.*/DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=true/" "$db_config"
+          fi
+        fi
+        
+        # Enable auto deep analysis scheduling
+        if grep -q "^DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=.*/DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=true/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=.*/DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=true/" "$db_config"
+          fi
+        fi
+        if grep -q "^DEEP_ANALYSIS_AUTO_ENERGY=" "$db_config" 2>/dev/null; then
+          if [[ -n "$is_macos" ]]; then
+            sed -i '' "s/^DEEP_ANALYSIS_AUTO_ENERGY=.*/DEEP_ANALYSIS_AUTO_ENERGY=true/" "$db_config"
+          else
+            sed -i "s/^DEEP_ANALYSIS_AUTO_ENERGY=.*/DEEP_ANALYSIS_AUTO_ENERGY=true/" "$db_config"
+          fi
+        fi
+        
+        echo "  ✓ RabbitMQ and background processing enabled"
+      fi
+    else
+      echo "  Note: .gtd_config_database not found, skipping RabbitMQ/background processing updates"
+    fi
+    
     return 0
   else
     echo "Error: Config file not found: $gtd_config" >&2
@@ -1262,6 +1474,7 @@ show_main_menu() {
   echo -e "${GREEN}7)${NC} 🧠 Sync with Second Brain"
   echo -e "${GREEN}57)${NC} 🔄 Bidirectional Obsidian Sync"
   echo -e "${GREEN}59)${NC} 📊 Enhanced Review System"
+  echo -e "${GREEN}62)${NC} 📝 Review Draft Notes (evergreen insights)"
   echo -e "${GREEN}9)${NC} ✍️  Express Phase (create content from notes)"
   echo -e "${GREEN}10)${NC} 📋 Use Templates"
   echo -e "${GREEN}22)${NC} 🎨 Create diagrams & mindmaps"
@@ -1601,6 +1814,10 @@ main() {
       61)
         award_wizard_xp "wizard_action" "Used wizard: Run Unit Tests"
         test_execution_wizard
+        ;;
+      62)
+        award_wizard_xp "wizard_productive" "Used wizard: Review Draft Notes"
+        review_drafts_wizard
         ;;
       0|"")
         clear
