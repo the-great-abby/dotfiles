@@ -18,18 +18,50 @@ fi
 WORKER_SCRIPT="${MCP_DIR}/gtd_deep_analysis_worker.py"
 
 if [[ ! -f "$WORKER_SCRIPT" ]]; then
-    echo "Error: Worker script not found at $WORKER_SCRIPT"
+    echo "Error: Worker script not found at $WORKER_SCRIPT" >&2
     exit 1
+fi
+
+# Load RabbitMQ URL from config file if not set
+if [[ -z "$GTD_RABBITMQ_URL" ]]; then
+    CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config_database"
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config_database"
+    fi
+    if [[ -f "$CONFIG_FILE" ]]; then
+        # Source the config file to get RABBITMQ_URL
+        source "$CONFIG_FILE" 2>/dev/null || true
+        # Use RABBITMQ_URL if set, otherwise keep default
+        if [[ -n "$RABBITMQ_URL" ]]; then
+            export GTD_RABBITMQ_URL="$RABBITMQ_URL"
+        fi
+    fi
+fi
+
+# Log startup info
+LOG_FILE="/tmp/deep-worker.log"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting deep analysis worker..." >> "$LOG_FILE"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Queue: gtd_deep_analysis" >> "$LOG_FILE"
+if [[ -n "$GTD_RABBITMQ_URL" ]]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] RabbitMQ URL: $GTD_RABBITMQ_URL" >> "$LOG_FILE"
 fi
 
 # Check if processing file queue
 if [[ "$1" == "file" ]]; then
     echo "Processing file queue..."
-    "$PYTHON_CMD" "$WORKER_SCRIPT" file
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Processing file queue..." >> "$LOG_FILE"
+    exec "$PYTHON_CMD" "$WORKER_SCRIPT" file
 else
     echo "Starting deep analysis worker..."
     echo "Queue: gtd_deep_analysis"
+    if [[ -n "$GTD_RABBITMQ_URL" ]]; then
+        echo "RabbitMQ URL: $GTD_RABBITMQ_URL"
+    fi
     echo "Press Ctrl+C to stop"
+    echo "Logs: $LOG_FILE"
     echo ""
-    "$PYTHON_CMD" "$WORKER_SCRIPT"
+    
+    # Run with exec to ensure proper signal handling
+    # Add error logging to stderr (which goes to log file when run with nohup)
+    exec "$PYTHON_CMD" "$WORKER_SCRIPT" 2>&1
 fi

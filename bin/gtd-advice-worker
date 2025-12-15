@@ -1,0 +1,334 @@
+#!/bin/bash
+# Background worker for persona advice requests
+# Processes advice requests from queue and sends Discord notifications when complete
+
+# Source common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+QUEUE_FILE="${HOME}/Documents/gtd/advice_queue.jsonl"
+RESULTS_DIR="${HOME}/Documents/gtd/advice_results"
+RESULTS_DIR="${ADVICE_RESULTS_DIR:-$RESULTS_DIR}"
+
+# Create directories if they don't exist
+mkdir -p "$RESULTS_DIR"
+mkdir -p "$(dirname "$QUEUE_FILE")"
+
+# Find persona helper and gtd-advise
+PERSONA_HELPER=""
+for path in "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py" \
+            "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"; do
+  if [[ -f "$path" ]]; then
+    PERSONA_HELPER="$path"
+    break
+  fi
+done
+
+GTD_ADVISE=""
+for path in "$HOME/code/personal/dotfiles/bin/gtd-advise" \
+            "$HOME/code/dotfiles/bin/gtd-advise"; do
+  if [[ -f "$path" ]]; then
+    GTD_ADVISE="$path"
+    break
+  fi
+done
+
+if [[ -z "$PERSONA_HELPER" ]] || [[ -z "$GTD_ADVISE" ]]; then
+  echo "Error: Required scripts not found" >&2
+  exit 1
+fi
+
+# Python command
+PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+if ! command -v "$PYTHON_CMD" &>/dev/null && [[ ! -f "$PYTHON_CMD" ]]; then
+  PYTHON_CMD="python3"
+fi
+
+# Process a single advice request
+process_advice_request() {
+  local request_json="$1"
+  
+  # Parse request
+  local request_id=$(echo "$request_json" | python3 -c "import sys, json; print(json.load(sys.stdin).get('id', 'unknown'))" 2>/dev/null)
+  local persona=$(echo "$request_json" | python3 -c "import sys, json; print(json.load(sys.stdin).get('persona', 'random'))" 2>/dev/null)
+  local question=$(echo "$request_json" | python3 -c "import sys, json; print(json.load(sys.stdin).get('question', ''))" 2>/dev/null)
+  local mode=$(echo "$request_json" | python3 -c "import sys, json; print(json.load(sys.stdin).get('mode', 'normal'))" 2>/dev/null)
+  local web_search=$(echo "$request_json" | python3 -c "import sys, json; print(json.load(sys.stdin).get('web_search', 'false'))" 2>/dev/null)
+  
+  if [[ -z "$request_id" ]] || [[ -z "$question" ]]; then
+    echo "Error: Invalid request format" >&2
+    return 1
+  fi
+  
+  echo "Processing advice request: $request_id (persona: $persona)"
+  
+  # Result file
+  local result_file="${RESULTS_DIR}/${request_id}.json"
+  local answer_file="${RESULTS_DIR}/${request_id}_answer.txt"
+  
+  # Build gtd-advise command
+  local advise_cmd=""
+  case "$mode" in
+    random)
+      advise_cmd="$GTD_ADVISE --random"
+      ;;
+    simple)
+      if [[ "$web_search" == "true" ]]; then
+        advise_cmd="$GTD_ADVISE --simple --web-search $persona"
+      else
+        advise_cmd="$GTD_ADVISE --simple $persona"
+      fi
+      ;;
+    daily-log)
+      advise_cmd="$GTD_ADVISE --daily-log"
+      persona="daily-log"
+      ;;
+    all)
+      advise_cmd="$GTD_ADVISE --all"
+      ;;
+    *)
+      if [[ "$web_search" == "true" ]]; then
+        # Note: web-search support might need --simple flag
+        advise_cmd="$GTD_ADVISE --simple --web-search $persona"
+      else
+        advise_cmd="$GTD_ADVISE $persona"
+      fi
+      ;;
+  esac
+  
+  # Run advice request and capture output
+  local start_time=$(date +%s)
+  local advice_output
+  local exit_code=0
+  
+  advice_output=$($advise_cmd "$question" 2>&1) || exit_code=$?
+  local end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+  
+  # Get created_at from request
+  local created_at_val=$(echo "$request_json" | python3 -c "import sys, json; print(json.load(sys.stdin).get('created_at', ''))" 2>/dev/null || echo "")
+  [[ -z "$created_at_val" ]] && created_at_val=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  
+  if [[ $exit_code -ne 0 ]]; then
+    echo "Error: Advice request failed (exit code: $exit_code)" >&2
+    # Save error result
+    echo "$request_json" | python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime
+
+request = json.load(sys.stdin)
+question = request.get('question', '')
+advice_output = sys.argv[1]
+request_id = sys.argv[2]
+persona = sys.argv[3]
+mode = sys.argv[4]
+result_file = sys.argv[5]
+duration = int(sys.argv[6])
+created_at = sys.argv[7]
+
+result = {
+    "id": request_id,
+    "status": "error",
+    "persona": persona,
+    "question": question,
+    "mode": mode,
+    "error": advice_output,
+    "created_at": created_at,
+    "completed_at": datetime.utcnow().isoformat() + "Z",
+    "duration_seconds": duration
+}
+
+with open(result_file, "w") as f:
+    json.dump(result, f, indent=2)
+
+print(json.dumps(result))
+PYTHON_EOF
+"$advice_output" "$request_id" "$persona" "$mode" "$result_file" "$duration" "$created_at_val"
+    return 1
+  fi
+  
+  # Save answer to text file for easy reading
+  echo "$advice_output" > "$answer_file"
+  
+  # Save result JSON
+  echo "$request_json" | python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime
+
+request = json.load(sys.stdin)
+question = request.get('question', '')
+answer_text = sys.argv[1]
+request_id = sys.argv[2]
+persona = sys.argv[3]
+mode = sys.argv[4]
+answer_file = sys.argv[5]
+result_file = sys.argv[6]
+created_at = sys.argv[7]
+duration = int(sys.argv[8])
+
+# Create preview (first 200 chars)
+preview = answer_text[:200] + '...' if len(answer_text) > 200 else answer_text
+
+result = {
+    "id": request_id,
+    "status": "completed",
+    "persona": persona,
+    "question": question,
+    "mode": mode,
+    "answer_preview": preview,
+    "answer_file": answer_file,
+    "created_at": created_at,
+    "completed_at": datetime.utcnow().isoformat() + "Z",
+    "duration_seconds": duration
+}
+
+with open(result_file, "w") as f:
+    json.dump(result, f, indent=2)
+
+print(json.dumps(result))
+PYTHON_EOF
+"$advice_output" "$request_id" "$persona" "$mode" "$answer_file" "$result_file" "$created_at_val" "$duration"
+  
+  # Send Discord notification
+  if [[ -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then
+    local persona_display="$persona"
+    [[ "$persona" == "random" ]] && persona_display="Random Persona"
+    [[ "$persona" == "daily-log" ]] && persona_display="Daily Log Review"
+    [[ "$persona" == "all" ]] && persona_display="All Personas"
+    
+    # Create notification
+    local notification_title="🤖 Advice Ready from $persona_display"
+    local answer_preview="${advice_output:0:800}"
+    [[ ${#advice_output} -gt 800 ]] && answer_preview="${answer_preview}..."
+    
+    # Build notification message
+    local notification_message="**Question:** $question
+
+**Answer Preview:**
+$answer_preview
+
+💡 Review in wizard: Option 11 → 6) Review Background Advice"
+    
+    # Send via gtd-notify if available
+    if command -v gtd-notify &>/dev/null; then
+      gtd-notify --discord "$notification_title" "$notification_message" >/dev/null 2>&1 || true
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-notify" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-notify" --discord "$notification_title" "$notification_message" >/dev/null 2>&1 || true
+    else
+      # Fallback: direct Discord send
+      python3 <<PYTHON_EOF
+import json
+import os
+import sys
+import urllib.request
+from datetime import datetime, timezone
+
+webhook_url = os.getenv('GTD_DISCORD_WEBHOOK_URL', '')
+if not webhook_url:
+    sys.exit(0)
+
+title = "$notification_title"
+message = """$notification_message"""
+
+# Discord embed description limit is 2000 characters
+if len(message) > 2000:
+    message = message[:1900] + '\n\n... (truncated)'
+
+payload = {
+    'embeds': [{
+        'title': title,
+        'description': message,
+        'color': 3447003,  # Blue color for advice
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'fields': [
+            {'name': 'Review', 'value': 'gtd-wizard → 11) Get Advice → 6) Review Background Advice', 'inline': False}
+        ]
+    }]
+}
+
+try:
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        webhook_url,
+        data=data,
+        headers={'Content-Type': 'application/json'}
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        pass  # Success
+except Exception:
+    pass  # Fail silently
+PYTHON_EOF
+    fi
+  fi
+  
+  echo "✓ Advice request completed: $request_id"
+  return 0
+}
+
+# Main worker loop
+if [[ "${1:-}" == "process" ]]; then
+  # Process mode - run once and exit
+  shift
+  
+  if [[ -f "$QUEUE_FILE" ]] && [[ -s "$QUEUE_FILE" ]]; then
+    # Read first line (oldest request)
+    local first_line=$(head -n 1 "$QUEUE_FILE")
+    if [[ -n "$first_line" ]]; then
+      process_advice_request "$first_line"
+      # Remove processed line
+      tail -n +2 "$QUEUE_FILE" > "${QUEUE_FILE}.tmp" && mv "${QUEUE_FILE}.tmp" "$QUEUE_FILE"
+    fi
+  fi
+elif [[ "${1:-}" == "status" ]]; then
+  # Status mode
+  local queue_count=0
+  local pending_count=0
+  local completed_count=0
+  
+  if [[ -f "$QUEUE_FILE" ]]; then
+    queue_count=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
+  fi
+  
+  if [[ -d "$RESULTS_DIR" ]]; then
+    completed_count=$(find "$RESULTS_DIR" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+    pending_count=$(find "$RESULTS_DIR" -name "*_answer.txt" -type f 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  echo "Advice Worker Status:"
+  echo "  Queue: $queue_count pending"
+  echo "  Completed: $completed_count results"
+elif [[ "${1:-}" == "daemon" ]] || [[ -z "${1:-}" ]]; then
+  # Daemon mode - run continuously
+  echo "Starting advice worker daemon..."
+  echo "Queue file: $QUEUE_FILE"
+  echo "Results dir: $RESULTS_DIR"
+  echo ""
+  echo "Press Ctrl+C to stop"
+  echo ""
+  
+  while true; do
+    if [[ -f "$QUEUE_FILE" ]] && [[ -s "$QUEUE_FILE" ]]; then
+      local first_line=$(head -n 1 "$QUEUE_FILE")
+      if [[ -n "$first_line" ]]; then
+        process_advice_request "$first_line"
+        # Remove processed line
+        tail -n +2 "$QUEUE_FILE" > "${QUEUE_FILE}.tmp" && mv "${QUEUE_FILE}.tmp" "$QUEUE_FILE"
+      fi
+    fi
+    sleep 5  # Check every 5 seconds
+  done
+else
+  echo "Usage: $0 [daemon|process|status]"
+  echo ""
+  echo "  daemon  - Run continuously (default)"
+  echo "  process - Process one request and exit"
+  echo "  status  - Show queue and result status"
+  exit 1
+fi

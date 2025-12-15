@@ -35,42 +35,53 @@ except (ImportError, Exception):
     GTD_CONFIG = {}
 
 # Always read DEEP_MODEL_TIMEOUT from config files (gtd_persona_helper might not include it)
-    config_paths = [
-        Path.home() / ".gtd_config_ai",
-        Path.home() / ".gtd_config",
-        Path.home() / ".daily_log_config",
-        Path(__file__).parent.parent / "zsh" / ".gtd_config_ai",
-        Path(__file__).parent.parent / "zsh" / ".gtd_config",
-    ]
-    for config_path in config_paths:
-        if config_path.exists():
-            with open(config_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        key = key.strip()
-                        value = value.strip().strip('"').strip("'")
-                        # Remove variable expansion syntax like ${VAR:-default}
-                        if value.startswith("${") and ":-" in value:
-                            value = value.split(":-", 1)[1].rstrip("}")
+config_paths = [
+    Path.home() / ".gtd_config_ai",
+    Path.home() / ".gtd_config",
+    Path.home() / ".daily_log_config",
+    Path(__file__).parent.parent / "zsh" / ".gtd_config_ai",
+    Path(__file__).parent.parent / "zsh" / ".gtd_config",
+]
+for config_path in config_paths:
+    if config_path.exists():
+        with open(config_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    # Remove variable expansion syntax like ${VAR:-default}
+                    if value.startswith("${") and ":-" in value:
+                        value = value.split(":-", 1)[1].rstrip("}")
+                    
+                    # Process the key-value pair
                     if key == "LM_STUDIO_URL" and "url" not in GTD_CONFIG:
-                            GTD_CONFIG["url"] = value
+                        GTD_CONFIG["url"] = value
                     elif key == "GTD_DEEP_MODEL_NAME" and "deep_model_name" not in GTD_CONFIG:
-                            GTD_CONFIG["deep_model_name"] = value
+                        GTD_CONFIG["deep_model_name"] = value
                     elif key == "DEEP_MODEL_TIMEOUT" or key == "LM_STUDIO_TIMEOUT":
-                        # Always read timeout, override if already set
+                        # Always read timeout, override if already set (later files override earlier ones)
                         try:
-                            GTD_CONFIG["deep_model_timeout"] = int(value)
+                            timeout_val = int(value)
+                            GTD_CONFIG["deep_model_timeout"] = timeout_val
+                            if os.getenv("GTD_DEBUG"):
+                                print(f"DEBUG: Read DEEP_MODEL_TIMEOUT={timeout_val} from {config_path}", file=sys.stderr)
+                        except ValueError:
+                            pass
+                    elif key == "DEEP_ANALYSIS_MAX_TOKENS" or key == "WEEKLY_REVIEW_MAX_TOKENS":
+                        # Read max tokens for deep analysis
+                        try:
+                            GTD_CONFIG["deep_analysis_max_tokens"] = int(value)
                         except ValueError:
                             pass
                     elif key == "TIMEOUT" and "deep_model_timeout" not in GTD_CONFIG:
                         # Only use TIMEOUT if DEEP_MODEL_TIMEOUT wasn't found
-                            try:
-                                GTD_CONFIG["deep_model_timeout"] = int(value)
-                            except ValueError:
-                                pass
-            # Don't break - read from all config files, later ones override earlier ones
+                        try:
+                            GTD_CONFIG["deep_model_timeout"] = int(value)
+                        except ValueError:
+                            pass
+        # Don't break - read from all config files, later ones override earlier ones
 
 DEEP_MODEL_URL = os.getenv("GTD_DEEP_MODEL_URL", GTD_CONFIG.get("url", "http://localhost:1234/v1/chat/completions"))
 # Get model name from env var, then config, then default
@@ -204,11 +215,6 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
     }
     
     data = json.dumps(payload).encode('utf-8')
-    req = urllib.request.Request(
-        DEEP_MODEL_URL,
-        data=data,
-        headers={'Content-Type': 'application/json'}
-    )
     
     # Longer timeout for deep analysis
     # Thinking models may need more time for their reasoning phase
@@ -228,7 +234,7 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
     elif GTD_CONFIG.get("deep_model_timeout"):
         try:
             base_timeout = int(GTD_CONFIG.get("deep_model_timeout"))
-            timeout_source = "config"
+            timeout_source = f"config ({GTD_CONFIG.get('deep_model_timeout')})"
         except (ValueError, TypeError):
             pass
     elif GTD_CONFIG.get("timeout"):
@@ -238,26 +244,67 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
         except (ValueError, TypeError):
             pass
     
+    # Debug: Print what we found
+    if os.getenv("GTD_DEBUG"):
+        print(f"DEBUG: Timeout resolution - base_timeout={base_timeout}, source={timeout_source}, GTD_CONFIG keys={list(GTD_CONFIG.keys())}", file=sys.stderr)
+        print(f"DEBUG: GTD_CONFIG['deep_model_timeout']={GTD_CONFIG.get('deep_model_timeout')}", file=sys.stderr)
+    
     # Thinking models get extra time (they do internal reasoning)
-    # But don't double if timeout is already high (config should account for thinking models)
-    if is_thinking_model and base_timeout < 300:
-        # Only double if timeout is still low (user hasn't configured for thinking models)
-        timeout = base_timeout * 2
+    # For thinking models, ensure minimum timeout of 300s unless user configured higher
+    if is_thinking_model:
+        if base_timeout < 300:
+            # User hasn't configured for thinking models - use minimum 300s
+            timeout = 300
+            print(f"⚠️  Thinking model detected but timeout ({base_timeout}s) is low. Using minimum 300s for thinking models.", file=sys.stderr)
+        else:
+            # User has configured appropriately - use their value
+            timeout = base_timeout
     else:
-        # Use configured timeout as-is (user has already accounted for thinking models)
+        # Regular model - use configured timeout
         timeout = base_timeout
     
-    # Debug: Log timeout being used (can be removed later)
-    import logging
-    logging.debug(f"Using timeout: {timeout}s (base: {base_timeout}s, source: {timeout_source}, thinking_model: {is_thinking_model})")
+    # Log timeout being used (for debugging)
+    print(f"🔧 Deep AI Timeout: {timeout}s (base: {base_timeout}s, source: {timeout_source}, thinking_model: {is_thinking_model})", file=sys.stderr)
+    
+    # Helper function to make the actual request
+    def _make_request(request_data: bytes, timeout_val: int):
+        req = urllib.request.Request(
+            DEEP_MODEL_URL,
+            data=request_data,
+            headers={'Content-Type': 'application/json'}
+        )
+        return urllib.request.urlopen(req, timeout=timeout_val)
     
     # Try the primary model first
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with _make_request(data, timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             if 'error' in result:
                 error_msg = result['error'].get('message', 'Unknown error')
                 error_type = result['error'].get('type', 'unknown')
+                # Check if model is unloaded - wait and retry once
+                if 'model unloaded' in error_msg.lower() or 'unloaded' in error_msg.lower():
+                    # Check if model exists in available models
+                    model_exists = _load_model(actual_model_name, DEEP_MODEL_URL)
+                    if model_exists:
+                        # Model exists but isn't loaded - wait a moment and retry once
+                        # (User might be loading it, or we're giving it time to auto-load)
+                        time.sleep(3)
+                        # Retry the original request
+                        try:
+                            with _make_request(data, timeout) as retry_response:
+                                retry_result = json.loads(retry_response.read().decode('utf-8'))
+                                if 'error' not in retry_result and 'choices' in retry_result and len(retry_result['choices']) > 0:
+                                    content = retry_result['choices'][0]['message']['content']
+                                    finish_reason = retry_result['choices'][0].get('finish_reason', '')
+                                    if finish_reason == 'length':
+                                        content += "\n\n[Note: Response was truncated due to token limit.]"
+                                    return content
+                        except Exception as retry_e:
+                            # Retry failed - model still not loaded
+                            pass
+                    # If retry failed or model doesn't exist, return helpful error
+                    return f"Model '{actual_model_name}' is not loaded in LM Studio.\n\nPlease:\n1. Open LM Studio\n2. Go to the 'Chat' or 'Models' tab\n3. Select '{actual_model_name}' and click 'Load'\n4. Wait for the model to finish loading\n5. Try again\n\nAvailable models: {', '.join(available_models[:5]) if available_models else 'None found'}"
                 # Check if it's a resource/loading error - try fallback models
                 if 'insufficient system resources' in error_msg.lower() or 'model loading' in error_msg.lower():
                     return _try_fallback_models(prompt, system_prompt, max_tokens, available_models, actual_model_name, error_msg)
@@ -277,6 +324,23 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
             error_body = e.read().decode('utf-8')
             error_json = json.loads(error_body)
             error_msg = error_json.get('error', {}).get('message', error_body)
+            # Check if model is unloaded - wait and retry once
+            if ('model unloaded' in error_msg.lower() or 'unloaded' in error_msg.lower()) and e.code == 400:
+                # Check if model exists in available models
+                model_exists = _load_model(actual_model_name, DEEP_MODEL_URL)
+                if model_exists:
+                    # Model exists but isn't loaded - wait and retry once
+                    time.sleep(3)
+                    try:
+                        with _make_request(data, timeout) as retry_response:
+                            retry_result = json.loads(retry_response.read().decode('utf-8'))
+                            if 'error' not in retry_result and 'choices' in retry_result and len(retry_result['choices']) > 0:
+                                return retry_result['choices'][0]['message']['content']
+                    except Exception:
+                        # Retry failed - model still not loaded, try fallback models
+                        pass
+                # If retry failed or model doesn't exist, try fallback models
+                return _try_fallback_models(prompt, system_prompt, max_tokens, available_models, actual_model_name, f"Model unloaded: {error_msg}")
             # Check if it's a resource/loading error - try fallback models
             if 'insufficient system resources' in error_msg.lower() or 'model loading' in error_msg.lower() or e.code == 400:
                 return _try_fallback_models(prompt, system_prompt, max_tokens, available_models, actual_model_name, error_msg)
@@ -288,16 +352,42 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
         if "timed out" in str(e).lower() or "timeout" in str(e).lower():
             timeout_msg = f"timed out after {timeout}s"
             suggestion = ""
+            
+            # Check if model is actually loaded (not just available)
+            model_loaded = False
+            try:
+                check_req = urllib.request.Request(
+                    f"{DEEP_MODEL_URL.rsplit('/v1', 1)[0]}/v1/models",
+                    headers={'Content-Type': 'application/json'}
+                )
+                with urllib.request.urlopen(check_req, timeout=5) as check_resp:
+                    check_data = json.loads(check_resp.read().decode('utf-8'))
+                    loaded_models = [m.get('id', '') for m in check_data.get('data', [])]
+                    # Check if our model is in the loaded list
+                    for loaded_model in loaded_models:
+                        if actual_model_name in loaded_model or loaded_model in actual_model_name:
+                            model_loaded = True
+                            break
+            except:
+                pass  # Can't check, assume not loaded
+            
             if is_thinking_model:
-                suggestion = f"\n\nThinking models like '{actual_model_name}' may need more time for their reasoning phase. Consider:\n"
-                suggestion += f"1. Increase timeout in config: Add 'DEEP_MODEL_TIMEOUT=\"300\"' to your .gtd_config_ai\n"
-                suggestion += f"2. Check if model is loaded and responding: curl {DEEP_MODEL_URL.rsplit('/v1', 1)[0]}/v1/models\n"
-                suggestion += f"3. Try a smaller model or reduce max_tokens in the request"
+                suggestion = f"\n\nThinking models like '{actual_model_name}' may need more time for their reasoning phase."
+                if not model_loaded:
+                    suggestion += f"\n⚠️  Model may not be loaded in LM Studio."
+                suggestion += f"\n\nConsider:\n"
+                suggestion += f"1. Check if model is loaded: Open LM Studio → Chat tab → Verify '{actual_model_name}' is loaded\n"
+                suggestion += f"2. Increase timeout: Add 'DEEP_MODEL_TIMEOUT=\"300\"' to your .gtd_config_ai\n"
+                suggestion += f"3. Check model status: curl {DEEP_MODEL_URL.rsplit('/v1', 1)[0]}/v1/models\n"
+                suggestion += f"4. Try a smaller model or reduce max_tokens"
             else:
                 suggestion = f"\n\nConsider:\n"
-                suggestion += f"1. Increase timeout: Add 'DEEP_MODEL_TIMEOUT=\"180\"' to your .gtd_config_ai\n"
-                suggestion += f"2. Check if model is loaded in LM Studio\n"
-                suggestion += f"3. The model may be processing - try again later"
+                if not model_loaded:
+                    suggestion += f"1. ⚠️  Model may not be loaded: Open LM Studio → Chat tab → Load '{actual_model_name}'\n"
+                else:
+                    suggestion += f"1. Model appears loaded but timed out - may be processing or stuck\n"
+                suggestion += f"2. Increase timeout: Add 'DEEP_MODEL_TIMEOUT=\"180\"' to your .gtd_config_ai\n"
+                suggestion += f"3. Check LM Studio server status\n"
             return f"Error calling deep AI: {timeout_msg}. Model: {actual_model_name}, URL: {DEEP_MODEL_URL}{suggestion}"
         return f"Error connecting to AI: {e}. Check that LM Studio is running at {DEEP_MODEL_URL}"
     except Exception as e:
@@ -309,6 +399,55 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
                 suggestion = f"\n\nThinking models need more time. Increase DEEP_MODEL_TIMEOUT in config."
             return f"Error calling deep AI: {timeout_msg}. Model: {actual_model_name}, URL: {DEEP_MODEL_URL}{suggestion}"
         return f"Error calling deep AI: {e}. Model: {actual_model_name}, URL: {DEEP_MODEL_URL}"
+
+
+def _load_model(model_name: str, base_url: str) -> bool:
+    """
+    Check if a model can be loaded and wait for it to become available.
+    Returns True if model appears to be available, False otherwise.
+    
+    Note: LM Studio doesn't have a direct API endpoint for loading models programmatically.
+    Models must be loaded through the LM Studio UI. This function:
+    1. Checks if the model exists in available models
+    2. Waits a bit for it to potentially be loaded
+    3. Returns True if model exists (allowing retry), False otherwise
+    """
+    import urllib.request
+    import urllib.error
+    
+    try:
+        # Check available models
+        base_api_url = base_url.rsplit('/v1', 1)[0]
+        models_req = urllib.request.Request(
+            f"{base_api_url}/v1/models",
+            headers={'Content-Type': 'application/json'}
+        )
+        with urllib.request.urlopen(models_req, timeout=5) as models_resp:
+            models_data = json.loads(models_resp.read().decode('utf-8'))
+            available_models = [m.get('id', '') for m in models_data.get('data', [])]
+            
+            # Check if model exists (either exact match or partial)
+            model_found = False
+            if model_name in available_models:
+                model_found = True
+            else:
+                # Try partial match
+                for available_model in available_models:
+                    if model_name in available_model or available_model in model_name:
+                        model_found = True
+                        break
+            
+            if model_found:
+                # Model exists - wait a moment in case user is loading it
+                # then return True to allow retry
+                time.sleep(3)
+                return True
+            else:
+                # Model doesn't exist in available models
+                return False
+    except Exception:
+        # If we can't check, return False (don't retry)
+        return False
 
 
 def _try_fallback_models(prompt: str, system_prompt: str, max_tokens: int, available_models: list, failed_model: str, original_error: str) -> str:
@@ -397,10 +536,12 @@ def _try_fallback_models(prompt: str, system_prompt: str, max_tokens: int, avail
 
 def read_daily_log(date: str) -> str:
     """Read a daily log file."""
-    log_file = DAILY_LOG_DIR / f"{date}.txt"
-    if log_file.exists():
-        with open(log_file, 'r') as f:
-            return f.read()
+    # Try both .md and .txt extensions
+    for ext in [".md", ".txt"]:
+        log_file = DAILY_LOG_DIR / f"{date}{ext}"
+        if log_file.exists():
+            with open(log_file, 'r') as f:
+                return f.read()
     return ""
 
 
@@ -461,7 +602,21 @@ Provide a structured, comprehensive analysis. Be specific, reference actual entr
     
     system_prompt = f"""You are a deep thinking productivity analyst helping {USER_NAME} understand their patterns and optimize their work. You provide comprehensive, insightful analysis."""
     
-    analysis = call_deep_ai(prompt, system_prompt, max_tokens=3000)
+    # Get max_tokens from config or use default (higher for weekly reviews)
+    # Weekly reviews need more tokens for comprehensive analysis
+    weekly_max_tokens = 6000  # Increased from 3000 to 6000 for comprehensive weekly reviews
+    if os.getenv("DEEP_ANALYSIS_MAX_TOKENS") or os.getenv("WEEKLY_REVIEW_MAX_TOKENS"):
+        try:
+            weekly_max_tokens = int(os.getenv("DEEP_ANALYSIS_MAX_TOKENS") or os.getenv("WEEKLY_REVIEW_MAX_TOKENS"))
+        except (ValueError, TypeError):
+            pass
+    elif GTD_CONFIG.get("deep_analysis_max_tokens") or GTD_CONFIG.get("weekly_review_max_tokens"):
+        try:
+            weekly_max_tokens = int(GTD_CONFIG.get("deep_analysis_max_tokens") or GTD_CONFIG.get("weekly_review_max_tokens"))
+        except (ValueError, TypeError):
+            pass
+    
+    analysis = call_deep_ai(prompt, system_prompt, max_tokens=weekly_max_tokens)
     
     result = {
         "type": "weekly_review",
@@ -629,7 +784,9 @@ def send_discord_notification_for_result(analysis_type: str, result: Dict[str, A
             "weekly_review": "Weekly Review",
             "analyze_energy": "Energy Analysis",
             "find_connections": "Task Connections",
-            "generate_insights": "Insights Generation"
+            "generate_insights": "Insights Generation",
+            "morning_review": "Morning Check-In Analysis",
+            "evening_review": "Evening Check-In Analysis"
         }
         type_display = type_names.get(analysis_type, analysis_type.replace("_", " ").title())
         
@@ -652,8 +809,21 @@ def send_discord_notification_for_result(analysis_type: str, result: Dict[str, A
             if "days" in result:
                 description += f"**Days Analyzed:** {result['days']}\n"
             
+            # Add analysis preview for morning/evening reviews
+            if analysis_type in ["morning_review", "evening_review"]:
+                if "analysis" in result:
+                    preview = result["analysis"][:500]
+                    if len(result["analysis"]) > 500:
+                        preview += "..."
+                    description += f"\n**Preview:**\n{preview}\n"
+            
             description += f"\n📁 **Result File:** `{result_file}`\n"
-            description += f"💡 **View:** `open {result_file}` or `cat {result_file}`\n"
+            
+            # Add review location hint for check-in reviews
+            if analysis_type in ["morning_review", "evening_review"]:
+                description += f"💡 **Review:** gtd-wizard → 19) Morning/Evening Check-In → 3) Review Background Analysis Results\n"
+            else:
+                description += f"💡 **View:** `open {result_file}` or `cat {result_file}`\n"
             description += f"🔗 **Review:** Run `gtd-wizard` → AI Suggestions → Review recent analysis"
             
             # Add preview of analysis (first 500 chars if available)
@@ -787,13 +957,16 @@ def send_local_notification_for_result(analysis_type: str, result: Dict[str, Any
 
 
 def auto_scan_and_create_suggestions(result_file: Path, analysis_type: str):
-    """Automatically scan a result file and create suggestions from it."""
+    """Automatically scan a result file and create suggestions from it.
+    
+    Queues the suggestion extraction to the deep worker instead of processing synchronously.
+    """
     try:
         # Import here to avoid circular dependencies
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
         
-        from gtd_mcp_server import scan_analysis_results_for_suggestions
+        from gtd_mcp_server import queue_deep_analysis
         
         # Read the result file
         with open(result_file) as f:
@@ -804,24 +977,303 @@ def auto_scan_and_create_suggestions(result_file: Path, analysis_type: str):
         if analysis_type not in [t.strip() for t in auto_scan_types]:
             return
         
-        # Scan just this one file's results
-        # We'll use a temporary approach: scan results from the last hour
+        # Queue suggestion extraction to deep worker (using thinking model)
+        # This ensures we use the deep model instead of the fast model
         cutoff = datetime.now() - timedelta(hours=1)
         if result_file.stat().st_mtime >= cutoff.timestamp():
             # Extract suggestions from this specific result
             analysis_content = result_data.get("analysis") or result_data.get("insights", "")
             if analysis_content and "error" not in result_data:
-                from gtd_mcp_server import extract_suggestions_from_analysis, save_suggestion
+                context = {
+                    "source_file": str(result_file),
+                    "analysis_type": analysis_type,
+                    "analysis_content": analysis_content[:8000],  # Limit for queue
+                    "full_content_length": len(analysis_content)
+                }
                 
-                suggestions = extract_suggestions_from_analysis(analysis_type, analysis_content, result_file)
-                for suggestion_data in suggestions:
-                    save_suggestion(suggestion_data)
-                
-                if suggestions:
-                    print(f"✅ Created {len(suggestions)} suggestion(s) from {analysis_type}")
+                # Queue to deep worker
+                status = queue_deep_analysis("extract_suggestions", context)
+                if "queued" in status:
+                    print(f"✅ Queued suggestion extraction from {analysis_type} (using deep worker)")
     except Exception as e:
         # Silently fail - don't break result saving if auto-scan fails
         print(f"Auto-scan failed (non-critical): {e}")
+
+
+def analyze_morning_review(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyze morning check-in for insights and recommendations."""
+    check_in_date = context.get("date", datetime.now().strftime("%Y-%m-%d"))
+    scan_days = context.get("scan_days", 7)
+    
+    # Read today's log and recent logs for context
+    today_log = read_daily_log(check_in_date)
+    recent_logs = read_recent_logs(scan_days)
+    
+    prompt = f"""Analyze {USER_NAME}'s morning check-in for {check_in_date} and provide insights.
+
+Today's Morning Check-In:
+{today_log[:2000] if today_log else "No log found for today"}
+
+Recent Context (last {scan_days} days):
+{chr(10).join([f"{log['date']}: {log['content'][:400]}..." for log in recent_logs[:3]])}
+
+Provide analysis and recommendations:
+1. **Mood & Energy**: How are they starting their day? Any patterns?
+2. **Priorities Assessment**: Are their priorities realistic and well-chosen?
+3. **Potential Issues**: What blockers or challenges should they watch for?
+4. **Productivity Tips**: Suggestions for making today more productive
+5. **Encouragement**: Positive reinforcement based on their recent progress
+
+Be supportive, practical, and specific. Reference their actual check-in content."""
+    
+    system_prompt = f"You are a morning coach helping {USER_NAME} start their day with intention and awareness."
+    
+    analysis = call_deep_ai(prompt, system_prompt, max_tokens=2500)
+    
+    result = {
+        "type": "morning_review",
+        "date": check_in_date,
+        "analysis": analysis,
+        "log_content_length": len(today_log) if today_log else 0,
+        "recent_logs_context": len(recent_logs),
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    return result
+
+
+def extract_suggestions_from_analysis_deep(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract actionable suggestions from analysis content using the deep thinking model.
+    
+    This is called by the deep analysis worker to process suggestion extraction jobs
+    that were queued from scan_analysis_results_for_suggestions.
+    """
+    source_file_str = context.get("source_file", "")
+    analysis_type = context.get("analysis_type", "unknown")
+    analysis_content = context.get("analysis_content", "")
+    full_content_length = context.get("full_content_length", len(analysis_content))
+    
+    if not analysis_content:
+        return {
+            "type": "extract_suggestions",
+            "success": False,
+            "error": "No analysis content provided",
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    # If content was truncated, note it in the prompt
+    content_note = ""
+    if full_content_length > len(analysis_content):
+        content_note = f"\n\nNote: Analysis content was truncated from {full_content_length} to {len(analysis_content)} characters for processing."
+    
+    # Build extraction prompt (similar to the one in gtd_mcp_server but optimized for deep model)
+    if analysis_type == "weekly_review":
+        extraction_guidance = """
+Look especially for:
+- Action items from "Next Week Priorities" sections
+- Specific recommendations from "Suggestions" sections
+- Improvement ideas from "Challenges & Blockers" sections
+- Priority tasks mentioned in numbered lists (e.g., "1. Task Prioritization - Immediately!")
+- Concrete actions from "Actionable Suggestions" sections
+- Any bold or numbered action items
+
+Even if the analysis is strategic/advice-oriented, extract the concrete actions mentioned."""
+    else:
+        extraction_guidance = """
+Look for:
+- Specific tasks mentioned (e.g., "Document cluster setup process", "Set up Kubernetes cluster")
+- Project ideas (e.g., "Create a Kubernetes Development project", "Group related tasks into a project")
+- Zettel/note ideas (e.g., "Create a note about Kubernetes architecture patterns", "Document the connection between tasks")
+- MOC ideas (e.g., "Create a MOC for Kubernetes learning", "Organize notes into a Kubernetes MOC")
+- Organizational improvements"""
+    
+    prompt = f"""You are analyzing a {analysis_type} analysis that was generated for a GTD (Getting Things Done) system.
+
+Analysis Content:
+{analysis_content}{content_note}
+
+Your task: Extract SPECIFIC, ACTIONABLE suggestions that can become tasks, projects, zettels (atomic notes), or MOCs (Maps of Content).
+
+{extraction_guidance}
+
+For each suggestion, determine:
+1. Item type: "task", "project", "zettel", or "moc"
+2. A clear, actionable title (be specific - not "review findings")
+3. A reason that references specific parts of the analysis
+4. Suggested project/area/MOC (if applicable - e.g., "Kubernetes Development", "Career Development", "Kubernetes Learning MOC")
+5. A confidence score (0.0-1.0)
+
+IMPORTANT: 
+- Extract actual actionable items from the analysis, even from strategic/advice sections
+- Convert recommendations into actionable tasks (e.g., "Dedicate 30-60 minutes to prioritize" becomes "Prioritize next 3-5 tasks in GTD system")
+- Reference specific findings, patterns, or recommendations from the analysis
+- Make titles specific and actionable (e.g., "Create Kubernetes Development project" not "Review Kubernetes tasks")
+- CRITICAL: Keep titles COMPLETE - DO NOT truncate titles even if they are long. Include the full actionable phrase.
+- Remove any markdown formatting from titles (no **, *, `, #, etc.) but keep the full meaning
+- Each title should be a complete, actionable task or project idea - include the full thought, not a fragment
+- For weekly reviews: Look for numbered lists, bold action items, and "Next Week Priorities" sections
+
+Return ONLY a JSON array in this exact format:
+[
+  {{
+    "type": "task|project|zettel|moc",
+    "title": "Specific actionable title",
+    "reason": "Specific reason referencing the analysis findings",
+    "suggested_project": "Project name or empty string",
+    "suggested_area": "Area name or empty string",
+    "suggested_moc": "MOC name or empty string",
+    "confidence": 0.8
+  }}
+]
+
+Determine the type based on:
+- "task": Single actionable item that can be done
+- "project": Multiple related tasks that should be grouped together
+- "zettel": Atomic note/idea to capture knowledge
+- "moc": Map of Content to organize multiple related notes
+
+Return ONLY the JSON array, no other text."""
+    
+    system_prompt = f"You are a GTD (Getting Things Done) expert helping {USER_NAME} extract actionable suggestions from analysis results. You understand task management, project organization, and knowledge management systems."
+    
+    try:
+        # Use deep model to extract suggestions
+        response = call_deep_ai(prompt, system_prompt, max_tokens=4000)
+        
+        if response.startswith("Error:"):
+            return {
+                "type": "extract_suggestions",
+                "success": False,
+                "error": response,
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        # Parse JSON response
+        import re
+        response_clean = response.strip()
+        
+        # Remove markdown code blocks
+        if response_clean.startswith("```"):
+            response_clean = re.sub(r'^```(?:json)?\s*\n', '', response_clean)
+            response_clean = re.sub(r'\n```\s*$', '', response_clean)
+        
+        # Try to find JSON array in response
+        json_match = re.search(r'\[[\s\S]*\]', response_clean)
+        if json_match:
+            try:
+                suggestions_data = json.loads(json_match.group())
+            except json.JSONDecodeError:
+                # Try to fix common JSON issues
+                json_str = json_match.group()
+                json_str = re.sub(r',\s*}', '}', json_str)
+                json_str = re.sub(r',\s*]', ']', json_str)
+                suggestions_data = json.loads(json_str)
+        else:
+            suggestions_data = json.loads(response_clean)
+        
+        # Import suggestion saving functions
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from gtd_mcp_server import save_suggestion, clean_suggestion_title, clean_suggestion_reason, is_valid_ai_suggestion
+        
+        # Convert to suggestion format and save
+        created_suggestions = []
+        for item in suggestions_data:
+            if isinstance(item, dict) and "title" in item:
+                title = clean_suggestion_title(item["title"])
+                reason = clean_suggestion_reason(item.get("reason", f"Extracted from {analysis_type} analysis"))
+                
+                # Validate the suggestion
+                if not is_valid_ai_suggestion(title, reason):
+                    continue
+                
+                # Determine item type
+                item_type = item.get("type", "task").lower()
+                if item_type not in ["task", "project", "zettel", "moc"]:
+                    item_type = "task"
+                
+                suggestion = {
+                    "title": title,
+                    "reason": reason,
+                    "item_type": item_type,
+                    "suggested_project": item.get("suggested_project", "").strip(),
+                    "suggested_area": item.get("suggested_area", "").strip(),
+                    "suggested_moc": item.get("suggested_moc", "").strip(),
+                    "confidence": float(item.get("confidence", 0.7)),
+                    "status": "pending",
+                    "source": f"analysis_{analysis_type}",
+                    "source_file": Path(source_file_str).name if source_file_str else "",
+                    "analysis_type": analysis_type
+                }
+                
+                suggestion_id = save_suggestion(suggestion)
+                created_suggestions.append({
+                    "id": suggestion_id,
+                    "title": title,
+                    "type": item_type
+                })
+        
+        return {
+            "type": "extract_suggestions",
+            "success": True,
+            "source_file": Path(source_file_str).name if source_file_str else "",
+            "analysis_type": analysis_type,
+            "suggestions_created": len(created_suggestions),
+            "suggestions": created_suggestions,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        import traceback
+        return {
+            "type": "extract_suggestions",
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "timestamp": datetime.now().isoformat()
+        }
+
+
+def analyze_evening_review(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyze evening check-in for insights and reflections."""
+    check_in_date = context.get("date", datetime.now().strftime("%Y-%m-%d"))
+    scan_days = context.get("scan_days", 7)
+    
+    # Read today's log and recent logs for context
+    today_log = read_daily_log(check_in_date)
+    recent_logs = read_recent_logs(scan_days)
+    
+    prompt = f"""Analyze {USER_NAME}'s evening check-in for {check_in_date} and provide reflections.
+
+Today's Evening Check-In:
+{today_log[:2000] if today_log else "No log found for today"}
+
+Recent Context (last {scan_days} days):
+{chr(10).join([f"{log['date']}: {log['content'][:400]}..." for log in recent_logs[:3]])}
+
+Provide analysis and insights:
+1. **Accomplishments**: Celebrate what they achieved today
+2. **Patterns**: What patterns do you notice in their reflections?
+3. **Growth Areas**: What could be improved? (gentle feedback)
+4. **Tomorrow Preparation**: Suggestions for making tomorrow better
+5. **Positive Reinforcement**: Acknowledge their efforts and progress
+
+Be supportive, reflective, and constructive. Reference their actual check-in content."""
+    
+    system_prompt = f"You are an evening reflection coach helping {USER_NAME} learn from their day and prepare for tomorrow."
+    
+    analysis = call_deep_ai(prompt, system_prompt, max_tokens=2500)
+    
+    result = {
+        "type": "evening_review",
+        "date": check_in_date,
+        "analysis": analysis,
+        "log_content_length": len(today_log) if today_log else 0,
+        "recent_logs_context": len(recent_logs),
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    return result
 
 
 def process_analysis_request(message: Dict[str, Any]) -> Dict[str, Any]:
@@ -838,30 +1290,46 @@ def process_analysis_request(message: Dict[str, Any]) -> Dict[str, Any]:
             result = find_connections(context)
         elif analysis_type == "generate_insights":
             result = generate_insights(context)
+        elif analysis_type == "morning_review":
+            result = analyze_morning_review(context)
+        elif analysis_type == "evening_review":
+            result = analyze_evening_review(context)
+        elif analysis_type == "extract_suggestions":
+            result = extract_suggestions_from_analysis_deep(context)
         else:
             result = {
                 "error": f"Unknown analysis type: {analysis_type}",
                 "timestamp": datetime.now().isoformat()
             }
         
-        # Save result
-        result_file = RESULT_DIR / f"{analysis_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(result_file, 'w') as f:
-            json.dump(result, f, indent=2)
-        
-        # Send Discord notification
-        send_discord_notification_for_result(analysis_type, result, result_file)
-        
-        # Send macOS/local notification
-        send_local_notification_for_result(analysis_type, result, result_file)
-        
-        # Optionally auto-scan and create suggestions
-        auto_scan_enabled = os.getenv("DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS", "false").lower() == "true"
-        if auto_scan_enabled:
-            try:
-                auto_scan_and_create_suggestions(result_file, analysis_type)
-            except Exception as e:
-                print(f"Auto-scan failed (non-critical): {e}")
+        # Save result (for extract_suggestions, we save a summary, not the full result)
+        if analysis_type == "extract_suggestions":
+            # For suggestion extraction, just log the result
+            if result.get("success"):
+                print(f"✅ Extracted {result.get('suggestions_created', 0)} suggestion(s) from {result.get('source_file', 'unknown')}")
+            else:
+                print(f"⚠️  Suggestion extraction failed: {result.get('error', 'Unknown error')}")
+            # Don't save result file or send notifications for suggestion extraction
+            # (it's a background task that creates suggestions, not a main analysis result)
+        else:
+            # Save result for other analysis types
+            result_file = RESULT_DIR / f"{analysis_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(result_file, 'w') as f:
+                json.dump(result, f, indent=2)
+            
+            # Send Discord notification
+            send_discord_notification_for_result(analysis_type, result, result_file)
+            
+            # Send macOS/local notification
+            send_local_notification_for_result(analysis_type, result, result_file)
+            
+            # Optionally auto-scan and create suggestions
+            auto_scan_enabled = os.getenv("DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS", "false").lower() == "true"
+            if auto_scan_enabled:
+                try:
+                    auto_scan_and_create_suggestions(result_file, analysis_type)
+                except Exception as e:
+                    print(f"Auto-scan failed (non-critical): {e}")
         
         return result
     
@@ -878,35 +1346,246 @@ def process_analysis_request(message: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def process_rabbitmq_queue():
-    """Process messages from RabbitMQ queue."""
+    """Process messages from RabbitMQ queue with automatic reconnection."""
     if not RABBITMQ_AVAILABLE:
         print("RabbitMQ not available. Install with: pip install pika")
         return
     
-    connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
-    channel = connection.channel()
-    channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
+    max_retries = 5
+    retry_delay = 15  # seconds between reconnection attempts (increased to avoid rate limiting)
     
-    def callback(ch, method, properties, body):
+    retry_count = 0
+    while retry_count < max_retries:
         try:
-            message = json.loads(body.decode('utf-8'))
-            print(f"Processing: {message.get('type')} at {datetime.now()}")
-            result = process_analysis_request(message)
-            print(f"Completed: {message.get('type')}")
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-        except Exception as e:
-            print(f"Error processing message: {e}")
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
-    
-    channel.basic_qos(prefetch_count=1)
-    channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
-    
-    print(f"Waiting for messages on {RABBITMQ_QUEUE}. To exit press CTRL+C")
-    try:
-        channel.start_consuming()
-    except KeyboardInterrupt:
-        channel.stop_consuming()
-        connection.close()
+            # Add connection timeout to avoid hanging
+            params = pika.URLParameters(RABBITMQ_URL)
+            params.connection_attempts = 3
+            params.retry_delay = 2
+            params.socket_timeout = 10  # Increased from 5 to 10 seconds
+            # Add heartbeat to keep connection alive during long operations
+            # Use 0 to disable heartbeat (some RabbitMQ configs don't support it)
+            # Or use a reasonable value like 60 seconds
+            try:
+                params.heartbeat = 60  # 60 seconds - keep connection alive
+            except:
+                # If heartbeat setting fails, continue without it
+                pass
+            
+            print(f"Connecting to RabbitMQ... (attempt {retry_count + 1}/{max_retries})")
+            sys.stdout.flush()
+            try:
+                connection = pika.BlockingConnection(params)
+            except Exception as conn_ex:
+                # Log detailed error information
+                error_type = type(conn_ex).__name__
+                error_msg = str(conn_ex) if conn_ex else "Unknown error"
+                print(f"⚠️  Connection exception: {error_type}: {error_msg}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+                raise  # Re-raise to be caught by outer handler
+            channel = connection.channel()
+            channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
+            
+            print(f"✅ Connected to RabbitMQ at {datetime.now()}")
+            sys.stdout.flush()
+            retry_count = 0  # Reset retry count on successful connection
+            
+            # Flag to track connection errors from callbacks
+            connection_error_occurred = False
+            
+            # Add connection error callback to detect connection loss
+            def on_connection_error(connection, error):
+                nonlocal connection_error_occurred
+                print(f"⚠️  Connection error callback triggered: {error}")
+                connection_error_occurred = True
+                try:
+                    if channel and not channel.is_closed:
+                        channel.stop_consuming()
+                except:
+                    pass
+            
+            # Note: BlockingConnection doesn't support on_close_callbacks directly
+            # We'll rely on exception handling and connection state checks
+            
+            def callback(ch, method, properties, body):
+                nonlocal connection_error_occurred
+                
+                try:
+                    # Check connection state before processing
+                    if connection.is_closed:
+                        print("⚠️  Connection is closed, skipping message")
+                        connection_error_occurred = True
+                        return
+                    
+                    # Check if body is empty
+                    if not body:
+                        print(f"Error: Received empty message body")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    # Decode and parse JSON
+                    try:
+                        body_str = body.decode('utf-8')
+                    except UnicodeDecodeError as e:
+                        print(f"Error: Cannot decode message body: {e}")
+                        print(f"Body (first 100 bytes): {body[:100]}")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    # Check if body is empty after decoding
+                    if not body_str.strip():
+                        print(f"Error: Message body is empty after decoding")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    try:
+                        message = json.loads(body_str)
+                    except json.JSONDecodeError as e:
+                        print(f"Error: Invalid JSON in message: {e}")
+                        print(f"Message body (first 200 chars): {body_str[:200]}")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    # Validate message structure
+                    if not isinstance(message, dict):
+                        print(f"Error: Message is not a dictionary: {type(message)}")
+                        print(f"Message: {message}")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    print(f"📥 Processing: {message.get('type', 'unknown')} at {datetime.now()}")
+                    try:
+                        result = process_analysis_request(message)
+                        print(f"✅ Completed: {message.get('type', 'unknown')}")
+                    except Exception as proc_err:
+                        print(f"❌ Error in process_analysis_request: {proc_err}")
+                        import traceback
+                        traceback.print_exc()
+                        # Re-raise to be caught by outer exception handler
+                        raise
+                    
+                    # Try to ack - catch connection errors
+                    try:
+                        ch.basic_ack(delivery_tag=method.delivery_tag)
+                    except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError, BrokenPipeError) as conn_err:
+                        print(f"⚠️  Connection lost while acknowledging message: {conn_err}")
+                        connection_error_occurred = True
+                        # Stop consuming to trigger reconnection
+                        try:
+                            ch.stop_consuming()
+                        except:
+                            pass
+                        return
+                        
+                except KeyboardInterrupt:
+                    print("\n⚠️  Interrupted during message processing")
+                    connection_error_occurred = True
+                    try:
+                        ch.stop_consuming()
+                    except:
+                        pass
+                    return
+                except Exception as e:
+                    print(f"❌ Error processing message: {e}")
+                    import traceback
+                    print("Full traceback:")
+                    traceback.print_exc()
+                    # Try to nack - catch connection errors
+                    try:
+                        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                    except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError, BrokenPipeError) as conn_err:
+                        print(f"⚠️  Connection lost while nacking message: {conn_err}")
+                        connection_error_occurred = True
+                        # Stop consuming to trigger reconnection
+                        try:
+                            ch.stop_consuming()
+                        except:
+                            pass
+                        return
+                    # Don't re-raise - continue processing other messages
+            
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
+            
+            print(f"✅ Waiting for messages on {RABBITMQ_QUEUE}. To exit press CTRL+C")
+            sys.stdout.flush()
+            try:
+                # Start consuming - this will block until connection is lost or stopped
+                # Note: pika may detect connection loss internally and return normally
+                # We check connection state after consuming stops
+                channel.start_consuming()
+            except (pika.exceptions.AMQPConnectionError, pika.exceptions.StreamLostError, OSError, BrokenPipeError) as e:
+                # Connection lost - this is expected and will trigger reconnection
+                print(f"\n⚠️  Connection lost detected: {e}")
+                connection_error_occurred = True
+            except Exception as e:
+                # Other exceptions - check if it's connection-related
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['connection', 'stream', 'broken pipe', 'socket']):
+                    print(f"\n⚠️  Connection error detected: {e}")
+                    connection_error_occurred = True
+                else:
+                    # Re-raise unexpected exceptions
+                    raise
+            except KeyboardInterrupt:
+                print("\nStopping worker...")
+                channel.stop_consuming()
+                connection.close()
+                break
+            
+            # After consuming stops, check if it was due to connection error
+            # pika may detect broken pipe internally and return normally, so check connection state
+            if connection_error_occurred:
+                raise pika.exceptions.StreamLostError("Connection lost during message processing")
+            elif connection.is_closed:
+                print(f"\n⚠️  Connection closed detected after consuming stopped")
+                raise pika.exceptions.StreamLostError("Connection closed during message processing")
+                
+        except (pika.exceptions.AMQPConnectionError, pika.exceptions.StreamLostError, OSError, ConnectionRefusedError, BrokenPipeError) as e:
+            # Ensure old connection is closed before retrying
+            try:
+                if 'connection' in locals() and connection and not connection.is_closed:
+                    connection.close()
+            except:
+                pass
+            
+            retry_count += 1
+            error_msg = str(e) if e else "Unknown connection error"
+            if retry_count < max_retries:
+                print(f"\n⚠️  Failed to connect to RabbitMQ: {error_msg}")
+                print(f"   Retrying in {retry_delay} seconds... (attempt {retry_count}/{max_retries})")
+                sys.stdout.flush()
+                time.sleep(retry_delay)
+                continue
+            else:
+                print(f"\n❌ Failed to connect after {max_retries} attempts")
+                print(f"   Last error: {error_msg}")
+                print(f"   RabbitMQ URL: {RABBITMQ_URL}")
+                print(f"   Queue: {RABBITMQ_QUEUE}")
+                # Fall back to file queue instead of raising
+                print(f"\n⚠️  Falling back to file queue...")
+                process_file_queue()
+                return
 
 
 def process_file_queue():
@@ -973,19 +1652,47 @@ def process_file_queue():
 
 if __name__ == "__main__":
     import sys
+    import traceback
     
-    if len(sys.argv) > 1 and sys.argv[1] == "file":
-        # Process file queue
-        process_file_queue()
-    else:
-        # Try RabbitMQ, fallback to file
-        if RABBITMQ_AVAILABLE:
-            try:
-                process_rabbitmq_queue()
-            except Exception as e:
-                print(f"RabbitMQ error: {e}")
-                print("Falling back to file queue...")
-                process_file_queue()
-        else:
+    # Add signal handlers to catch termination signals
+    import signal
+    
+    def signal_handler(signum, frame):
+        print(f"\n⚠️  Received signal {signum}, shutting down gracefully...")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    # Wrap everything in a try-except to catch any unhandled exceptions
+    try:
+        if len(sys.argv) > 1 and sys.argv[1] == "file":
+            # Process file queue
             process_file_queue()
+        else:
+            # Try RabbitMQ, fallback to file
+            if RABBITMQ_AVAILABLE:
+                try:
+                    process_rabbitmq_queue()
+                except KeyboardInterrupt:
+                    print("\n⚠️  Interrupted by user")
+                    sys.exit(0)
+                except Exception as e:
+                    print(f"\n❌ RabbitMQ error: {e}")
+                    print("Full traceback:")
+                    traceback.print_exc()
+                    print("\nFalling back to file queue...")
+                    try:
+                        process_file_queue()
+                    except Exception as file_e:
+                        print(f"\n❌ File queue also failed: {file_e}")
+                        traceback.print_exc()
+                        sys.exit(1)
+            else:
+                process_file_queue()
+    except Exception as e:
+        print(f"\n❌ Fatal error in worker: {e}")
+        print("Full traceback:")
+        traceback.print_exc()
+        sys.exit(1)
 

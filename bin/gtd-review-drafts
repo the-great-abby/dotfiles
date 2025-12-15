@@ -42,9 +42,12 @@ list_drafts() {
 get_draft_info() {
   local draft_path="$1"
   local title=$(grep "^# " "$draft_path" 2>/dev/null | head -1 | sed 's/^# //' || basename "$draft_path" .md)
-  local created=$(grep "^**Created:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^**Created:**[[:space:]]*//' || echo "Unknown")
-  local confidence=$(grep "^**Confidence:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^**Confidence:**[[:space:]]*//' || echo "N/A")
-  local source_date=$(grep "^**Source Date:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^**Source Date:**[[:space:]]*//' || echo "Unknown")
+  
+  # Use -F flag for fixed strings in grep to avoid regex issues with asterisks
+  # Then escape asterisks in sed patterns - use \* to match literal asterisk
+  local created=$(grep -F "**Created:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^\*\*Created:\*\*[[:space:]]*//' || echo "Unknown")
+  local confidence=$(grep -F "**Confidence:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^\*\*Confidence:\*\*[[:space:]]*//' || echo "N/A")
+  local source_date=$(grep -F "**Source Date:**" "$draft_path" 2>/dev/null | head -1 | sed 's/^\*\*Source Date:\*\*[[:space:]]*//' || echo "Unknown")
   
   echo "$title|$created|$confidence|$source_date"
 }
@@ -141,12 +144,21 @@ review_draft() {
   local draft_path="$1"
   
   if [[ ! -f "$draft_path" ]]; then
+    echo "Error: Draft file not found: $draft_path" >&2
     return 1
   fi
   
   clear
   echo ""
-  gtd_print_header "📝 Review Draft Note" "" "$CYAN"
+  
+  # Use gtd_print_header if available, otherwise use simple header
+  if declare -f gtd_print_header &>/dev/null; then
+    gtd_print_header "📝 Review Draft Note" "" "$CYAN"
+  else
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${BOLD}${CYAN}📝 Review Draft Note${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  fi
   echo ""
   
   # Get draft info
@@ -162,17 +174,26 @@ review_draft() {
   echo ""
   
   # Show insight section
-  local insight=$(awk '/^## Insight$/,/^---$/' "$draft_path" | sed '/^## Insight$/d' | sed '/^---$/d')
-  echo "$insight"
+  local insight=$(awk '/^## Insight$/,/^---$/' "$draft_path" 2>/dev/null | sed '/^## Insight$/d' | sed '/^---$/d')
+  if [[ -n "$insight" ]]; then
+    echo "$insight"
+  else
+    # Fallback: show first few lines of the file if no Insight section found
+    echo -e "${YELLOW}Note: No '## Insight' section found. Showing file content:${NC}"
+    echo ""
+    head -20 "$draft_path" | grep -v "^---$" | head -15
+  fi
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
   # Show source
-  local source=$(awk '/^## Source$/,/^---$/' "$draft_path" | sed '/^## Source$/d' | sed '/^---$/d')
-  echo -e "${GRAY}Source:${NC}"
-  echo "$source"
-  echo ""
+  local source=$(awk '/^## Source$/,/^---$/' "$draft_path" 2>/dev/null | sed '/^## Source$/d' | sed '/^---$/d')
+  if [[ -n "$source" ]]; then
+    echo -e "${GRAY}Source:${NC}"
+    echo "$source"
+    echo ""
+  fi
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
@@ -185,7 +206,19 @@ review_draft() {
   echo "  [s] Skip - Leave for later"
   echo "  [q] Quit - Exit review"
   echo ""
+  
+  # Ensure we're reading from stdin (not redirected)
+  if [[ ! -t 0 ]]; then
+    echo "Error: Cannot read input - stdin is not a terminal" >&2
+    return 1
+  fi
+  
   read -p "Choice: " choice
+  
+  # If choice is empty (user just pressed Enter), treat as skip
+  if [[ -z "$choice" ]]; then
+    choice="s"
+  fi
   
   case "$choice" in
     a|A|accept)
@@ -218,9 +251,9 @@ review_draft() {
         reject_draft "$draft_path"
         echo ""
         read -p "Press Enter to continue..."
-        return 0
+        return 3  # Rejected
       else
-        return 2  # Continue reviewing
+        return 2  # Continue reviewing (skipped)
       fi
       ;;
     s|S|skip)
@@ -243,7 +276,12 @@ review_draft() {
 
 # Main review function
 review_all_drafts() {
-  local drafts=($(list_drafts))
+  # Read drafts into array properly handling spaces in paths
+  local drafts=()
+  while IFS= read -r draft; do
+    [[ -n "$draft" && -f "$draft" ]] && drafts+=("$draft")
+  done < <(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | sort -r)
+  
   local total=${#drafts[@]}
   
   if [[ $total -eq 0 ]]; then
@@ -256,6 +294,8 @@ review_all_drafts() {
   echo ""
   echo -e "${CYAN}Found ${total} draft note(s) to review${NC}"
   echo ""
+  echo "Press Enter to start reviewing..."
+  read
   
   local reviewed=0
   local accepted=0
@@ -263,20 +303,40 @@ review_all_drafts() {
   local edited=0
   
   for draft in "${drafts[@]}"; do
+    # Check if draft file exists before trying to review it
+    if [[ ! -f "$draft" ]]; then
+      echo "Warning: Draft file not found, skipping: $(basename "$draft")" >&2
+      continue
+    fi
+    
+    # Review the draft - this should display it and wait for user input
+    # Force output to be displayed immediately
     review_draft "$draft"
     local result=$?
     
-    ((reviewed++))
-    
     case $result in
       0)
+        # Accepted
+        ((reviewed++))
         ((accepted++))
         ;;
       1)
+        # User quit - don't count this draft as reviewed since they didn't finish
         break  # Quit
         ;;
       2)
+        # Edited or skipped - user saw it and made a choice
+        ((reviewed++))
         ((edited++))
+        ;;
+      3)
+        # Rejected
+        ((reviewed++))
+        ((rejected++))
+        ;;
+      *)
+        # Invalid choice or other - still counts as reviewed (user saw it)
+        ((reviewed++))
         ;;
     esac
   done
@@ -295,7 +355,12 @@ review_all_drafts() {
 
 # Quick summary for morning check-in
 show_summary() {
-  local drafts=($(list_drafts))
+  # Read drafts into array properly handling spaces in paths
+  local drafts=()
+  while IFS= read -r draft; do
+    [[ -n "$draft" && -f "$draft" ]] && drafts+=("$draft")
+  done < <(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | sort -r)
+  
   local count=${#drafts[@]}
   
   if [[ $count -eq 0 ]]; then
@@ -356,7 +421,10 @@ case "${1:-review}" in
     show_summary
     ;;
   list)
-    list_drafts
+    # List drafts with proper formatting
+    find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | sort -r | while IFS= read -r draft; do
+      echo "$draft"
+    done
     ;;
   help|--help|-h)
     show_usage

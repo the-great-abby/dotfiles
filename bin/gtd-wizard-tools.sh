@@ -119,6 +119,116 @@ ${conversation_answers[$i]}
   FOLLOWUP_HAS_FOLLOWUPS=$(( ${#conversation_questions[@]} > 1 ? 1 : 0 ))
 }
 
+# Helper function to queue advice request for background processing
+queue_advice_request() {
+  local persona="$1"
+  local question="$2"
+  local mode="${3:-normal}"
+  local web_search="${4:-false}"
+  
+  QUEUE_FILE="${HOME}/Documents/gtd/advice_queue.jsonl"
+  mkdir -p "$(dirname "$QUEUE_FILE")"
+  
+  # Generate request ID
+  local request_id="advice_$(date +%Y%m%d_%H%M%S)_$$"
+  
+  # Create request JSON - use temp file to safely pass question with special characters
+  local temp_question=$(mktemp)
+  python3 -c "import sys, json; print(json.dumps(sys.argv[1]))" "$question" > "$temp_question"
+  
+  # Find Python executable (prefer virtualenv)
+  MCP_VENV="$HOME/code/dotfiles/mcp/venv/bin/python3"
+  if [[ ! -f "$MCP_VENV" ]]; then
+    MCP_VENV="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+  fi
+  
+  if [[ -f "$MCP_VENV" ]]; then
+    PYTHON_CMD="$MCP_VENV"
+  else
+    PYTHON_CMD="python3"
+  fi
+  
+  # Try RabbitMQ first, fall back to file queue
+  local queue_result=$("$PYTHON_CMD" <<PYTHON_EOF
+import json
+import sys
+import os
+from pathlib import Path
+from datetime import datetime
+
+# Read question from temp file
+with open("$temp_question", "r") as f:
+    question = json.load(f)
+
+request = {
+    "id": "$request_id",
+    "persona": "$persona",
+    "question": question,
+    "mode": "$mode",
+    "web_search": "$web_search",
+    "created_at": datetime.now().isoformat() + "Z"
+}
+
+# Try RabbitMQ first if available
+try:
+    import pika
+    
+    # Read RabbitMQ config
+    sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+    try:
+        from gtd_vector_db import read_database_config
+        db_config = read_database_config()
+        rabbitmq_enabled = db_config.get("rabbitmq_enabled", False)
+        rabbitmq_url = db_config.get("rabbitmq_url", "amqp://localhost:5672")
+        rabbitmq_queue = "gtd_advice"  # Advice queue name
+    except:
+        rabbitmq_enabled = False
+        rabbitmq_url = os.getenv("GTD_RABBITMQ_URL", "amqp://localhost:5672")
+        rabbitmq_queue = "gtd_advice"
+    
+    if rabbitmq_enabled:
+        try:
+            params = pika.URLParameters(rabbitmq_url)
+            params.blocked_connection_timeout = 5
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
+            channel.queue_declare(queue=rabbitmq_queue, durable=True)
+            
+            channel.basic_publish(
+                exchange='',
+                routing_key=rabbitmq_queue,
+                body=json.dumps(request),
+                properties=pika.BasicProperties(
+                    delivery_mode=2,  # Make message persistent
+                )
+            )
+            connection.close()
+            print("queued_to_rabbitmq")
+            sys.exit(0)
+        except Exception as e:
+            # RabbitMQ failed, fall back to file queue
+            pass
+except ImportError:
+    # pika not installed, use file queue
+    pass
+
+# Fallback to file queue
+QUEUE_FILE = Path("$QUEUE_FILE")
+QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+with open(QUEUE_FILE, "a") as f:
+    f.write(json.dumps(request) + "\n")
+
+print("queued_to_file")
+PYTHON_EOF
+  )
+  
+  rm -f "$temp_question"
+  
+  # Return request ID
+  echo "$request_id"
+}
+
 # Helper function to save advice conversation to GTD system
 save_advice_conversation() {
   local question="$1"
@@ -319,6 +429,33 @@ advice_wizard() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   show_advice_guide
+  
+  # Check for pending results
+  RESULTS_DIR="${HOME}/Documents/gtd/advice_results"
+  QUEUE_FILE="${HOME}/Documents/gtd/advice_queue.jsonl"
+  local pending_results=0
+  local pending_queue=0
+  
+  if [[ -d "$RESULTS_DIR" ]]; then
+    pending_results=$(find "$RESULTS_DIR" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  if [[ -f "$QUEUE_FILE" ]]; then
+    pending_queue=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
+  fi
+  
+  if [[ "$pending_results" -gt 0 ]] || [[ "$pending_queue" -gt 0 ]]; then
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}💡 Background Advice Status${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    if [[ "$pending_results" -gt 0 ]]; then
+      echo -e "${GREEN}  ✓ $pending_results advice result(s) ready for review${NC}"
+    fi
+    if [[ "$pending_queue" -gt 0 ]]; then
+      echo -e "${YELLOW}  ⏳ $pending_queue request(s) pending in queue${NC}"
+    fi
+    echo ""
+  fi
+  
   echo "How would you like to get advice?"
   echo ""
   echo "  1) Random persona"
@@ -326,6 +463,11 @@ advice_wizard() {
   echo "  3) All personas"
   echo "  4) Review daily log"
   echo "  5) Simple factual question (no GTD context)"
+  if [[ "$pending_results" -gt 0 ]]; then
+    echo -e "  6) 📋 Review Background Advice Results ${GREEN}($pending_results ready)${NC}"
+  else
+    echo "  6) 📋 Review Background Advice Results"
+  fi
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -338,37 +480,69 @@ advice_wizard() {
       echo -n "What do you need advice about? "
       read question
         if [[ -n "$question" ]]; then
-          # Run gtd-advise - it uses run_with_thinking_timer internally
-          # Timer writes to stderr, advice to stdout
-          # Capture stdout while stderr (timer) displays to terminal
-          local temp_output=$(mktemp)
-          # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
-          # When done, display the saved output
-          gtd-advise --random "$question" > "$temp_output"
-          local advice_output=$(cat "$temp_output")
-          rm -f "$temp_output"
           echo ""
-          echo "$advice_output"
+          echo "How would you like to process this request?"
+          echo ""
+          echo "  1) Process now (wait for response)"
+          echo "  2) Process in background (get Discord notification when ready)"
+          echo ""
+          echo -n "Choose (default: 1): "
+          read process_mode
+          process_mode="${process_mode:-1}"
+          
+          if [[ "$process_mode" == "2" ]]; then
+            # Queue for background processing
+            echo ""
+            echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
+            local request_id=$(queue_advice_request "random" "$question" "random" "false")
+            echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+            echo ""
+            echo "💡 You'll receive a Discord notification when the advice is ready."
+            echo "   Review results: Option 6) Review Background Advice Results"
+            echo ""
+            
+            # Start worker if not running
+            if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+              echo "Starting advice worker..."
+              nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+              echo "✓ Worker started (PID: $!)"
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+              echo ""
+            fi
+          else
+            # Process immediately
+            # Run gtd-advise - it uses run_with_thinking_timer internally
+            # Timer writes to stderr, advice to stdout
+            # Capture stdout while stderr (timer) displays to terminal
+            local temp_output=$(mktemp)
+            # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
+            # When done, display the saved output
+            gtd-advise --random "$question" > "$temp_output"
+            local advice_output=$(cat "$temp_output")
+            rm -f "$temp_output"
+            echo ""
+            echo "$advice_output"
         
-        # Handle follow-up questions
-        handle_followup_questions "random" "$question" "$advice_output" "false" "false"
-        
-        # Save conversation if there were follow-ups, or ask to save if no follow-ups
-        if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
-          echo ""
-          echo -e "${BOLD}Save this conversation? (y/n):${NC} "
-          read save_advice
-          if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-            save_advice_conversation "$question" "random" "$FOLLOWUP_CONVERSATION"
+            # Handle follow-up questions
+            handle_followup_questions "random" "$question" "$advice_output" "false" "false"
+            
+            # Save conversation if there were follow-ups, or ask to save if no follow-ups
+            if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
+              echo ""
+              echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+              read save_advice
+              if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+                save_advice_conversation "$question" "random" "$FOLLOWUP_CONVERSATION"
+              fi
+            else
+              echo ""
+              echo -e "${BOLD}Save this advice? (y/n):${NC} "
+              read save_advice
+              if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+                save_advice_conversation "$question" "random" "$advice_output"
+              fi
+            fi
           fi
-        else
-          echo ""
-          echo -e "${BOLD}Save this advice? (y/n):${NC} "
-          read save_advice
-          if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-            save_advice_conversation "$question" "random" "$advice_output"
-          fi
-        fi
       fi
       ;;
     2)
@@ -379,33 +553,65 @@ advice_wizard() {
         echo -n "Your question: "
         read question
         if [[ -n "$question" ]]; then
-          # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
-          # When done, display the saved output
-          # IMPORTANT: Only redirect stdout, NOT stderr, so timer can display
-          local temp_output=$(mktemp)
-          gtd-advise "$persona" "$question" > "$temp_output"
-          local advice_output=$(cat "$temp_output")
-          rm -f "$temp_output"
           echo ""
-          echo "$advice_output"
+          echo "How would you like to process this request?"
+          echo ""
+          echo "  1) Process now (wait for response)"
+          echo "  2) Process in background (get Discord notification when ready)"
+          echo ""
+          echo -n "Choose (default: 1): "
+          read process_mode
+          process_mode="${process_mode:-1}"
           
-          # Handle follow-up questions
-          handle_followup_questions "$persona" "$question" "$advice_output" "false" "false"
-          
-          # Save conversation if there were follow-ups, or ask to save if no follow-ups
-          if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
+          if [[ "$process_mode" == "2" ]]; then
+            # Queue for background processing
             echo ""
-            echo -e "${BOLD}Save this conversation? (y/n):${NC} "
-            read save_advice
-            if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-              save_advice_conversation "$question" "$persona" "$FOLLOWUP_CONVERSATION"
+            echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
+            local request_id=$(queue_advice_request "$persona" "$question" "normal" "false")
+            echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+            echo ""
+            echo "💡 You'll receive a Discord notification when the advice is ready."
+            echo "   Review results: Option 6) Review Background Advice Results"
+            echo ""
+            
+            # Start worker if not running
+            if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+              echo "Starting advice worker..."
+              nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+              echo "✓ Worker started (PID: $!)"
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+              echo ""
             fi
           else
+            # Process immediately
+            # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
+            # When done, display the saved output
+            # IMPORTANT: Only redirect stdout, NOT stderr, so timer can display
+            local temp_output=$(mktemp)
+            gtd-advise "$persona" "$question" > "$temp_output"
+            local advice_output=$(cat "$temp_output")
+            rm -f "$temp_output"
             echo ""
-            echo -e "${BOLD}Save this advice? (y/n):${NC} "
-            read save_advice
-            if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-              save_advice_conversation "$question" "$persona" "$advice_output"
+            echo "$advice_output"
+            
+            # Handle follow-up questions
+            handle_followup_questions "$persona" "$question" "$advice_output" "false" "false"
+            
+            # Save conversation if there were follow-ups, or ask to save if no follow-ups
+            if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
+              echo ""
+              echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+              read save_advice
+              if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+                save_advice_conversation "$question" "$persona" "$FOLLOWUP_CONVERSATION"
+              fi
+            else
+              echo ""
+              echo -e "${BOLD}Save this advice? (y/n):${NC} "
+              read save_advice
+              if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+                save_advice_conversation "$question" "$persona" "$advice_output"
+              fi
             fi
           fi
         fi
@@ -542,6 +748,177 @@ advice_wizard() {
           fi
         fi
       fi
+      ;;
+    6)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📋 Review Background Advice Results${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Check for pending requests
+      QUEUE_FILE="${HOME}/Documents/gtd/advice_queue.jsonl"
+      if [[ -f "$QUEUE_FILE" ]] && [[ -s "$QUEUE_FILE" ]]; then
+        local queue_count=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
+        echo -e "${YELLOW}⚠️  $queue_count advice request(s) pending in queue${NC}"
+        echo ""
+        
+        # Check if worker is running
+        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+          echo -e "${YELLOW}⚠️  Advice worker is not running${NC}"
+          echo ""
+          echo -n "Start the worker now? (y/n): "
+          read start_worker
+          if [[ "$start_worker" == "y" || "$start_worker" == "Y" ]]; then
+            nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+            echo "✓ Worker started (PID: $!)"
+            echo "   Logs: tail -f /tmp/advice-worker.log"
+            echo ""
+          fi
+        else
+          echo -e "${GREEN}✓ Advice worker is running${NC}"
+          echo ""
+        fi
+      fi
+      
+      RESULTS_DIR="${HOME}/Documents/gtd/advice_results"
+      if [[ ! -d "$RESULTS_DIR" ]] || [[ -z "$(find "$RESULTS_DIR" -name "*.json" -type f 2>/dev/null)" ]]; then
+        echo "No background advice results found."
+        echo ""
+        echo "Results are stored in: $RESULTS_DIR"
+        echo ""
+        echo "💡 Tip: When asking for advice, choose the background option to get"
+        echo "   notified via Discord when the advice is ready!"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 0
+      fi
+      
+      # List all results
+      echo "Available advice results:"
+      echo ""
+      
+      local results=()
+      while IFS= read -r result_file; do
+        [[ -f "$result_file" ]] && results+=("$result_file")
+      done < <(find "$RESULTS_DIR" -name "*.json" -type f -exec ls -t {} + 2>/dev/null | head -20)
+      
+      if [[ ${#results[@]} -eq 0 ]]; then
+        echo "No results found."
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 0
+      fi
+      
+      # Display list
+      local i=1
+      for result_file in "${results[@]}"; do
+        local result_id=$(basename "$result_file" .json)
+        local persona=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('persona', 'unknown'))" 2>/dev/null || echo "unknown")
+        local question=$(python3 -c "import sys, json; q=json.load(open('$result_file')).get('question', ''); print(q[:60] + '...' if len(q) > 60 else q)" 2>/dev/null || echo "")
+        local status=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+        local completed_at=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('completed_at', '')[:10])" 2>/dev/null || echo "")
+        
+        local status_color="${GREEN}"
+        [[ "$status" == "error" ]] && status_color="${RED}"
+        
+        echo -e "  ${i}) [${status_color}${status}${NC}] ${persona} - ${completed_at}"
+        echo "     ${question}"
+        i=$((i + 1))
+      done
+      
+      echo ""
+      echo -n "Select result to view (number) or 0 to go back: "
+      read selection
+      
+      if [[ "$selection" == "0" ]] || [[ -z "$selection" ]]; then
+        return 0
+      fi
+      
+      # Validate selection
+      if ! [[ "$selection" =~ ^[0-9]+$ ]] || [[ "$selection" -lt 1 ]] || [[ "$selection" -gt ${#results[@]} ]]; then
+        echo "Invalid selection"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 0
+      fi
+      
+      # Get selected result
+      local selected_file="${results[$((selection - 1))]}"
+      local answer_file="${selected_file%.json}_answer.txt"
+      
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📋 Advice Result${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Show metadata
+      local persona=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('persona', 'unknown'))" 2>/dev/null || echo "unknown")
+      local question=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('question', ''))" 2>/dev/null || echo "")
+      local completed_at=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('completed_at', ''))" 2>/dev/null || echo "")
+      local duration=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('duration_seconds', 0))" 2>/dev/null || echo "0")
+      
+      echo -e "${BOLD}Persona:${NC} $persona"
+      echo -e "${BOLD}Question:${NC} $question"
+      echo -e "${BOLD}Completed:${NC} $completed_at"
+      echo -e "${BOLD}Duration:${NC} ${duration}s"
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      
+      # Show answer
+      if [[ -f "$answer_file" ]]; then
+        echo -e "${BOLD}Answer:${NC}"
+        echo ""
+        cat "$answer_file"
+      else
+        echo "Answer file not found: $answer_file"
+      fi
+      
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "Options:"
+      echo "  1) Save this advice"
+      echo "  2) Delete this result"
+      echo "  0) Back to list"
+      echo ""
+      echo -n "Choose: "
+      read action
+      
+      case "$action" in
+        1)
+          local saved_question="$question"
+          local saved_persona="$persona"
+          local saved_answer=""
+          [[ -f "$answer_file" ]] && saved_answer=$(cat "$answer_file")
+          if [[ -n "$saved_answer" ]]; then
+            save_advice_conversation "$saved_question" "$saved_persona" "$saved_answer"
+            echo ""
+            echo "✓ Advice saved!"
+          else
+            echo "Error: No answer to save"
+          fi
+          ;;
+        2)
+          echo -n "Delete this result? (y/n): "
+          read confirm
+          if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+            rm -f "$selected_file" "$answer_file"
+            echo "✓ Result deleted"
+          fi
+          ;;
+      esac
+      
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
     0|"")
       return 0
@@ -1020,6 +1397,8 @@ config_wizard() {
   echo "  9) 🐰 Setup RabbitMQ Connection"
   echo "  10) 📁 Setup Vector Filewatcher (Auto-queue files)"
   echo "  11) 🧠 Setup Deep Analysis Auto-Scheduler (Auto-submit jobs)"
+  echo "  12) 🚀 Deploy External Services (RabbitMQ, Database)"
+  echo "  13) 👷 Manage Background Workers (Start/Stop/Restart)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -1325,6 +1704,396 @@ AI_BACKEND=\"$new_backend\"
       
       SETUP_SCRIPT="${MCP_DIR}/setup.sh"
       
+      # Show MCP server status and restart info
+      echo -e "${BOLD}MCP Server Status:${NC}"
+      echo ""
+      echo "The MCP server runs inside Cursor and provides AI tools for your GTD system."
+      echo ""
+      echo -e "${YELLOW}To restart MCP server after code changes:${NC}"
+      echo "  1. Restart Cursor (the MCP server will reload automatically)"
+      echo "  2. Or use Cursor's MCP server reload (if available)"
+      echo ""
+      echo -e "${CYAN}Current MCP Server Config:${NC}"
+      MCP_CONFIG="$HOME/.cursor/mcp_config.json"
+      if [[ ! -f "$MCP_CONFIG" ]]; then
+        MCP_CONFIG="$HOME/code/dotfiles/.cursor/mcp_config.json"
+      fi
+      if [[ -f "$MCP_CONFIG" ]]; then
+        echo "  Config file: $MCP_CONFIG"
+        if grep -q "GTD_RABBITMQ_URL" "$MCP_CONFIG" 2>/dev/null; then
+          RABBITMQ_URL=$(grep "GTD_RABBITMQ_URL" "$MCP_CONFIG" | head -1 | sed 's/.*"GTD_RABBITMQ_URL": "\([^"]*\)".*/\1/')
+          echo "  RabbitMQ URL: $RABBITMQ_URL"
+        fi
+      else
+        echo "  ⚠️  MCP config not found"
+      fi
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "Setup Options:"
+      echo ""
+      echo "  1) 🔧 Run MCP Server Setup (create venv + install dependencies)"
+      echo "  2) 📦 Install/Update Requirements (update dependencies only)"
+      echo "  3) 📋 View MCP Server Configuration"
+      echo "  4) 🔄 Restart Instructions (for code changes)"
+      echo "  5) 🧪 Test MCP Tools (call MCP server functions directly)"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose: "
+      read mcp_setup_choice
+      
+      case "$mcp_setup_choice" in
+        1)
+          # Continue with setup
+          ;;
+        2)
+          # Install/Update Requirements
+          VENV_DIR="${MCP_DIR}/venv"
+          VENV_PYTHON="${VENV_DIR}/bin/python3"
+          REQUIREMENTS_FILE="${MCP_DIR}/requirements.txt"
+          
+          if [[ ! -d "$VENV_DIR" ]] || [[ ! -f "$VENV_PYTHON" ]]; then
+            echo ""
+            echo -e "${YELLOW}⚠️  Virtualenv not found${NC}"
+            echo "   Virtualenv: $VENV_DIR"
+            echo ""
+            echo "Run option 1 first to create the virtualenv, or:"
+            echo "   cd $MCP_DIR && ./setup.sh"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            return 0
+          fi
+          
+          if [[ ! -f "$REQUIREMENTS_FILE" ]]; then
+            echo ""
+            echo -e "${RED}❌ Requirements file not found${NC}"
+            echo "   Expected: $REQUIREMENTS_FILE"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            return 0
+          fi
+          
+          echo ""
+          echo -e "${BOLD}📦 Installing/Updating Requirements${NC}"
+          echo ""
+          echo "Virtualenv: $VENV_DIR"
+          echo "Requirements: $REQUIREMENTS_FILE"
+          echo ""
+          echo "This will install/update:"
+          cat "$REQUIREMENTS_FILE" | grep -v "^#" | grep -v "^$" | sed 's/^/  - /'
+          echo ""
+          echo -n "Continue? (y/N): "
+          read confirm
+          
+          if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+            echo "Cancelled."
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            return 0
+          fi
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          # Upgrade pip first
+          echo "Upgrading pip..."
+          "$VENV_PYTHON" -m pip install --upgrade pip --quiet
+          
+          # Install requirements
+          echo "Installing requirements..."
+          if "$VENV_PYTHON" -m pip install -r "$REQUIREMENTS_FILE"; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo -e "${GREEN}✅ Requirements installed/updated successfully!${NC}"
+            echo ""
+            
+            # Verify key packages
+            echo "Verifying key packages:"
+            if "$VENV_PYTHON" -c "import mcp" 2>/dev/null; then
+              echo "  ✅ mcp"
+            else
+              echo "  ❌ mcp (not installed)"
+            fi
+            
+            if "$VENV_PYTHON" -c "import pika" 2>/dev/null; then
+              echo "  ✅ pika (RabbitMQ)"
+            else
+              echo "  ⚠️  pika (optional - for RabbitMQ)"
+            fi
+            
+            if "$VENV_PYTHON" -c "import psycopg2" 2>/dev/null; then
+              echo "  ✅ psycopg2 (PostgreSQL)"
+            else
+              echo "  ⚠️  psycopg2 (optional - for vector database)"
+            fi
+            
+            if "$VENV_PYTHON" -c "import watchdog" 2>/dev/null; then
+              echo "  ✅ watchdog (filewatcher)"
+            else
+              echo "  ⚠️  watchdog (optional - for filewatcher)"
+            fi
+          else
+            echo ""
+            echo -e "${YELLOW}⚠️  Some packages may have failed to install${NC}"
+            echo "   Check the output above for errors"
+          fi
+          
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          return 0
+          ;;
+        3)
+          echo ""
+          echo -e "${BOLD}MCP Server Configuration:${NC}"
+          echo ""
+          if [[ -f "$MCP_CONFIG" ]]; then
+            echo "Config file: $MCP_CONFIG"
+            echo ""
+            cat "$MCP_CONFIG" | python3 -m json.tool 2>/dev/null || cat "$MCP_CONFIG"
+          else
+            echo "⚠️  MCP config not found at: $MCP_CONFIG"
+            echo ""
+            echo "Expected location:"
+            echo "  ~/.cursor/mcp_config.json"
+            echo "  or"
+            echo "  ~/code/dotfiles/.cursor/mcp_config.json"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          return 0
+          ;;
+        4)
+          echo ""
+          echo -e "${BOLD}🔄 Restarting MCP Server${NC}"
+          echo ""
+          echo "The MCP server runs inside Cursor. To restart it:"
+          echo ""
+          echo "  1. ${GREEN}Restart Cursor${NC} (recommended)"
+          echo "     - Quit Cursor completely (Cmd+Q on macOS)"
+          echo "     - Reopen Cursor"
+          echo "     - The MCP server will reload with updated code"
+          echo ""
+          echo "  2. ${CYAN}Check MCP Status${NC}"
+          echo "     - Look for MCP status indicator in Cursor"
+          echo "     - Should show 'gtd-unified-system' as connected"
+          echo ""
+          echo "  3. ${YELLOW}Verify Connection${NC}"
+          echo "     - Ask the AI: 'What MCP tools are available?'"
+          echo "     - Should list GTD tools if connected"
+          echo ""
+          echo -e "${YELLOW}Note:${NC} After updating gtd_mcp_server.py code, you must restart"
+          echo "Cursor for the changes to take effect."
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          return 0
+          ;;
+        5)
+          clear
+          echo ""
+          echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+          echo -e "${BOLD}${CYAN}🧪 Test MCP Tools${NC}"
+          echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+          echo ""
+          echo "This allows you to call MCP server functions directly for testing."
+          echo ""
+          echo "Available tool categories:"
+          echo ""
+          echo "  📋 Task Management:"
+          echo "    - list_tasks"
+          echo "    - get_task_details"
+          echo "    - create_task"
+          echo "    - update_task"
+          echo "    - complete_task"
+          echo ""
+          echo "  📁 Project Management:"
+          echo "    - list_projects"
+          echo "    - get_project_details"
+          echo "    - create_project"
+          echo ""
+          echo "  💡 Task Suggestions:"
+          echo "    - suggest_tasks_from_text"
+          echo "    - get_pending_suggestions"
+          echo ""
+          echo "  📝 Daily Logs:"
+          echo "    - read_daily_log"
+          echo "    - read_recent_logs"
+          echo ""
+          echo "  🔍 Discovery:"
+          echo "    - get_inbox_count"
+          echo "    - get_context_tasks"
+          echo "    - list_areas"
+          echo ""
+          echo "  🧠 Deep Analysis (queued):"
+          echo "    - weekly_review"
+          echo "    - analyze_energy"
+          echo "    - find_connections"
+          echo "    - generate_insights"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo -n "Enter tool name to test (or 'list' to see all): "
+          read tool_name
+          
+          if [[ -z "$tool_name" ]]; then
+            echo "❌ No tool name provided"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            return 0
+          fi
+          
+          if [[ "$tool_name" == "list" ]]; then
+            echo ""
+            echo "📋 All Available MCP Tools:"
+            echo ""
+            MCP_SERVER="$HOME/code/dotfiles/mcp/gtd_mcp_server.py"
+            if [[ ! -f "$MCP_SERVER" ]]; then
+              MCP_SERVER="$HOME/code/personal/dotfiles/mcp/gtd_mcp_server.py"
+            fi
+            
+            if [[ -f "$MCP_SERVER" ]]; then
+              MCP_PYTHON=$(gtd_get_mcp_python)
+              if [[ -z "$MCP_PYTHON" ]]; then
+                MCP_PYTHON="python3"
+              fi
+              
+              "$MCP_PYTHON" -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, '$(dirname "$MCP_SERVER")')
+from gtd_mcp_server import handle_list_tools
+import asyncio
+
+tools = asyncio.run(handle_list_tools())
+for tool in tools:
+    print(f'  • {tool.name}')
+    if hasattr(tool, 'description') and tool.description:
+        desc = tool.description[:60]
+        if len(tool.description) > 60:
+            desc += '...'
+        print(f'    {desc}')
+    print()
+" 2>/dev/null || echo "⚠️  Could not list tools. Make sure MCP server is set up."
+            else
+              echo "❌ MCP server not found"
+            fi
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            return 0
+          fi
+          
+          echo ""
+          echo -n "Enter tool arguments as JSON (or press Enter for no args): "
+          read tool_args
+          
+          if [[ -z "$tool_args" ]]; then
+            tool_args="{}"
+          fi
+          
+          echo ""
+          echo "Calling MCP tool: $tool_name"
+          echo "Arguments: $tool_args"
+          echo ""
+          
+          MCP_SERVER="$HOME/code/dotfiles/mcp/gtd_mcp_server.py"
+          if [[ ! -f "$MCP_SERVER" ]]; then
+            MCP_SERVER="$HOME/code/personal/dotfiles/mcp/gtd_mcp_server.py"
+          fi
+          
+          if [[ ! -f "$MCP_SERVER" ]]; then
+            echo -e "${RED}❌ MCP server not found${NC}"
+            echo "Expected at: $HOME/code/dotfiles/mcp/gtd_mcp_server.py"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            return 0
+          fi
+          
+          MCP_PYTHON=$(gtd_get_mcp_python)
+          if [[ -z "$MCP_PYTHON" ]]; then
+            MCP_PYTHON="python3"
+          fi
+          
+          result=$("$MCP_PYTHON" -c "
+import sys
+import json
+import asyncio
+from pathlib import Path
+
+sys.path.insert(0, '$(dirname "$MCP_SERVER")')
+
+try:
+    from gtd_mcp_server import handle_call_tool
+    
+    # Parse arguments
+    try:
+        args = json.loads('$tool_args')
+    except:
+        args = {}
+    
+    # Call the tool
+    result = asyncio.run(handle_call_tool('$tool_name', args))
+    
+    # Extract and display text content
+    if result and len(result) > 0:
+        for content in result:
+            if hasattr(content, 'text'):
+                print(content.text)
+            else:
+                print(str(content))
+    else:
+        print(json.dumps({'error': 'No response from tool'}))
+        
+except Exception as e:
+    print(json.dumps({'error': f'Error calling tool: {str(e)}'}))
+    import traceback
+    traceback.print_exc()
+" 2>&1)
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Result:"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          # Try to format JSON nicely if it's JSON
+          if echo "$result" | "$MCP_PYTHON" -c "import sys, json; json.load(sys.stdin)" 2>/dev/null; then
+            echo "$result" | "$MCP_PYTHON" -m json.tool 2>/dev/null || echo "$result"
+          else
+            echo "$result"
+          fi
+          
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          return 0
+          ;;
+        0)
+          return 0
+          ;;
+        *)
+          echo "Invalid choice"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          return 0
+          ;;
+      esac
+      
+      if [[ "$mcp_setup_choice" != "1" ]]; then
+        return 0
+      fi
+      
       if [[ ! -f "$SETUP_SCRIPT" ]]; then
         echo -e "${RED}❌ MCP setup script not found${NC}"
         echo ""
@@ -1406,9 +2175,12 @@ AI_BACKEND=\"$new_backend\"
         echo ""
         echo "Next steps:"
         echo "  1. Configure MCP server in Cursor (see mcp/README.md)"
-        echo "  2. Start LM Studio or Ollama"
-        echo "  3. (Optional) Set up Vector Filewatcher for auto-vectorization"
-        echo "  4. Test with: Generate banter for log entry (option 4 in AI Suggestions menu)"
+        echo "  2. Restart Cursor to load MCP server with updated code"
+        echo "  3. Start LM Studio or Ollama"
+        echo "  4. (Optional) Set up Vector Filewatcher for auto-vectorization"
+        echo "  5. Test with: Generate banter for log entry (option 4 in AI Suggestions menu)"
+        echo ""
+        echo -e "${YELLOW}Note:${NC} After code changes to gtd_mcp_server.py, restart Cursor to pick up changes."
         echo ""
         echo -n "Would you like to configure the Vector Filewatcher now? (y/n): "
         read setup_filewatcher
@@ -1904,7 +2676,165 @@ except:
             "$HOME/code/dotfiles/bin/gtd-rabbitmq-status"
           else
             echo -e "${YELLOW}⚠️  RabbitMQ status script not found${NC}"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            continue
           fi
+          
+          # After showing status, offer to view logs
+          echo ""
+          echo "View Worker Logs:"
+          echo "  1) 📋 View Deep Analysis Worker Logs"
+          echo "  2) 📋 View Vectorization Worker Logs"
+          echo "  3) 📋 View Both Worker Logs"
+          echo "  0) Back"
+          echo ""
+          echo -n "Choose: "
+          read log_choice
+          
+          case "$log_choice" in
+            1)
+              echo ""
+              echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+              echo -e "${BOLD}Deep Analysis Worker Logs${NC}"
+              echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+              echo ""
+              DEEP_LOG="/tmp/deep-worker.log"
+              if [[ -f "$DEEP_LOG" ]]; then
+                LOG_SIZE=$(wc -l < "$DEEP_LOG" 2>/dev/null || echo "0")
+                if [[ "$LOG_SIZE" -gt 0 ]]; then
+                  echo "Showing last 50 lines (${LOG_SIZE} total lines):"
+                  echo ""
+                  tail -50 "$DEEP_LOG"
+                  echo ""
+                  echo "Options:"
+                  echo "  1) View more (last 100 lines)"
+                  echo "  2) Follow logs (tail -f)"
+                  echo "  0) Back"
+                  echo ""
+                  echo -n "Choose: "
+                  read more_choice
+                  case "$more_choice" in
+                    1)
+                      echo ""
+                      tail -100 "$DEEP_LOG"
+                      ;;
+                    2)
+                      echo ""
+                      echo "Following logs (Ctrl+C to stop)..."
+                      tail -f "$DEEP_LOG"
+                      ;;
+                  esac
+                else
+                  echo -e "${YELLOW}⚠️  Log file is empty${NC}"
+                  echo "The worker may have just started or logs are being written elsewhere."
+                fi
+              else
+                echo -e "${YELLOW}⚠️  Log file not found: $DEEP_LOG${NC}"
+                echo "The worker may not be running or logs are in a different location."
+                echo ""
+                echo "Check if worker is running:"
+                if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+                  pid=$(pgrep -f "gtd_deep_analysis_worker.py")
+                  echo "  ✅ Worker running (PID: $pid)"
+                  echo "  Logs should be at: $DEEP_LOG"
+                else
+                  echo "  ❌ Worker not running"
+                  echo "  Start with: make worker-deep-start"
+                fi
+              fi
+              ;;
+            2)
+              echo ""
+              echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+              echo -e "${BOLD}Vectorization Worker Logs${NC}"
+              echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+              echo ""
+              VECTOR_LOG="/tmp/vector-worker.log"
+              if [[ -f "$VECTOR_LOG" ]]; then
+                LOG_SIZE=$(wc -l < "$VECTOR_LOG" 2>/dev/null || echo "0")
+                if [[ "$LOG_SIZE" -gt 0 ]]; then
+                  echo "Showing last 50 lines (${LOG_SIZE} total lines):"
+                  echo ""
+                  tail -50 "$VECTOR_LOG"
+                  echo ""
+                  echo "Options:"
+                  echo "  1) View more (last 100 lines)"
+                  echo "  2) Follow logs (tail -f)"
+                  echo "  0) Back"
+                  echo ""
+                  echo -n "Choose: "
+                  read more_choice
+                  case "$more_choice" in
+                    1)
+                      echo ""
+                      tail -100 "$VECTOR_LOG"
+                      ;;
+                    2)
+                      echo ""
+                      echo "Following logs (Ctrl+C to stop)..."
+                      tail -f "$VECTOR_LOG"
+                      ;;
+                  esac
+                else
+                  echo -e "${YELLOW}⚠️  Log file is empty${NC}"
+                  echo "The worker may have just started or logs are being written elsewhere."
+                fi
+              else
+                echo -e "${YELLOW}⚠️  Log file not found: $VECTOR_LOG${NC}"
+                echo "The worker may not be running or logs are in a different location."
+                echo ""
+                echo "Check if worker is running:"
+                if pgrep -f "gtd_vector_worker.py" >/dev/null; then
+                  pid=$(pgrep -f "gtd_vector_worker.py")
+                  echo "  ✅ Worker running (PID: $pid)"
+                  echo "  Logs should be at: $VECTOR_LOG"
+                else
+                  echo "  ❌ Worker not running"
+                  echo "  Start with: make worker-vector-start"
+                fi
+              fi
+              ;;
+            3)
+              echo ""
+              echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+              echo -e "${BOLD}Both Worker Logs${NC}"
+              echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+              echo ""
+              DEEP_LOG="/tmp/deep-worker.log"
+              VECTOR_LOG="/tmp/vector-worker.log"
+              
+              if [[ -f "$DEEP_LOG" ]]; then
+                echo -e "${BOLD}Deep Analysis Worker:${NC}"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                tail -30 "$DEEP_LOG"
+                echo ""
+              else
+                echo -e "${YELLOW}⚠️  Deep Analysis log not found: $DEEP_LOG${NC}"
+                echo ""
+              fi
+              
+              if [[ -f "$VECTOR_LOG" ]]; then
+                echo -e "${BOLD}Vectorization Worker:${NC}"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                tail -30 "$VECTOR_LOG"
+                echo ""
+              else
+                echo -e "${YELLOW}⚠️  Vectorization log not found: $VECTOR_LOG${NC}"
+                echo ""
+              fi
+              ;;
+            0|"")
+              ;;
+            *)
+              echo "Invalid choice"
+              ;;
+          esac
+          
+          echo ""
+          echo "Press Enter to continue..."
+          read
           ;;
         0|"")
           return 0
@@ -1932,8 +2862,10 @@ except:
       echo "  4) 📁 Configure Watched Directory Location (for symlinks)"
       echo "  5) ▶️  Start Filewatcher"
       echo "  6) ⏹️  Stop Filewatcher"
-      echo "  7) 📊 Check Filewatcher Status"
-      echo "  8) 📦 Install Required Dependencies (watchdog)"
+      echo "  7) 🔄 Restart Filewatcher (to pick up config changes)"
+      echo "  8) 📊 Check Filewatcher Status"
+      echo "  9) 📦 Install Required Dependencies (watchdog)"
+      echo " 10) 🔍 Scan Existing Files (queue all files for vectorization)"
       echo ""
       echo -e "${YELLOW}0)${NC} Back"
       echo ""
@@ -2276,12 +3208,27 @@ except:
               ;;
             7)
               echo ""
-              cd "$HOME/code/dotfiles" && make filewatcher-status
+              echo -e "${CYAN}Restarting Vector Filewatcher...${NC}"
+              echo ""
+              echo "This will stop and restart the filewatcher to pick up any configuration changes."
+              echo ""
+              cd "$HOME/code/dotfiles" && make filewatcher-stop
+              sleep 2
+              cd "$HOME/code/dotfiles" && make filewatcher-start
+              echo ""
+              echo -e "${GREEN}✅ Filewatcher restarted${NC}"
               echo ""
               echo "Press Enter to continue..."
               read
               ;;
             8)
+              echo ""
+              cd "$HOME/code/dotfiles" && make filewatcher-status
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              ;;
+            9)
               echo ""
               echo -e "${BOLD}Install Required Dependencies${NC}"
               echo ""
@@ -2305,6 +3252,31 @@ except:
               echo ""
               echo "Press Enter to continue..."
               read
+              ;;
+            10)
+              echo ""
+              echo -e "${BOLD}Scan Existing Files${NC}"
+              echo ""
+              echo "This will scan all existing files in your configured directories"
+              echo "and queue them for vectorization. Useful for:"
+              echo "  • Initial setup"
+              echo "  • Repopulating the queue after it's been cleared"
+              echo "  • Re-queuing files that may have been missed"
+              echo ""
+              echo -n "Continue? (y/n): "
+              read confirm_scan
+              if [[ "$confirm_scan" == "y" || "$confirm_scan" == "Y" ]]; then
+                echo ""
+                echo "Scanning and queueing files..."
+                echo ""
+                cd "$HOME/code/dotfiles" && make filewatcher-scan
+                echo ""
+                echo "Press Enter to continue..."
+                read
+              else
+                echo "Cancelled."
+                sleep 1
+              fi
               ;;
             0)
               ;;
@@ -2680,6 +3652,235 @@ except:
               echo "Invalid choice"
               ;;
           esac
+      ;;
+    12)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🚀 Deploy External Services${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Deploy external services (RabbitMQ, PostgreSQL) to Kubernetes."
+      echo ""
+      echo "Options:"
+      echo ""
+      echo "  1) 🐰 Deploy RabbitMQ"
+      echo "  2) 🗄️  Deploy PostgreSQL Database"
+      echo "  3) 🚀 Deploy All Services"
+      echo "  4) 📊 Check Service Status"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose: "
+      read deploy_choice
+      
+      case "$deploy_choice" in
+        1)
+          echo ""
+          echo -e "${CYAN}Deploying RabbitMQ to Kubernetes...${NC}"
+          echo ""
+          cd "$HOME/code/dotfiles" && make services-deploy-rabbitmq
+          echo ""
+          echo "✓ RabbitMQ deployment initiated"
+          echo ""
+          echo "💡 After deployment, set up port-forward:"
+          echo "   Use: gtd-wizard → Configuration → Setup RabbitMQ → Start Port-Forward"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        2)
+          echo ""
+          echo -e "${CYAN}Deploying PostgreSQL Database to Kubernetes...${NC}"
+          echo ""
+          cd "$HOME/code/dotfiles" && make services-deploy-database
+          echo ""
+          echo "✓ PostgreSQL deployment initiated"
+          echo ""
+          echo "💡 After deployment, set up port-forward:"
+          echo "   setup-port-forward 13003"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        3)
+          echo ""
+          echo -e "${CYAN}Deploying all external services...${NC}"
+          echo ""
+          cd "$HOME/code/dotfiles" && make services-deploy-all
+          echo ""
+          echo "✓ All services deployment initiated"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        4)
+          echo ""
+          echo -e "${CYAN}Checking service status...${NC}"
+          echo ""
+          echo "RabbitMQ:"
+          kubectl get pods -n rabbitmq-system 2>/dev/null || echo "  (Not found or not accessible)"
+          echo ""
+          echo "PostgreSQL:"
+          kubectl get pods -A | grep -i postgres || echo "  (Not found)"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        0|"")
+          return 0
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      ;;
+    13)
+      # Manage Background Workers
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}👷 Manage Background Workers${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Check if manage_worker function exists (from gtd-wizard-analysis.sh)
+      if type manage_worker &>/dev/null 2>&1; then
+        # Show worker status first
+        echo -e "${BOLD}Current Worker Status:${NC}"
+        echo ""
+        
+        # Deep Analysis Worker
+        echo -e "${CYAN}Deep Analysis Worker:${NC}"
+        if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_deep_analysis_worker.py")
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+        else
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+        fi
+        echo ""
+        
+        # Vectorization Worker
+        echo -e "${CYAN}Vectorization Worker:${NC}"
+        if pgrep -f "gtd_vector_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_vector_worker.py")
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+        else
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+        fi
+        echo ""
+        
+        # Check RabbitMQ connection (NodePort or port-forward)
+        echo -e "${BOLD}RabbitMQ Connection:${NC}"
+        RABBITMQ_AVAILABLE=false
+        if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
+          echo -e "  ${GREEN}✅ NodePort accessible (192.168.64.2:30672)${NC}"
+          RABBITMQ_AVAILABLE=true
+        elif nc -zv localhost 5672 &>/dev/null 2>&1; then
+          echo -e "  ${GREEN}✅ Port-forward active (localhost:5672)${NC}"
+          RABBITMQ_AVAILABLE=true
+        else
+          echo -e "  ${YELLOW}⚠️  RabbitMQ not accessible${NC}"
+          echo "  Check: cd ~/code/external_services/rabbitmq && make connection-info"
+          echo "  Note: NodePort (192.168.64.2:30672) is preferred, no port-forward needed"
+        fi
+        echo ""
+        
+        echo "What would you like to do?"
+        echo "  1) Manage Deep Analysis Worker"
+        echo "  2) Manage Vectorization Worker"
+        echo "  3) Start All Workers"
+        echo "  4) Stop All Workers"
+        echo "  5) Restart All Workers (Reconnect to RabbitMQ)"
+        echo "  6) View RabbitMQ Queue Status"
+        echo "  7) 📦 Migrate File Queue to RabbitMQ"
+        echo ""
+        echo -e "${YELLOW}0)${NC} Back"
+        echo ""
+        echo -n "Choose: "
+        read worker_action
+        
+        case "$worker_action" in
+          1)
+            manage_worker "gtd_deep_analysis_worker.py" "Deep Analysis"
+            ;;
+          2)
+            manage_worker "gtd_vector_worker.py" "Vectorization"
+            ;;
+          3)
+            echo ""
+            echo "Starting all workers..."
+            make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            ;;
+          4)
+            echo ""
+            echo "Stopping all workers..."
+            make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            ;;
+          5)
+            echo ""
+            echo "Restarting all workers..."
+            make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+            sleep 2
+            make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+            echo ""
+            echo "✓ Workers restarted"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            ;;
+          6)
+            echo ""
+            if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-rabbitmq-status"
+            else
+              echo "❌ RabbitMQ status script not found"
+            fi
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            ;;
+          7)
+            # Migrate file queue to RabbitMQ
+            echo ""
+            if [[ -f "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
+              "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq"
+            elif [[ -f "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
+              "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq"
+            else
+              echo -e "${RED}❌ Migration script not found${NC}"
+            fi
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            ;;
+          0|"")
+            return 0
+            ;;
+          *)
+            echo "Invalid choice"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            ;;
+        esac
+      else
+        echo "⚠️  Worker management functions not available"
+        echo "  Use: Main Menu → 17) System Status → 3) Background Worker Status"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+      fi
       ;;
     0|"")
       return 0
@@ -3300,6 +4501,424 @@ greek_wizard() {
   read
 }
 
+vector_database_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔍 Vector Database Management${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Manage your vector database for semantic search and content retrieval."
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) 📊 View Database Statistics"
+  echo "  2) 📋 List All Embeddings"
+  echo "  3) 🔍 List Embeddings by Content Type"
+  echo "  4) 🔢 Count Embeddings"
+  echo "  5) ✅ Test Database Connection"
+  echo "  6) 🔍 Search Vector Database (semantic search)"
+  echo "  7) 🔧 Create pgvector Extension (requires postgres superuser)"
+  echo "  8) 🏗️  Initialize Database Schema (create tables)"
+  echo "  9) 🔍 Scan Existing Files (queue for vectorization)"
+  echo "  10) 🔌 Fix NodePort IP Address"
+  echo "  11) 📁 Setup Vector Filewatcher"
+  echo "  12) 📊 System Statistics (document_vectors table)"
+  echo "  13) 📄 File Information (detailed file stats)"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back"
+  echo ""
+  echo -n "Choose: "
+  read vector_choice
+  
+  case "$vector_choice" in
+    1)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}📊 Vector Database Statistics${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      cd "$HOME/code/dotfiles" && gtd-vector-db-status stats
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    2)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}📋 List All Embeddings${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo -n "Limit (default: 100): "
+      read limit_input
+      limit="${limit_input:-100}"
+      cd "$HOME/code/dotfiles" && gtd-vector-db-status list "" "$limit"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    3)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔍 List Embeddings by Content Type${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Content types: daily_log, task, project, note, file"
+      echo ""
+      echo -n "Content type (default: all): "
+      read content_type
+      echo -n "Limit (default: 20): "
+      read limit_input
+      limit="${limit_input:-20}"
+      cd "$HOME/code/dotfiles" && gtd-vector-db-status list "$content_type" "$limit"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    4)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔢 Count Embeddings${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo -n "Content type (optional, press Enter for all): "
+      read content_type
+      if [[ -n "$content_type" ]]; then
+        cd "$HOME/code/dotfiles" && gtd-vector-db-status count "$content_type"
+      else
+        cd "$HOME/code/dotfiles" && gtd-vector-db-status count
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    5)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}✅ Test Database Connection${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      cd "$HOME/code/dotfiles" && gtd-vector-db-status test
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    6)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔍 Search Vector Database${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Search your vectorized content using semantic search."
+      echo ""
+      echo -n "Search query: "
+      read search_query
+      
+      if [[ -z "$search_query" ]]; then
+        echo "No query provided."
+        echo ""
+        echo "Press Enter to continue..."
+        read
+      else
+        echo ""
+        echo "Search options:"
+        echo "  1) Search all content types (excludes advice results automatically)"
+        echo "  2) Search specific content type only"
+        echo ""
+        echo -n "Choose (default: 1): "
+        read search_option
+        search_option="${search_option:-1}"
+        
+        # Set search parameters based on option
+        content_type_filter="None"
+        threshold="0.4"  # Balanced threshold for better quality (was 0.3)
+        
+        case "$search_option" in
+          1)
+            content_type_filter="None"
+            # Note: Advice results are automatically filtered by file_path in search_similar()
+            ;;
+          2)
+            echo ""
+            echo "Content types: daily_log, task, project, note, file, document"
+            echo -n "Content type: "
+            read content_type_filter
+            if [[ -z "$content_type_filter" ]]; then
+              content_type_filter="None"
+            else
+              content_type_filter="'$content_type_filter'"
+            fi
+            ;;
+        esac
+        
+        echo ""
+        echo "Searching..."
+        echo ""
+        
+        # Use Python to search
+        cd "$HOME/code/dotfiles" && mcp/venv/bin/python3 << PYEOF
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd()))
+
+from zsh.functions.gtd_vectorization import search_similar
+
+# Parse content type filter
+content_type = $content_type_filter if $content_type_filter != "None" else None
+
+# Note: Advice results are automatically filtered out by file_path check
+results = search_similar(
+    query_text="$search_query",
+    content_type=content_type,
+    limit=10,
+    threshold=$threshold
+)
+
+if results:
+    print(f"Found {len(results)} results:\n")
+    for i, r in enumerate(results, 1):
+        print(f"[{i}] {r['content_type']}:{r['content_id']}")
+        print(f"    Similarity: {r.get('similarity', 0):.2f}")
+        if r.get('content_text'):
+            preview = r['content_text'][:200].replace('\n', ' ')
+            if len(r['content_text']) > 200:
+                preview += "..."
+            print(f"    Preview: {preview}")
+        print()
+else:
+    print("No results found.")
+    print("\n💡 Try:")
+    print("  - Lowering the similarity threshold")
+    print("  - Using different keywords")
+    print("  - Checking if content has been vectorized")
+PYEOF
+        echo ""
+        echo "Press Enter to continue..."
+        read
+      fi
+      ;;
+    7)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔧 Create pgvector Extension${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "This will create the pgvector extension in your database."
+      echo "⚠️  Requires connecting as 'postgres' superuser."
+      echo ""
+      echo "The extension only needs to be created once per database."
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      cd "$HOME/code/dotfiles" && make vector-db-init-extension
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    8)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🏗️  Initialize Database Schema${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "This will create the vector_embeddings table and indexes."
+      echo "⚠️  Requires pgvector extension to be installed first (option 6)."
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      cd "$HOME/code/dotfiles" && make vector-db-init-schema
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    9)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔍 Scan Existing Files${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "This will scan all markdown files in configured directories"
+      echo "and queue them for vectorization."
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      cd "$HOME/code/dotfiles" && make filewatcher-scan
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    10)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔌 Fix NodePort IP Address${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "This will detect the correct IP address for your Kubernetes setup"
+      echo "and update your database configuration."
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      cd "$HOME/code/dotfiles" && bash bin/fix-nodeport-ip
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    10)
+      # Reuse the filewatcher setup from config wizard
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}📁 Setup Vector Filewatcher${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "This will help you set up automatic vectorization of files."
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      
+      # Call the filewatcher setup from config wizard
+      GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+      if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+        GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+      fi
+      CONFIG_DB_FILE="${GTD_CONFIG_DIR}/.gtd_config_database"
+      
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) Enable/Disable Filewatcher"
+      echo "  2) Configure Watch Directories"
+      echo "  3) Setup Symlinks (for external directories)"
+      echo "  4) Start Filewatcher"
+      echo "  5) Stop Filewatcher"
+      echo "  6) Check Filewatcher Status"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose: "
+      read filewatcher_choice
+      
+      # Find Python and config paths
+      MCP_VENV_PYTHON="$HOME/code/dotfiles/mcp/venv/bin/python3"
+      if [[ ! -f "$MCP_VENV_PYTHON" ]]; then
+        MCP_VENV_PYTHON="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+      fi
+      MCP_VENV_DIR="${MCP_VENV_PYTHON%/bin/python3}"
+      if [[ -f "$MCP_VENV_PYTHON" ]]; then
+        PYTHON_CMD="$MCP_VENV_PYTHON"
+      else
+        PYTHON_CMD="python3"
+        MCP_VENV_DIR=""
+      fi
+      
+      case "$filewatcher_choice" in
+        1)
+          echo ""
+          if [[ -f "$CONFIG_DB_FILE" ]]; then
+            source "$CONFIG_DB_FILE"
+          fi
+          current_status="${VECTOR_FILEWATCHER_ENABLED:-false}"
+          echo "Current status: $current_status"
+          echo ""
+          echo -n "Enable filewatcher? (y/n, current: $current_status): "
+          read enable_choice
+          if [[ "$enable_choice" == "y" || "$enable_choice" == "Y" ]]; then
+            if [[ "$(uname)" == "Darwin" ]]; then
+              sed -i '' "s/^VECTOR_FILEWATCHER_ENABLED=.*/VECTOR_FILEWATCHER_ENABLED=true/" "$CONFIG_DB_FILE" 2>/dev/null || echo "VECTOR_FILEWATCHER_ENABLED=true" >> "$CONFIG_DB_FILE"
+            else
+              sed -i "s/^VECTOR_FILEWATCHER_ENABLED=.*/VECTOR_FILEWATCHER_ENABLED=true/" "$CONFIG_DB_FILE" 2>/dev/null || echo "VECTOR_FILEWATCHER_ENABLED=true" >> "$CONFIG_DB_FILE"
+            fi
+            echo "✅ Filewatcher enabled"
+          else
+            if [[ "$(uname)" == "Darwin" ]]; then
+              sed -i '' "s/^VECTOR_FILEWATCHER_ENABLED=.*/VECTOR_FILEWATCHER_ENABLED=false/" "$CONFIG_DB_FILE" 2>/dev/null || echo "VECTOR_FILEWATCHER_ENABLED=false" >> "$CONFIG_DB_FILE"
+            else
+              sed -i "s/^VECTOR_FILEWATCHER_ENABLED=.*/VECTOR_FILEWATCHER_ENABLED=false/" "$CONFIG_DB_FILE" 2>/dev/null || echo "VECTOR_FILEWATCHER_ENABLED=false" >> "$CONFIG_DB_FILE"
+            fi
+            echo "✅ Filewatcher disabled"
+          fi
+          ;;
+        2)
+          echo ""
+          echo -n "Enter directories to watch (comma-separated, default: GTD_BASE_DIR and DAILY_LOG_DIR): "
+          read watch_dirs_input
+          if [[ -n "$watch_dirs_input" ]]; then
+            if [[ "$(uname)" == "Darwin" ]]; then
+              sed -i '' "s|^VECTOR_WATCH_DIRS=.*|VECTOR_WATCH_DIRS=\"$watch_dirs_input\"|" "$CONFIG_DB_FILE" 2>/dev/null || echo "VECTOR_WATCH_DIRS=\"$watch_dirs_input\"" >> "$CONFIG_DB_FILE"
+            else
+              sed -i "s|^VECTOR_WATCH_DIRS=.*|VECTOR_WATCH_DIRS=\"$watch_dirs_input\"|" "$CONFIG_DB_FILE" 2>/dev/null || echo "VECTOR_WATCH_DIRS=\"$watch_dirs_input\"" >> "$CONFIG_DB_FILE"
+            fi
+            echo "✅ Watch directories updated"
+          fi
+          ;;
+        3)
+          echo ""
+          echo "Setting up symlinks for external directories..."
+          cd "$HOME/code/dotfiles" && make filewatcher-setup-symlinks 2>/dev/null || echo "Symlink setup not available"
+          ;;
+        4)
+          echo ""
+          cd "$HOME/code/dotfiles" && make filewatcher-start
+          ;;
+        5)
+          echo ""
+          cd "$HOME/code/dotfiles" && make filewatcher-stop
+          ;;
+        6)
+          echo ""
+          cd "$HOME/code/dotfiles" && make filewatcher-status
+          ;;
+        0)
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    11)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}📊 System Statistics (document_vectors)${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      cd "$HOME/code/dotfiles" && gtd-vector-db-status system-stats
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    13)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}📄 File Information${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Enter the file path to get detailed information:"
+      echo ""
+      echo -n "File path: "
+      read file_path_input
+      if [[ -n "$file_path_input" ]]; then
+        echo ""
+        cd "$HOME/code/dotfiles" && gtd-vector-db-status file-info "$file_path_input"
+      else
+        echo "❌ No file path provided"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+  esac
+}
+
 ai_suggestions_wizard() {
   clear
   echo ""
@@ -3317,13 +4936,14 @@ ai_suggestions_wizard() {
   echo "  5) Analyze recent daily logs"
   echo "  6) Generate banter for log entry"
   echo "  7) Trigger weekly review (background)"
-  echo "  8) Analyze energy patterns (background)"
-  echo "  9) Find connections (background)"
-  echo "  10) Generate insights (background)"
-  echo "  11) 🔍 Scan Analysis Results for Suggestions"
-  echo "  12) 📋 View Analysis Results (weekly reviews, energy analysis, etc.)"
-  echo "  13) Check MCP System Status"
-  echo "  14) 🚀 Deploy Worker to Kubernetes"
+  echo "  8) 🔍 Vector Database Status & Inspection"
+  echo "  9) Analyze energy patterns (background)"
+  echo "  10) Find connections (background)"
+  echo "  11) Generate insights (background)"
+  echo "  12) 🔍 Scan Analysis Results for Suggestions"
+  echo "  13) 📋 View Analysis Results (weekly reviews, energy analysis, etc.)"
+  echo "  14) Check MCP System Status"
+  echo "  15) 🚀 Deploy Worker to Kubernetes"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -3932,6 +5552,9 @@ print(status)
       read
       ;;
     8)
+      vector_database_wizard
+      ;;
+    9)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -3985,7 +5608,7 @@ print(status)
       echo "Press Enter to continue..."
       read
       ;;
-    9)
+    10)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -4039,7 +5662,7 @@ print(status)
       echo "Press Enter to continue..."
       read
       ;;
-    10)
+    11)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -4075,17 +5698,17 @@ print(status)
           echo -e "${GREEN}✅ Job queued successfully${NC}"
           echo ""
           if [[ "$result" == *"file"* ]]; then
-            echo "Queue method: ${CYAN}File queue${NC}"
-            echo "Queue file: ${CYAN}~/Documents/gtd/deep_analysis_queue.jsonl${NC}"
+            echo -e "Queue method: ${CYAN}File queue${NC}"
+            echo -e "Queue file: ${CYAN}~/Documents/gtd/deep_analysis_queue.jsonl${NC}"
             echo ""
             echo "To verify the job was queued:"
             echo -e "  ${CYAN}wc -l ~/Documents/gtd/deep_analysis_queue.jsonl${NC}"
             echo -e "  ${CYAN}tail -1 ~/Documents/gtd/deep_analysis_queue.jsonl${NC}"
           else
-            echo "Queue method: ${CYAN}RabbitMQ${NC}"
+            echo -e "Queue method: ${CYAN}RabbitMQ${NC}"
           fi
           echo ""
-          echo "Results will be saved to: ${CYAN}~/Documents/gtd/deep_analysis_results/${NC}"
+          echo -e "Results will be saved to: ${CYAN}~/Documents/gtd/deep_analysis_results/${NC}"
           echo ""
           echo "Note: Make sure the background worker is running to process this job."
         else
@@ -4097,7 +5720,7 @@ print(status)
       echo "Press Enter to continue..."
       read
       ;;
-    11)
+    12)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -4112,7 +5735,9 @@ print(status)
       days=${days_input:-7}
       
       echo ""
-      echo "Scanning analysis results..."
+      echo "Queuing analysis results for suggestion extraction..."
+      echo "This will use the deep worker (thinking model) for better quality suggestions."
+      echo ""
       
       MCP_PYTHON=$(gtd_get_mcp_python)
       if [[ -z "$MCP_PYTHON" ]]; then
@@ -4142,31 +5767,21 @@ print(json.dumps(result, indent=2))
 import sys, json
 data = json.load(sys.stdin)
 if data.get('success'):
-    print('✅', data.get('message', 'Scan completed'))
+    print('✅', data.get('message', 'Scan queued'))
     print('')
-    if data.get('suggestions_created', 0) > 0:
-        print('📋 Created', data['suggestions_created'], 'suggestion(s):')
+    if data.get('files_queued', 0) > 0:
+        print('📋 Queued', data['files_queued'], 'analysis result(s) for processing')
+        print('   Using deep worker (thinking model) for suggestion extraction')
         print('')
-        for i, sug in enumerate(data.get('suggestions', []), 1):
-            title = sug.get('title', 'Unknown')
-            reason = sug.get('reason', '')
-            # Display full title and reason (they're stored complete)
-            print(f'  {i}. {title}')
-            if reason:
-                # Wrap long reasons for readability
-                if len(reason) > 100:
-                    print(f'     Reason: {reason[:97]}...')
-                else:
-                    print(f'     Reason: {reason}')
+        if data.get('files'):
+            print('📁 Files queued:', ', '.join(data.get('files', [])[:5]))
+            if len(data.get('files', [])) > 5:
+                print('   ... and', len(data.get('files', [])) - 5, 'more')
             print('')
-        print('💡 Review these suggestions with option 2 (Review pending suggestions)')
+        print('💡 Suggestions will be created in the background by the deep worker.')
+        print('   Check suggestions later or wait for notifications.')
     else:
-        print('ℹ️  No new suggestions extracted from analysis results')
-    if data.get('files_scanned', 0) > 0:
-        print('')
-        print('📁 Files scanned:', ', '.join(data.get('files', [])[:5]))
-        if len(data.get('files', [])) > 5:
-            print('   ... and', len(data.get('files', [])) - 5, 'more')
+        print('ℹ️  No analysis results found to queue')
 else:
     print('❌', data.get('message', 'Scan failed'))
 " 2>/dev/null || echo "$result"
@@ -4179,7 +5794,7 @@ else:
       echo "Press Enter to continue..."
       read
       ;;
-    12)
+    13)
       # View analysis results - source the function if needed
       # Check if function exists, if not, try to source the file
       if ! type view_analysis_results &>/dev/null 2>&1; then
@@ -4204,7 +5819,7 @@ else:
         read
       fi
       ;;
-    13)
+    14)
       clear
       # Run MCP status check
       STATUS_SCRIPT="$HOME/code/dotfiles/mcp/gtd_mcp_status.sh"
@@ -4254,7 +5869,7 @@ else:
       echo "Press Enter to continue..."
       read
       ;;
-    14)
+    15)
       deployment_wizard
       ;;
     0|"")
@@ -5290,6 +6905,9 @@ calendar_wizard() {
     echo "  10) ⚡ Energy pattern → calendar optimization"
     echo "  11) 📊 Calendar insights & analysis"
     echo ""
+    echo -e "${BOLD}Settings:${NC}"
+    echo "  12) 🔐 Re-authenticate Google Calendar (gcalcli)"
+    echo ""
     echo -e "${YELLOW}0)${NC} Back to Main Menu"
     echo ""
     echo -n "Choose: "
@@ -5598,6 +7216,21 @@ calendar_wizard() {
         "$HOME/code/dotfiles/bin/gtd-calendar" insights "$insight_date"
       elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-calendar" ]]; then
         "$HOME/code/personal/dotfiles/bin/gtd-calendar" insights "$insight_date"
+      else
+        echo "❌ gtd-calendar command not found"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    12)
+      echo ""
+      if command -v gtd-calendar &>/dev/null; then
+        gtd-calendar auth
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-calendar" auth
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-calendar" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-calendar" auth
       else
         echo "❌ gtd-calendar command not found"
       fi

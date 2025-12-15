@@ -1,0 +1,167 @@
+#!/bin/bash
+# Diagnose NodePort connectivity issues
+
+echo "🔍 NodePort Diagnostic Tool"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check kubectl
+if ! command -v kubectl &>/dev/null; then
+    echo "❌ kubectl not found"
+    exit 1
+fi
+
+# Check if we can connect to cluster
+if ! kubectl cluster-info &>/dev/null 2>&1; then
+    echo "❌ Cannot connect to Kubernetes cluster"
+    echo "   Make sure your cluster is running and kubectl is configured"
+    exit 1
+fi
+
+echo "✅ Kubernetes cluster is accessible"
+echo ""
+
+# Check PostgreSQL NodePort service
+echo "📊 Checking PostgreSQL NodePort (30003):"
+echo ""
+
+NODEPORT_SVC=$(kubectl get svc -A -o json 2>/dev/null | jq -r '.items[] | select(.spec.type=="NodePort") | select(.spec.ports[]?.nodePort==30003) | "\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null)
+
+if [[ -n "$NODEPORT_SVC" ]]; then
+    echo "✅ NodePort service exists: $NODEPORT_SVC"
+    
+    NAMESPACE=$(echo "$NODEPORT_SVC" | cut -d'/' -f1)
+    SERVICE=$(echo "$NODEPORT_SVC" | cut -d'/' -f2)
+    
+    echo ""
+    echo "Service details:"
+    kubectl get svc -n "$NAMESPACE" "$SERVICE" -o wide
+    echo ""
+    
+    # Check if pods are running
+    SELECTOR=$(kubectl get svc -n "$NAMESPACE" "$SERVICE" -o jsonpath='{.spec.selector}' 2>/dev/null)
+    if [[ -n "$SELECTOR" ]]; then
+        PODS=$(kubectl get pods -n "$NAMESPACE" -l "$SELECTOR" 2>/dev/null | tail -n +2)
+        if [[ -n "$PODS" ]]; then
+            echo "✅ Pods are running:"
+            echo "$PODS"
+        else
+            echo "❌ No pods found matching selector: $SELECTOR"
+        fi
+    fi
+else
+    echo "❌ No NodePort service found on port 30003"
+    echo ""
+    echo "Available PostgreSQL services:"
+    kubectl get svc -A | grep -i postgres || echo "   (None found)"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Detect Kubernetes type and determine correct IP
+echo "🌐 Detecting Kubernetes Type and NodePort IP:"
+echo ""
+
+KUBE_TYPE="unknown"
+CORRECT_IP=""
+
+# Check for minikube
+if command -v minikube &>/dev/null && minikube status &>/dev/null 2>&1; then
+    KUBE_TYPE="minikube"
+    MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "")
+    if [[ -n "$MINIKUBE_IP" ]]; then
+        CORRECT_IP="$MINIKUBE_IP"
+        echo "✅ Detected: Minikube"
+        echo "   Minikube IP: $MINIKUBE_IP"
+    fi
+fi
+
+# Check for Docker Desktop / Rancher Desktop
+if [[ -z "$CORRECT_IP" ]] && docker ps &>/dev/null 2>&1; then
+    NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+    if [[ -n "$NODE_IP" ]]; then
+        # Docker Desktop NodePorts are usually accessible via localhost
+        if [[ "$NODE_IP" == "127.0.0.1" ]] || [[ "$NODE_IP" == *"192.168"* ]]; then
+            KUBE_TYPE="docker-desktop"
+            CORRECT_IP="127.0.0.1"
+            echo "✅ Detected: Docker Desktop / Rancher Desktop"
+            echo "   NodePort accessible via: 127.0.0.1"
+        fi
+    fi
+fi
+
+# If still unknown, test connectivity
+if [[ -z "$CORRECT_IP" ]]; then
+    echo "⚠️  Could not auto-detect Kubernetes type"
+    echo "   Testing common IP addresses..."
+    echo ""
+    
+    for TEST_IP in "127.0.0.1" "192.168.64.2" "192.168.49.2"; do
+        if nc -zv "$TEST_IP" 30003 &>/dev/null 2>&1; then
+            echo "✅ Found working IP: $TEST_IP"
+            CORRECT_IP="$TEST_IP"
+            break
+        else
+            echo "❌ $TEST_IP:30003 - Not reachable"
+        fi
+    done
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check current config
+echo "📝 Current Configuration:"
+echo ""
+
+CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config_database"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config_database"
+fi
+
+if [[ -f "$CONFIG_FILE" ]]; then
+    CURRENT_HOST=$(grep "^VECTOR_DB_HOST=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "not set")
+    CURRENT_PORT=$(grep "^VECTOR_DB_PORT=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "not set")
+    
+    echo "   VECTOR_DB_HOST: $CURRENT_HOST"
+    echo "   VECTOR_DB_PORT: $CURRENT_PORT"
+    echo ""
+    
+    if [[ -n "$CORRECT_IP" ]]; then
+        if [[ "$CURRENT_HOST" != "$CORRECT_IP" ]]; then
+            echo "⚠️  Configuration mismatch detected!"
+            echo "   Current IP: $CURRENT_HOST"
+            echo "   Recommended IP: $CORRECT_IP"
+            echo ""
+            echo "💡 To fix, run:"
+            echo "   ./bin/fix-nodeport-ip"
+            echo ""
+            echo "   Or manually update $CONFIG_FILE:"
+            echo "   VECTOR_DB_HOST=\"$CORRECT_IP\""
+        else
+            echo "✅ Configuration IP matches detected IP"
+            echo ""
+            echo "⚠️  But connection is still failing. Possible issues:"
+            echo "   1. NodePort service not properly configured"
+            echo "   2. Service/pod not running"
+            echo "   3. Network/firewall blocking connection"
+            echo ""
+            echo "💡 Try:"
+            echo "   kubectl get pods -A | grep -i postgres"
+            echo "   kubectl get svc -A | grep -i postgres"
+        fi
+    else
+        echo "⚠️  Could not determine correct IP address"
+        echo "   NodePort service may not be accessible"
+    fi
+else
+    echo "❌ Config file not found: $CONFIG_FILE"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+

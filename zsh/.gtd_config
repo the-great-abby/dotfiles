@@ -46,6 +46,7 @@ OLLAMA_URL="http://localhost:11434/v1/chat/completions"
 
 #LM_STUDIO_CHAT_MODEL="Qwen2.5-7B-Instruct-MLX-8bit"
 #LM_STUDIO_EMBEDDING_MODEL="nomic-embed-text-v2-moe-GGUF"
+LM_STUDIO_EMBEDDING_MODEL="text-embedding-nomic-embed-text-v2-moe"
 
 # Personas/Characters for different types of advice
 # Format: persona_name|system_prompt|expertise_area|temperature|max_tokens

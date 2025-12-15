@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "gtd-unified-system": {
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/mcp/gtd_mcp_server.py"
+      ],
+      "env": {
+        "GTD_USER_NAME": "Abby",
+        "GTD_DEEP_MODEL_URL": "http://localhost:1234/v1/chat/completions",
+        "GTD_DEEP_MODEL_NAME": "qwen/qwen3-4b-thinking-2507",
+        "GTD_RABBITMQ_URL": "amqp://192.168.64.2:30672",
+        "GTD_RABBITMQ_QUEUE": "gtd_deep_analysis",
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    }
+  }
+}
+

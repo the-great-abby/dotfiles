@@ -1,0 +1,125 @@
+#!/bin/bash
+# Fix NodePort IP address configuration
+# Detects the correct IP for your Kubernetes setup and updates config
+
+echo "🔍 Detecting Correct NodePort IP Address"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check what Kubernetes setup is being used
+KUBE_TYPE="unknown"
+
+# Check for minikube
+if command -v minikube &>/dev/null && minikube status &>/dev/null 2>&1; then
+    KUBE_TYPE="minikube"
+    MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "192.168.64.2")
+    echo "✅ Detected: Minikube"
+    echo "   Minikube IP: $MINIKUBE_IP"
+    CORRECT_IP="$MINIKUBE_IP"
+elif docker ps &>/dev/null && kubectl get nodes &>/dev/null 2>&1; then
+    # Check if it's Docker Desktop or Rancher Desktop
+    if kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null | grep -q "127.0.0.1\|192.168"; then
+        NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+        if [[ -n "$NODE_IP" ]]; then
+            KUBE_TYPE="docker-desktop"
+            echo "✅ Detected: Docker Desktop / Rancher Desktop"
+            echo "   Node IP: $NODE_IP"
+            # For Docker Desktop, NodePorts are usually accessible via localhost
+            CORRECT_IP="127.0.0.1"
+        fi
+    fi
+fi
+
+# If we couldn't detect, try to test common IPs
+if [[ -z "$CORRECT_IP" ]]; then
+    echo "⚠️  Could not auto-detect Kubernetes type"
+    echo "   Testing common IP addresses..."
+    echo ""
+    
+    # Test common IPs
+    for TEST_IP in "127.0.0.1" "192.168.64.2" "192.168.49.2" "localhost"; do
+        if nc -zv "$TEST_IP" 30003 &>/dev/null 2>&1; then
+            echo "✅ Found working IP: $TEST_IP"
+            CORRECT_IP="$TEST_IP"
+            break
+        fi
+    done
+fi
+
+# If still no IP found, check if service is actually accessible
+if [[ -z "$CORRECT_IP" ]]; then
+    echo ""
+    echo "❌ Could not find working IP address"
+    echo ""
+    echo "The NodePort service exists, but it's not accessible."
+    echo "This might mean:"
+    echo "  1. The service needs to be restarted"
+    echo "  2. The Kubernetes cluster needs to be restarted"
+    echo "  3. Network configuration issue"
+    echo ""
+    echo "💡 Try these steps:"
+    echo "  1. Restart the service:"
+    echo "     kubectl rollout restart deployment/postgres-vector -n postgres-infra"
+    echo ""
+    echo "  2. Or use port-forwarding as a temporary workaround:"
+    echo "     Change VECTOR_DB_HOST to 'localhost' and VECTOR_DB_PORT to '13003'"
+    echo "     Then run: setup-port-forward 13003"
+    echo ""
+    exit 1
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "📝 Current Configuration:"
+echo ""
+
+CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config_database"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config_database"
+fi
+
+if [[ -f "$CONFIG_FILE" ]]; then
+    CURRENT_HOST=$(grep "^VECTOR_DB_HOST=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "not set")
+    CURRENT_PORT=$(grep "^VECTOR_DB_PORT=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "not set")
+    
+    echo "   VECTOR_DB_HOST: $CURRENT_HOST"
+    echo "   VECTOR_DB_PORT: $CURRENT_PORT"
+    echo ""
+    
+    if [[ "$CURRENT_HOST" != "$CORRECT_IP" ]]; then
+        echo "🔧 Updating Configuration:"
+        echo "   Old IP: $CURRENT_HOST"
+        echo "   New IP: $CORRECT_IP"
+        echo ""
+        
+        # Backup config
+        cp "$CONFIG_FILE" "${CONFIG_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+        
+        # Update IP address
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' "s|^VECTOR_DB_HOST=.*|VECTOR_DB_HOST=\"$CORRECT_IP\"|" "$CONFIG_FILE"
+        else
+            sed -i "s|^VECTOR_DB_HOST=.*|VECTOR_DB_HOST=\"$CORRECT_IP\"|" "$CONFIG_FILE"
+        fi
+        
+        echo "✅ Configuration updated!"
+        echo ""
+        echo "💡 Test the connection:"
+        echo "   gtd-vector-db-status test"
+        echo ""
+    else
+        echo "✅ Configuration is already correct!"
+        echo ""
+        echo "⚠️  But connection is still failing. This might mean:"
+        echo "   1. The service needs to be restarted"
+        echo "   2. The pod needs to be restarted"
+        echo ""
+        echo "💡 Try restarting the service:"
+        echo "   kubectl rollout restart deployment/postgres-vector -n postgres-infra"
+        echo ""
+    fi
+else
+    echo "❌ Config file not found: $CONFIG_FILE"
+    exit 1
+fi

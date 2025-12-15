@@ -29,7 +29,10 @@ start_daemon() {
   echo "Check interval: $INTERVAL minutes"
   echo "Log file: $LOG_FILE"
   
-  nohup bash -c "
+  # Export INTERVAL so it's available in the nohup command
+  export INTERVAL
+  
+  nohup env INTERVAL="$INTERVAL" bash -c "
     while true; do
       echo \"\$(date): Checking for scheduled deep analysis jobs...\" >> \"$LOG_FILE\"
       \"$SCHEDULER\" >> \"$LOG_FILE\" 2>&1
@@ -110,3 +113,4 @@ case "${1:-}" in
     exit 1
     ;;
 esac
+

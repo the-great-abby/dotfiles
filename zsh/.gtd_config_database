@@ -2,9 +2,10 @@
 # Vector Database Configuration (PostgreSQL with pgvector)
 # ============================================================================
 # PostgreSQL connection settings for vector storage
-# Database is available at localhost:13003
-VECTOR_DB_HOST="${VECTOR_DB_HOST:-localhost}"
-VECTOR_DB_PORT="${VECTOR_DB_PORT:-13003}"
+# Database is available at 192.168.64.2:30003 (NodePort)
+# Old port-forward: localhost:13003 (deprecated)
+VECTOR_DB_HOST="127.0.0.1"
+VECTOR_DB_PORT="${VECTOR_DB_PORT:-30003}"
 VECTOR_DB_NAME="${VECTOR_DB_NAME:-gtd_organization_system}"
 VECTOR_DB_USER="${VECTOR_DB_USER:-gtd_organization_system}"
 VECTOR_DB_PASSWORD="${VECTOR_DB_PASSWORD:-gtd_organization_system}"
@@ -23,10 +24,10 @@ VECTOR_DIMENSION="${VECTOR_DIMENSION:-768}"
 # RabbitMQ Configuration (for background processing)
 # ============================================================================
 # RabbitMQ connection settings (optional, for async vectorization)
-# For Kubernetes: Use port-forward or service URL
-#   kubectl port-forward -n rabbitmq-system svc/rabbitmq 5672:5672
+# For Kubernetes: Use NodePort (192.168.64.2:30672) - no port-forward needed!
+# Old port-forward: localhost:5672 (deprecated)
 RABBITMQ_ENABLED="${RABBITMQ_ENABLED:-true}"
-RABBITMQ_URL="${RABBITMQ_URL:-amqp://localhost:5672}"
+RABBITMQ_URL="${RABBITMQ_URL:-amqp://192.168.64.2:30672}"
 # Username and password (optional - can also be in URL as amqp://user:pass@host:port)
 RABBITMQ_USER="${RABBITMQ_USER:-guest}"
 RABBITMQ_PASS="${RABBITMQ_PASS:-guest}"
@@ -73,7 +74,7 @@ VECTOR_HYBRID_SEARCH="${VECTOR_HYBRID_SEARCH:-true}"
 # Directories to watch for automatic vectorization (comma-separated)
 # Can include symlinks - they will be followed automatically
 # Defaults: GTD_BASE_DIR and DAILY_LOG_DIR
-VECTOR_WATCH_DIRS="/Users/abby/Documents/gtd,/Users/abby/Documents/daily_logs"
+VECTOR_WATCH_DIRS="/Users/abby/Documents/gtd/watched"
 
 # Watched directory location (for symlinks to external directories)
 # Default: $HOME/Documents/gtd/watched
@@ -81,7 +82,7 @@ VECTOR_WATCH_DIRS="/Users/abby/Documents/gtd,/Users/abby/Documents/daily_logs"
 VECTOR_WATCH_DIR="${VECTOR_WATCH_DIR:-$HOME/Documents/gtd/watched}"
 
 # Enable filewatcher (true/false)
-VECTOR_FILEWATCHER_ENABLED="${VECTOR_FILEWATCHER_ENABLED:-false}"
+VECTOR_FILEWATCHER_ENABLED="${VECTOR_FILEWATCHER_ENABLED:-true}"
 
 # ============================================================================
 # Deep Analysis Automatic Scheduler Configuration

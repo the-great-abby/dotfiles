@@ -39,6 +39,24 @@ if [[ -z "$CONTENT_TYPE" || -z "$CONTENT_ID" || -z "$CONTENT_TEXT" ]]; then
   exit 0
 fi
 
+# Get Python command - prefer MCP virtualenv
+PYTHON_CMD=""
+MCP_VENV_PYTHON="$HOME/code/dotfiles/mcp/venv/bin/python3"
+if [[ ! -f "$MCP_VENV_PYTHON" ]]; then
+  MCP_VENV_PYTHON="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+fi
+
+if [[ -f "$MCP_VENV_PYTHON" ]]; then
+  PYTHON_CMD="$MCP_VENV_PYTHON"
+elif command -v python3 &>/dev/null; then
+  PYTHON_CMD="python3"
+elif command -v python &>/dev/null; then
+  PYTHON_CMD="python"
+else
+  # Silently exit if Python not found (don't spam errors)
+  exit 0
+fi
+
 # Check if RabbitMQ is enabled for async processing
 if [[ "${RABBITMQ_ENABLED:-false}" == "true" ]]; then
   # Use async mode - queue to RabbitMQ
@@ -49,7 +67,7 @@ if [[ "${RABBITMQ_ENABLED:-false}" == "true" ]]; then
   
   if [[ -f "$PYTHON_SCRIPT" ]]; then
     # Queue for async processing (this returns immediately)
-    python3 "$PYTHON_SCRIPT" queue "$CONTENT_TYPE" "$CONTENT_ID" "$CONTENT_TEXT" 2>&1 | grep -v "^$" >&2 || true
+    "$PYTHON_CMD" "$PYTHON_SCRIPT" queue "$CONTENT_TYPE" "$CONTENT_ID" "$CONTENT_TEXT" 2>&1 | grep -v "^$" >&2 || true
     exit 0
   fi
 fi
@@ -67,6 +85,6 @@ fi
 
 # Vectorize content (run in background to not block)
 # Only show output if there's an error
-python3 "$PYTHON_SCRIPT" vectorize "$CONTENT_TYPE" "$CONTENT_ID" "$CONTENT_TEXT" 2>&1 | grep -v "^$" >&2 || true
+"$PYTHON_CMD" "$PYTHON_SCRIPT" vectorize "$CONTENT_TYPE" "$CONTENT_ID" "$CONTENT_TEXT" 2>&1 | grep -v "^$" >&2 || true
 
 exit 0

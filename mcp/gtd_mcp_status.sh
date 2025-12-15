@@ -204,17 +204,40 @@ echo ""
 
 # Check Python dependencies
 echo -e "${BOLD}4. Python Dependencies${NC}"
-if python3 -c "import mcp" 2>/dev/null; then
+# Find MCP venv Python
+MCP_VENV_PYTHON=""
+if [[ -f "$HOME/code/dotfiles/mcp/venv/bin/python3" ]]; then
+    MCP_VENV_PYTHON="$HOME/code/dotfiles/mcp/venv/bin/python3"
+elif [[ -f "$HOME/code/personal/dotfiles/mcp/venv/bin/python3" ]]; then
+    MCP_VENV_PYTHON="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+fi
+
+# Check MCP SDK
+if [[ -n "$MCP_VENV_PYTHON" ]] && "$MCP_VENV_PYTHON" -c "import mcp" 2>/dev/null; then
     echo -e "   ${GREEN}✅ MCP SDK installed${NC}"
+    echo -e "   ${CYAN}   (using venv: $(dirname "$(dirname "$MCP_VENV_PYTHON")"))${NC}"
+elif python3 -c "import mcp" 2>/dev/null; then
+    echo -e "   ${GREEN}✅ MCP SDK installed${NC}"
+    echo -e "   ${CYAN}   (using system Python)${NC}"
 else
     echo -e "   ${RED}❌ MCP SDK not installed${NC}"
     echo -e "   ${YELLOW}   → Run: pip3 install mcp${NC}"
 fi
 
-if python3 -c "import pika" 2>/dev/null; then
+# Check pika in venv (preferred) or system Python
+if [[ -n "$MCP_VENV_PYTHON" ]] && "$MCP_VENV_PYTHON" -c "import pika" 2>/dev/null; then
     echo -e "   ${GREEN}✅ RabbitMQ client (pika) installed${NC}"
+    echo -e "   ${CYAN}   (using venv: $(dirname "$(dirname "$MCP_VENV_PYTHON")"))${NC}"
+elif python3 -c "import pika" 2>/dev/null; then
+    echo -e "   ${GREEN}✅ RabbitMQ client (pika) installed${NC}"
+    echo -e "   ${CYAN}   (using system Python)${NC}"
 else
-    echo -e "   ${YELLOW}⚠️  RabbitMQ client (pika) not installed (optional)${NC}"
+    echo -e "   ${YELLOW}⚠️  RabbitMQ client (pika) not installed${NC}"
+    if [[ -n "$MCP_VENV_PYTHON" ]]; then
+        echo -e "   ${YELLOW}   → Install in venv: $MCP_VENV_PYTHON -m pip install pika${NC}"
+    else
+        echo -e "   ${YELLOW}   → Install: pip3 install pika${NC}"
+    fi
 fi
 echo ""
 
@@ -264,23 +287,73 @@ echo ""
 
 # Check RabbitMQ
 echo -e "${BOLD}7. RabbitMQ${NC}"
-RABBITMQ_URL="${GTD_RABBITMQ_URL:-amqp://localhost:5672}"
-if command -v rabbitmqctl &>/dev/null; then
-    if rabbitmqctl status >/dev/null 2>&1; then
-        echo -e "   ${GREEN}✅ RabbitMQ server running${NC}"
-        queue_exists=$(rabbitmqctl list_queues name 2>/dev/null | grep -q "gtd_deep_analysis" && echo "yes" || echo "no")
-        if [[ "$queue_exists" == "yes" ]]; then
-            echo -e "   ${GREEN}✅ Queue 'gtd_deep_analysis' exists${NC}"
+# Read RabbitMQ configuration from database config
+RABBITMQ_ENABLED="false"
+RABBITMQ_URL=""
+DB_CONFIG_FILE=""
+for config_file in "$HOME/code/dotfiles/zsh/.gtd_config_database" "$HOME/code/personal/dotfiles/zsh/.gtd_config_database"; do
+    if [[ -f "$config_file" ]]; then
+        DB_CONFIG_FILE="$config_file"
+        rabbitmq_enabled_val=$(read_config_value "$config_file" "rabbitmq_enabled")
+        if [[ -n "$rabbitmq_enabled_val" ]]; then
+            RABBITMQ_ENABLED="$rabbitmq_enabled_val"
+        fi
+        rabbitmq_url_val=$(read_config_value "$config_file" "rabbitmq_url")
+        if [[ -n "$rabbitmq_url_val" ]]; then
+            RABBITMQ_URL="$rabbitmq_url_val"
+        fi
+        break
+    fi
+done
+
+# Default RabbitMQ URL if not in config
+RABBITMQ_URL="${RABBITMQ_URL:-amqp://localhost:5672}"
+
+# Check if RabbitMQ is enabled in config
+if [[ "$RABBITMQ_ENABLED" == "true" ]] || [[ "$RABBITMQ_ENABLED" == "1" ]]; then
+    echo -e "   ${GREEN}✅ RabbitMQ enabled in configuration${NC}"
+    echo -e "   ${CYAN}   URL: $RABBITMQ_URL${NC}"
+    
+    # Check if RabbitMQ server is accessible
+    if command -v rabbitmqctl &>/dev/null; then
+        if rabbitmqctl status >/dev/null 2>&1; then
+            echo -e "   ${GREEN}✅ RabbitMQ server running${NC}"
+            queue_exists=$(rabbitmqctl list_queues name 2>/dev/null | grep -q "gtd_deep_analysis" && echo "yes" || echo "no")
+            if [[ "$queue_exists" == "yes" ]]; then
+                echo -e "   ${GREEN}✅ Queue 'gtd_deep_analysis' exists${NC}"
+            else
+                echo -e "   ${YELLOW}⚠️  Queue 'gtd_deep_analysis' not found${NC}"
+            fi
         else
-            echo -e "   ${YELLOW}⚠️  Queue 'gtd_deep_analysis' not found${NC}"
+            echo -e "   ${RED}❌ RabbitMQ server not running${NC}"
+        fi
+    elif command -v kubectl &>/dev/null && kubectl get svc rabbitmq 2>/dev/null | grep -q "rabbitmq"; then
+        echo -e "   ${GREEN}✅ RabbitMQ service exists in Kubernetes${NC}"
+        # Try to check connectivity
+        if nc -zv $(echo "$RABBITMQ_URL" | sed 's|amqp://||' | cut -d':' -f1) $(echo "$RABBITMQ_URL" | sed 's|amqp://||' | cut -d':' -f2 | cut -d'/' -f1) 2>/dev/null; then
+            echo -e "   ${GREEN}✅ RabbitMQ service is reachable${NC}"
+        else
+            echo -e "   ${YELLOW}⚠️  RabbitMQ service may not be reachable${NC}"
         fi
     else
-        echo -e "   ${RED}❌ RabbitMQ server not running${NC}"
+        echo -e "   ${YELLOW}⚠️  Cannot verify RabbitMQ server status${NC}"
+        echo -e "   ${CYAN}   (rabbitmqctl not found, checking connectivity...)${NC}"
+        # Try basic connectivity check
+        host=$(echo "$RABBITMQ_URL" | sed 's|amqp://||' | cut -d':' -f1)
+        port=$(echo "$RABBITMQ_URL" | sed 's|amqp://||' | cut -d':' -f2 | cut -d'/' -f1)
+        if [[ -n "$host" && -n "$port" ]] && nc -zv "$host" "$port" 2>/dev/null; then
+            echo -e "   ${GREEN}✅ RabbitMQ server is reachable at $host:$port${NC}"
+        else
+            echo -e "   ${RED}❌ Cannot connect to RabbitMQ at $host:$port${NC}"
+        fi
     fi
-elif kubectl get svc rabbitmq 2>/dev/null | grep -q "rabbitmq"; then
-    echo -e "   ${GREEN}✅ RabbitMQ service exists in Kubernetes${NC}"
 else
-    echo -e "   ${CYAN}ℹ️  RabbitMQ not configured (using file queue instead)${NC}"
+    echo -e "   ${CYAN}ℹ️  RabbitMQ not enabled in configuration${NC}"
+    echo -e "   ${CYAN}   (using file queue instead)${NC}"
+    if [[ -n "$DB_CONFIG_FILE" ]]; then
+        echo -e "   ${YELLOW}   → Enable in: $DB_CONFIG_FILE${NC}"
+        echo -e "   ${YELLOW}   → Set: rabbitmq_enabled=true${NC}"
+    fi
 fi
 echo ""
 

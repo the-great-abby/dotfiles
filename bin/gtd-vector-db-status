@@ -1,0 +1,96 @@
+#!/bin/bash
+# Vector Database Status and Inspection Tool
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VECTOR_DB_SCRIPT="$SCRIPT_DIR/../zsh/functions/gtd_vector_db.py"
+if [[ ! -f "$VECTOR_DB_SCRIPT" ]]; then
+  VECTOR_DB_SCRIPT="$HOME/code/dotfiles/zsh/functions/gtd_vector_db.py"
+fi
+if [[ ! -f "$VECTOR_DB_SCRIPT" && -f "$HOME/code/personal/dotfiles/zsh/functions/gtd_vector_db.py" ]]; then
+  VECTOR_DB_SCRIPT="$HOME/code/personal/dotfiles/zsh/functions/gtd_vector_db.py"
+fi
+
+if [[ ! -f "$VECTOR_DB_SCRIPT" ]]; then
+  echo "❌ Vector database script not found: $VECTOR_DB_SCRIPT"
+  exit 1
+fi
+
+# Get Python command - prefer MCP virtualenv
+PYTHON_CMD=""
+MCP_VENV_PYTHON="$HOME/code/dotfiles/mcp/venv/bin/python3"
+if [[ ! -f "$MCP_VENV_PYTHON" ]]; then
+  MCP_VENV_PYTHON="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+fi
+
+if [[ -f "$MCP_VENV_PYTHON" ]]; then
+  PYTHON_CMD="$MCP_VENV_PYTHON"
+elif command -v python3 &>/dev/null; then
+  PYTHON_CMD="python3"
+elif command -v python &>/dev/null; then
+  PYTHON_CMD="python"
+else
+  echo "❌ Python not found"
+  exit 1
+fi
+
+ACTION="${1:-stats}"
+
+case "$ACTION" in
+  stats|statistics)
+    "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" stats
+    ;;
+  list)
+    CONTENT_TYPE="${2:-}"
+    LIMIT="${3:-100}"
+    if [[ -n "$CONTENT_TYPE" ]]; then
+      "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" list --content-type "$CONTENT_TYPE" --limit "$LIMIT"
+    else
+      "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" list --limit "$LIMIT"
+    fi
+    ;;
+  count)
+    CONTENT_TYPE="${2:-}"
+    if [[ -n "$CONTENT_TYPE" ]]; then
+      "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" count --content-type "$CONTENT_TYPE"
+    else
+      "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" count
+    fi
+    ;;
+  test)
+    "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" test
+    ;;
+  init)
+    "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" init
+    ;;
+  system-stats)
+    "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" system-stats
+    ;;
+  file-info)
+    FILE_PATH="${2:-}"
+    if [[ -z "$FILE_PATH" ]]; then
+      echo "Usage: $0 file-info <file_path>"
+      exit 1
+    fi
+    "$PYTHON_CMD" "$VECTOR_DB_SCRIPT" file-info "$FILE_PATH"
+    ;;
+  *)
+    echo "Usage: $0 {stats|list|count|test|init|system-stats|file-info} [args...]"
+    echo ""
+    echo "Commands:"
+    echo "  stats          - Show database statistics"
+    echo "  list [type]    - List embeddings (optionally filtered by content type)"
+    echo "  count [type]   - Count embeddings (optionally filtered by content type)"
+    echo "  test           - Test database connection"
+    echo "  init           - Initialize database schema"
+    echo "  system-stats   - Show system statistics from document_vectors table"
+    echo "  file-info <path> - Show detailed info about a specific file"
+    echo ""
+    echo "Examples:"
+    echo "  $0 stats"
+    echo "  $0 list daily_log"
+    echo "  $0 count project"
+    echo "  $0 system-stats"
+    echo "  $0 file-info /path/to/file.md"
+    exit 1
+    ;;
+esac

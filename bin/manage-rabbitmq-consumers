@@ -17,14 +17,23 @@ echo -e "${BOLD}${CYAN}🔌 Manage RabbitMQ Consumers${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-# Check if port-forward is running
-if ! nc -zv localhost 5672 &>/dev/null 2>&1; then
-    echo -e "${YELLOW}⚠️  RabbitMQ port-forward not detected on port 5672${NC}"
+# Check if RabbitMQ is accessible (NodePort or port-forward)
+RABBITMQ_AVAILABLE=false
+if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
+    echo -e "${GREEN}✓ RabbitMQ NodePort accessible (192.168.64.2:30672)${NC}"
+    RABBITMQ_AVAILABLE=true
+elif nc -zv localhost 5672 &>/dev/null 2>&1; then
+    echo -e "${GREEN}✓ RabbitMQ port-forward active (localhost:5672)${NC}"
+    RABBITMQ_AVAILABLE=true
+else
+    echo -e "${YELLOW}⚠️  RabbitMQ not accessible${NC}"
     echo ""
-    echo "Make sure port-forward is running:"
-    echo "  kubectl port-forward -n rabbitmq-system svc/rabbitmq 5672:5672 15672:15672 15692:15692"
+    echo "RabbitMQ should be accessible via:"
+    echo "  - NodePort: 192.168.64.2:30672 (preferred, no port-forward needed)"
+    echo "  - Port-forward: localhost:5672 (legacy)"
     echo ""
-    echo "Or use: ./bin/setup_rabbitmq_local.sh"
+    echo "Check connection info:"
+    echo "  cd ~/code/external_services/rabbitmq && make connection-info"
     echo ""
     read -p "Continue anyway? (y/n): " continue_choice
     if [[ "$continue_choice" != "y" && "$continue_choice" != "Y" ]]; then

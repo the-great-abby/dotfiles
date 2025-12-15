@@ -576,6 +576,42 @@ get_smart_defaults() {
   fi
   
   # ============================================================================
+  # Background Jobs Ready for Review
+  # ============================================================================
+  # Check for pending suggestions (from option 24 - AI Suggestions & MCP Tools)
+  local pending_suggestions_count=0
+  local suggestions_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/suggestions"
+  if [[ -d "$suggestions_dir" ]]; then
+    # Count JSON files with status "pending"
+    pending_suggestions_count=$(find "$suggestions_dir" -name "*.json" -type f 2>/dev/null | while read -r file; do
+      if grep -q '"status":\s*"pending"' "$file" 2>/dev/null; then
+        echo "1"
+      fi
+    done | wc -l | tr -d ' ')
+  fi
+  
+  # Check for completed advice responses (from option 11 - Get advice)
+  local completed_advice_count=0
+  local advice_results_dir="$HOME/Documents/gtd/advice_results"
+  if [[ -d "$advice_results_dir" ]]; then
+    # Count JSON files with status "completed" (not error)
+    completed_advice_count=$(find "$advice_results_dir" -name "*.json" -type f 2>/dev/null | while read -r file; do
+      if grep -q '"status":\s*"completed"' "$file" 2>/dev/null; then
+        echo "1"
+      fi
+    done | wc -l | tr -d ' ')
+  fi
+  
+  # Add suggestions for background jobs ready for review (as priorities since they're actionable)
+  if [[ $pending_suggestions_count -gt 0 ]]; then
+    priorities+=("24|Review AI Suggestions|${pending_suggestions_count} pending suggestion(s) ready for review")
+  fi
+  
+  if [[ $completed_advice_count -gt 0 ]]; then
+    priorities+=("11|Review Advice Results|${completed_advice_count} advice response(s) ready for review")
+  fi
+  
+  # ============================================================================
   # Work Computer Mode Logic
   # ============================================================================
   if [[ "$computer_mode" == "work" ]]; then
@@ -1429,6 +1465,155 @@ except Exception:
 PYTHON_SCRIPT
 }
 
+# ============================================================================
+# External Services Wizards
+# ============================================================================
+
+# Launch database infrastructure wizard
+external_database_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🗄️  Database Infrastructure Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) 🗄️  External Database Services (Kubernetes deployment)"
+  echo "  2) 🔍 Vector Database Management (pgvector, embeddings)"
+  echo "  3) 🔌 Verify NodePort Services"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back to Main Menu"
+  echo ""
+  echo -n "Choose: "
+  read db_choice
+  
+  case "$db_choice" in
+    1)
+      local db_wizard_dir="$HOME/code/external_services/database"
+      
+      if [[ ! -d "$db_wizard_dir" ]]; then
+        echo "❌ Database wizard directory not found: $db_wizard_dir"
+        echo ""
+        echo "Press Enter to return to main menu..."
+        read
+        return 1
+      fi
+      
+      echo "Entering Database Infrastructure Wizard..."
+      echo "  (You can exit this wizard to return to the GTD wizard)"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      
+      # Change to the database wizard directory and run make wizard
+      # This will run in a subshell, so when it exits, we return here
+      (
+        cd "$db_wizard_dir" || exit 1
+        if [[ -f "Makefile" ]]; then
+          make wizard
+        else
+          echo "❌ Makefile not found in $db_wizard_dir"
+          echo "Press Enter to continue..."
+          read
+        fi
+      )
+      
+      # When the external wizard exits, we return to the main wizard
+      echo ""
+      echo "Returning to GTD Wizard..."
+      echo "Press Enter to continue..."
+      read
+      ;;
+    2)
+      # Call vector database wizard from tools
+      if type vector_database_wizard &>/dev/null 2>&1; then
+        vector_database_wizard
+      else
+        # Source the tools file if not already loaded
+        GTD_WIZARD_TOOLS="$HOME/code/dotfiles/bin/gtd-wizard-tools.sh"
+        if [[ ! -f "$GTD_WIZARD_TOOLS" ]]; then
+          GTD_WIZARD_TOOLS="$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh"
+        fi
+        if [[ -f "$GTD_WIZARD_TOOLS" ]]; then
+          source "$GTD_WIZARD_TOOLS" 2>/dev/null
+          vector_database_wizard
+        else
+          echo "❌ Vector database wizard not available"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+        fi
+      fi
+      ;;
+    3)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔌 Verify NodePort Services${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      cd "$HOME/code/dotfiles" && make verify-nodeport
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+  esac
+}
+
+# Launch RabbitMQ management wizard
+external_rabbitmq_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🐰 RabbitMQ Management Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  local rabbitmq_wizard_dir="$HOME/code/external_services/rabbitmq"
+  
+  if [[ ! -d "$rabbitmq_wizard_dir" ]]; then
+    echo "❌ RabbitMQ wizard directory not found: $rabbitmq_wizard_dir"
+    echo ""
+    echo "Press Enter to return to main menu..."
+    read
+    return 1
+  fi
+  
+  echo "Entering RabbitMQ Management Wizard..."
+  echo "  (You can exit this wizard to return to the GTD wizard)"
+  echo ""
+  echo "Press Enter to continue..."
+  read
+  
+  # Change to the RabbitMQ wizard directory and run make wizard
+  # This will run in a subshell, so when it exits, we return here
+  (
+    cd "$rabbitmq_wizard_dir" || exit 1
+    if [[ -f "Makefile" ]]; then
+      make wizard
+    else
+      echo "❌ Makefile not found in $rabbitmq_wizard_dir"
+      echo "Press Enter to continue..."
+      read
+    fi
+  )
+  
+  # When the external wizard exits, we return to the main wizard
+  echo ""
+  echo "Returning to GTD Wizard..."
+  echo "Press Enter to continue..."
+  read
+}
+
 # Main menu display
 show_main_menu() {
   # Show organization techniques guide (helper text at top)
@@ -1519,6 +1704,10 @@ show_main_menu() {
   echo -e "${GREEN}28)${NC} 🎮 Gamification & Habitica"
   echo -e "${GREEN}60)${NC} 💻 Switch Computer Mode (work/home)"
   echo -e "${GREEN}61)${NC} 🧪 Run Unit Tests"
+  echo ""
+  echo -e "${BOLD}${CYAN}🔧 INFRASTRUCTURE - External Services:${NC}"
+  echo -e "${GREEN}63)${NC} 🗄️  Database Infrastructure Wizard"
+  echo -e "${GREEN}64)${NC} 🐰 RabbitMQ Management Wizard"
   echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
@@ -1818,6 +2007,14 @@ main() {
       62)
         award_wizard_xp "wizard_productive" "Used wizard: Review Draft Notes"
         review_drafts_wizard
+        ;;
+      63)
+        award_wizard_xp "wizard_action" "Used wizard: Database Infrastructure"
+        external_database_wizard
+        ;;
+      64)
+        award_wizard_xp "wizard_action" "Used wizard: RabbitMQ Management"
+        external_rabbitmq_wizard
         ;;
       0|"")
         clear

@@ -46,8 +46,26 @@ if [[ ! -f "$PYTHON_SCRIPT" ]]; then
   exit 1
 fi
 
+# Get Python command - prefer MCP virtualenv
+PYTHON_CMD=""
+MCP_VENV_PYTHON="$HOME/code/dotfiles/mcp/venv/bin/python3"
+if [[ ! -f "$MCP_VENV_PYTHON" ]]; then
+  MCP_VENV_PYTHON="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+fi
+
+if [[ -f "$MCP_VENV_PYTHON" ]]; then
+  PYTHON_CMD="$MCP_VENV_PYTHON"
+elif command -v python3 &>/dev/null; then
+  PYTHON_CMD="python3"
+elif command -v python &>/dev/null; then
+  PYTHON_CMD="python"
+else
+  echo "Error: Python not found" >&2
+  exit 1
+fi
+
 # Initialize schema using Python script
-python3 "$PYTHON_SCRIPT" init-schema
+"$PYTHON_CMD" "$PYTHON_SCRIPT" init-schema
 
 if [[ $? -eq 0 ]]; then
   echo ""

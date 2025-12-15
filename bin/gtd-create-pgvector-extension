@@ -1,0 +1,70 @@
+#!/bin/bash
+# Create pgvector extension as postgres superuser
+# This only needs to be done once per database
+
+echo "🔧 Creating pgvector Extension"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Find config directory
+GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+  GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+fi
+
+# Load database config
+if [[ -f "$GTD_CONFIG_DIR/.gtd_config_database" ]]; then
+  source "$GTD_CONFIG_DIR/.gtd_config_database"
+elif [[ -f "$HOME/.gtd_config_database" ]]; then
+  source "$HOME/.gtd_config_database"
+fi
+
+# Database connection settings
+DB_HOST="${VECTOR_DB_HOST:-127.0.0.1}"
+DB_PORT="${VECTOR_DB_PORT:-30003}"
+DB_NAME="${VECTOR_DB_NAME:-gtd_organization_system}"
+
+echo "Database: $DB_NAME"
+echo "Host: $DB_HOST"
+echo "Port: $DB_PORT"
+echo ""
+echo "⚠️  This requires connecting as the 'postgres' superuser"
+echo "   (The extension only needs to be created once)"
+echo ""
+
+# Check if psql is available
+if ! command -v psql &>/dev/null; then
+  echo "❌ psql not found. Install PostgreSQL client tools."
+  echo ""
+  echo "   macOS: brew install postgresql"
+  exit 1
+fi
+
+# Prompt for postgres password
+echo -n "Enter postgres superuser password (or press Enter to try without password): "
+read -s POSTGRES_PASSWORD
+echo ""
+
+# Try to create extension as postgres user
+export PGPASSWORD="${POSTGRES_PASSWORD:-postgres}"
+
+echo "Creating pgvector extension..."
+if psql -h "$DB_HOST" -p "$DB_PORT" -U postgres -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>&1; then
+  echo ""
+  echo "✅ pgvector extension created successfully!"
+  echo ""
+  echo "💡 You can now initialize the schema with your regular user:"
+  echo "   gtd-vector-db-status init"
+else
+  echo ""
+  echo "❌ Failed to create extension"
+  echo ""
+  echo "💡 Try connecting manually:"
+  echo "   psql -h $DB_HOST -p $DB_PORT -U postgres -d $DB_NAME"
+  echo "   Then run: CREATE EXTENSION IF NOT EXISTS vector;"
+  echo ""
+  echo "💡 Or if you know the postgres password:"
+  echo "   PGPASSWORD=your_password psql -h $DB_HOST -p $DB_PORT -U postgres -d $DB_NAME -c 'CREATE EXTENSION IF NOT EXISTS vector;'"
+fi
+
+unset PGPASSWORD

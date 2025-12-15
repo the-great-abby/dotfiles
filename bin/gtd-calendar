@@ -535,6 +535,31 @@ get_google_events() {
   local gcalcli_start="$normalized_start"
   local gcalcli_end="$query_end"
   
+  # gcalcli agenda works best when both dates are in the same format
+  # If start is "today", end should be relative or also in a friendly format
+  # Convert YYYY-MM-DD end date to relative format if start is relative
+  if [[ "$gcalcli_start" == "today" ]] && echo "$gcalcli_end" | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"; then
+    # Calculate days difference to convert end date to relative
+    local start_ts=$(date_to_timestamp "$gcalcli_start")
+    local end_ts=$(date_to_timestamp "$gcalcli_end")
+    if [[ "$start_ts" != "0" ]] && [[ "$end_ts" != "0" ]]; then
+      local days_diff=$(( (end_ts - start_ts) / 86400 ))
+      if [[ $days_diff -ge 0 ]] && [[ $days_diff -le 30 ]]; then
+        # Use relative date format that gcalcli understands
+        if [[ $days_diff -eq 0 ]]; then
+          gcalcli_end="today"
+        elif [[ $days_diff -eq 1 ]]; then
+          gcalcli_end="tomorrow"
+        else
+          # Use the YYYY-MM-DD format - it should work
+          # But let's try using "today" + number of days in a format gcalcli likes
+          # Actually, YYYY-MM-DD should work fine with gcalcli
+          :
+        fi
+      fi
+    fi
+  fi
+  
   # If normalized dates are in YYYY-MM-DD format, they should work with gcalcli
   # But let's make sure we're using the right format
   local events
@@ -546,6 +571,19 @@ get_google_events() {
     # Check if it's just "no events" or an actual error
     local error_text
     error_text=$(cat "$error_output" 2>/dev/null || echo "")
+    
+    # Check for authentication errors (most common issue)
+    if echo "$error_text" | grep -qiE "invalid_grant|Token has been expired|Token has been revoked|authentication|oauth|credentials"; then
+      echo "⚠️  Google Calendar authentication expired or revoked." >&2
+      echo "" >&2
+      echo "💡 To fix this, re-authenticate gcalcli:" >&2
+      echo "   gcalcli init" >&2
+      echo "   Or delete expired tokens: rm -rf ~/.config/gcalcli/oauth && gcalcli init" >&2
+      echo "" >&2
+      echo "   This will open a browser to re-authenticate with Google." >&2
+      rm -f "$error_output"
+      return 1
+    fi
     
     # Common errors to handle
     if echo "$error_text" | grep -qi "calendar.*not found\|could not find calendar\|unknown calendar"; then
@@ -717,7 +755,7 @@ add_google_event() {
       echo "" >&2
     fi
     echo "Common issues:" >&2
-    echo "  • gcalcli not authenticated - run: gcalcli auth" >&2
+    echo "  • gcalcli not authenticated - run: gcalcli init" >&2
     echo "  • Calendar '$calendar' not found - check calendar name" >&2
     echo "  • Invalid date/time format - use format like '2024-12-05 10:00' or 'tomorrow 2pm'" >&2
     
@@ -825,9 +863,53 @@ view_calendar() {
     # Fetch and display events for Google calendars
     if check_gcalcli; then
       local events
-      events=$(get_google_events "today" "$end_date" "$cal_name" 2>/dev/null)
-      if [[ -n "$events" ]]; then
-        echo "$events" | head -20 | sed 's/^/  /'
+      local error_output
+      error_output=$(mktemp)
+      
+      # Try calling gcalcli directly first with today and end_date in YYYY-MM-DD format
+      # gcalcli agenda works with: today, tomorrow, or YYYY-MM-DD dates
+      # Using YYYY-MM-DD for end_date should work fine
+      local start_date_str="today"
+      local end_date_str="$end_date"
+      
+      # Try direct gcalcli call - this should work if dates are correct
+      events=$(gcalcli --calendar "$cal_name" agenda "$start_date_str" "$end_date_str" 2>"$error_output")
+      local exit_code=$?
+      
+      # If that didn't work or returned nothing, try via get_google_events which has more error handling
+      if [[ $exit_code -ne 0 ]] || [[ -z "$events" ]] || [[ "$events" == *"No Events Found"* ]]; then
+        # Clear error output and try via get_google_events
+        > "$error_output"
+        events=$(get_google_events "today" "$end_date" "$cal_name" 2>"$error_output")
+        exit_code=$?
+      fi
+      
+      # Check for actual errors
+      if [[ -s "$error_output" ]]; then
+        local error_content
+        error_content=$(cat "$error_output" 2>/dev/null | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [[ -n "$error_content" ]]; then
+          # Check for authentication errors first
+          if echo "$error_content" | grep -qiE "invalid_grant|Token has been expired|Token has been revoked|authentication|oauth|credentials|RefreshError"; then
+            echo "  ⚠️  Authentication expired. Run 'gcalcli init' to re-authenticate."
+          elif echo "$error_content" | grep -qi "calendar.*not found\|could not find calendar"; then
+            echo "  ⚠️  Calendar '$cal_name' not found. Run 'gtd-calendar discover' to list available calendars."
+          elif [[ "$error_content" != *"No Events Found"* ]] && [[ "$error_content" != *"No events"* ]]; then
+            # Show error if it's not just "no events"  
+            echo "  ⚠️  Error: ${error_content:0:70}"
+          fi
+        fi
+      fi
+      rm -f "$error_output"
+      
+      # Display events if we have any
+      if [[ -n "$events" ]] && [[ "$events" != *"No Events Found"* ]] && [[ "$events" != *"No events"* ]]; then
+        # Check if events actually contains event data (has dates/times)
+        if echo "$events" | grep -qiE "([A-Z][a-z]{2} [0-9]{1,2},|[0-9]{1,2}:[0-9]{2}|AM|PM|at |all day)"; then
+          echo "$events" | head -20 | sed 's/^/  /'
+        else
+          echo "  (No events found)"
+        fi
       else
         echo "  (No events found)"
       fi
@@ -1088,7 +1170,7 @@ list_events() {
     echo "   • Calendar names are case-sensitive and must match exactly"
     echo "   • Run 'gtd-calendar discover' to see available calendar names"
     echo "   • Run 'gcalcli list' to see all calendars gcalcli can access"
-    echo "   • Make sure gcalcli is authenticated: gcalcli auth"
+    echo "   • Make sure gcalcli is authenticated: gcalcli init"
   fi
 }
 
@@ -1165,6 +1247,139 @@ list_calendars() {
   echo "💡 To discover available Google Calendars, run: gcalcli list"
 }
 
+# Authenticate/re-authenticate Google Calendar
+authenticate_calendar() {
+  if ! check_gcalcli; then
+    return 1
+  fi
+  
+  echo "🔐 Re-authenticate Google Calendar"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "This will re-authenticate gcalcli with Google Calendar."
+  echo "A browser window will open for you to sign in with Google."
+  echo ""
+  
+  # Check if token file exists
+  local token_file="$HOME/.config/gcalcli/oauth"
+  if [[ -f "$token_file" ]] || [[ -d "$token_file" ]]; then
+    echo "⚠️  Existing authentication token found."
+    echo "   Expired tokens need to be removed before re-authenticating."
+    echo ""
+    echo -n "Delete existing token and re-authenticate? (y/n): "
+    read delete_token
+    if [[ "$delete_token" == "y" ]] || [[ "$delete_token" == "Y" ]]; then
+      echo ""
+      echo "Removing existing token..."
+      rm -rf "$token_file" 2>/dev/null
+      echo "✓ Token removed"
+      echo ""
+    else
+      echo "Keeping existing token. If authentication fails, you may need to delete it manually."
+      echo ""
+    fi
+  fi
+  
+  echo "Starting authentication process..."
+  echo ""
+  
+  # Check for client credentials file in common locations
+  local credentials_file=""
+  local possible_locations=(
+    "$HOME/.config/gcalcli/client_secret.json"
+    "$HOME/.config/gcalcli/client_secrets.json"
+    "$HOME/.gcalcli/client_secret.json"
+    "$HOME/.gcalcli/client_secrets.json"
+    "$HOME/client_secret.json"
+  )
+  
+  # Check dotfiles locations for client_secret files
+  local dotfiles_zsh_dir="$HOME/code/dotfiles/zsh"
+  local personal_zsh_dir="$HOME/code/personal/dotfiles/zsh"
+  
+  # Check exact locations first
+  for loc in "${possible_locations[@]}"; do
+    if [[ -f "$loc" ]]; then
+      credentials_file="$loc"
+      break
+    fi
+  done
+  
+  # Check dotfiles zsh directory for client_secret*.json files
+  if [[ -z "$credentials_file" ]] && [[ -d "$dotfiles_zsh_dir" ]]; then
+    local found
+    found=$(find "$dotfiles_zsh_dir" -maxdepth 1 -name "client_secret*.json" -type f 2>/dev/null | head -1)
+    if [[ -n "$found" ]] && [[ -f "$found" ]]; then
+      credentials_file="$found"
+    fi
+  fi
+  
+  # Check personal dotfiles zsh directory
+  if [[ -z "$credentials_file" ]] && [[ -d "$personal_zsh_dir" ]]; then
+    local found
+    found=$(find "$personal_zsh_dir" -maxdepth 1 -name "client_secret*.json" -type f 2>/dev/null | head -1)
+    if [[ -n "$found" ]] && [[ -f "$found" ]]; then
+      credentials_file="$found"
+    fi
+  fi
+  
+  # If credentials file found, extract client_id and client_secret from JSON
+  if [[ -n "$credentials_file" ]]; then
+    echo "✓ Found credentials file: $credentials_file"
+    echo ""
+    
+    # Extract client_id and client_secret from the JSON file
+    # The file format is: {"installed":{"client_id":"...","client_secret":"...",...}}
+    if command -v python3 &>/dev/null; then
+      local client_id client_secret
+      client_id=$(python3 -c "import json, sys; data = json.load(open('$credentials_file')); print(data['installed']['client_id'])" 2>/dev/null)
+      client_secret=$(python3 -c "import json, sys; data = json.load(open('$credentials_file')); print(data['installed']['client_secret'])" 2>/dev/null)
+      
+      if [[ -n "$client_id" ]] && [[ -n "$client_secret" ]]; then
+        echo "Extracted credentials from file. Starting authentication..."
+        echo ""
+        if gcalcli --client-id="$client_id" --client-secret="$client_secret" init; then
+          echo ""
+          echo "✅ Authentication successful!"
+          echo ""
+          echo "You can now use Google Calendar features."
+          return 0
+        else
+          echo ""
+          echo "⚠️  Authentication with credentials failed. Exit code: $?"
+          echo ""
+        fi
+      else
+        echo "⚠️  Could not extract client_id and client_secret from credentials file."
+        echo "   Trying authentication without credentials..."
+        echo ""
+      fi
+    else
+      echo "⚠️  python3 not found. Cannot extract credentials from JSON file."
+      echo "   Trying authentication without credentials..."
+      echo ""
+    fi
+  fi
+  
+  # Try without credentials file (gcalcli might have its own default)
+  if gcalcli init; then
+    echo ""
+    echo "✅ Authentication successful!"
+    echo ""
+    echo "You can now use Google Calendar features."
+    return 0
+  else
+    echo ""
+    echo "⚠️  Authentication process completed with exit code $?"
+    echo ""
+    echo "💡 If you need to provide OAuth credentials, run:"
+    echo "   gcalcli --client-id=YOUR_ID --client-secret=YOUR_SECRET init"
+    echo ""
+    echo "Or check the gcalcli documentation for setup instructions."
+    return 1
+  fi
+}
+
 # Discover available Google calendars
 discover_calendars() {
   if ! check_gcalcli; then
@@ -1188,7 +1403,7 @@ discover_calendars() {
     echo "$available_cals" | grep -v "^$"
     echo ""
     echo "💡 Make sure you're authenticated:"
-    echo "   Run: gcalcli auth"
+    echo "   Run: gcalcli init (or delete ~/.config/gcalcli/oauth and run gcalcli init)"
     return 1
   fi
   
@@ -1269,6 +1484,9 @@ main() {
       ;;
     discover)
       discover_calendars
+      ;;
+    auth|authenticate)
+      authenticate_calendar
       ;;
     google)
       shift
@@ -1414,6 +1632,7 @@ main() {
       echo "  view [days]              - View all configured calendars (default: 7 days)"
       echo "  list                     - List configured calendars"
       echo "  discover                 - Discover available Google calendars"
+      echo "  auth|authenticate        - Re-authenticate Google Calendar (gcalcli)"
       echo "  conflicts <start> <end> - Check for scheduling conflicts across all calendars"
       echo "  sync <task-id> [type]   - Sync task to calendar (google/office365)"
       echo "  google add <title> <when> [duration] [description] [calendar]"

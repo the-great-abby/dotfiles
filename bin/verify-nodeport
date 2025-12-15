@@ -1,0 +1,110 @@
+#!/bin/bash
+# Verify NodePort services are configured correctly
+
+echo "🔍 Verifying NodePort Services"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if kubectl is available
+if ! command -v kubectl &>/dev/null; then
+    echo "❌ kubectl not found. Cannot verify NodePort services."
+    exit 1
+fi
+
+# Check PostgreSQL NodePort (30003)
+echo "📊 PostgreSQL NodePort (30003):"
+echo ""
+
+# Check if any service uses port 30003 as NodePort
+NODEPORT_SVC=$(kubectl get svc -A -o json | jq -r '.items[] | select(.spec.type=="NodePort") | select(.spec.ports[]?.nodePort==30003) | "\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null)
+
+if [[ -n "$NODEPORT_SVC" ]]; then
+    echo "✅ Found NodePort service on port 30003:"
+    echo "   $NODEPORT_SVC"
+    echo ""
+    
+    # Get service details
+    NAMESPACE=$(echo "$NODEPORT_SVC" | cut -d'/' -f1)
+    SERVICE=$(echo "$NODEPORT_SVC" | cut -d'/' -f2)
+    
+    echo "   Service details:"
+    kubectl get svc -n "$NAMESPACE" "$SERVICE" -o wide
+    echo ""
+    
+    # Check if pods are running
+    SELECTOR=$(kubectl get svc -n "$NAMESPACE" "$SERVICE" -o jsonpath='{.spec.selector}' 2>/dev/null)
+    if [[ -n "$SELECTOR" ]]; then
+        echo "   Checking pods with selector: $SELECTOR"
+        PODS=$(kubectl get pods -n "$NAMESPACE" -l "$SELECTOR" 2>/dev/null | tail -n +2)
+        if [[ -n "$PODS" ]]; then
+            echo "   ✅ Pods found:"
+            echo "$PODS" | while read line; do
+                echo "      $line"
+            done
+        else
+            echo "   ⚠️  No pods found matching selector"
+        fi
+    fi
+else
+    echo "❌ No NodePort service found on port 30003"
+    echo ""
+    echo "   Checking for PostgreSQL services:"
+    kubectl get svc -A | grep -i postgres || echo "   (No PostgreSQL services found)"
+    echo ""
+    echo "   💡 To set up NodePort:"
+    echo "      kubectl patch svc <service-name> -n <namespace> -p '{\"spec\":{\"type\":\"NodePort\",\"ports\":[{\"port\":5432,\"nodePort\":30003}]}}'"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check RabbitMQ NodePort (30672)
+echo "📊 RabbitMQ NodePort (30672):"
+echo ""
+
+RABBITMQ_NODEPORT=$(kubectl get svc -A -o json | jq -r '.items[] | select(.spec.type=="NodePort") | select(.spec.ports[]?.nodePort==30672) | "\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null)
+
+if [[ -n "$RABBITMQ_NODEPORT" ]]; then
+    echo "✅ Found NodePort service on port 30672:"
+    echo "   $RABBITMQ_NODEPORT"
+    echo ""
+    
+    NAMESPACE=$(echo "$RABBITMQ_NODEPORT" | cut -d'/' -f1)
+    SERVICE=$(echo "$RABBITMQ_NODEPORT" | cut -d'/' -f2)
+    
+    kubectl get svc -n "$NAMESPACE" "$SERVICE" -o wide
+else
+    echo "❌ No NodePort service found on port 30672"
+    echo ""
+    echo "   Checking for RabbitMQ services:"
+    kubectl get svc -A | grep -i rabbitmq || echo "   (No RabbitMQ services found)"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Test connectivity
+echo "🔌 Testing Connectivity:"
+echo ""
+
+# Test PostgreSQL NodePort
+if nc -zv 192.168.64.2 30003 &>/dev/null 2>&1; then
+    echo "✅ PostgreSQL NodePort (192.168.64.2:30003) is reachable"
+else
+    echo "❌ PostgreSQL NodePort (192.168.64.2:30003) is NOT reachable"
+    echo "   This could mean:"
+    echo "   - Service is not configured as NodePort"
+    echo "   - Service is not running"
+    echo "   - Network connectivity issue"
+fi
+
+# Test RabbitMQ NodePort
+if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
+    echo "✅ RabbitMQ NodePort (192.168.64.2:30672) is reachable"
+else
+    echo "❌ RabbitMQ NodePort (192.168.64.2:30672) is NOT reachable"
+fi
+
+echo ""

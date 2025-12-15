@@ -191,8 +191,13 @@ check_lunch_progress() {
   if [[ -z "$last_entry_time" ]]; then
     last_entry_time=$(grep -E "^[0-9]{1,2}:[0-9]{2}" "$log_file" 2>/dev/null | grep -v "^#" | tail -1 | cut -d' ' -f1 | cut -d':' -f1-2)
   fi
+  # If we can't find last entry time but we have entries, assume good progress
   if [[ -z "$last_entry_time" ]]; then
-    echo "no_entries"
+    if [[ $entry_count -lt 2 ]]; then
+      echo "low_entries"
+    else
+      echo "good"
+    fi
     return
   fi
   

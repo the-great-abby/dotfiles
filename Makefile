@@ -2,7 +2,7 @@ GLIBC_VER=2.31-r0
 
 # GTD System Commands
 .PHONY: gtd-wizard gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status gtd-diagram
-.PHONY: worker-deep-start worker-deep-stop worker-vector-start worker-vector-stop worker-status worker-deep-status worker-vector-status rabbitmq-status filewatcher-start filewatcher-stop filewatcher-status scheduler-start scheduler-stop scheduler-status scheduler-run
+.PHONY: worker-deep-start worker-deep-stop worker-vector-start worker-vector-stop worker-status worker-deep-status worker-vector-status rabbitmq-status filewatcher-start filewatcher-stop filewatcher-status filewatcher-scan scheduler-start scheduler-stop scheduler-status scheduler-run verify-nodeport diagnose-nodeport vector-db-init-extension vector-db-init-schema
 
 # GTD Interactive Wizard
 gtd-wizard:
@@ -817,6 +817,51 @@ filewatcher-status:
 	@echo "📁 Vector Filewatcher Status"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo ""
+	@if pgrep -f "gtd_vector_filewatcher.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_vector_filewatcher.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		if [ -f /tmp/vector-filewatcher.log ]; then \
+			echo "  📋 Logs: tail -f /tmp/vector-filewatcher.log"; \
+			echo "  📊 Recent activity:"; \
+			tail -5 /tmp/vector-filewatcher.log 2>/dev/null | sed 's/^/    /' || echo "    (no recent log entries)"; \
+		fi; \
+		echo "  🛑 Stop:  make filewatcher-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  ▶️  Start: make filewatcher-start"; \
+		echo "  📖 Setup: See FILEWATCHER_SETUP.md"; \
+	fi
+	@echo ""
+	@echo "  ⚙️  Configuration:"
+	@CONFIG_FILE=""; \
+	if [ -f "$(HOME)/code/dotfiles/zsh/.gtd_config_database" ]; then \
+		CONFIG_FILE="$(HOME)/code/dotfiles/zsh/.gtd_config_database"; \
+	elif [ -f "$(HOME)/code/personal/dotfiles/zsh/.gtd_config_database" ]; then \
+		CONFIG_FILE="$(HOME)/code/personal/dotfiles/zsh/.gtd_config_database"; \
+	fi; \
+	if [ -n "$$CONFIG_FILE" ] && [ -f "$$CONFIG_FILE" ]; then \
+		if grep -q "^VECTOR_FILEWATCHER_ENABLED=" "$$CONFIG_FILE" 2>/dev/null; then \
+			ENABLED=$$(grep "^VECTOR_FILEWATCHER_ENABLED=" "$$CONFIG_FILE" | cut -d'=' -f2 | tr -d '"' | tr -d "'"); \
+			echo "     Enabled: $$ENABLED"; \
+		fi; \
+		if grep -q "^VECTOR_WATCH_DIRS=" "$$CONFIG_FILE" 2>/dev/null; then \
+			DIRS=$$(grep "^VECTOR_WATCH_DIRS=" "$$CONFIG_FILE" | cut -d'=' -f2 | tr -d '"' | tr -d "'"); \
+			if [ -n "$$DIRS" ]; then \
+				echo "     Watch directories: $$DIRS"; \
+			fi; \
+		fi; \
+	else \
+		echo "     (using defaults)"; \
+	fi
+	@echo ""
+	@echo "  💡 To scan existing files and queue them:"
+	@echo "     make filewatcher-scan"
+	@echo ""
+
+filewatcher-scan:
+	@echo "🔍 Scanning existing files and queueing for vectorization..."
+	@echo ""
+	@$(HOME)/code/dotfiles/bin/gtd-vector-scan-existing
 
 scheduler-start:
 	@echo "Starting Deep Analysis Scheduler Daemon..."
@@ -843,6 +888,9 @@ scheduler-run:
 		echo "  Start: make filewatcher-start"; \
 		echo "  Setup: See FILEWATCHER_SETUP.md"; \
 	fi
+	@echo ""
+	@echo "  💡 To scan existing files and queue them:"
+	@echo "     make filewatcher-scan"
 	@echo ""
 
 # Convenience targets (aliases for worker-status)
@@ -880,5 +928,67 @@ worker-vector-status:
 
 rabbitmq-status:
 	@$(HOME)/code/dotfiles/bin/gtd-rabbitmq-status
+
+verify-nodeport: ## Verify NodePort services are configured correctly
+	@bash $(HOME)/code/dotfiles/bin/verify-nodeport
+
+diagnose-nodeport: ## Diagnose NodePort connectivity issues
+	@bash $(HOME)/code/dotfiles/bin/diagnose-nodeport
+
+vector-db-init-extension: ## Create pgvector extension (requires postgres superuser)
+	@bash $(HOME)/code/dotfiles/bin/gtd-create-pgvector-extension
+
+vector-db-init-schema: ## Initialize vector database schema (after extension is created)
+	@$(HOME)/code/dotfiles/bin/gtd-vector-db-status init
+
+# Advice Worker Management
+.PHONY: advice-worker-start advice-worker-stop advice-worker-status
+
+advice-worker-start: ## Start advice worker daemon
+	@echo "Starting advice worker..."
+	@if pgrep -f "gtd_advice_worker.py" >/dev/null; then \
+		echo "⚠️  Worker already running (PID: $$(pgrep -f 'gtd_advice_worker.py'))"; \
+	else \
+		nohup $(HOME)/code/dotfiles/bin/gtd-advice-worker-python >/tmp/advice-worker.log 2>&1 & \
+		echo "✅ Worker started in background"; \
+		echo "   Logs: /tmp/advice-worker.log"; \
+		echo "   Check status: make advice-worker-status"; \
+	fi
+
+advice-worker-stop: ## Stop advice worker daemon
+	@echo "Stopping Advice Worker..."
+	@if pgrep -f "gtd_advice_worker.py" >/dev/null; then \
+		pkill -f "gtd_advice_worker.py"; \
+		sleep 1; \
+		if ! pgrep -f "gtd_advice_worker.py" >/dev/null; then \
+			echo "✅ Worker stopped"; \
+		else \
+			pkill -9 -f "gtd_advice_worker.py"; \
+			echo "✅ Worker force stopped"; \
+		fi; \
+	else \
+		echo "ℹ️  Worker not running"; \
+	fi
+
+advice-worker-status: ## Check advice worker status
+	@$(HOME)/code/dotfiles/bin/gtd-advice-worker status
+
+# External Services Deployment
+.PHONY: services-deploy-rabbitmq services-deploy-database services-deploy-all
+.PHONY: services-start-rabbitmq services-start-database services-start-all
+
+services-deploy-rabbitmq: ## Deploy RabbitMQ to Kubernetes
+	@echo "🐰 Deploying RabbitMQ to Kubernetes..."
+	@cd $(HOME)/code/external_services/rabbitmq && make setup
+
+services-deploy-database: ## Deploy PostgreSQL database to Kubernetes
+	@echo "🗄️  Deploying PostgreSQL database to Kubernetes..."
+	@cd $(HOME)/code/external_services/database && make start
+
+services-deploy-all: services-deploy-rabbitmq services-deploy-database ## Deploy all external services
+
+services-start-rabbitmq: services-deploy-rabbitmq ## Alias for deploy
+services-start-database: services-deploy-database ## Alias for deploy
+services-start-all: services-deploy-all ## Alias for deploy-all
 
 

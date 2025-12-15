@@ -40,6 +40,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from zsh.functions.gtd_persona_helper import read_config, call_persona
 
+# Import vector database functions
+try:
+    from zsh.functions.gtd_vectorization import search_similar, generate_embedding
+    from zsh.functions.gtd_vector_db import VectorDatabase, read_database_config
+    VECTOR_DB_AVAILABLE = True
+except ImportError:
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent / "zsh" / "functions"))
+        from gtd_vectorization import search_similar, generate_embedding
+        from gtd_vector_db import VectorDatabase, read_database_config
+        VECTOR_DB_AVAILABLE = True
+    except ImportError:
+        VECTOR_DB_AVAILABLE = False
+
 # GTD Configuration
 GTD_CONFIG_FILE = Path.home() / ".gtd_config"
 if (Path.home() / "code" / "dotfiles" / "zsh" / ".gtd_config").exists():
@@ -87,13 +101,91 @@ FAST_MODEL_URL = LM_CONFIG.get("url", "http://localhost:1234/v1/chat/completions
 FAST_MODEL_NAME = LM_CONFIG.get("chat_model", "google/gemma-3-1b")
 
 # Deep model also via LM Studio (can be same URL, different model name)
+# Read from config files first (like the worker does), then env vars, then default
 DEEP_MODEL_URL = os.getenv("GTD_DEEP_MODEL_URL", LM_CONFIG.get("url", "http://localhost:1234/v1/chat/completions"))
-DEEP_MODEL_NAME = os.getenv("GTD_DEEP_MODEL_NAME", os.getenv("GTD_DEEP_MODEL", "gpt-oss-20b"))
+
+# Read GTD_DEEP_MODEL_NAME from config files
+deep_model_name = None
+config_paths = [
+    Path.home() / ".gtd_config_ai",
+    Path.home() / ".gtd_config",
+    Path.home() / "code" / "dotfiles" / "zsh" / ".gtd_config_ai",
+    Path.home() / "code" / "dotfiles" / "zsh" / ".gtd_config",
+    Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".gtd_config_ai",
+    Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".gtd_config",
+]
+for config_path in config_paths:
+    if config_path.exists() and not deep_model_name:
+        with open(config_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if value.startswith("${") and ":-" in value:
+                        value = value.split(":-", 1)[1].rstrip("}")
+                    if key == "GTD_DEEP_MODEL_NAME":
+                        deep_model_name = value
+                        break
+        if deep_model_name:
+            break
+
+# Use env var, then config file value, then default
+DEEP_MODEL_NAME = os.getenv("GTD_DEEP_MODEL_NAME") or os.getenv("GTD_DEEP_MODEL") or deep_model_name or "gpt-oss-20b"
 
 # RabbitMQ config for background processing
 def get_rabbitmq_url() -> str:
-    """Get RabbitMQ URL with optional credentials."""
-    url = os.getenv("GTD_RABBITMQ_URL", "amqp://localhost:5672")
+    """Get RabbitMQ URL with optional credentials.
+    
+    Reads from:
+    1. Environment variable GTD_RABBITMQ_URL
+    2. Config file .gtd_config_database (RABBITMQ_URL)
+    3. Default: amqp://localhost:5672
+    """
+    # Try environment variable first
+    url = os.getenv("GTD_RABBITMQ_URL")
+    
+    # If not in env, try reading from config file
+    if not url:
+        config_paths = [
+            Path.home() / "code" / "dotfiles" / "zsh" / ".gtd_config_database",
+            Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".gtd_config_database",
+            Path.home() / ".gtd_config_database",
+        ]
+        
+        for config_path in config_paths:
+            if config_path.exists():
+                try:
+                    with open(config_path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            # Match RABBITMQ_URL="${RABBITMQ_URL:-...}" or RABBITMQ_URL="..."
+                            if line.startswith("RABBITMQ_URL="):
+                                # Extract value from RABBITMQ_URL="${RABBITMQ_URL:-value}" or RABBITMQ_URL="value"
+                                if "${RABBITMQ_URL:-" in line:
+                                    # Extract default value from ${RABBITMQ_URL:-default}
+                                    import re
+                                    match = re.search(r'\$\{RABBITMQ_URL:-([^}]+)\}', line)
+                                    if match:
+                                        url = match.group(1).strip('"\'')
+                                else:
+                                    # Simple RABBITMQ_URL="value"
+                                    url = line.split('=', 1)[1].strip().strip('"').strip("'")
+                                    # Remove ${RABBITMQ_URL:-...} wrapper if present
+                                    if url.startswith("${") and ":-" in url:
+                                        url = url.split(":-", 1)[1].rstrip("}")
+                                    url = url.strip('"').strip("'")
+                                if url:
+                                    break
+                except Exception:
+                    continue
+                if url:
+                    break
+    
+    # Default if nothing found
+    if not url:
+        url = "amqp://192.168.64.2:30672"  # NodePort default (was localhost:5672)
     
     # If URL already has credentials, use it as-is
     if "//" in url:
@@ -104,6 +196,39 @@ def get_rabbitmq_url() -> str:
     # Otherwise, check for separate username/password
     username = os.getenv("RABBITMQ_USER") or os.getenv("GTD_RABBITMQ_USER")
     password = os.getenv("RABBITMQ_PASS") or os.getenv("GTD_RABBITMQ_PASS")
+    
+    # Also try reading from config file
+    if not username or not password:
+        config_paths = [
+            Path.home() / "code" / "dotfiles" / "zsh" / ".gtd_config_database",
+            Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".gtd_config_database",
+            Path.home() / ".gtd_config_database",
+        ]
+        
+        for config_path in config_paths:
+            if config_path.exists():
+                try:
+                    with open(config_path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if not username and line.startswith("RABBITMQ_USER="):
+                                username = line.split('=', 1)[1].strip().strip('"').strip("'")
+                                if "${RABBITMQ_USER:-" in username:
+                                    import re
+                                    match = re.search(r'\$\{RABBITMQ_USER:-([^}]+)\}', username)
+                                    if match:
+                                        username = match.group(1).strip('"\'')
+                            if not password and line.startswith("RABBITMQ_PASS="):
+                                password = line.split('=', 1)[1].strip().strip('"').strip("'")
+                                if "${RABBITMQ_PASS:-" in password:
+                                    import re
+                                    match = re.search(r'\$\{RABBITMQ_PASS:-([^}]+)\}', password)
+                                    if match:
+                                        password = match.group(1).strip('"\'')
+                except Exception:
+                    continue
+                if username and password:
+                    break
     
     if username:
         # Extract host:port from URL
@@ -215,7 +340,11 @@ def get_pending_suggestions() -> List[Dict[str, Any]]:
 
 
 def scan_analysis_results_for_suggestions(days: int = 7, analysis_types: List[str] = None) -> Dict[str, Any]:
-    """Scan recent deep analysis results and extract actionable suggestions."""
+    """Scan recent deep analysis results and extract actionable suggestions.
+    
+    This function queues suggestion extraction jobs to the deep analysis worker
+    (using the thinking model) instead of processing synchronously with the fast model.
+    """
     if analysis_types is None:
         analysis_types = []
     
@@ -249,11 +378,11 @@ def scan_analysis_results_for_suggestions(days: int = 7, analysis_types: List[st
     # Sort by modification time (newest first)
     result_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     
-    created_suggestions = []
-    processed_files = []
-    
+    # Queue each file for background processing by the deep worker
+    queued_files = []
     for result_file in result_files:
         try:
+            # Read the file to get analysis type and content
             with open(result_file) as f:
                 result_data = json.load(f)
             
@@ -263,29 +392,38 @@ def scan_analysis_results_for_suggestions(days: int = 7, analysis_types: List[st
             if not analysis_content or "error" in result_data:
                 continue
             
-            # Extract actionable suggestions using AI
-            suggestions = extract_suggestions_from_analysis(analysis_type, analysis_content, result_file)
+            # Queue suggestion extraction job to deep worker
+            # This will use the thinking model instead of the fast model
+            context = {
+                "source_file": str(result_file),
+                "analysis_type": analysis_type,
+                "analysis_content": analysis_content[:8000],  # Limit content size for queue
+                "full_content_length": len(analysis_content)
+            }
             
-            for suggestion_data in suggestions:
-                suggestion_id = save_suggestion(suggestion_data)
-                created_suggestions.append({
-                    "id": suggestion_id,
-                    "title": suggestion_data.get("title", ""),
-                    "reason": suggestion_data.get("reason", "")  # Full reason, no truncation
-                })
-            
-            processed_files.append(str(result_file.name))
+            status = queue_deep_analysis("extract_suggestions", context)
+            queued_files.append({
+                "file": str(result_file.name),
+                "type": analysis_type,
+                "queued": status
+            })
             
         except Exception as e:
-            continue  # Skip files that can't be processed
+            # Log error but continue with other files
+            import sys
+            if os.getenv("GTD_DEBUG"):
+                print(f"DEBUG: Error queueing {result_file}: {e}", file=sys.stderr)
+            continue
+    
+    queue_method = "RabbitMQ" if any("rabbitmq" in f.get("queued", "") for f in queued_files) else "file queue"
     
     return {
         "success": True,
-        "message": f"Scanned {len(processed_files)} analysis result(s), created {len(created_suggestions)} suggestion(s)",
-        "suggestions_created": len(created_suggestions),
-        "files_scanned": len(processed_files),
-        "suggestions": created_suggestions,
-        "files": processed_files
+        "message": f"Queued {len(queued_files)} analysis result(s) for suggestion extraction (using deep worker/thinking model)",
+        "files_queued": len(queued_files),
+        "queue_method": queue_method,
+        "files": [f["file"] for f in queued_files],
+        "note": "Suggestions will be created in the background by the deep analysis worker. Check suggestions later or wait for notifications."
     }
 
 
@@ -911,10 +1049,10 @@ def queue_deep_analysis(analysis_type: str, context: Dict[str, Any]) -> str:
         import pika
         # Try to connect with a short timeout to avoid hanging
         try:
-            connection = pika.BlockingConnection(
-                pika.URLParameters(RABBITMQ_URL),
-                blocked_connection_timeout=2  # 2 second timeout
-            )
+            # Set connection parameters with timeout (pika 1.3.2 compatible)
+            params = pika.URLParameters(RABBITMQ_URL)
+            params.blocked_connection_timeout = 5  # 5 second timeout
+            connection = pika.BlockingConnection(params)
             channel = connection.channel()
             channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
             
@@ -934,10 +1072,11 @@ def queue_deep_analysis(analysis_type: str, context: Dict[str, Any]) -> str:
                 TimeoutError,
                 OSError) as e:
             # RabbitMQ not available, fall back to file queue
-            # This is expected if RabbitMQ isn't running
+            # Uncomment for debugging: print(f"RabbitMQ connection error: {e}")
             pass
         except Exception as e:
             # Other RabbitMQ errors, fall back to file queue
+            # Uncomment for debugging: print(f"RabbitMQ error: {e}")
             pass
     except ImportError:
         # pika not installed, use file queue
@@ -1603,6 +1742,73 @@ async def handle_list_tools() -> List[Tool]:
                     }
                 },
                 "required": ["plan_type"]
+            }
+        ),
+        Tool(
+            name="search_vector_database",
+            description="Search the vector database for semantically similar content. Use this to find relevant information from your notes, tasks, projects, daily logs, and other vectorized content. Returns content with similarity scores.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query - what information you're looking for"
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "description": "Optional filter by content type: 'daily_log', 'task', 'project', 'note', 'file', or null for all types",
+                        "enum": ["daily_log", "task", "project", "note", "file", ""]
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum number of results to return (default: 10, max: 50)"
+                    },
+                    "threshold": {
+                        "type": "number",
+                        "description": "Minimum similarity threshold (0.0-1.0, default: 0.7). Higher = more relevant results only."
+                    },
+                    "max_chars_per_result": {
+                        "type": "number",
+                        "description": "Maximum characters per result to return (default: 500). Use to limit response size."
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="get_vector_database_stats",
+            description="Get statistics about what's in the vector database - total items, breakdown by content type, last update time, etc.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_file_vector_info",
+            description="Get information about a specific file's vectorization status - whether it's vectorized, how many chunks, when it was last updated.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to check"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        ),
+        Tool(
+            name="perform_web_search",
+            description="Perform a web search to get current, accurate information. Use this tool to answer factual questions that require up-to-date data. ALWAYS use this tool when asked about historical events, sports results, current facts, or any information that might change over time. Uses enhanced search with query optimization and result synthesis.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query to perform (e.g., 'who won the 1967 world series', 'latest Python 3.12 features', 'current weather in San Francisco')"
+                    }
+                },
+                "required": ["query"]
             }
         ),
     ]
@@ -3294,6 +3500,203 @@ IMPORTANT: Use the web search results above to provide accurate, factual answers
                 "breakdown": {},
                 "insights": [],
                 "next_steps": []
+            }))]
+    
+    elif name == "search_vector_database":
+        if not VECTOR_DB_AVAILABLE:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Vector database not available",
+                "message": "Vector database modules not installed or configured"
+            }))]
+        
+        query = arguments.get("query", "")
+        if not query:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Query is required",
+                "message": "Please provide a search query"
+            }))]
+        
+        content_type = arguments.get("content_type", None)
+        if content_type == "":
+            content_type = None
+        
+        limit = min(arguments.get("limit", 10), 50)  # Cap at 50
+        threshold = arguments.get("threshold", 0.7)
+        max_chars_per_result = arguments.get("max_chars_per_result", 500)
+        
+        try:
+            results = search_similar(
+                query_text=query,
+                content_type=content_type,
+                limit=limit,
+                threshold=threshold,
+                max_chars_per_result=max_chars_per_result
+            )
+            
+            # Format results for response
+            formatted_results = []
+            for result in results:
+                formatted_results.append({
+                    "content_type": result.get("content_type", "unknown"),
+                    "content_id": result.get("content_id", ""),
+                    "content_text": result.get("content_text", "")[:max_chars_per_result],
+                    "similarity": round(result.get("similarity", 0.0), 3),
+                    "metadata": result.get("metadata", {})
+                })
+            
+            return [TextContent(type="text", text=json.dumps({
+                "query": query,
+                "results": formatted_results,
+                "count": len(formatted_results),
+                "content_type_filter": content_type,
+                "threshold": threshold
+            }, indent=2))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error searching vector database: {str(e)}",
+                "message": "Failed to search vector database. Check database connection and configuration."
+            }))]
+    
+    elif name == "get_vector_database_stats":
+        if not VECTOR_DB_AVAILABLE:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Vector database not available",
+                "message": "Vector database modules not installed or configured"
+            }))]
+        
+        try:
+            db_config = read_database_config()
+            db = VectorDatabase(db_config)
+            
+            if not db.connect():
+                return [TextContent(type="text", text=json.dumps({
+                    "error": "Cannot connect to database",
+                    "message": "Failed to connect to vector database. Check database configuration."
+                }))]
+            
+            # Get stats using the existing stats functionality
+            stats = {}
+            
+            # Count by content type
+            content_types = ["daily_log", "task", "project", "note", "file"]
+            counts_by_type = {}
+            total_count = 0
+            
+            for ct in content_types:
+                count = db.count_embeddings(ct)
+                counts_by_type[ct] = count
+                total_count += count
+            
+            stats["total_embeddings"] = total_count
+            stats["by_content_type"] = counts_by_type
+            
+            # Try to get system stats if available (for document_vectors table)
+            try:
+                system_stats = db.get_system_stats()
+                if system_stats:
+                    stats["system_stats"] = system_stats
+            except:
+                pass  # get_system_stats might not be available
+            
+            db.disconnect()
+            
+            return [TextContent(type="text", text=json.dumps(stats, indent=2, default=str))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error getting database stats: {str(e)}",
+                "message": "Failed to retrieve vector database statistics."
+            }))]
+    
+    elif name == "perform_web_search":
+        query = arguments.get("query", "")
+        if not query:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Query is required",
+                "message": "Please provide a search query"
+            }))]
+        
+        try:
+            from zsh.functions.gtd_persona_helper import execute_web_search, read_config, _extract_user_context
+            
+            # Get config and context for enhanced search
+            config = read_config()
+            context = _extract_user_context(config)
+            
+            # Perform web search with enhanced search enabled
+            results = execute_web_search(query, use_enhanced_search=True, context=context)
+            
+            return [TextContent(type="text", text=results)]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Web search failed",
+                "message": str(e)
+            }))]
+    
+    elif name == "get_file_vector_info":
+        if not VECTOR_DB_AVAILABLE:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Vector database not available",
+                "message": "Vector database modules not installed or configured"
+            }))]
+        
+        file_path = arguments.get("file_path", "")
+        if not file_path:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "File path is required",
+                "message": "Please provide a file path"
+            }))]
+        
+        try:
+            db_config = read_database_config()
+            db = VectorDatabase(db_config)
+            
+            if not db.connect():
+                return [TextContent(type="text", text=json.dumps({
+                    "error": "Cannot connect to database",
+                    "message": "Failed to connect to vector database."
+                }))]
+            
+            # Try to get file info from document_vectors table
+            try:
+                file_info = db.get_file_info(file_path)
+                if file_info:
+                    db.disconnect()
+                    return [TextContent(type="text", text=json.dumps(file_info, indent=2, default=str))]
+            except:
+                pass  # get_file_info might not be available
+            
+            # Fallback: search for the file in vector_embeddings table
+            # Search for embeddings with this file path in metadata
+            results = search_similar(
+                query_text=file_path,
+                content_type="file",
+                limit=1,
+                threshold=0.5
+            )
+            
+            db.disconnect()
+            
+            if results:
+                result = results[0]
+                metadata = result.get("metadata", {})
+                if metadata.get("file_path") == file_path or file_path in metadata.get("file_path", ""):
+                    return [TextContent(type="text", text=json.dumps({
+                        "file_path": file_path,
+                        "vectorized": True,
+                        "content_type": result.get("content_type"),
+                        "similarity": result.get("similarity"),
+                        "metadata": metadata
+                    }, indent=2, default=str))]
+            
+            return [TextContent(type="text", text=json.dumps({
+                "file_path": file_path,
+                "vectorized": False,
+                "message": "File not found in vector database"
+            }))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error getting file info: {str(e)}",
+                "message": "Failed to retrieve file vectorization information."
             }))]
     
     else:

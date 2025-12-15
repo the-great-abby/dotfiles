@@ -1332,16 +1332,23 @@ PYEOF
                   
                   # Mark suggestion as accepted
                   local sug_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/suggestions/${sug_id}.json"
-                  if [[ -f "$sug_file" ]]; then
+                  if [[ -f "$sug_file" ]] && [[ -s "$sug_file" ]]; then
                     "$MCP_PYTHON" -c "
 import json
+import sys
 from datetime import datetime
-with open('$sug_file', 'r') as f:
-    data = json.load(f)
-data['status'] = 'accepted'
-data['exported_at'] = datetime.now().isoformat()
-with open('$sug_file', 'w') as f:
-    json.dump(data, f, indent=2)
+try:
+    with open('$sug_file', 'r') as f:
+        content = f.read().strip()
+        if not content:
+            sys.exit(0)  # Empty file, skip
+        data = json.loads(content)
+    data['status'] = 'accepted'
+    data['exported_at'] = datetime.now().isoformat()
+    with open('$sug_file', 'w') as f:
+        json.dump(data, f, indent=2)
+except (json.JSONDecodeError, ValueError, IOError) as e:
+    sys.exit(0)  # Invalid JSON or file error, skip silently
 " 2>/dev/null || true
                   fi
                 fi
@@ -1354,16 +1361,23 @@ with open('$sug_file', 'w') as f:
                   ((created_count++))
                   
                   local sug_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/suggestions/${sug_id}.json"
-                  if [[ -f "$sug_file" ]]; then
+                  if [[ -f "$sug_file" ]] && [[ -s "$sug_file" ]]; then
                     "$MCP_PYTHON" -c "
 import json
+import sys
 from datetime import datetime
-with open('$sug_file', 'r') as f:
-    data = json.load(f)
-data['status'] = 'accepted'
-data['exported_at'] = datetime.now().isoformat()
-with open('$sug_file', 'w') as f:
-    json.dump(data, f, indent=2)
+try:
+    with open('$sug_file', 'r') as f:
+        content = f.read().strip()
+        if not content:
+            sys.exit(0)  # Empty file, skip
+        data = json.loads(content)
+    data['status'] = 'accepted'
+    data['exported_at'] = datetime.now().isoformat()
+    with open('$sug_file', 'w') as f:
+        json.dump(data, f, indent=2)
+except (json.JSONDecodeError, ValueError, IOError) as e:
+    sys.exit(0)  # Invalid JSON or file error, skip silently
 " 2>/dev/null || true
                   fi
                 fi
@@ -1386,16 +1400,23 @@ with open('$sug_file', 'w') as f:
                   ((created_count++))
                   
                   local sug_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/suggestions/${sug_id}.json"
-                  if [[ -f "$sug_file" ]]; then
+                  if [[ -f "$sug_file" ]] && [[ -s "$sug_file" ]]; then
                     "$MCP_PYTHON" -c "
 import json
+import sys
 from datetime import datetime
-with open('$sug_file', 'r') as f:
-    data = json.load(f)
-data['status'] = 'accepted'
-data['exported_at'] = datetime.now().isoformat()
-with open('$sug_file', 'w') as f:
-    json.dump(data, f, indent=2)
+try:
+    with open('$sug_file', 'r') as f:
+        content = f.read().strip()
+        if not content:
+            sys.exit(0)  # Empty file, skip
+        data = json.loads(content)
+    data['status'] = 'accepted'
+    data['exported_at'] = datetime.now().isoformat()
+    with open('$sug_file', 'w') as f:
+        json.dump(data, f, indent=2)
+except (json.JSONDecodeError, ValueError, IOError) as e:
+    sys.exit(0)  # Invalid JSON or file error, skip silently
 " 2>/dev/null || true
                   fi
                 fi
@@ -1418,16 +1439,23 @@ with open('$sug_file', 'w') as f:
                   ((created_count++))
                   
                   local sug_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/suggestions/${sug_id}.json"
-                  if [[ -f "$sug_file" ]]; then
+                  if [[ -f "$sug_file" ]] && [[ -s "$sug_file" ]]; then
                     "$MCP_PYTHON" -c "
 import json
+import sys
 from datetime import datetime
-with open('$sug_file', 'r') as f:
-    data = json.load(f)
-data['status'] = 'accepted'
-data['exported_at'] = datetime.now().isoformat()
-with open('$sug_file', 'w') as f:
-    json.dump(data, f, indent=2)
+try:
+    with open('$sug_file', 'r') as f:
+        content = f.read().strip()
+        if not content:
+            sys.exit(0)  # Empty file, skip
+        data = json.loads(content)
+    data['status'] = 'accepted'
+    data['exported_at'] = datetime.now().isoformat()
+    with open('$sug_file', 'w') as f:
+        json.dump(data, f, indent=2)
+except (json.JSONDecodeError, ValueError, IOError) as e:
+    sys.exit(0)  # Invalid JSON or file error, skip silently
 " 2>/dev/null || true
                   fi
                 fi
@@ -1758,100 +1786,134 @@ template_wizard() {
 # Diagram Wizard
 # Review Draft Notes Wizard
 review_drafts_wizard() {
-  clear
-  echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}📝 Review Draft Notes (Evergreen Insights)${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-  echo "The system automatically scans your daily logs and creates draft notes"
-  echo "for evergreen insights - ideas, learnings, or realizations with lasting value."
-  echo ""
-  echo "These drafts are in: ${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}/Express/drafts/"
-  echo ""
-  echo "What would you like to do?"
-  echo ""
-  echo "  1) 📝 Review all draft notes (interactive)"
-  echo "  2) 📋 List all draft notes"
-  echo "  3) 🔍 Scan for new insights (analyze recent logs)"
-  echo "  4) 📊 Show summary (count of drafts)"
-  echo ""
-  echo -e "${YELLOW}0)${NC} Back to Main Menu"
-  echo ""
-  echo -n "Choose: "
-  read choice
-  
-  case "$choice" in
-    1)
-      if command -v gtd-review-drafts &>/dev/null; then
-        gtd-review-drafts
-      elif [[ -f "$HOME/code/dotfiles/bin/gtd-review-drafts" ]]; then
-        "$HOME/code/dotfiles/bin/gtd-review-drafts"
-      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-review-drafts" ]]; then
-        "$HOME/code/personal/dotfiles/bin/gtd-review-drafts"
-      else
-        echo "❌ gtd-review-drafts command not found"
+  while true; do
+    clear
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}📝 Review Draft Notes (Evergreen Insights)${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "The system automatically scans your daily logs and creates draft notes"
+    echo "for evergreen insights - ideas, learnings, or realizations with lasting value."
+    echo ""
+    echo "These drafts are in: ${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}/Express/drafts/"
+    echo ""
+    echo "What would you like to do?"
+    echo ""
+    echo "  1) 📝 Review all draft notes (interactive)"
+    echo "  2) 📋 List all draft notes"
+    echo "  3) 🔍 Scan for new insights (analyze recent logs)"
+    echo "  4) 📊 Show summary (count of drafts)"
+    echo ""
+    echo -e "${YELLOW}0)${NC} Back to Main Menu"
+    echo ""
+    echo -n "Choose: "
+    read choice
+    
+    case "$choice" in
+      1)
+        if command -v gtd-review-drafts &>/dev/null; then
+          gtd-review-drafts
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-review-drafts" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-review-drafts"
+        elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-review-drafts" ]]; then
+          "$HOME/code/personal/dotfiles/bin/gtd-review-drafts"
+        else
+          echo "❌ gtd-review-drafts command not found"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+        fi
+        # After review, ask if user wants to continue
+        echo ""
+        echo "What would you like to do next?"
+        echo "  1) Stay in draft review wizard"
+        echo "  2) Return to main menu"
+        echo ""
+        echo -n "Choose: "
+        read continue_choice
+        if [[ "$continue_choice" == "2" ]]; then
+          return 0
+        fi
+        ;;
+      2)
+        echo ""
+        SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+        DRAFTS_DIR="${SECOND_BRAIN}/Express/drafts"
+        if [[ -d "$DRAFTS_DIR" ]]; then
+          local drafts=($(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | sort -r))
+          local count=${#drafts[@]}
+          
+          if [[ $count -eq 0 ]]; then
+            echo "📝 No draft notes found."
+          else
+            echo "📝 Found ${count} draft note(s):"
+            echo ""
+            local i=1
+            for draft in "${drafts[@]}"; do
+              local title=$(grep "^# " "$draft" 2>/dev/null | head -1 | sed 's/^# //' || basename "$draft" .md)
+              local created=$(grep "^**Created:**" "$draft" 2>/dev/null | head -1 | sed 's/^**Created:**[[:space:]]*//' || echo "Unknown")
+              echo "  ${i}. ${title}"
+              echo "     Created: ${created}"
+              echo "     Path: $(basename "$draft")"
+              echo ""
+              ((i++))
+            done
+          fi
+        else
+          echo "📝 Draft directory not found: ${DRAFTS_DIR}"
+        fi
         echo ""
         echo "Press Enter to continue..."
         read
-      fi
-      ;;
-    2)
-      if command -v gtd-review-drafts &>/dev/null; then
-        gtd-review-drafts list
-      elif [[ -f "$HOME/code/dotfiles/bin/gtd-review-drafts" ]]; then
-        "$HOME/code/dotfiles/bin/gtd-review-drafts" list
-      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-review-drafts" ]]; then
-        "$HOME/code/personal/dotfiles/bin/gtd-review-drafts" list
-      else
-        echo "❌ gtd-review-drafts command not found"
-      fi
-      echo ""
-      echo "Press Enter to continue..."
-      read
-      ;;
-    3)
-      if command -v gtd-scan-insights &>/dev/null; then
-        gtd-scan-insights scan
-      elif [[ -f "$HOME/code/dotfiles/bin/gtd-scan-insights" ]]; then
-        "$HOME/code/dotfiles/bin/gtd-scan-insights" scan
-      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-scan-insights" ]]; then
-        "$HOME/code/personal/dotfiles/bin/gtd-scan-insights" scan
-      else
-        echo "❌ gtd-scan-insights command not found"
-      fi
-      echo ""
-      echo "Press Enter to continue..."
-      read
-      ;;
-    4)
-      SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
-      DRAFTS_DIR="${SECOND_BRAIN}/Express/drafts"
-      if [[ -d "$DRAFTS_DIR" ]]; then
-        local draft_count=$(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+        ;;
+      3)
         echo ""
-        echo "📝 Draft Notes Summary:"
-        echo "   Total drafts: ${draft_count}"
-        echo "   Location: ${DRAFTS_DIR}"
-        echo ""
-        if [[ $draft_count -gt 0 ]]; then
-          echo "💡 Review them with: gtd-review-drafts"
+        if command -v gtd-scan-insights &>/dev/null; then
+          gtd-scan-insights scan
+        elif [[ -f "$HOME/code/dotfiles/bin/gtd-scan-insights" ]]; then
+          "$HOME/code/dotfiles/bin/gtd-scan-insights" scan
+        elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-scan-insights" ]]; then
+          "$HOME/code/personal/dotfiles/bin/gtd-scan-insights" scan
+        else
+          echo "❌ gtd-scan-insights command not found"
         fi
-      else
-        echo "📝 Draft directory not found: ${DRAFTS_DIR}"
-      fi
-      echo ""
-      echo "Press Enter to continue..."
-      read
-      ;;
-    0|"")
-      return 0
-      ;;
-    *)
-      echo "Invalid choice"
-      sleep 1
-      ;;
-  esac
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      4)
+        SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+        DRAFTS_DIR="${SECOND_BRAIN}/Express/drafts"
+        echo ""
+        if [[ -d "$DRAFTS_DIR" ]]; then
+          local draft_count=$(find "$DRAFTS_DIR" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+          echo "📝 Draft Notes Summary:"
+          echo "   Total drafts: ${draft_count}"
+          echo "   Location: ${DRAFTS_DIR}"
+          echo ""
+          if [[ $draft_count -gt 0 ]]; then
+            echo "💡 Review them with: gtd-review-drafts"
+          fi
+        else
+          echo "📝 Draft directory not found: ${DRAFTS_DIR}"
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      0|"")
+        return 0
+        ;;
+      *)
+        echo "❌ Invalid choice"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+    esac
+    # Loop continues automatically
+  done
 }
 
 diagram_wizard() {

@@ -49,7 +49,7 @@ GTD_CALENDARS=(
   "rw:GTD:My GTD Calendar"
   "ro:Pink and brown bears:Pink and Brown bears - abby and louiza calendar"
   "ro:On-call feed for Abby Malson:SRE on call calendar"
-  "ro:Abby Work - Filevine (Outlook):Work Calendar (sync from outlook)"
+  "ro:August Malson Calendar (Canvas):Work Calendar (sync from google)"
 )
 
 # Primary write calendar (calendar used when adding events via wizard)

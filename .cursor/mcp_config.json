@@ -3,15 +3,15 @@
     "gtd-unified-system": {
       "command": "python3",
       "args": [
-        "/Users/abby/code/dotfiles/mcp/gtd_mcp_server.py"
+        "${workspaceFolder}/mcp/gtd_mcp_server.py"
       ],
       "env": {
-        "GTD_USER_NAME": "Abby",
+        "GTD_USER_NAME": "${env:USER}",
         "GTD_DEEP_MODEL_URL": "http://localhost:1234/v1/chat/completions",
         "GTD_DEEP_MODEL_NAME": "gpt-oss-20b",
-        "GTD_RABBITMQ_URL": "amqp://localhost:5672",
+        "GTD_RABBITMQ_URL": "amqp://192.168.64.2:30672",
         "GTD_RABBITMQ_QUEUE": "gtd_deep_analysis",
-        "PYTHONPATH": "/Users/abby/code/dotfiles"
+        "PYTHONPATH": "${workspaceFolder}"
       }
     }
   }

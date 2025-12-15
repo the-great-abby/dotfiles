@@ -141,19 +141,36 @@ class VectorizationEventHandler(FileSystemEventHandler):
                 "modified_time": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat(),
             }
             
-            # Queue for vectorization
-            print(f"📄 Queuing: {content_type}:{content_id} ({file_path.name})")
-            status = queue_vectorization(
-                content_type=content_type,
-                content_id=content_id,
-                content_text=content,
-                metadata=metadata
-            )
-            
-            if status.startswith("queued"):
-                print(f"   ✅ {status}")
+            # Use smart chunking for markdown files
+            if file_path.suffix.lower() in ('.md', '.markdown'):
+                # Import vectorize_document for direct processing
+                from gtd_vectorization import vectorize_document
+                
+                print(f"📄 Vectorizing markdown: {file_path.name}")
+                success = vectorize_document(
+                    file_path=str(file_path),
+                    content_text=content,
+                    metadata=metadata
+                )
+                
+                if success:
+                    print(f"   ✅ Vectorized with smart chunking")
+                else:
+                    print(f"   ⚠️  Vectorization failed")
             else:
-                print(f"   ⚠️  {status}")
+                # Queue for vectorization (legacy approach for non-markdown)
+                print(f"📄 Queuing: {content_type}:{content_id} ({file_path.name})")
+                status = queue_vectorization(
+                    content_type=content_type,
+                    content_id=content_id,
+                    content_text=content,
+                    metadata=metadata
+                )
+                
+                if status.startswith("queued"):
+                    print(f"   ✅ {status}")
+                else:
+                    print(f"   ⚠️  {status}")
                 
         except Exception as e:
             print(f"   ❌ Error processing {file_path}: {e}")

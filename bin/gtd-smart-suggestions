@@ -134,7 +134,7 @@ for s in suggestions:
     echo "   Confidence: ${confidence_pct}%"
     echo "   Reason: $reason"
     echo ""
-    echo "   ${GREEN}y${NC}) Create task  ${YELLOW}n${NC}) Dismiss  ${CYAN}s${NC}) Skip"
+    echo -e "   ${GREEN}y${NC}) Create task  ${YELLOW}n${NC}) Dismiss  ${CYAN}s${NC}) Skip"
     echo ""
     echo -n "   Your choice (y/n/s): "
     read -n 1 choice
@@ -205,22 +205,52 @@ review_mode() {
   echo "Found $count suggestion(s) for review:"
   echo ""
   
-  # Extract and display
+  # Extract data into arrays first (bash 3.2 compatible - no declare -a)
+  local titles=()
+  local ids=()
+  local confidences=()
+  local reasons=()
+  
   local idx=0
   while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    
-    local id=$(echo "$line" | cut -d'|' -f1)
-    local title=$(echo "$line" | cut -d'|' -f2)
-    local confidence=$(echo "$line" | cut -d'|' -f3)
-    local reason=$(echo "$line" | cut -d'|' -f4)
+    if [[ -n "$line" ]]; then
+      local id=$(echo "$line" | cut -d'|' -f1)
+      local title=$(echo "$line" | cut -d'|' -f2)
+      local confidence=$(echo "$line" | cut -d'|' -f3)
+      local reason=$(echo "$line" | cut -d'|' -f4)
+      
+      ids+=("$id")
+      titles+=("$title")
+      confidences+=("$confidence")
+      reasons+=("$reason")
+      ((idx++))
+    fi
+  done < <(echo "$suggestions_json" | "$PYTHON_CMD" -c "
+import json, sys
+data = json.load(sys.stdin)
+suggestions = data.get('suggestions', [])
+for s in suggestions:
+    print(f\"{s.get('id', '')}|{s.get('title', '')}|{s.get('confidence', 0.0)}|{s.get('reason', '')}\")
+" 2>/dev/null)
+  
+  if [[ ${#ids[@]} -eq 0 ]]; then
+    echo "No suggestions to review."
+    return 0
+  fi
+  
+  # Now loop through arrays for user interaction
+  for i in "${!ids[@]}"; do
+    local suggestion_id="${ids[$i]}"
+    local title="${titles[$i]}"
+    local confidence="${confidences[$i]}"
+    local reason="${reasons[$i]}"
     local confidence_pct=$(echo "$confidence * 100" | bc -l 2>/dev/null | cut -d'.' -f1 || echo "0")
     
-    echo -e "${BOLD}[$((idx+1))]${NC} ${title}"
+    echo -e "${BOLD}[$((i+1))]${NC} ${title}"
     echo "   Confidence: ${confidence_pct}% (medium)"
     echo "   Reason: $reason"
     echo ""
-    echo "   ${GREEN}y${NC}) Create task  ${YELLOW}n${NC}) Dismiss  ${CYAN}s${NC}) Skip"
+    echo -e "   ${GREEN}y${NC}) Create task  ${YELLOW}n${NC}) Dismiss  ${CYAN}s${NC}) Skip"
     echo ""
     echo -n "   Your choice: "
     read -n 1 choice
@@ -229,27 +259,30 @@ review_mode() {
     
     case "$choice" in
       y|Y)
-        "$PYTHON_CMD" "$SMART_SUGGESTIONS_SCRIPT" create "$id" 2>/dev/null
-        echo -e "   ${GREEN}✓${NC} Task created!"
+        echo "   → Creating task..."
+        local result=$("$PYTHON_CMD" "$SMART_SUGGESTIONS_SCRIPT" create "$suggestion_id" 2>/dev/null)
+        local success=$(echo "$result" | "$PYTHON_CMD" -c "import json, sys; data = json.load(sys.stdin); print('true' if data.get('success') else 'false')" 2>/dev/null || echo "false")
+        
+        if [[ "$success" == "true" ]]; then
+          echo -e "   ${GREEN}✓${NC} Task created!"
+        else
+          echo -e "   ${RED}✗${NC} Failed to create task"
+        fi
         ;;
       n|N)
-        "$PYTHON_CMD" "$SMART_SUGGESTIONS_SCRIPT" dismiss "$id" 2>/dev/null
+        echo "   → Dismissing suggestion..."
+        "$PYTHON_CMD" "$SMART_SUGGESTIONS_SCRIPT" dismiss "$suggestion_id" 2>/dev/null
         echo -e "   ${YELLOW}✓${NC} Dismissed"
         ;;
-      *)
+      s|S|"")
         echo "   → Skipped"
+        ;;
+      *)
+        echo "   → Invalid choice, skipped"
         ;;
     esac
     echo ""
-    
-    ((idx++))
-  done < <(echo "$suggestions_json" | "$PYTHON_CMD" -c "
-import json, sys
-data = json.load(sys.stdin)
-suggestions = data.get('suggestions', [])
-for s in suggestions:
-    print(f\"{s.get('id', '')}|{s.get('title', '')}|{s.get('confidence', 0.0)}|{s.get('reason', '')}\")
-" 2>/dev/null)
+  done
 }
 
 # Show statistics

@@ -30,6 +30,7 @@ except ImportError:
 # Check for pika (RabbitMQ client)
 try:
     import pika
+    import pika.exceptions
     RABBITMQ_AVAILABLE = True
 except ImportError:
     RABBITMQ_AVAILABLE = False
@@ -82,6 +83,16 @@ def process_vectorization_request(message: Dict[str, Any]) -> bool:
     Returns:
         True if successful, False otherwise
     """
+    # Validate message is a dict
+    if not isinstance(message, dict):
+        print(f"Error: Message is not a dictionary: {type(message)}")
+        print(f"Message: {message}")
+        return False
+    
+    if message is None:
+        print(f"Error: Message is None")
+        return False
+    
     content_type = message.get("content_type")
     content_id = message.get("content_id")
     content_text = message.get("content_text")
@@ -89,6 +100,10 @@ def process_vectorization_request(message: Dict[str, Any]) -> bool:
     
     if not all([content_type, content_id, content_text]):
         print(f"Error: Invalid message format - missing required fields")
+        print(f"  content_type: {content_type}")
+        print(f"  content_id: {content_id}")
+        print(f"  content_text: {'present' if content_text else 'missing'} (length: {len(content_text) if content_text else 0})")
+        print(f"  message keys: {list(message.keys())}")
         return False
     
     print(f"Vectorizing {content_type}:{content_id}...")
@@ -110,41 +125,250 @@ def process_vectorization_request(message: Dict[str, Any]) -> bool:
     return success
 
 
-def process_rabbitmq_queue():
-    """Process messages from RabbitMQ queue."""
-    if not RABBITMQ_AVAILABLE:
-        print("RabbitMQ not available. Install with: pip install pika")
-        return
-    
-    connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
-    channel = connection.channel()
-    channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
-    
-    def callback(ch, method, properties, body):
-        try:
-            message = json.loads(body.decode('utf-8'))
-            success = process_vectorization_request(message)
-            if success:
-                ch.basic_ack(delivery_tag=method.delivery_tag)
-            else:
-                # Requeue on failure
-                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
-        except json.JSONDecodeError as e:
-            print(f"Error decoding message: {e}")
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
-        except Exception as e:
-            print(f"Error processing message: {e}")
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
-    
-    channel.basic_qos(prefetch_count=1)
-    channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
-    
-    print(f"Waiting for messages on {RABBITMQ_QUEUE}. To exit press CTRL+C")
+def setup_port_forward(port: int) -> bool:
+    """Attempt to set up port forwarding for the given port."""
     try:
-        channel.start_consuming()
-    except KeyboardInterrupt:
-        channel.stop_consuming()
-        connection.close()
+        script_paths = [
+            Path(__file__).parent.parent / "bin" / "setup-port-forward",
+            Path.home() / "code" / "dotfiles" / "bin" / "setup-port-forward",
+            Path.home() / "code" / "personal" / "dotfiles" / "bin" / "setup-port-forward",
+        ]
+        
+        setup_script = None
+        for path in script_paths:
+            if path.exists() and path.is_file():
+                setup_script = path
+                break
+        
+        if setup_script:
+            import subprocess
+            result = subprocess.run(
+                [str(setup_script), str(port)],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            return result.returncode == 0
+    except Exception:
+        pass
+    return False
+
+
+def process_rabbitmq_queue():
+    """Process messages from RabbitMQ queue with automatic reconnection."""
+    if not RABBITMQ_AVAILABLE:
+        raise Exception("RabbitMQ not available. Install with: pip install pika")
+    
+    max_retries = 5
+    retry_delay = 10  # seconds between reconnection attempts
+    
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            # Add connection timeout to avoid hanging (like deep analysis worker)
+            params = pika.URLParameters(RABBITMQ_URL)
+            params.connection_attempts = 3
+            params.retry_delay = 2
+            params.socket_timeout = 5
+            
+            print(f"Connecting to RabbitMQ... (attempt {retry_count + 1}/{max_retries})")
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
+            channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
+            
+            print(f"✅ Connected to RabbitMQ at {datetime.now()}")
+            retry_count = 0  # Reset retry count on successful connection
+            
+            # Flag to track connection errors from callbacks
+            connection_error_occurred = False
+            
+            # Note: BlockingConnection doesn't support on_close_callbacks directly
+            # We'll rely on exception handling and connection state checks
+            
+            def callback(ch, method, properties, body):
+                nonlocal connection_error_occurred
+                
+                try:
+                    # Check connection state before processing
+                    if connection.is_closed:
+                        print("⚠️  Connection is closed, skipping message")
+                        connection_error_occurred = True
+                        return
+                    
+                    # Check if body is empty
+                    if not body:
+                        print(f"Error: Received empty message body")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    # Decode and parse JSON
+                    try:
+                        body_str = body.decode('utf-8')
+                    except UnicodeDecodeError as e:
+                        print(f"Error: Cannot decode message body: {e}")
+                        print(f"Body (first 100 bytes): {body[:100]}")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    # Check if body is empty after decoding
+                    if not body_str.strip():
+                        print(f"Error: Message body is empty after decoding")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    try:
+                        message = json.loads(body_str)
+                    except json.JSONDecodeError as e:
+                        print(f"Error: Invalid JSON in message: {e}")
+                        print(f"Message body (first 200 chars): {body_str[:200]}")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    # Validate message structure
+                    if not isinstance(message, dict):
+                        print(f"Error: Message is not a dictionary: {type(message)}")
+                        print(f"Message: {message}")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    if message is None:
+                        print(f"Error: Message is None after parsing")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError):
+                            connection_error_occurred = True
+                            return
+                        return
+                    
+                    success = process_vectorization_request(message)
+                    if success:
+                        try:
+                            ch.basic_ack(delivery_tag=method.delivery_tag)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError, BrokenPipeError) as conn_err:
+                            print(f"⚠️  Connection lost while acknowledging message: {conn_err}")
+                            connection_error_occurred = True
+                            # Stop consuming to trigger reconnection
+                            try:
+                                ch.stop_consuming()
+                            except:
+                                pass
+                            return
+                    else:
+                        # Don't requeue on processing failure - message format was OK, processing failed
+                        print(f"Warning: Processing failed, not requeuing to avoid infinite loop")
+                        try:
+                            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError, BrokenPipeError) as conn_err:
+                            print(f"⚠️  Connection lost while nacking message: {conn_err}")
+                            connection_error_occurred = True
+                            # Stop consuming to trigger reconnection
+                            try:
+                                ch.stop_consuming()
+                            except:
+                                pass
+                            return
+                        
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding message: {e}")
+                    try:
+                        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                    except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError, BrokenPipeError) as conn_err:
+                        print(f"⚠️  Connection lost while nacking message: {conn_err}")
+                        connection_error_occurred = True
+                        # Stop consuming to trigger reconnection
+                        try:
+                            ch.stop_consuming()
+                        except:
+                            pass
+                        return
+                except Exception as e:
+                    print(f"Error processing message: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Don't requeue on exception - likely malformed message
+                    try:
+                        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                    except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError, BrokenPipeError) as conn_err:
+                        print(f"⚠️  Connection lost while nacking message: {conn_err}")
+                        connection_error_occurred = True
+                        # Stop consuming to trigger reconnection
+                        try:
+                            ch.stop_consuming()
+                        except:
+                            pass
+                        return
+            
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
+            
+            print(f"Waiting for messages on {RABBITMQ_QUEUE}. To exit press CTRL+C")
+            try:
+                # Start consuming - this will block until connection is lost or stopped
+                channel.start_consuming()
+            except (pika.exceptions.AMQPConnectionError, pika.exceptions.StreamLostError, OSError, BrokenPipeError) as e:
+                # Connection lost - this is expected and will trigger reconnection
+                print(f"\n⚠️  Connection lost detected: {e}")
+                connection_error_occurred = True
+            except Exception as e:
+                # Other exceptions - check if it's connection-related
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['connection', 'stream', 'broken pipe', 'socket']):
+                    print(f"\n⚠️  Connection error detected: {e}")
+                    connection_error_occurred = True
+                else:
+                    # Re-raise unexpected exceptions
+                    raise
+            
+            except KeyboardInterrupt:
+                print("\nStopping worker...")
+                channel.stop_consuming()
+                connection.close()
+                break
+            
+            # After consuming stops, check if it was due to connection error
+            # pika may detect broken pipe internally and return normally, so check connection state
+            if connection_error_occurred:
+                raise pika.exceptions.StreamLostError("Connection lost during message processing")
+            elif connection.is_closed:
+                print(f"\n⚠️  Connection closed detected after consuming stopped")
+                raise pika.exceptions.StreamLostError("Connection closed during message processing")
+                
+        except (pika.exceptions.AMQPConnectionError, pika.exceptions.StreamLostError, OSError, ConnectionRefusedError, BrokenPipeError) as e:
+            error_msg = str(e)
+            error_type = type(e).__name__
+            retry_count += 1
+            
+            if retry_count < max_retries:
+                print(f"\n⚠️  Failed to connect to RabbitMQ: {e}")
+                print(f"   Retrying in {retry_delay} seconds... (attempt {retry_count}/{max_retries})")
+                time.sleep(retry_delay)
+                continue
+            else:
+                print(f"\n❌ Failed to connect after {max_retries} attempts")
+                print("💡 Check if RabbitMQ is running and accessible:")
+                print("   - kubectl get pods -n rabbitmq-system")
+                print("   - gtd-wizard → Configuration → Setup RabbitMQ → Test Connection")
+                raise Exception(f"Failed to connect to RabbitMQ: {e}")
 
 
 def process_file_queue():

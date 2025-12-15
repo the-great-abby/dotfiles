@@ -1,5 +1,8 @@
 #!/bin/bash
 # Setup script for Cursor MCP configuration
+# 
+# NOTE: Cursor can read MCP config from .cursor/mcp.json automatically!
+# This script is only needed if you want to use global Cursor settings instead.
 
 set -e
 
@@ -12,8 +15,46 @@ NC='\033[0m'
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/mcp_config.json"
+
+# Check for mcp.json first (preferred), then mcp_config.json (legacy)
+if [[ -f "$SCRIPT_DIR/mcp.json" ]]; then
+    CONFIG_FILE="$SCRIPT_DIR/mcp.json"
+elif [[ -f "$SCRIPT_DIR/mcp_config.json" ]]; then
+    # Create mcp.json from mcp_config.json if it doesn't exist
+    echo -e "${CYAN}Creating mcp.json from mcp_config.json...${NC}"
+    cp "$SCRIPT_DIR/mcp_config.json" "$SCRIPT_DIR/mcp.json"
+    CONFIG_FILE="$SCRIPT_DIR/mcp.json"
+    echo -e "${GREEN}✓ Created .cursor/mcp.json${NC}"
+    echo ""
+else
+    echo -e "${RED}❌ No MCP config file found in $SCRIPT_DIR${NC}"
+    exit 1
+fi
+
 MCP_SERVER_PATH="$DOTFILES_DIR/mcp/gtd_mcp_server.py"
+
+# Check if workspace config exists (inform user)
+if [[ -f "$SCRIPT_DIR/mcp.json" ]]; then
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}ℹ️  Workspace MCP Configuration Detected${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${GREEN}✅ Cursor can automatically use: .cursor/mcp.json${NC}"
+    echo ""
+    echo "Cursor will automatically detect and use the MCP configuration"
+    echo "from .cursor/mcp.json when you open this workspace."
+    echo ""
+    echo "You don't need to run this script unless you want to use"
+    echo "global Cursor settings instead of workspace settings."
+    echo ""
+    read -p "Continue with global setup anyway? (y/n): " continue_choice
+    if [[ "$continue_choice" != "y" && "$continue_choice" != "Y" ]]; then
+        echo "Skipping global setup. Using workspace configuration."
+        exit 0
+    fi
+    echo ""
+fi
 
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -81,13 +122,21 @@ echo -e "${CYAN}Updating paths in config...${NC}"
 
 # Create a temporary config with updated paths
 TEMP_CONFIG=$(mktemp)
-sed "s|/Users/abby/code/dotfiles|$DOTFILES_DIR|g" "$CONFIG_FILE" > "$TEMP_CONFIG"
 
-# If on macOS, use the updated config
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # Also update user name if needed
+# Convert workspace-relative paths to absolute paths
+if [[ -f "$CONFIG_FILE" ]]; then
+    # Replace ${workspaceFolder} with actual path
+    sed "s|\${workspaceFolder}|$DOTFILES_DIR|g" "$CONFIG_FILE" > "$TEMP_CONFIG"
+    # Replace ${env:USER} with actual username
     CURRENT_USER=$(whoami)
-    sed -i '' "s|\"Abby\"|\"$CURRENT_USER\"|g" "$TEMP_CONFIG" 2>/dev/null || sed -i "s|\"Abby\"|\"$CURRENT_USER\"|g" "$TEMP_CONFIG"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s|\${env:USER}|$CURRENT_USER|g" "$TEMP_CONFIG" 2>/dev/null || sed -i "s|\${env:USER}|$CURRENT_USER|g" "$TEMP_CONFIG"
+    else
+        sed -i "s|\${env:USER}|$CURRENT_USER|g" "$TEMP_CONFIG"
+    fi
+else
+    echo -e "${RED}❌ Config file not found: $CONFIG_FILE${NC}"
+    exit 1
 fi
 
 # Copy to Cursor config location

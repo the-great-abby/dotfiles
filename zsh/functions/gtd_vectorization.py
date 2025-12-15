@@ -38,13 +38,15 @@ def read_embedding_config() -> Dict[str, Any]:
     Returns:
         Dictionary with embedding configuration
     """
+    # Read config files in order - later files override earlier ones
+    # .gtd_config_ai is most specific and should override .gtd_config
     config_paths = [
         Path.home() / ".daily_log_config",
         Path.home() / ".gtd_config",
-        Path.home() / ".gtd_config_ai",
+        Path.home() / ".gtd_config_ai",  # Most specific - should override
         Path(__file__).parent.parent / ".daily_log_config",
         Path(__file__).parent.parent / ".gtd_config",
-        Path(__file__).parent.parent / ".gtd_config_ai"
+        Path(__file__).parent.parent / ".gtd_config_ai"  # Most specific - should override
     ]
     
     embedding_model = ""
@@ -66,7 +68,8 @@ def read_embedding_config() -> Dict[str, Any]:
                         if value.startswith("${") and ":-" in value:
                             value = value.split(":-", 1)[1].rstrip("}")
                         
-                        if key == "LM_STUDIO_EMBEDDING_MODEL" and not embedding_model:
+                        # Allow later files to override earlier ones (remove "and not embedding_model" check)
+                        if key == "LM_STUDIO_EMBEDDING_MODEL":
                             embedding_model = value
                         elif key == "LM_STUDIO_URL" and "/v1" in value:
                             base_url = value.replace("/v1/chat/completions", "/v1")
@@ -110,17 +113,20 @@ def generate_embedding(text: str, config: Optional[Dict[str, Any]] = None) -> Op
             print("Error: No embedding model configured. Set LM_STUDIO_EMBEDDING_MODEL in .gtd_config_ai", file=sys.stderr)
             return None
     
-    # Get API URL
+    # Get API URL from embedding_config (not config, which may be None)
     base_url = embedding_config.get("base_url", "http://localhost:1234/v1")
-    embedding_url = f"{base_url}/embeddings"
-    timeout = embedding_config.get("timeout", 60)
-    
-    # Get API URL (use chat completions URL, embeddings use same endpoint pattern)
-    base_url = config.get("url", "http://localhost:1234/v1")
+    # If base_url contains /v1/chat/completions, remove that part
     if "/v1/chat/completions" in base_url:
         base_url = base_url.replace("/v1/chat/completions", "/v1")
+    elif not base_url.endswith("/v1"):
+        # Ensure it ends with /v1
+        if base_url.endswith("/"):
+            base_url = base_url.rstrip("/") + "/v1"
+        else:
+            base_url = base_url + "/v1"
     
     embedding_url = f"{base_url}/embeddings"
+    timeout = embedding_config.get("timeout", 60)
     
     # Prepare request
     payload = {
@@ -159,9 +165,170 @@ def generate_embedding(text: str, config: Optional[Dict[str, Any]] = None) -> Op
         return None
 
 
+def estimate_tokens(text: str) -> int:
+    """
+    Quick approximation of token count: ~4 characters per token.
+    
+    Args:
+        text: Text to estimate
+    
+    Returns:
+        Estimated token count
+    """
+    return len(text) // 4
+
+
+def chunk_by_paragraphs(text: str, max_tokens: int, overlap_tokens: int) -> List[str]:
+    """
+    Split text into chunks by paragraph boundaries with overlap.
+    
+    Args:
+        text: Text to chunk
+        max_tokens: Maximum tokens per chunk
+        overlap_tokens: Tokens to overlap between chunks
+    
+    Returns:
+        List of text chunks
+    """
+    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+    
+    if not paragraphs:
+        return [text] if text.strip() else []
+    
+    chunks = []
+    current_chunk = []
+    current_tokens = 0
+    
+    for para in paragraphs:
+        para_tokens = estimate_tokens(para)
+        
+        if current_tokens + para_tokens > max_tokens and current_chunk:
+            # Save current chunk
+            chunks.append('\n\n'.join(current_chunk))
+            
+            # Start new chunk with overlap (keep last paragraph)
+            if overlap_tokens > 0 and current_chunk:
+                current_chunk = [current_chunk[-1]]
+                current_tokens = estimate_tokens(current_chunk[-1])
+            else:
+                current_chunk = []
+                current_tokens = 0
+        
+        current_chunk.append(para)
+        current_tokens += para_tokens
+    
+    # Don't forget the last chunk
+    if current_chunk:
+        chunks.append('\n\n'.join(current_chunk))
+    
+    return chunks if chunks else [text]
+
+
+def chunk_markdown(
+    file_path: str,
+    content: str,
+    max_tokens: int = 512,
+    overlap_tokens: int = 50
+) -> List[Dict[str, Any]]:
+    """
+    Chunks markdown by semantic boundaries (headers > paragraphs > sentences)
+    while preserving document structure.
+    
+    Args:
+        file_path: Path to the markdown file
+        content: Markdown content to chunk
+        max_tokens: Maximum tokens per chunk
+        overlap_tokens: Tokens to overlap between chunks
+    
+    Returns:
+        List of chunk dictionaries with metadata
+    """
+    chunks = []
+    
+    # Split on headers first (preserves document structure)
+    # Pattern matches: \n followed by 1-6 # followed by space and heading text
+    sections = re.split(r'(\n#{1,6}\s+.+)', content)
+    
+    current_heading_stack = []  # Track nested headers like ["# Main", "## Sub"]
+    
+    for i, section in enumerate(sections):
+        # Check if this is a header
+        header_match = re.match(r'\n(#{1,6})\s+(.+)', section)
+        
+        if header_match:
+            level = len(header_match.group(1))
+            heading_text = header_match.group(2).strip()
+            
+            # Update heading stack (pop deeper levels)
+            current_heading_stack = current_heading_stack[:level-1]
+            current_heading_stack.append(heading_text)
+            
+        elif section.strip():  # Content section
+            # Build hierarchical context
+            heading_path = " > ".join(current_heading_stack) if current_heading_stack else ""
+            
+            # Chunk this section if too large
+            section_chunks = chunk_by_paragraphs(
+                section,
+                max_tokens,
+                overlap_tokens
+            )
+            
+            for idx, chunk_text in enumerate(section_chunks):
+                # Prepend context for better embeddings
+                if heading_path:
+                    contextualized = f"""Document: {file_path}
+Section: {heading_path}
+
+{chunk_text}"""
+                else:
+                    contextualized = f"""Document: {file_path}
+
+{chunk_text}"""
+                
+                chunks.append({
+                    'content': chunk_text,  # Original without context
+                    'content_with_context': contextualized,  # For vectorization
+                    'file_path': file_path,
+                    'heading_path': heading_path,
+                    'chunk_index': len(chunks),
+                    'section_chunk_index': idx,
+                    'metadata': {
+                        'has_code_block': '```' in chunk_text,
+                        'has_list': bool(re.search(r'^\s*[-*]\s', chunk_text, re.MULTILINE)),
+                        'has_links': '[' in chunk_text and '](' in chunk_text,
+                        'chunk_type': 'section',
+                    }
+                })
+    
+    # If no headers found, chunk as plain text
+    if not chunks:
+        section_chunks = chunk_by_paragraphs(content, max_tokens, overlap_tokens)
+        for idx, chunk_text in enumerate(section_chunks):
+            contextualized = f"""Document: {file_path}
+
+{chunk_text}"""
+            chunks.append({
+                'content': chunk_text,
+                'content_with_context': contextualized,
+                'file_path': file_path,
+                'heading_path': '',
+                'chunk_index': idx,
+                'section_chunk_index': idx,
+                'metadata': {
+                    'has_code_block': '```' in chunk_text,
+                    'has_list': bool(re.search(r'^\s*[-*]\s', chunk_text, re.MULTILINE)),
+                    'has_links': '[' in chunk_text and '](' in chunk_text,
+                    'chunk_type': 'document',
+                }
+            })
+    
+    return chunks
+
+
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
     """
-    Split text into chunks for processing.
+    Split text into chunks for processing (legacy function for non-markdown).
     
     Args:
         text: Text to chunk
@@ -250,10 +417,10 @@ def queue_vectorization(
         try:
             import pika
             try:
-                connection = pika.BlockingConnection(
-                    pika.URLParameters(rabbitmq_url),
-                    blocked_connection_timeout=2  # 2 second timeout
-                )
+                # Set connection parameters with timeout (pika 1.3.2 compatible)
+                params = pika.URLParameters(rabbitmq_url)
+                params.blocked_connection_timeout = 5  # 5 second timeout
+                connection = pika.BlockingConnection(params)
                 channel = connection.channel()
                 channel.queue_declare(queue=rabbitmq_queue, durable=True)
                 
@@ -271,11 +438,15 @@ def queue_vectorization(
                     pika.exceptions.AMQPChannelError,
                     ConnectionRefusedError,
                     TimeoutError,
-                    OSError):
+                    OSError) as e:
                 # RabbitMQ not available, fall back to file queue
+                if os.getenv("GTD_DEBUG") or os.getenv("DEBUG_VECTORIZATION"):
+                    print(f"⚠️  RabbitMQ connection error (falling back to file queue): {e}", file=sys.stderr)
                 pass
-            except Exception:
+            except Exception as e:
                 # Other RabbitMQ errors, fall back to file queue
+                if os.getenv("GTD_DEBUG") or os.getenv("DEBUG_VECTORIZATION"):
+                    print(f"⚠️  RabbitMQ error (falling back to file queue): {e}", file=sys.stderr)
                 pass
         except ImportError:
             # pika not installed, use file queue
@@ -291,6 +462,132 @@ def queue_vectorization(
         return "queued_to_file"
     except Exception as e:
         return f"queue_failed: {e}"
+
+
+def vectorize_document(
+    file_path: str,
+    content_text: str,
+    metadata: Optional[Dict[str, Any]] = None,
+    db_config: Optional[Dict[str, Any]] = None,
+    async_mode: Optional[bool] = None
+) -> bool:
+    """
+    Vectorize a document (file) using smart semantic chunking.
+    
+    Args:
+        file_path: Path to the document file
+        content_text: Text content to vectorize
+        metadata: Optional metadata dictionary (may contain project, category, tags)
+        db_config: Database configuration. If None, reads from config.
+        async_mode: If True, queue for async processing. If None, checks config.
+    
+    Returns:
+        True if successful or queued, False otherwise
+    """
+    if db_config is None:
+        db_config = read_database_config()
+    
+    if not db_config.get("vectorization_enabled", True):
+        return False
+    
+    # Check if we should use async mode
+    if async_mode is None:
+        async_mode = db_config.get("rabbitmq_enabled", False)
+    
+    if async_mode:
+        # Queue for async processing
+        # Use 'file' as content_type for documents
+        content_id = file_path.replace("/", "-").replace("\\", "-")
+        status = queue_vectorization("file", content_id, content_text, metadata, db_config)
+        return status.startswith("queued_")
+    
+    # Determine file type
+    file_path_lower = file_path.lower()
+    if file_path_lower.endswith(('.md', '.markdown')):
+        file_type = "markdown"
+        # Use smart markdown chunking
+        max_tokens = db_config.get("chunk_size", 1000) // 4  # Convert chars to tokens (approx)
+        overlap_tokens = db_config.get("chunk_overlap", 200) // 4
+        chunks = chunk_markdown(file_path, content_text, max_tokens, overlap_tokens)
+    else:
+        file_type = "text"
+        # Use regular chunking for non-markdown
+        chunk_size = db_config.get("chunk_size", 1000)
+        chunk_overlap = db_config.get("chunk_overlap", 200)
+        text_chunks = chunk_text(content_text, chunk_size, chunk_overlap)
+        # Convert to chunk dict format
+        chunks = []
+        for idx, chunk_text in enumerate(text_chunks):
+            contextualized = f"""Document: {file_path}
+
+{chunk_text}"""
+            chunks.append({
+                'content': chunk_text,
+                'content_with_context': contextualized,
+                'file_path': file_path,
+                'heading_path': '',
+                'chunk_index': idx,
+                'section_chunk_index': idx,
+                'metadata': {
+                    'chunk_type': 'text',
+                }
+            })
+    
+    if not chunks:
+        print(f"Warning: No chunks created for {file_path}", file=sys.stderr)
+        return False
+    
+    # Extract organizational metadata
+    project = metadata.get('project') if metadata else None
+    category = metadata.get('category') if metadata else None
+    tags = metadata.get('tags', []) if metadata else []
+    last_modified = metadata.get('modified_time') if metadata else None
+    
+    # Store chunks in database (without embeddings first)
+    db = VectorDatabase(db_config)
+    if not db.connect():
+        print(f"Error: Could not connect to database", file=sys.stderr)
+        return False
+    
+    try:
+        # Store chunks structure
+        success = db.store_document_chunks(
+            chunks=chunks,
+            file_path=file_path,
+            file_type=file_type,
+            project=project,
+            category=category,
+            tags=tags,
+            last_modified=last_modified
+        )
+        
+        if not success:
+            print(f"Error storing chunks for {file_path}", file=sys.stderr)
+            db.disconnect()
+            return False
+        
+        # Generate embeddings for each chunk
+        for chunk in chunks:
+            # Use content_with_context for embedding (better semantic understanding)
+            text_to_embed = chunk.get('content_with_context', chunk['content'])
+            embedding = generate_embedding(text_to_embed)
+            
+            if embedding:
+                # Store embedding for this chunk
+                db.store_document_chunk_embedding(
+                    file_path=file_path,
+                    chunk_index=chunk['chunk_index'],
+                    embedding=embedding
+                )
+            else:
+                print(f"Warning: Failed to generate embedding for chunk {chunk['chunk_index']} of {file_path}", file=sys.stderr)
+        
+        db.disconnect()
+        return True
+    except Exception as e:
+        print(f"Error vectorizing document: {e}", file=sys.stderr)
+        db.disconnect()
+        return False
 
 
 def vectorize_content(
@@ -323,6 +620,19 @@ def vectorize_content(
     if not db_config.get("vectorization_enabled", True):
         return False
     
+    # Check if this is a file/document that should use smart chunking
+    file_path = None
+    if metadata and 'file_path' in metadata:
+        file_path = metadata['file_path']
+    elif content_type in ('file', 'document', 'note'):
+        # Try to reconstruct file path from content_id or metadata
+        if metadata and 'file_name' in metadata:
+            file_path = metadata.get('file_path', content_id)
+    
+    # Use smart chunking for files/documents
+    if file_path and content_type in ('file', 'document', 'note'):
+        return vectorize_document(file_path, content_text, metadata, db_config, async_mode)
+    
     # Check if we should use async mode
     if async_mode is None:
         async_mode = db_config.get("rabbitmq_enabled", False)
@@ -344,10 +654,10 @@ def vectorize_content(
     
     # Generate embeddings for each chunk
     embeddings = []
-    for chunk_text in chunks:
-        embedding = generate_embedding(chunk_text)
+    for text_chunk in chunks:
+        embedding = generate_embedding(text_chunk)
         if embedding:
-            embeddings.append((chunk_text, embedding))
+            embeddings.append((text_chunk, embedding))
     
     if not embeddings:
         print(f"Warning: No embeddings generated for {content_type}:{content_id}", file=sys.stderr)
@@ -440,7 +750,8 @@ def search_similar(
     limit: int = 10,
     threshold: float = 0.7,
     config: Optional[Dict[str, Any]] = None,
-    db_config: Optional[Dict[str, Any]] = None
+    db_config: Optional[Dict[str, Any]] = None,
+    exclude_content_types: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """
     Search for similar content using vector similarity.
@@ -452,12 +763,14 @@ def search_similar(
         threshold: Minimum similarity threshold
         config: AI config for embedding generation
         db_config: Database configuration
+        exclude_content_types: Optional list of content types to exclude (e.g., ['document'] to exclude advice results)
     
     Returns:
         List of similar content items
     """
     if config is None:
-        config = read_config()
+        # Use read_embedding_config() instead of read_config() to get embedding model
+        config = read_embedding_config()
     if db_config is None:
         db_config = read_database_config()
     
@@ -476,7 +789,8 @@ def search_similar(
             query_embedding=query_embedding,
             content_type=content_type,
             limit=limit,
-            threshold=threshold
+            threshold=threshold,
+            exclude_content_types=exclude_content_types
         )
         return results
     finally:

@@ -496,11 +496,35 @@ EOF
   # Small delay to ensure all output is flushed before showing quick actions
   sleep 0.1
   
-  # Auto-scan for insights if enabled
+  # Queue morning review analysis in background if enabled
   if [[ "${GTD_INSIGHT_AUTO_SCAN:-true}" == "true" && "${GTD_INSIGHT_SCANNING_ENABLED:-true}" == "true" ]]; then
-    if command -v gtd-scan-insights &>/dev/null; then
-      # Run scan quietly in background (non-blocking)
-      gtd-scan-insights scan "${GTD_INSIGHT_SCAN_DAYS:-7}" quiet &
+    # Queue for background processing using deep analysis worker
+    if command -v python3 &>/dev/null; then
+      python3 <<PYTHON_EOF
+import sys
+import json
+from datetime import datetime
+
+# Add mcp directory to path
+sys.path.insert(0, "$HOME/code/dotfiles/mcp")
+try:
+    from gtd_mcp_server import queue_deep_analysis
+    
+    # Queue morning review analysis
+    context = {
+        "check_in_type": "morning",
+        "date": "$TODAY",
+        "scan_days": ${GTD_INSIGHT_SCAN_DAYS:-7}
+    }
+    status = queue_deep_analysis("morning_review", context)
+    print(f"✓ Morning review analysis queued: {status}", file=sys.stderr)
+except Exception as e:
+    # Fallback to old method if queueing fails
+    import subprocess
+    import os
+    if os.path.exists("$HOME/code/dotfiles/bin/gtd-scan-insights"):
+        subprocess.Popen(["$HOME/code/dotfiles/bin/gtd-scan-insights", "scan", "${GTD_INSIGHT_SCAN_DAYS:-7}", "quiet"])
+PYTHON_EOF
     fi
   fi
   
@@ -912,6 +936,38 @@ EOF
   echo ""
   echo "✓ Evening check-in saved to daily log"
   echo ""
+  
+  # Queue evening review analysis in background if enabled
+  if [[ "${GTD_INSIGHT_AUTO_SCAN:-true}" == "true" && "${GTD_INSIGHT_SCANNING_ENABLED:-true}" == "true" ]]; then
+    # Queue for background processing using deep analysis worker
+    if command -v python3 &>/dev/null; then
+      python3 <<PYTHON_EOF
+import sys
+import json
+from datetime import datetime
+
+# Add mcp directory to path
+sys.path.insert(0, "$HOME/code/dotfiles/mcp")
+try:
+    from gtd_mcp_server import queue_deep_analysis
+    
+    # Queue evening review analysis
+    context = {
+        "check_in_type": "evening",
+        "date": "$TODAY",
+        "scan_days": ${GTD_INSIGHT_SCAN_DAYS:-7}
+    }
+    status = queue_deep_analysis("evening_review", context)
+    print(f"✓ Evening review analysis queued: {status}", file=sys.stderr)
+except Exception as e:
+    # Fallback to old method if queueing fails
+    import subprocess
+    import os
+    if os.path.exists("$HOME/code/dotfiles/bin/gtd-scan-insights"):
+        subprocess.Popen(["$HOME/code/dotfiles/bin/gtd-scan-insights", "scan", "${GTD_INSIGHT_SCAN_DAYS:-7}", "quiet"])
+PYTHON_EOF
+    fi
+  fi
   
   # Check for pending suggestions
   SUGGESTIONS_DIR="${GTD_BASE_DIR}/suggestions"

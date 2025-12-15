@@ -1,0 +1,38 @@
+#!/bin/bash
+# GTD Vector Initial Scan
+# Scans all existing files in configured directories and queues them for vectorization
+
+# Source common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Find Python executable (prefer virtualenv)
+MCP_VENV="$HOME/code/dotfiles/mcp/venv/bin/python3"
+if [[ ! -f "$MCP_VENV" ]]; then
+  MCP_VENV="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+fi
+
+if [[ -f "$MCP_VENV" ]]; then
+  PYTHON_CMD="$MCP_VENV"
+else
+  PYTHON_CMD="python3"
+fi
+
+# Find Python script
+SCAN_SCRIPT="$HOME/code/dotfiles/mcp/gtd_vector_scan_existing.py"
+if [[ ! -f "$SCAN_SCRIPT" ]]; then
+  SCAN_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_vector_scan_existing.py"
+fi
+
+if [[ ! -f "$SCAN_SCRIPT" ]]; then
+  echo "Error: Scan script not found at $SCAN_SCRIPT"
+  exit 1
+fi
+
+# Run the scan script
+"$PYTHON_CMD" "$SCAN_SCRIPT" "$@"

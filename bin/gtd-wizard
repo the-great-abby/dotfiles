@@ -1080,13 +1080,27 @@ ensure_mcp_virtualenv() {
     fi
   fi
   
-  # Always install/update requirements to ensure mcp package is available
+  # Check if requirements are installed, only install if missing
   if [[ -f "$requirements_file" ]] && [[ -f "$venv_python" ]]; then
-    "$venv_python" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
-    "$venv_python" -m pip install --quiet -r "$requirements_file" >/dev/null 2>&1 || {
-      echo "Warning: Failed to install MCP requirements. Some features may not work." >&2
-      return 1
-    }
+    # Check if mcp package is already installed (main requirement)
+    if ! "$venv_python" -c "import mcp" 2>/dev/null; then
+      # MCP not installed - try to install requirements (requires internet)
+      # But don't fail if offline - just warn
+      if ! "$venv_python" -m pip install --quiet --upgrade pip >/dev/null 2>&1; then
+        # Offline or pip upgrade failed - try installing anyway with existing pip
+        if ! "$venv_python" -m pip install --quiet -r "$requirements_file" >/dev/null 2>&1; then
+          echo "Warning: Failed to install MCP requirements (offline?). Some features may not work." >&2
+          return 0  # Don't fail - allow wizard to start
+        fi
+      else
+        # Pip upgrade succeeded, now install requirements
+        if ! "$venv_python" -m pip install --quiet -r "$requirements_file" >/dev/null 2>&1; then
+          echo "Warning: Failed to install MCP requirements. Some features may not work." >&2
+          return 0  # Don't fail - allow wizard to start
+        fi
+      fi
+    fi
+    # If mcp is already installed, we're good - no need to check/upgrade anything
   fi
   
   return 0

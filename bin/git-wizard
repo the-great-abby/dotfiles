@@ -1,0 +1,968 @@
+#!/bin/bash
+# Git Wizard - Interactive helper for advanced git commands
+# Guides users through complex git operations with educational prompts
+
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  # Fallback colors if gtd-common.sh not found
+  CYAN='\033[0;36m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  RED='\033[0;31m'
+  BOLD='\033[1m'
+  NC='\033[0m'
+fi
+
+# ============================================================================
+# Guide Functions
+# ============================================================================
+
+# Show cherry-pick guide
+show_cherry_pick_guide() {
+  gtd_print_header "🍒 Cherry-Pick - Quick Guide" "" "$YELLOW"
+  gtd_print_section "What is cherry-pick?"
+  echo "  Cherry-pick applies a specific commit from one branch to another."
+  echo "  It takes the changes from a commit and replays them on your current branch."
+  echo ""
+  gtd_print_section "Why use it?"
+  echo "  • Apply a bug fix from another branch without merging everything"
+  echo "  • Bring a specific feature commit to a different branch"
+  echo "  • Selectively apply commits without merging entire branches"
+  echo "  • Useful for hotfixes and selective backports"
+  echo ""
+  gtd_print_section "Common options:"
+  echo "  • -e (--edit) - Edit the commit message before applying"
+  echo "  • -m 1 - Use first parent for merge commits (required for merge commits)"
+  echo "  • -x - Add 'cherry picked from commit...' reference to message"
+  echo "  • --no-commit - Stage changes without creating a commit"
+  echo ""
+  gtd_print_section "When to use:"
+  echo "  • You need a specific commit from another branch"
+  echo "  • You want to apply a fix without merging the whole branch"
+  echo "  • You're backporting a feature to an older release"
+  echo ""
+  gtd_print_section "⚠️  Important notes:"
+  echo "  • Cherry-pick creates a NEW commit (different SHA) with the same changes"
+  echo "  • If the commit depends on other commits, you may get conflicts"
+  echo "  • For merge commits, you must specify which parent with -m"
+  echo ""
+  gtd_print_divider "━" 70 "$YELLOW"
+  echo ""
+}
+
+# Show rebase guide
+show_rebase_guide() {
+  gtd_print_header "🔄 Rebase - Quick Guide" "" "$YELLOW"
+  gtd_print_section "What is rebase?"
+  echo "  Rebase moves or combines commits by rewriting commit history."
+  echo "  It replays your commits on top of a different base commit."
+  echo ""
+  gtd_print_section "Why use it?"
+  echo "  • Keep a clean, linear history (no merge commits)"
+  echo "  • Update your branch with latest changes from main"
+  echo "  • Edit, reorder, or combine commits interactively"
+  echo "  • Clean up commit history before sharing"
+  echo ""
+  gtd_print_section "Common options:"
+  echo "  • -i (--interactive) - Edit commits interactively (edit, squash, reorder)"
+  echo "  • --onto <commit> - Rebase onto a specific commit"
+  echo "  • --continue - Continue after resolving conflicts"
+  echo "  • --abort - Cancel rebase and return to original state"
+  echo ""
+  gtd_print_section "When to use:"
+  echo "  • Updating your feature branch with latest main/master"
+  echo "  • Cleaning up commit history before pushing"
+  echo "  • Combining multiple commits into one (squash)"
+  echo "  • Fixing commit messages or splitting commits"
+  echo ""
+  gtd_print_section "⚠️  Important warnings:"
+  echo "  • NEVER rebase commits that have been pushed to shared branches"
+  echo "  • Rebase rewrites history - coordinate with team if needed"
+  echo "  • Use rebase for local branches, merge for shared branches"
+  echo "  • If others have based work on your commits, rebase can cause issues"
+  echo ""
+  gtd_print_divider "━" 70 "$YELLOW"
+  echo ""
+}
+
+# Show reset guide
+show_reset_guide() {
+  gtd_print_header "↩️  Reset - Quick Guide" "" "$YELLOW"
+  gtd_print_section "What is reset?"
+  echo "  Reset moves the HEAD pointer to a different commit, optionally"
+  echo "  updating the index (staging area) and working directory."
+  echo ""
+  gtd_print_section "Why use it?"
+  echo "  • Undo commits (before pushing)"
+  echo "  • Unstage files (mixed reset)"
+  echo "  • Discard changes in working directory (hard reset)"
+  echo "  • Move branch pointer to a different commit"
+  echo ""
+  gtd_print_section "Reset modes:"
+  echo "  • --soft - Moves HEAD, keeps changes STAGED"
+  echo "    → Use when: You want to recommit with a different message"
+  echo ""
+  echo "  • --mixed (default) - Moves HEAD, UNSTAGES changes (keeps in working dir)"
+  echo "    → Use when: You want to unstage files but keep your work"
+  echo ""
+  echo "  • --hard - Moves HEAD, DISCARDS all changes"
+  echo "    → Use when: You want to completely undo commits/changes"
+  echo "    → ⚠️  WARNING: This PERMANENTLY deletes uncommitted work!"
+  echo ""
+  gtd_print_section "When to use:"
+  echo "  • --soft: Fix commit message, combine commits"
+  echo "  • --mixed: Unstage files, undo last commit but keep changes"
+  echo "  • --hard: Completely discard local changes, reset to remote state"
+  echo ""
+  gtd_print_section "⚠️  Important warnings:"
+  echo "  • --hard PERMANENTLY DELETES uncommitted changes"
+  echo "  • Only reset commits that haven't been pushed (or coordinate with team)"
+  echo "  • Consider 'revert' instead for commits already pushed"
+  echo "  • Always commit or stash important work before reset --hard"
+  echo ""
+  gtd_print_divider "━" 70 "$YELLOW"
+  echo ""
+}
+
+# Show merge guide
+show_merge_guide() {
+  gtd_print_header "🔀 Merge - Quick Guide" "" "$YELLOW"
+  gtd_print_section "What is merge?"
+  echo "  Merge combines changes from one branch into another, creating"
+  echo "  a merge commit that has two parents (the branches being merged)."
+  echo ""
+  gtd_print_section "Why use it?"
+  echo "  • Combine feature branches into main/master"
+  echo "  • Integrate changes from other branches"
+  echo "  • Preserve complete history of branch development"
+  echo "  • Safe for shared branches (doesn't rewrite history)"
+  echo ""
+  gtd_print_section "Common options:"
+  echo "  • --ff-only - Only merge if fast-forward is possible (fails otherwise)"
+  echo "  • --no-ff - Always create a merge commit (even if fast-forward possible)"
+  echo "  • --squash - Combine all commits into one new commit"
+  echo "  • -s <strategy> - Use specific merge strategy (ours, theirs, recursive)"
+  echo ""
+  gtd_print_section "When to use:"
+  echo "  • Merging feature branches into main/master"
+  echo "  • Integrating changes from other developers"
+  echo "  • Combining work from multiple branches"
+  echo "  • When you want to preserve branch history"
+  echo ""
+  gtd_print_section "Merge strategies:"
+  echo "  • recursive (default) - Handles most merge scenarios"
+  echo "  • ours - Resolve conflicts by keeping our version"
+  echo "  • theirs - Resolve conflicts by keeping their version"
+  echo "  • octopus - Merge multiple branches at once"
+  echo ""
+  gtd_print_section "⚠️  Important notes:"
+  echo "  • Merge creates a merge commit (unless fast-forward)"
+  echo "  • Conflicts may occur - resolve them before completing merge"
+  echo "  • Merge preserves history (unlike rebase)"
+  echo "  • Safe to use on shared/public branches"
+  echo ""
+  gtd_print_divider "━" 70 "$YELLOW"
+  echo ""
+}
+
+# Show revert guide
+show_revert_guide() {
+  gtd_print_header "↪️  Revert - Quick Guide" "" "$YELLOW"
+  gtd_print_section "What is revert?"
+  echo "  Revert creates a NEW commit that undoes the changes from a"
+  echo "  previous commit. It's the safe way to undo commits on shared branches."
+  echo ""
+  gtd_print_section "Why use it?"
+  echo "  • Undo commits that have already been pushed (safe for shared branches)"
+  echo "  • Create a new commit that reverses changes (doesn't rewrite history)"
+  echo "  • Better than reset for commits others may have based work on"
+  echo "  • Preserves history while undoing changes"
+  echo ""
+  gtd_print_section "Common options:"
+  echo "  • -e (--edit) - Edit the revert commit message"
+  echo "  • --no-commit - Stage the revert changes without committing"
+  echo "  • -n (--no-commit) - Same as --no-commit"
+  echo ""
+  gtd_print_section "When to use:"
+  echo "  • Undoing a commit that's already been pushed"
+  echo "  • Reversing changes on shared/public branches"
+  echo "  • When you want to preserve history (unlike reset)"
+  echo "  • Fixing a bug introduced by a previous commit"
+  echo ""
+  gtd_print_section "Revert vs Reset vs Rebase:"
+  echo "  • Revert: Creates new commit (safe for shared branches)"
+  echo "  • Reset: Moves HEAD (only for local/unpushed commits)"
+  echo "  • Rebase: Rewrites history (only for local branches)"
+  echo ""
+  gtd_print_section "⚠️  Important notes:"
+  echo "  • Revert creates a NEW commit (history is preserved)"
+  echo "  • If the commit was a merge, you may need to specify parent with -m"
+  echo "  • Reverting a revert 'undoes the undo' (applies changes again)"
+  echo "  • Conflicts may occur if the commit depends on later changes"
+  echo ""
+  gtd_print_divider "━" 70 "$YELLOW"
+  echo ""
+}
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+# Show command preview before execution
+show_command_preview() {
+  local cmd="$1"
+  local explanation="$2"
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📋 Command Preview${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  if [[ -n "$explanation" ]]; then
+    echo -e "${YELLOW}💡 ${explanation}${NC}"
+    echo ""
+  fi
+  echo -e "${BOLD}Command to execute:${NC}"
+  echo -e "${GREEN}${cmd}${NC}"
+  echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+}
+
+# Confirm before executing command
+confirm_execution() {
+  local cmd="$1"
+  
+  echo -e "${YELLOW}Execute this command? (y/n):${NC} "
+  read -r confirm
+  
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    return 0
+  else
+    echo -e "${GRAY}Cancelled.${NC}"
+    return 1
+  fi
+}
+
+# Get recent commits for selection
+get_recent_commits() {
+  local count="${1:-10}"
+  git log --oneline -n "$count" 2>/dev/null
+}
+
+# Get branches for selection
+get_branches() {
+  git branch -a 2>/dev/null | sed 's/^[* ] //' | sed 's/^remotes\///'
+}
+
+# Select a commit from recent commits
+select_commit() {
+  local prompt="${1:-Select a commit:}"
+  local count="${2:-10}"
+  
+  echo ""
+  echo -e "${BOLD}${prompt}${NC}"
+  echo ""
+  
+  local commits=()
+  local commit_shas=()
+  local i=1
+  
+  while IFS= read -r line; do
+    if [[ -n "$line" ]]; then
+      local sha=$(echo "$line" | cut -d' ' -f1)
+      local msg=$(echo "$line" | cut -d' ' -f2-)
+      commits+=("$msg")
+      commit_shas+=("$sha")
+      echo -e "  ${GREEN}${i})${NC} ${sha:0:8} - ${msg}"
+      ((i++))
+    fi
+  done < <(get_recent_commits "$count")
+  
+  if [[ ${#commits[@]} -eq 0 ]]; then
+    echo -e "${RED}No commits found.${NC}"
+    return 1
+  fi
+  
+  echo ""
+  echo -e "${YELLOW}Or enter a commit SHA directly:${NC}"
+  echo -n "Select (number or SHA): "
+  read -r selection
+  
+  if [[ -z "$selection" ]]; then
+    return 1
+  fi
+  
+  # Check if it's a number
+  if [[ "$selection" =~ ^[0-9]+$ ]]; then
+    local idx=$((selection - 1))
+    if [[ $idx -ge 0 && $idx -lt ${#commit_shas[@]} ]]; then
+      echo "${commit_shas[$idx]}"
+      return 0
+    else
+      echo -e "${RED}Invalid number.${NC}" >&2
+      return 1
+    fi
+  else
+    # Assume it's a SHA - validate it exists
+    if git cat-file -e "$selection^{commit}" 2>/dev/null; then
+      echo "$selection"
+      return 0
+    else
+      echo -e "${RED}Invalid commit SHA.${NC}" >&2
+      return 1
+    fi
+  fi
+}
+
+# Select a branch
+select_branch() {
+  local prompt="${1:-Select a branch:}"
+  
+  echo ""
+  echo -e "${BOLD}${prompt}${NC}"
+  echo ""
+  
+  local branches=()
+  local i=1
+  
+  while IFS= read -r branch; do
+    if [[ -n "$branch" ]]; then
+      branches+=("$branch")
+      echo -e "  ${GREEN}${i})${NC} ${branch}"
+      ((i++))
+    fi
+  done < <(get_branches | head -20)
+  
+  if [[ ${#branches[@]} -eq 0 ]]; then
+    echo -e "${RED}No branches found.${NC}"
+    return 1
+  fi
+  
+  echo ""
+  echo -e "${YELLOW}Or enter a branch name directly:${NC}"
+  echo -n "Select (number or name): "
+  read -r selection
+  
+  if [[ -z "$selection" ]]; then
+    return 1
+  fi
+  
+  # Check if it's a number
+  if [[ "$selection" =~ ^[0-9]+$ ]]; then
+    local idx=$((selection - 1))
+    if [[ $idx -ge 0 && $idx -lt ${#branches[@]} ]]; then
+      echo "${branches[$idx]}"
+      return 0
+    else
+      echo -e "${RED}Invalid number.${NC}" >&2
+      return 1
+    fi
+  else
+    # Assume it's a branch name - validate it exists
+    if git show-ref --verify --quiet "refs/heads/$selection" 2>/dev/null || \
+       git show-ref --verify --quiet "refs/remotes/$selection" 2>/dev/null; then
+      echo "$selection"
+      return 0
+    else
+      echo -e "${RED}Invalid branch name.${NC}" >&2
+      return 1
+    fi
+  fi
+}
+
+# ============================================================================
+# Git Command Wizards
+# ============================================================================
+
+# Cherry-pick wizard
+cherry_pick_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🍒 Git Cherry-Pick Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  show_cherry_pick_guide
+  
+  # Select commit
+  local commit_sha=$(select_commit "Which commit do you want to cherry-pick?" 15)
+  if [[ -z "$commit_sha" ]]; then
+    echo ""
+    echo "Press Enter to return to menu..."
+    read
+    return
+  fi
+  
+  # Show commit details
+  echo ""
+  echo -e "${BOLD}Commit details:${NC}"
+  git show --stat "$commit_sha" | head -20
+  echo ""
+  
+  # Ask about options
+  local options=()
+  local explanation=""
+  
+  echo -e "${BOLD}Cherry-pick options:${NC}"
+  echo ""
+  echo "  1) Standard cherry-pick (no options)"
+  echo "  2) Edit commit message (-e)"
+  echo "  3) Mainline parent for merge commits (-m 1)"
+  echo "  4) Add original commit reference (-x)"
+  echo "  5) No commit, just stage changes (--no-commit)"
+  echo "  6) Custom options"
+  echo ""
+  echo -n "Choose option (1-6): "
+  read -r option_choice
+  
+  case "$option_choice" in
+    1)
+      options=()
+      explanation="Standard cherry-pick - applies the commit as-is"
+      ;;
+    2)
+      options=("-e")
+      explanation="Cherry-pick with edit - allows you to modify the commit message"
+      ;;
+    3)
+      options=("-m" "1")
+      explanation="Cherry-pick merge commit using first parent - use when cherry-picking a merge commit"
+      ;;
+    4)
+      options=("-x")
+      explanation="Cherry-pick with reference - adds 'cherry picked from commit...' to the message"
+      ;;
+    5)
+      options=("--no-commit")
+      explanation="Cherry-pick without committing - stages changes but doesn't create a commit"
+      ;;
+    6)
+      echo ""
+      echo -e "${YELLOW}Enter custom options (space-separated, e.g., '-e -x'):${NC}"
+      read -r custom_options
+      if [[ -n "$custom_options" ]]; then
+        read -a options <<< "$custom_options"
+      fi
+      explanation="Custom cherry-pick with your specified options"
+      ;;
+    *)
+      options=()
+      explanation="Standard cherry-pick"
+      ;;
+  esac
+  
+  # Build command
+  local cmd="git cherry-pick"
+  for opt in "${options[@]}"; do
+    cmd="$cmd $opt"
+  done
+  cmd="$cmd $commit_sha"
+  
+  # Show preview
+  show_command_preview "$cmd" "$explanation"
+  
+  # Confirm and execute
+  if confirm_execution "$cmd"; then
+    echo ""
+    echo -e "${GREEN}Executing...${NC}"
+    echo ""
+    git cherry-pick "${options[@]}" "$commit_sha"
+    local exit_code=$?
+    echo ""
+    if [[ $exit_code -eq 0 ]]; then
+      echo -e "${GREEN}✓ Cherry-pick completed successfully!${NC}"
+    else
+      echo -e "${RED}✗ Cherry-pick encountered issues.${NC}"
+      echo -e "${YELLOW}You may need to resolve conflicts manually.${NC}"
+    fi
+  fi
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Rebase wizard
+rebase_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔄 Git Rebase Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  show_rebase_guide
+  
+  # Select base branch/commit
+  local base=$(select_branch "Which branch/commit should be the new base?")
+  if [[ -z "$base" ]]; then
+    echo ""
+    echo "Press Enter to return to menu..."
+    read
+    return
+  fi
+  
+  # Ask about options
+  local options=()
+  local explanation=""
+  
+  echo ""
+  echo -e "${BOLD}Rebase options:${NC}"
+  echo ""
+  echo "  1) Standard rebase"
+  echo "  2) Interactive rebase (-i)"
+  echo "  3) Rebase onto specific commit (--onto)"
+  echo "  4) Continue rebase (--continue)"
+  echo "  5) Abort rebase (--abort)"
+  echo ""
+  echo -n "Choose option (1-5): "
+  read -r option_choice
+  
+  case "$option_choice" in
+    1)
+      options=()
+      explanation="Standard rebase - replays your commits on top of the base"
+      ;;
+    2)
+      options=("-i")
+      explanation="Interactive rebase - allows you to edit, reorder, or squash commits"
+      ;;
+    3)
+      echo ""
+      echo -e "${YELLOW}Enter the commit to rebase onto:${NC}"
+      local onto_commit=$(select_commit "Select commit to rebase onto:" 10)
+      if [[ -n "$onto_commit" ]]; then
+        options=("--onto" "$onto_commit")
+        explanation="Rebase onto specific commit"
+      else
+        options=()
+        explanation="Standard rebase"
+      fi
+      ;;
+    4)
+      options=("--continue")
+      explanation="Continue rebase after resolving conflicts"
+      base=""
+      ;;
+    5)
+      options=("--abort")
+      explanation="Abort rebase and return to original state"
+      base=""
+      ;;
+    *)
+      options=()
+      explanation="Standard rebase"
+      ;;
+  esac
+  
+  # Build command
+  local cmd="git rebase"
+  for opt in "${options[@]}"; do
+    cmd="$cmd $opt"
+  done
+  if [[ -n "$base" ]]; then
+    cmd="$cmd $base"
+  fi
+  
+  # Show preview
+  show_command_preview "$cmd" "$explanation"
+  
+  # Confirm and execute
+  if confirm_execution "$cmd"; then
+    echo ""
+    echo -e "${GREEN}Executing...${NC}"
+    echo ""
+    if [[ -n "$base" ]]; then
+      git rebase "${options[@]}" "$base"
+    else
+      git rebase "${options[@]}"
+    fi
+    local exit_code=$?
+    echo ""
+    if [[ $exit_code -eq 0 ]]; then
+      echo -e "${GREEN}✓ Rebase completed successfully!${NC}"
+    else
+      echo -e "${YELLOW}⚠ Rebase may have conflicts or is in progress.${NC}"
+      echo -e "${YELLOW}Resolve conflicts and use 'git rebase --continue'${NC}"
+    fi
+  fi
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Reset wizard
+reset_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}↩️  Git Reset Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  show_reset_guide
+  
+  # Select commit
+  local commit=$(select_commit "Which commit should HEAD point to? (or HEAD~N for relative)" 10)
+  if [[ -z "$commit" ]]; then
+    echo ""
+    echo -e "${YELLOW}Or enter relative reference (e.g., HEAD~1, HEAD~3):${NC}"
+    read -r commit
+  fi
+  
+  if [[ -z "$commit" ]]; then
+    echo ""
+    echo "Press Enter to return to menu..."
+    read
+    return
+  fi
+  
+  # Ask about reset mode
+  echo ""
+  echo -e "${BOLD}Reset mode:${NC}"
+  echo ""
+  echo "  1) --soft  - Move HEAD, keep changes staged"
+  echo "  2) --mixed - Move HEAD, unstage changes (default)"
+  echo "  3) --hard  - Move HEAD, discard all changes ⚠️"
+  echo ""
+  echo -e "${RED}⚠️  --hard will permanently discard uncommitted changes!${NC}"
+  echo ""
+  echo -n "Choose mode (1-3): "
+  read -r mode_choice
+  
+  local mode=""
+  local explanation=""
+  
+  case "$mode_choice" in
+    1)
+      mode="--soft"
+      explanation="Soft reset - moves HEAD but keeps changes staged"
+      ;;
+    2|"")
+      mode="--mixed"
+      explanation="Mixed reset - moves HEAD and unstages changes (keeps in working directory)"
+      ;;
+    3)
+      mode="--hard"
+      explanation="Hard reset - moves HEAD and discards all changes"
+      echo ""
+      echo -e "${RED}⚠️  WARNING: This will discard all uncommitted changes!${NC}"
+      echo -e "${YELLOW}Are you absolutely sure? (type 'yes' to confirm):${NC} "
+      read -r hard_confirm
+      if [[ "$hard_confirm" != "yes" ]]; then
+        echo -e "${GRAY}Cancelled.${NC}"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return
+      fi
+      ;;
+    *)
+      mode="--mixed"
+      explanation="Mixed reset (default)"
+      ;;
+  esac
+  
+  # Build command
+  local cmd="git reset $mode $commit"
+  
+  # Show preview
+  show_command_preview "$cmd" "$explanation"
+  
+  # Confirm and execute
+  if confirm_execution "$cmd"; then
+    echo ""
+    echo -e "${GREEN}Executing...${NC}"
+    echo ""
+    git reset $mode "$commit"
+    local exit_code=$?
+    echo ""
+    if [[ $exit_code -eq 0 ]]; then
+      echo -e "${GREEN}✓ Reset completed successfully!${NC}"
+    else
+      echo -e "${RED}✗ Reset failed.${NC}"
+    fi
+  fi
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Merge wizard
+merge_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔀 Git Merge Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  show_merge_guide
+  
+  # Select branch to merge
+  local branch=$(select_branch "Which branch do you want to merge into current branch?")
+  if [[ -z "$branch" ]]; then
+    echo ""
+    echo "Press Enter to return to menu..."
+    read
+    return
+  fi
+  
+  # Ask about options
+  local options=()
+  local explanation=""
+  
+  echo ""
+  echo -e "${BOLD}Merge options:${NC}"
+  echo ""
+  echo "  1) Standard merge (creates merge commit)"
+  echo "  2) Fast-forward only (--ff-only)"
+  echo "  3) No fast-forward (--no-ff)"
+  echo "  4) Squash merge (--squash)"
+  echo "  5) Custom strategy"
+  echo ""
+  echo -n "Choose option (1-5): "
+  read -r option_choice
+  
+  case "$option_choice" in
+    1)
+      options=()
+      explanation="Standard merge - creates a merge commit if needed"
+      ;;
+    2)
+      options=("--ff-only")
+      explanation="Fast-forward only - fails if fast-forward is not possible"
+      ;;
+    3)
+      options=("--no-ff")
+      explanation="No fast-forward - always creates a merge commit"
+      ;;
+    4)
+      options=("--squash")
+      explanation="Squash merge - combines all commits into one new commit"
+      ;;
+    5)
+      echo ""
+      echo -e "${YELLOW}Enter merge strategy (e.g., 'ours', 'theirs', 'recursive'):${NC}"
+      read -r strategy
+      if [[ -n "$strategy" ]]; then
+        options=("-s" "$strategy")
+        explanation="Merge with custom strategy: $strategy"
+      else
+        options=()
+        explanation="Standard merge"
+      fi
+      ;;
+    *)
+      options=()
+      explanation="Standard merge"
+      ;;
+  esac
+  
+  # Build command
+  local cmd="git merge"
+  for opt in "${options[@]}"; do
+    cmd="$cmd $opt"
+  done
+  cmd="$cmd $branch"
+  
+  # Show preview
+  show_command_preview "$cmd" "$explanation"
+  
+  # Confirm and execute
+  if confirm_execution "$cmd"; then
+    echo ""
+    echo -e "${GREEN}Executing...${NC}"
+    echo ""
+    git merge "${options[@]}" "$branch"
+    local exit_code=$?
+    echo ""
+    if [[ $exit_code -eq 0 ]]; then
+      echo -e "${GREEN}✓ Merge completed successfully!${NC}"
+    else
+      echo -e "${YELLOW}⚠ Merge has conflicts. Resolve them and commit.${NC}"
+    fi
+  fi
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# Revert wizard
+revert_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}↪️  Git Revert Wizard${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  show_revert_guide
+  
+  # Select commit to revert
+  local commit=$(select_commit "Which commit do you want to revert?" 15)
+  if [[ -z "$commit" ]]; then
+    echo ""
+    echo "Press Enter to return to menu..."
+    read
+    return
+  fi
+  
+  # Show commit details
+  echo ""
+  echo -e "${BOLD}Commit to revert:${NC}"
+  git show --stat "$commit" | head -20
+  echo ""
+  
+  # Ask about options
+  local options=()
+  local explanation=""
+  
+  echo -e "${BOLD}Revert options:${NC}"
+  echo ""
+  echo "  1) Standard revert (creates commit)"
+  echo "  2) Edit commit message (-e)"
+  echo "  3) No commit, just stage changes (--no-commit)"
+  echo ""
+  echo -n "Choose option (1-3): "
+  read -r option_choice
+  
+  case "$option_choice" in
+    1)
+      options=()
+      explanation="Standard revert - creates a new commit that undoes the changes"
+      ;;
+    2)
+      options=("-e")
+      explanation="Revert with edit - allows you to modify the revert commit message"
+      ;;
+    3)
+      options=("--no-commit")
+      explanation="Revert without committing - stages the revert changes"
+      ;;
+    *)
+      options=()
+      explanation="Standard revert"
+      ;;
+  esac
+  
+  # Build command
+  local cmd="git revert"
+  for opt in "${options[@]}"; do
+    cmd="$cmd $opt"
+  done
+  cmd="$cmd $commit"
+  
+  # Show preview
+  show_command_preview "$cmd" "$explanation"
+  
+  # Confirm and execute
+  if confirm_execution "$cmd"; then
+    echo ""
+    echo -e "${GREEN}Executing...${NC}"
+    echo ""
+    git revert "${options[@]}" "$commit"
+    local exit_code=$?
+    echo ""
+    if [[ $exit_code -eq 0 ]]; then
+      echo -e "${GREEN}✓ Revert completed successfully!${NC}"
+    else
+      echo -e "${YELLOW}⚠ Revert has conflicts. Resolve them and commit.${NC}"
+    fi
+  fi
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
+}
+
+# ============================================================================
+# Main Menu
+# ============================================================================
+
+main_menu() {
+  while true; do
+    clear
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}🔧 Git Wizard - Advanced Git Commands Helper${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    
+    # Show current branch and status
+    local current_branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+    local branch_status=$(git status --short 2>/dev/null | head -5)
+    
+    echo -e "${BOLD}Current branch:${NC} ${GREEN}${current_branch}${NC}"
+    if [[ -n "$branch_status" ]]; then
+      echo -e "${BOLD}Status:${NC}"
+      echo "$branch_status" | sed 's/^/  /'
+    else
+      echo -e "${BOLD}Status:${NC} ${GREEN}Clean${NC}"
+    fi
+    echo ""
+    
+    echo -e "${BOLD}Available commands:${NC}"
+    echo ""
+    echo "  1) 🍒 Cherry-pick - Apply a specific commit"
+    echo "  2) 🔄 Rebase - Replay commits on a new base"
+    echo "  3) ↩️  Reset - Move HEAD to a different commit"
+    echo "  4) 🔀 Merge - Combine branches"
+    echo "  5) ↪️  Revert - Undo a commit safely"
+    echo ""
+    echo -e "${YELLOW}  0) Exit${NC}"
+    echo ""
+    echo -n "Choose command (0-5): "
+    read -r choice
+    
+    case "$choice" in
+      1)
+        cherry_pick_wizard
+        ;;
+      2)
+        rebase_wizard
+        ;;
+      3)
+        reset_wizard
+        ;;
+      4)
+        merge_wizard
+        ;;
+      5)
+        revert_wizard
+        ;;
+      0|"q"|"quit"|"exit")
+        echo ""
+        echo "Goodbye! 👋"
+        exit 0
+        ;;
+      *)
+        echo ""
+        echo -e "${RED}Invalid choice.${NC}"
+        echo "Press Enter to continue..."
+        read
+        ;;
+    esac
+  done
+}
+
+# ============================================================================
+# Script Entry Point
+# ============================================================================
+
+# Check if we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+  echo -e "${RED}Error: Not in a git repository.${NC}"
+  echo "Please run this script from within a git repository."
+  exit 1
+fi
+
+# Run main menu
+main_menu
+

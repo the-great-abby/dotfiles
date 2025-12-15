@@ -89,7 +89,8 @@ while true; do
     echo -e "${GREEN}Starting port-forward (attempt $((RETRY_COUNT + 1)))...${NC}"
     
     # Start port-forward in background and capture PID
-    kubectl port-forward -n rabbitmq-system svc/rabbitmq 5672:5672 15672:15672 15692:15692 > /tmp/rabbitmq-pf.log 2>&1 &
+    # Bind to 0.0.0.0 instead of 127.0.0.1 to avoid "connection reset by peer" issues in Rancher Desktop
+    kubectl port-forward -n rabbitmq-system --address 0.0.0.0 svc/rabbitmq 5672:5672 15672:15672 15692:15692 > /tmp/rabbitmq-pf.log 2>&1 &
     PF_PID=$!
     
     # Wait a moment and verify connection

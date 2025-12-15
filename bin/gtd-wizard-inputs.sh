@@ -120,7 +120,7 @@ oncall_capture_wizard() {
         
         # Create a task to track shift completion
         if command -v gtd-task &>/dev/null; then
-          gtd-task add "Complete oncall shift handoff" --area="Work & Career" --tags="oncall,shift-end" 2>/dev/null || true
+          gtd-task add "Complete oncall shift handoff #oncall #shift-end" --non-interactive --context=computer --energy=medium --priority=not_urgent_important 2>/dev/null || true
         fi
         
         echo ""
@@ -251,7 +251,7 @@ oncall_capture_wizard() {
         # Create post-mortem task if P0 or P1
         if [[ "$severity" == "P0" ]] || [[ "$severity" == "P1" ]]; then
           if command -v gtd-task &>/dev/null; then
-            gtd-task add "Post-mortem: $incident_title" --area="Work & Career" --tags="oncall,post-mortem,$severity" 2>/dev/null || true
+            gtd-task add "Post-mortem: $incident_title #oncall #post-mortem #$severity" --non-interactive --context=computer --energy=high --priority=urgent_important 2>/dev/null || true
             echo ""
             echo -e "${YELLOW}📝 Post-mortem task created (P0/P1 incidents require post-mortems)${NC}"
           fi
@@ -289,7 +289,7 @@ oncall_capture_wizard() {
           1|3)
             # Create task
             if command -v gtd-task &>/dev/null; then
-              gtd-task add "Post-mortem: $pm_title" --area="Work & Career" --tags="oncall,post-mortem" 2>/dev/null || true
+              gtd-task add "Post-mortem: $pm_title #oncall #post-mortem" --non-interactive --context=computer --energy=high --priority=urgent_important 2>/dev/null || true
               echo -e "${GREEN}✓ Post-mortem task created${NC}"
             else
               gtd-capture --type=task "Post-mortem: $pm_title #oncall #post-mortem"
@@ -338,11 +338,12 @@ oncall_capture_wizard() {
           runbook_content="$runbook_content - $update_details"
         fi
         
-        # Create task
+        # Create task (non-interactive to avoid delays)
         if command -v gtd-task &>/dev/null; then
-          gtd-task add "$runbook_content" --area="Work & Career" --tags="oncall,runbook,documentation" 2>/dev/null || true
+          gtd-task add "$runbook_content" --non-interactive --context=computer --energy=medium --priority=not_urgent_important 2>/dev/null || true
           echo ""
           echo -e "${GREEN}✓ Runbook update task created${NC}"
+          echo -e "${GRAY}  (Area: Work & Career, Tags: oncall,runbook,documentation)${NC}"
         else
           gtd-capture --type=task "$runbook_content #oncall #runbook #documentation"
           echo ""
@@ -399,7 +400,7 @@ oncall_capture_wizard() {
         
         # Create task
         if command -v gtd-task &>/dev/null; then
-          gtd-task add "$alert_content" --area="Work & Career" --tags="oncall,alert-tuning,monitoring" 2>/dev/null || true
+          gtd-task add "$alert_content #oncall #alert-tuning #monitoring" --non-interactive --context=computer --energy=medium --priority=not_urgent_important 2>/dev/null || true
           echo ""
           echo -e "${GREEN}✓ Alert tuning task created${NC}"
         else
@@ -426,7 +427,7 @@ oncall_capture_wizard() {
         
         # Create task with oncall tag
         if command -v gtd-task &>/dev/null; then
-          gtd-task add "$task_content" --area="Work & Career" --tags="oncall" 2>/dev/null || true
+          gtd-task add "$task_content #oncall" --non-interactive --context=computer --energy=medium --priority=not_urgent_important 2>/dev/null || true
           echo ""
           echo -e "${GREEN}✓ Oncall task created${NC}"
         else
@@ -1207,10 +1208,37 @@ checkin_wizard() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   show_checkin_guide
+  
+  # Check for pending review analysis results
+  RESULTS_DIR="${HOME}/Documents/gtd/deep_analysis_results"
+  local morning_results=0
+  local evening_results=0
+  
+  if [[ -d "$RESULTS_DIR" ]]; then
+    morning_results=$(find "$RESULTS_DIR" -name "morning_review_*.json" -type f -mtime -1 2>/dev/null | wc -l | tr -d ' ')
+    evening_results=$(find "$RESULTS_DIR" -name "evening_review_*.json" -type f -mtime -1 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  if [[ "$morning_results" -gt 0 ]] || [[ "$evening_results" -gt 0 ]]; then
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}💡 Review Analysis Status${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    if [[ "$morning_results" -gt 0 ]]; then
+      echo -e "${GREEN}  ✓ $morning_results morning review result(s) available${NC}"
+    fi
+    if [[ "$evening_results" -gt 0 ]]; then
+      echo -e "${GREEN}  ✓ $evening_results evening review result(s) available${NC}"
+    fi
+    echo ""
+  fi
+  
   echo "What type of check-in?"
   echo ""
   echo "  1) 🌅 Morning Check-In"
   echo "  2) 🌙 Evening Check-In"
+  if [[ "$morning_results" -gt 0 ]] || [[ "$evening_results" -gt 0 ]]; then
+    echo "  3) 📋 Review Background Analysis Results"
+  fi
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -1223,6 +1251,165 @@ checkin_wizard() {
       ;;
     2)
       gtd-checkin evening
+      ;;
+    3)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📋 Review Background Analysis Results${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      RESULTS_DIR="${HOME}/Documents/gtd/deep_analysis_results"
+      if [[ ! -d "$RESULTS_DIR" ]]; then
+        echo "No analysis results directory found."
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 0
+      fi
+      
+      # Find morning and evening review results
+      local morning_results=()
+      local evening_results=()
+      
+      while IFS= read -r result_file; do
+        [[ -f "$result_file" ]] && morning_results+=("$result_file")
+      done < <(find "$RESULTS_DIR" -name "morning_review_*.json" -type f -exec ls -t {} + 2>/dev/null | head -10)
+      
+      while IFS= read -r result_file; do
+        [[ -f "$result_file" ]] && evening_results+=("$result_file")
+      done < <(find "$RESULTS_DIR" -name "evening_review_*.json" -type f -exec ls -t {} + 2>/dev/null | head -10)
+      
+      if [[ ${#morning_results[@]} -eq 0 ]] && [[ ${#evening_results[@]} -eq 0 ]]; then
+        echo "No morning or evening review results found."
+        echo ""
+        echo "Results are stored in: $RESULTS_DIR"
+        echo ""
+        echo "💡 Tip: Analysis is automatically queued when you complete a check-in!"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 0
+      fi
+      
+      # Display results
+      echo "Available review analysis results:"
+      echo ""
+      
+      local all_results=()
+      local i=1
+      
+      # Add morning results
+      for result_file in "${morning_results[@]}"; do
+        local result_id=$(basename "$result_file" .json)
+        local timestamp=$(echo "$result_id" | grep -oE '[0-9]{8}_[0-9]{6}' || echo "")
+        local date_display="${timestamp:0:4}-${timestamp:4:2}-${timestamp:6:2} ${timestamp:9:2}:${timestamp:11:2}:${timestamp:13:2}"
+        echo -e "  ${i}) [${CYAN}Morning${NC}] ${date_display}"
+        all_results+=("$result_file")
+        i=$((i + 1))
+      done
+      
+      # Add evening results
+      for result_file in "${evening_results[@]}"; do
+        local result_id=$(basename "$result_file" .json)
+        local timestamp=$(echo "$result_id" | grep -oE '[0-9]{8}_[0-9]{6}' || echo "")
+        local date_display="${timestamp:0:4}-${timestamp:4:2}-${timestamp:6:2} ${timestamp:9:2}:${timestamp:11:2}:${timestamp:13:2}"
+        echo -e "  ${i}) [${MAGENTA}Evening${NC}] ${date_display}"
+        all_results+=("$result_file")
+        i=$((i + 1))
+      done
+      
+      echo ""
+      echo -n "Select result to view (number) or 0 to go back: "
+      read selection
+      
+      if [[ "$selection" == "0" ]] || [[ -z "$selection" ]]; then
+        return 0
+      fi
+      
+      # Validate selection
+      if ! [[ "$selection" =~ ^[0-9]+$ ]] || [[ "$selection" -lt 1 ]] || [[ "$selection" -gt ${#all_results[@]} ]]; then
+        echo "Invalid selection"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 0
+      fi
+      
+      # Get selected result
+      local selected_file="${all_results[$((selection - 1))]}"
+      local result_type="Morning"
+      [[ "$selected_file" =~ evening_review ]] && result_type="Evening"
+      
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📋 ${result_type} Review Analysis${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Display result using Python to parse JSON
+      python3 <<PYTHON_EOF
+import json
+import sys
+
+try:
+    with open("$selected_file", "r") as f:
+        result = json.load(f)
+    
+    # Display key fields
+    if "timestamp" in result:
+        print(f"Timestamp: {result['timestamp']}")
+    print("")
+    
+    # Display analysis content
+    if "analysis" in result:
+        print("Analysis:")
+        print(result["analysis"])
+        print("")
+    elif "insights" in result:
+        print("Insights:")
+        if isinstance(result["insights"], list):
+            for insight in result["insights"]:
+                print(f"  • {insight}")
+        else:
+            print(result["insights"])
+        print("")
+    elif "summary" in result:
+        print("Summary:")
+        print(result["summary"])
+        print("")
+    elif "error" in result:
+        print(f"Error: {result['error']}")
+        print("")
+    else:
+        # Display full JSON if structure is unknown
+        print(json.dumps(result, indent=2))
+    
+    # Display suggestions if present
+    if "suggestions" in result and result["suggestions"]:
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("")
+        print("Suggestions:")
+        if isinstance(result["suggestions"], list):
+            for suggestion in result["suggestions"]:
+                if isinstance(suggestion, dict):
+                    print(f"  • {suggestion.get('title', suggestion.get('text', str(suggestion)))}")
+                else:
+                    print(f"  • {suggestion}")
+        else:
+            print(result["suggestions"])
+        print("")
+        
+except Exception as e:
+    print(f"Error reading result file: {e}")
+PYTHON_EOF
+      
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
     0|"")
       return 0

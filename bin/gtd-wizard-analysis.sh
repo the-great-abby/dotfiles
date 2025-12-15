@@ -63,6 +63,7 @@ status_wizard() {
   echo "  5) 🚀 Kubernetes Deployment Status"
   echo "  6) 📋 View Kubernetes Pod Logs (Debug)"
   echo "  7) 📝 View LM Studio Request Logs (Debug)"
+  echo "  8) 🔍 Vector Database Status & Inspection"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -191,7 +192,7 @@ status_wizard() {
       # Deep Analysis Worker
       echo -e "${CYAN}Deep Analysis Worker:${NC}"
       if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
-        pid=$(pgrep -f "gtd_deep_analysis_worker.py")
+        pid=$(pgrep -f "gtd_deep_analysis_worker.py" | head -1)
         echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
         DEEP_WORKER_RUNNING=true
       else
@@ -203,7 +204,7 @@ status_wizard() {
       # Vectorization Worker
       echo -e "${CYAN}Vectorization Worker:${NC}"
       if pgrep -f "gtd_vector_worker.py" >/dev/null; then
-        pid=$(pgrep -f "gtd_vector_worker.py")
+        pid=$(pgrep -f "gtd_vector_worker.py" | head -1)
         echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
         VECTOR_WORKER_RUNNING=true
       else
@@ -212,9 +213,35 @@ status_wizard() {
       fi
       echo ""
       
+      # Advice Worker
+      echo -e "${CYAN}Advice Worker:${NC}"
+      if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
+        if pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
+          pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1)
+        else
+          pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
+        fi
+        echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+        ADVICE_WORKER_RUNNING=true
+      else
+        echo -e "  ${CYAN}ℹ️  Not running${NC}"
+        ADVICE_WORKER_RUNNING=false
+      fi
+      echo ""
+      
       # Show RabbitMQ Queue Status inline
       echo -e "${BOLD}RabbitMQ Queue Status:${NC}"
-      if nc -zv localhost 5672 &>/dev/null 2>&1; then
+      # Check NodePort first (preferred), then fallback to port-forward
+      RABBITMQ_AVAILABLE=false
+      if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
+        RABBITMQ_AVAILABLE=true
+        RABBITMQ_METHOD="NodePort"
+      elif nc -zv localhost 5672 &>/dev/null 2>&1; then
+        RABBITMQ_AVAILABLE=true
+        RABBITMQ_METHOD="port-forward"
+      fi
+      
+      if [[ "$RABBITMQ_AVAILABLE" == "true" ]]; then
         if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
           # Call status script and show key info
           QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
@@ -222,25 +249,78 @@ status_wizard() {
             # Extract queue info
             echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
             echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
+            echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6
           else
-            echo "  ⚠️  Connection issue - check port-forward"
+            echo "  ⚠️  Connection issue - check RabbitMQ connection"
           fi
         else
           echo -e "  ${CYAN}ℹ️  Status script not available${NC}"
         fi
       else
-        echo -e "  ${YELLOW}⚠️  Port-forward not active (port 5672 not accessible)${NC}"
-        echo "  Start port-forward: gtd-wizard → 9) Setup RabbitMQ → 2) Start Port-Forward"
+        echo -e "  ${YELLOW}⚠️  RabbitMQ not accessible${NC}"
+        echo ""
+        echo "  RabbitMQ should be accessible via:"
+        echo "    - NodePort: 192.168.64.2:30672 (preferred, no port-forward needed)"
+        echo "    - Port-forward: localhost:5672 (legacy)"
+        echo ""
+        echo "  Check connection info:"
+        echo "    cd ~/code/external_services/rabbitmq && make connection-info"
+        echo ""
+        echo "  Note: Port-forward is no longer required with NodePort setup"
+        if [[ -f "$HOME/code/dotfiles/bin/setup-port-forward" ]]; then
+          # Run setup-port-forward and capture output and exit code separately
+          # Use a temp file to capture full output while still showing progress
+          TEMP_OUTPUT=$(mktemp)
+          "$HOME/code/dotfiles/bin/setup-port-forward" 5672 > "$TEMP_OUTPUT" 2>&1
+          SETUP_EXIT_CODE=$?
+          
+          # Show output (limit to 20 lines for display)
+          head -20 "$TEMP_OUTPUT"
+          echo ""
+          
+          # Check exit code - if script reports success, trust it (it does comprehensive verification)
+          if [[ "$SETUP_EXIT_CODE" -eq 0 ]]; then
+            # Setup script already verified port-forward is working, so trust it
+            echo -e "${GREEN}✅ Port-forward successfully established${NC}"
+            # Show queue status if available
+            if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+              sleep 1  # Brief pause for port-forward to be fully ready
+              QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
+              if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
+                echo ""
+                echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
+                echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
+                echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6
+              else
+                echo ""
+                echo -e "${CYAN}Note:${NC} Port-forward is active. RabbitMQ connection will be ready shortly."
+              fi
+            fi
+          else
+            echo -e "${YELLOW}⚠️  Automatic port-forward setup failed (exit code: $SETUP_EXIT_CODE)${NC}"
+            echo "  Start manually: gtd-wizard → 9) Setup RabbitMQ → 2) Start Port-Forward"
+            echo ""
+            echo "  Last 20 lines of output:"
+            tail -20 "$TEMP_OUTPUT"
+          fi
+          
+          rm -f "$TEMP_OUTPUT"
+        else
+          echo "  Port-forward setup script not found"
+          echo "  Start manually: gtd-wizard → 9) Setup RabbitMQ → 2) Start Port-Forward"
+        fi
       fi
       echo ""
       
       echo "What would you like to do?"
       echo "  1) Manage Deep Analysis Worker"
       echo "  2) Manage Vectorization Worker"
-      echo "  3) Start All Workers"
-      echo "  4) Stop All Workers"
-      echo "  5) View RabbitMQ Queue Status"
-      echo "  6) Restart All Workers (Reconnect to RabbitMQ)"
+      echo "  3) Manage Advice Worker"
+      echo "  4) Start All Workers"
+      echo "  5) Stop All Workers"
+      echo "  6) View RabbitMQ Queue Status"
+      echo "  7) Restart All Workers (Reconnect to RabbitMQ)"
+      echo "  8) 📦 Migrate File Queue to RabbitMQ"
       echo "  0) Back"
       echo ""
       echo -n "Choose: "
@@ -255,28 +335,60 @@ status_wizard() {
           manage_worker "gtd_vector_worker.py" "Vectorization"
           ;;
         3)
+          # Manage Advice Worker
+          manage_advice_worker
+          ;;
+        4)
           # Start all workers
           echo ""
           echo "Starting all workers..."
           make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
           make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
-          echo ""
-          echo "Press Enter to continue..."
-          read
-          ;;
-        4)
-          # Stop all workers
-          echo ""
-          echo "Stopping all workers..."
-          make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
-          make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+          make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
           echo ""
           echo "Press Enter to continue..."
           read
           ;;
         5)
+          # Stop all workers
+          echo ""
+          echo "Stopping all workers..."
+          make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
+          make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+          make -C "$HOME/code/dotfiles" advice-worker-stop 2>/dev/null || true
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        6)
           # View RabbitMQ Queue Status
           echo ""
+          # Check NodePort first (preferred), then fallback to port-forward
+          RABBITMQ_AVAILABLE=false
+          if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
+            RABBITMQ_AVAILABLE=true
+            echo -e "${GREEN}✓ RabbitMQ NodePort accessible (192.168.64.2:30672)${NC}"
+          elif nc -zv localhost 5672 &>/dev/null 2>&1; then
+            RABBITMQ_AVAILABLE=true
+            echo -e "${GREEN}✓ RabbitMQ port-forward accessible (localhost:5672)${NC}"
+          else
+            echo -e "${YELLOW}⚠️  RabbitMQ not accessible${NC}"
+            echo ""
+            echo "  RabbitMQ should be accessible via:"
+            echo "    - NodePort: 192.168.64.2:30672 (preferred, no port-forward needed)"
+            echo "    - Port-forward: localhost:5672 (legacy)"
+            echo ""
+            echo "  Check connection info:"
+            echo "    cd ~/code/external_services/rabbitmq && make connection-info"
+            echo ""
+            echo "  Note: Port-forward is no longer required with NodePort setup"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+            return 0
+          fi
+          
+          # Now try to get queue status
           if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
             "$HOME/code/dotfiles/bin/gtd-rabbitmq-status"
           else
@@ -319,28 +431,343 @@ status_wizard() {
           echo "Press Enter to continue..."
           read
           ;;
+        7)
+          # Migrate file queue to RabbitMQ
+          echo ""
+          if [[ -f "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
+            "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq"
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
+            "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq"
+          else
+            echo -e "${RED}❌ Migration script not found${NC}"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
         0)
           return 0
           ;;
       esac
       ;;
+    4)
+      clear
+      # Full System Status - run status script if available
+      STATUS_SCRIPT="$HOME/code/dotfiles/mcp/gtd_mcp_status.sh"
+      if [[ ! -f "$STATUS_SCRIPT" ]]; then
+        STATUS_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_mcp_status.sh"
+      fi
       
+      if [[ -f "$STATUS_SCRIPT" ]]; then
+        bash "$STATUS_SCRIPT"
+      else
+        echo ""
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${CYAN}📊 Full System Status${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo "Status script not found. Showing basic status instead..."
+        echo ""
+        
+        # Show basic status
+        local inbox_count=$(ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | tr -d ' ')
+        echo -e "${BOLD}Inbox:${NC} ${inbox_count} item(s)"
+        
+        local projects_count=$(ls -1 ~/Documents/gtd/1-projects/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+        echo -e "${BOLD}Active Projects:${NC} ${projects_count}"
+        
+        local tasks_count=$(find ~/Documents/gtd/tasks -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+        echo -e "${BOLD}Active Tasks:${NC} ${tasks_count}"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    5)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}☸️  Kubernetes Deployment Status${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      DEPLOY_SCRIPT="$HOME/code/dotfiles/mcp/deploy.sh"
+      if [[ ! -f "$DEPLOY_SCRIPT" ]]; then
+        DEPLOY_SCRIPT="$HOME/code/personal/dotfiles/mcp/deploy.sh"
+      fi
+      
+      if [[ -f "$DEPLOY_SCRIPT" ]]; then
+        bash "$DEPLOY_SCRIPT" status
+      else
+        echo "❌ Deployment script not found"
+        echo ""
+        echo "Location checked: $DEPLOY_SCRIPT"
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    6)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📋 Kubernetes Pod Logs (Debug)${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      if ! command -v kubectl &>/dev/null; then
+        echo -e "${RED}❌ kubectl not found${NC}"
+        echo ""
+        echo "kubectl is required to view pod logs."
+        echo "Install kubectl or ensure it's in your PATH."
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 1
+      fi
+      
+      # Check if we can connect to cluster
+      if ! kubectl cluster-info &>/dev/null 2>&1; then
+        echo -e "${YELLOW}⚠️  Cannot connect to Kubernetes cluster${NC}"
+        echo ""
+        echo "Make sure:"
+        echo "  1. kubectl is configured correctly"
+        echo "  2. You have access to the cluster"
+        echo "  3. KUBECONFIG is set (if needed)"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        return 1
+      fi
+      
+      echo "Showing recent pod logs..."
+      echo ""
+      kubectl logs --tail=50 -l app=gtd-deep-analysis-worker 2>/dev/null || echo "  No deep analysis worker logs found"
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    7)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📝 LM Studio Request Logs (Debug)${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Check if gtd-check-lm-logs exists
+      if command -v gtd-check-lm-logs &>/dev/null; then
+        gtd-check-lm-logs 100
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-check-lm-logs" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-check-lm-logs" 100
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-check-lm-logs" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-check-lm-logs" 100
+      else
+        # Fallback: show logs directly
+        LOG_FILE="$HOME/.gtd_logs/tool_calls.log"
+        if [[ ! -f "$LOG_FILE" ]]; then
+          echo -e "${YELLOW}⚠️  Log file doesn't exist yet: $LOG_FILE${NC}"
+          echo "   It will be created on first LM Studio request."
+        else
+          echo "Log file: $LOG_FILE"
+          echo ""
+          echo "Last 100 lines (filtered for key events):"
+          echo ""
+          tail -100 "$LOG_FILE" | grep -E "(Sending request|API Response|ERROR|timed out|elapsed)" | tail -30
+        fi
+      fi
+      echo ""
+      echo "Press Enter to continue..."
+      read
+      ;;
+    8)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🔍 Vector Database Status & Inspection${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) Show database statistics"
+      echo "  2) List all embeddings"
+      echo "  3) List embeddings by content type"
+      echo "  4) Count embeddings"
+      echo "  5) View vectorization logs"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose: "
+      read vector_choice
+      
+      case "$vector_choice" in
+        1)
+          echo ""
+          if command -v gtd-vector-db-status &>/dev/null; then
+            gtd-vector-db-status stats
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-vector-db-status" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-vector-db-status" stats
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" stats
+          else
+            echo "❌ gtd-vector-db-status command not found"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        2)
+          echo ""
+          echo -n "Limit (default: 100): "
+          read limit
+          limit="${limit:-100}"
+          echo ""
+          if command -v gtd-vector-db-status &>/dev/null; then
+            gtd-vector-db-status list "" "$limit"
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-vector-db-status" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-vector-db-status" list "" "$limit"
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" list "" "$limit"
+          else
+            echo "❌ gtd-vector-db-status command not found"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        3)
+          echo ""
+          echo "Content types: daily_log, project, task, note, suggestion"
+          echo ""
+          echo -n "Content type: "
+          read content_type
+          if [[ -z "$content_type" ]]; then
+            echo "❌ Content type required"
+          else
+            echo ""
+            echo -n "Limit (default: 100): "
+            read limit
+            limit="${limit:-100}"
+            echo ""
+            if command -v gtd-vector-db-status &>/dev/null; then
+              gtd-vector-db-status list "$content_type" "$limit"
+            elif [[ -f "$HOME/code/dotfiles/bin/gtd-vector-db-status" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-vector-db-status" list "$content_type" "$limit"
+            elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" ]]; then
+              "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" list "$content_type" "$limit"
+            else
+              echo "❌ gtd-vector-db-status command not found"
+            fi
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        4)
+          echo ""
+          echo -n "Content type (optional, press Enter for all): "
+          read content_type
+          echo ""
+          if command -v gtd-vector-db-status &>/dev/null; then
+            if [[ -n "$content_type" ]]; then
+              gtd-vector-db-status count "$content_type"
+            else
+              gtd-vector-db-status count
+            fi
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-vector-db-status" ]]; then
+            if [[ -n "$content_type" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-vector-db-status" count "$content_type"
+            else
+              "$HOME/code/dotfiles/bin/gtd-vector-db-status" count
+            fi
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" ]]; then
+            if [[ -n "$content_type" ]]; then
+              "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" count "$content_type"
+            else
+              "$HOME/code/personal/dotfiles/bin/gtd-vector-db-status" count
+            fi
+          else
+            echo "❌ gtd-vector-db-status command not found"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        5)
+          echo ""
+          echo -e "${BOLD}Vectorization Worker Logs:${NC}"
+          echo ""
+          VECTOR_WORKER_LOG="/tmp/vector-worker.log"
+          if [[ -f "$VECTOR_WORKER_LOG" ]]; then
+            echo "Last 50 lines:"
+            echo ""
+            tail -50 "$VECTOR_WORKER_LOG"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "💡 To watch logs in real-time: tail -f $VECTOR_WORKER_LOG"
+          else
+            echo "⚠️  Vector worker log not found: $VECTOR_WORKER_LOG"
+            echo ""
+            echo "The vector worker may not be running, or logs are in a different location."
+          fi
+          
+          # Check for vector filewatcher log
+          VECTOR_FILEWATCHER_LOG="/tmp/vector-filewatcher.log"
+          if [[ -f "$VECTOR_FILEWATCHER_LOG" ]]; then
+            echo ""
+            echo "Vector Filewatcher Log: $VECTOR_FILEWATCHER_LOG"
+            echo ""
+            echo "Last 30 lines:"
+            echo ""
+            tail -30 "$VECTOR_FILEWATCHER_LOG"
+            echo ""
+            echo "💡 To watch logs in real-time: tail -f $VECTOR_FILEWATCHER_LOG"
+          fi
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+        0)
+          return 0
+          ;;
+        *)
+          echo "Invalid choice"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+          ;;
+      esac
+      ;;
+    0|"")
+      return 0
+      ;;
     *)
       echo "Invalid choice"
+      echo ""
+      echo "Press Enter to continue..."
+      read
       ;;
   esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read
 }
 
-manage_worker() {
-  local worker_script="$1"
-  local worker_name="$2"
+manage_advice_worker() {
   local pid
   local worker_action
   
-  if pgrep -f "$worker_script" >/dev/null; then
-    pid=$(pgrep -f "$worker_script")
+  # Check for both possible process names (bash script and Python script)
+  if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
+    if pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
+      pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1)
+    else
+      pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
+    fi
     echo ""
-    echo -e "${BOLD}${worker_name} Worker${NC}"
+    echo -e "${BOLD}Advice Worker${NC}"
     echo -e "  Status: ${GREEN}✅ Running (PID: $pid)${NC}"
     echo ""
     echo "Options:"
@@ -355,16 +782,16 @@ manage_worker() {
     case "$worker_action" in
       1)
         echo ""
-        echo "Stopping ${worker_name} worker..."
+        echo "Stopping Advice worker..."
         kill "$pid" 2>/dev/null
         sleep 1
-        if ! pgrep -f "$worker_script" >/dev/null; then
+        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null && ! pgrep -f "gtd_advice_worker.py" >/dev/null; then
           echo -e "${GREEN}✅ Worker stopped${NC}"
         else
           echo -e "${YELLOW}⚠️  Worker still running, trying force kill...${NC}"
           kill -9 "$pid" 2>/dev/null
           sleep 1
-          if ! pgrep -f "$worker_script" >/dev/null; then
+          if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null && ! pgrep -f "gtd_advice_worker.py" >/dev/null; then
             echo -e "${GREEN}✅ Worker stopped${NC}"
           else
             echo -e "${RED}❌ Could not stop worker${NC}"
@@ -376,12 +803,17 @@ manage_worker() {
         ;;
       2)
         echo ""
-        echo "Restarting ${worker_name} worker..."
+        echo "Restarting Advice worker..."
         kill "$pid" 2>/dev/null
         sleep 2
-        if ! pgrep -f "$worker_script" >/dev/null; then
+        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null && ! pgrep -f "gtd_advice_worker.py" >/dev/null; then
           echo -e "${GREEN}✓ Worker stopped, restarting...${NC}"
-          start_worker "$worker_script" "$worker_name" "background"
+          make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || {
+            echo "Starting advice worker..."
+            nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+            echo "✓ Worker started (PID: $!)"
+            echo "   Logs: tail -f /tmp/advice-worker.log"
+          }
         else
           echo -e "${YELLOW}⚠️  Worker still running${NC}"
         fi
@@ -393,18 +825,11 @@ manage_worker() {
         # View worker logs
         echo ""
         echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${BOLD}${worker_name} Worker Logs${NC}"
+        echo -e "${BOLD}Advice Worker Logs${NC}"
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
         
-        # Determine log file based on worker type
-        if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
-          LOG_FILE="/tmp/deep-worker.log"
-        elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
-          LOG_FILE="/tmp/vector-worker.log"
-        else
-          LOG_FILE="/tmp/worker.log"
-        fi
+        LOG_FILE="/tmp/advice-worker.log"
         
         echo "Worker PID: $pid"
         echo "Log file: $LOG_FILE"
@@ -467,10 +892,10 @@ manage_worker() {
     esac
   else
     echo ""
-    echo -e "${BOLD}${worker_name} Worker${NC}"
+    echo -e "${BOLD}Advice Worker${NC}"
     echo -e "  Status: ${CYAN}ℹ️  Not running${NC}"
     echo ""
-    echo "Would you like to start the ${worker_name} worker?"
+    echo "Would you like to start the Advice worker?"
     echo "  1) Start worker (background)"
     echo "  2) Start worker (foreground - see logs)"
     echo "  0) Back"
@@ -479,10 +904,19 @@ manage_worker() {
     read worker_action
     
     # Start worker if requested
-    if [[ "$worker_action" == "1" || "$worker_action" == "start" ]]; then
-      start_worker "$worker_script" "$worker_name" "background"
+    if [[ "$worker_action" == "1" ]]; then
+      make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || {
+        echo "Starting advice worker..."
+        nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+        echo "✓ Worker started (PID: $!)"
+        echo "   Logs: tail -f /tmp/advice-worker.log"
+      }
+      echo ""
+      echo "Press Enter to continue..."
+      read
     elif [[ "$worker_action" == "2" ]]; then
-      start_worker "$worker_script" "$worker_name" "foreground"
+      echo "Starting advice worker in foreground (Ctrl+C to stop)..."
+      gtd-advice-worker daemon
     fi
   fi
 }
@@ -597,324 +1031,6 @@ start_worker() {
         # Run in foreground
         "$MCP_PYTHON" "$WORKER_SCRIPT"
   fi
-}
-
-status_wizard() {
-  clear
-  echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}📊 System Status & Health Checks${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-  echo "  1) Quick Status Overview"
-  echo "  2) Detailed Component Status"
-  echo "  3) Background Worker Status"
-  echo "  4) Full System Status"
-  echo "  5) Kubernetes Deployment Status"
-  echo "  6) Kubernetes Pod Logs (Debug)"
-  echo ""
-  echo -e "${YELLOW}0)${NC} Back to Main Menu"
-  echo ""
-  echo -n "Choose: "
-  read status_choice
-  
-  case "$status_choice" in
-    1)
-      # Quick status - already handled above
-      ;;
-    2)
-      # Detailed component status
-      ;;
-    3)
-      # Background worker status - handled in main wizard
-      ;;
-    4)
-      clear
-      # Run full status check script if available
-      STATUS_SCRIPT="$HOME/code/dotfiles/mcp/gtd_mcp_status.sh"
-      if [[ ! -f "$STATUS_SCRIPT" ]]; then
-        STATUS_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_mcp_status.sh"
-      fi
-      
-      if [[ -f "$STATUS_SCRIPT" ]]; then
-        bash "$STATUS_SCRIPT"
-      else
-        echo ""
-        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${BOLD}${CYAN}📊 Full System Status${NC}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        echo "Status script not found. Showing basic status instead..."
-        echo ""
-        
-        # Show basic status
-        local inbox_count=$(ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | tr -d ' ')
-        echo -e "${BOLD}Inbox:${NC} ${inbox_count} item(s)"
-        
-        local projects_count=$(ls -1 ~/Documents/gtd/1-projects/*/README.md 2>/dev/null | wc -l | tr -d ' ')
-        echo -e "${BOLD}Active Projects:${NC} ${projects_count}"
-        
-        local tasks_count=$(find ~/Documents/gtd/tasks -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
-        echo -e "${BOLD}Active Tasks:${NC} ${tasks_count}"
-      fi
-      ;;
-    5)
-      clear
-      echo ""
-      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo -e "${BOLD}${CYAN}☸️  Kubernetes Deployment Status${NC}"
-      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo ""
-      
-      DEPLOY_SCRIPT="$HOME/code/dotfiles/mcp/deploy.sh"
-      if [[ ! -f "$DEPLOY_SCRIPT" ]]; then
-        DEPLOY_SCRIPT="$HOME/code/personal/dotfiles/mcp/deploy.sh"
-      fi
-      
-      if [[ -f "$DEPLOY_SCRIPT" ]]; then
-        bash "$DEPLOY_SCRIPT" status
-      else
-        echo "❌ Deployment script not found"
-        echo ""
-        echo "Location checked: $DEPLOY_SCRIPT"
-      fi
-      ;;
-    6)
-      clear
-      echo ""
-      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo -e "${BOLD}${CYAN}📋 Kubernetes Pod Logs (Debug)${NC}"
-      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo ""
-      
-      if ! command -v kubectl &>/dev/null; then
-        echo -e "${RED}❌ kubectl not found${NC}"
-        echo ""
-        echo "kubectl is required to view pod logs."
-        echo "Install kubectl or ensure it's in your PATH."
-        echo ""
-        echo "Press Enter to continue..."
-        read
-        return 1
-      fi
-      
-      # Check if we can connect to cluster
-      if ! kubectl cluster-info &>/dev/null 2>&1; then
-        echo -e "${YELLOW}⚠️  Cannot connect to Kubernetes cluster${NC}"
-        echo ""
-        echo "Make sure:"
-        echo "  1. kubectl is configured correctly"
-        echo "  2. You have access to the cluster"
-        echo "  3. KUBECONFIG is set (if needed)"
-        echo ""
-        echo "Press Enter to continue..."
-        read
-        return 1
-      fi
-      
-      # Show deployments and their pods
-      echo -e "${BOLD}Deployments:${NC}"
-      echo ""
-      
-      # Check for GTD worker deployment
-      if kubectl get deployment gtd-deep-analysis-worker &>/dev/null 2>&1; then
-        echo -e "${CYAN}GTD Deep Analysis Worker:${NC}"
-        kubectl get deployment gtd-deep-analysis-worker -o wide
-        echo ""
-        
-        # Get pods for this deployment
-        pods=$(kubectl get pods -l app=gtd-deep-analysis-worker -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
-        
-        if [[ -n "$pods" ]]; then
-          echo -e "${BOLD}Pods:${NC}"
-          kubectl get pods -l app=gtd-deep-analysis-worker
-          echo ""
-          
-          # Show pod status details
-          for pod in $pods; do
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${BOLD}Pod: ${CYAN}$pod${NC}"
-            echo ""
-            
-            # Show pod status
-            echo -e "${BOLD}Status:${NC}"
-            kubectl get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null
-            echo ""
-            
-            # Check if pod is not ready
-            ready=$(kubectl get pod "$pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-            if [[ "$ready" != "True" ]]; then
-              echo -e "${YELLOW}⚠️  Pod is not ready${NC}"
-              echo ""
-              
-              # Show conditions
-              echo -e "${BOLD}Conditions:${NC}"
-              kubectl get pod "$pod" -o jsonpath='{range .status.conditions[*]}{.type}: {.status} - {.message}{"\n"}{end}' 2>/dev/null
-              echo ""
-              
-              # Show container statuses
-              echo -e "${BOLD}Container Statuses:${NC}"
-              kubectl get pod "$pod" -o jsonpath='{range .status.containerStatuses[*]}{.name}: {.state}{"\n"}{end}' 2>/dev/null
-              echo ""
-            fi
-            
-            # Show recent events
-            echo -e "${BOLD}Recent Events:${NC}"
-            kubectl get events --field-selector involvedObject.name="$pod" --sort-by='.lastTimestamp' | tail -10
-            echo ""
-            
-            echo -n "View logs for this pod? (y/n): "
-            read view_logs
-            if [[ "$view_logs" == "y" || "$view_logs" == "Y" ]]; then
-              echo ""
-              echo -e "${BOLD}${CYAN}Logs for $pod:${NC}"
-              echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-              echo ""
-              
-              # Show last 50 lines
-              kubectl logs "$pod" --tail=50 2>&1 || echo "Could not retrieve logs"
-              echo ""
-              
-              # If pod has multiple containers, show init container logs too
-              init_containers=$(kubectl get pod "$pod" -o jsonpath='{.spec.initContainers[*].name}' 2>/dev/null)
-              if [[ -n "$init_containers" ]]; then
-                for container in $init_containers; do
-                  echo -e "${CYAN}Init Container: $container${NC}"
-                  kubectl logs "$pod" -c "$container" --tail=30 2>&1 || echo "Could not retrieve logs"
-                  echo ""
-                done
-              fi
-              
-              echo ""
-              echo -n "View more logs? (tail -f, y/n): "
-              read follow_logs
-              if [[ "$follow_logs" == "y" || "$follow_logs" == "Y" ]]; then
-                echo ""
-                echo "Following logs (Ctrl+C to stop)..."
-                kubectl logs "$pod" -f 2>&1 || echo "Could not follow logs"
-              fi
-            fi
-            echo ""
-          done
-        else
-          echo -e "${YELLOW}⚠️  No pods found for this deployment${NC}"
-          echo ""
-          echo "This might mean:"
-          echo "  - Deployment is still creating pods"
-          echo "  - Pods failed to start"
-          echo "  - Pods were deleted"
-          echo ""
-          
-          # Show recent events for the deployment
-          echo -e "${BOLD}Recent Events:${NC}"
-          kubectl get events --field-selector involvedObject.kind=Deployment,involvedObject.name=gtd-deep-analysis-worker --sort-by='.lastTimestamp' | tail -20
-        fi
-      else
-        echo -e "${CYAN}ℹ️  No GTD worker deployment found${NC}"
-        echo ""
-        echo "Available deployments:"
-        kubectl get deployments 2>/dev/null | head -10
-        echo ""
-        echo "Would you like to view logs for a different deployment?"
-        echo -n "Enter deployment name (or press Enter to skip): "
-        read other_deployment
-        if [[ -n "$other_deployment" ]]; then
-          pods=$(kubectl get pods -l app="$other_deployment" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
-          if [[ -z "$pods" ]]; then
-            pods=$(kubectl get pods --selector="app=$other_deployment" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
-          fi
-          if [[ -n "$pods" ]]; then
-            for pod in $pods; do
-              echo ""
-              echo -e "${BOLD}Logs for $pod:${NC}"
-              kubectl logs "$pod" --tail=50 2>&1
-            done
-          else
-            echo "No pods found for deployment: $other_deployment"
-          fi
-        fi
-      fi
-      
-      echo ""
-      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo ""
-      echo "Press Enter to continue..."
-      read
-      ;;
-    7)
-      clear
-      echo ""
-      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo -e "${BOLD}${CYAN}📝 LM Studio Request Logs (Debug)${NC}"
-      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo ""
-      
-      # Check if gtd-check-lm-logs exists
-      if command -v gtd-check-lm-logs &>/dev/null; then
-        gtd-check-lm-logs 100
-      elif [[ -f "$HOME/code/dotfiles/bin/gtd-check-lm-logs" ]]; then
-        "$HOME/code/dotfiles/bin/gtd-check-lm-logs" 100
-      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-check-lm-logs" ]]; then
-        "$HOME/code/personal/dotfiles/bin/gtd-check-lm-logs" 100
-      else
-        # Fallback: show logs directly
-        LOG_FILE="$HOME/.gtd_logs/tool_calls.log"
-        if [[ ! -f "$LOG_FILE" ]]; then
-          echo -e "${YELLOW}⚠️  Log file doesn't exist yet: $LOG_FILE${NC}"
-          echo "   It will be created on first LM Studio request."
-        else
-          echo "Log file: $LOG_FILE"
-          echo ""
-          echo "Last 100 lines (filtered for key events):"
-          echo ""
-          tail -100 "$LOG_FILE" | grep -E "(Sending request|API Response|ERROR|timed out|elapsed)" | tail -30
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "💡 Tips:"
-          echo "   - Look for 'Sending request' to see when requests start"
-          echo "   - Look for 'API Response received' to see when they complete"
-          echo "   - Look for 'ERROR' or 'timed out' to see failures"
-          echo "   - Check 'elapsed' time to see how long requests took"
-          echo ""
-          echo "To see full recent logs:"
-          echo "   tail -100 $LOG_FILE"
-          echo ""
-          echo "To watch logs in real-time:"
-          echo "   tail -f $LOG_FILE"
-        fi
-      fi
-      
-      echo ""
-      echo "Press Enter to continue..."
-      read
-      ;;
-    *)
-      # Default to basic status if invalid choice
-      clear
-      echo ""
-      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo -e "${BOLD}${CYAN}📊 Basic GTD System Status${NC}"
-      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo ""
-      
-      local inbox_count=$(ls -1 ~/Documents/gtd/0-inbox/*.md 2>/dev/null | wc -l | tr -d ' ')
-      echo -e "${BOLD}Inbox:${NC} ${inbox_count} item(s)"
-      
-      local projects_count=$(ls -1 ~/Documents/gtd/1-projects/*/README.md 2>/dev/null | wc -l | tr -d ' ')
-      echo -e "${BOLD}Active Projects:${NC} ${projects_count}"
-      
-      local tasks_count=$(find ~/Documents/gtd/tasks -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
-      echo -e "${BOLD}Active Tasks:${NC} ${tasks_count}"
-      ;;
-    0|"")
-      return 0
-      ;;
-  esac
-  
-  echo ""
-  echo "Press Enter to continue..."
-  read
 }
 
 goal_tracking_wizard() {
@@ -1898,5 +2014,193 @@ milestone_wizard() {
   echo ""
   echo "Press Enter to continue..."
   read
+}
+
+manage_worker() {
+  local worker_script="$1"
+  local worker_name="$2"
+  local pid
+  local worker_action
+  
+  if pgrep -f "$worker_script" >/dev/null; then
+    pid=$(pgrep -f "$worker_script" | head -1)
+    echo ""
+    echo -e "${BOLD}${worker_name} Worker${NC}"
+    echo -e "  Status: ${GREEN}✅ Running (PID: $pid)${NC}"
+    echo ""
+    echo "Options:"
+    echo "  1) Stop worker"
+    echo "  2) Restart worker"
+    echo "  3) View worker logs"
+    echo "  0) Back"
+    echo ""
+    echo -n "Choose: "
+    read worker_action
+    
+    case "$worker_action" in
+      1)
+        echo ""
+        echo "Stopping ${worker_name} worker..."
+        kill "$pid" 2>/dev/null
+        sleep 1
+        if ! pgrep -f "$worker_script" >/dev/null; then
+          echo -e "${GREEN}✅ Worker stopped${NC}"
+        else
+          echo -e "${YELLOW}⚠️  Worker still running, trying force kill...${NC}"
+          kill -9 "$pid" 2>/dev/null
+          sleep 1
+          if ! pgrep -f "$worker_script" >/dev/null; then
+            echo -e "${GREEN}✅ Worker stopped${NC}"
+          else
+            echo -e "${RED}❌ Could not stop worker${NC}"
+          fi
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      2)
+        echo ""
+        echo "Restarting ${worker_name} worker..."
+        kill "$pid" 2>/dev/null
+        sleep 2
+        if ! pgrep -f "$worker_script" >/dev/null; then
+          echo -e "${GREEN}✓ Worker stopped, restarting...${NC}"
+          # Start worker using make command
+          if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
+            make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+          elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
+            make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+          fi
+        else
+          echo -e "${YELLOW}⚠️  Worker still running${NC}"
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      3)
+        # View worker logs
+        echo ""
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${worker_name} Worker Logs${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        
+        # Determine log file based on worker type
+        if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
+          LOG_FILE="/tmp/deep-worker.log"
+        elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
+          LOG_FILE="/tmp/vector-worker.log"
+        else
+          LOG_FILE="/tmp/worker.log"
+        fi
+        
+        echo "Worker PID: $pid"
+        echo "Log file: $LOG_FILE"
+        echo ""
+        
+        if [[ -f "$LOG_FILE" ]]; then
+          LOG_SIZE=$(wc -l < "$LOG_FILE" 2>/dev/null || echo "0")
+          if [[ "$LOG_SIZE" -gt 0 ]]; then
+            echo "Showing last 30 lines (${LOG_SIZE} total lines):"
+            echo ""
+            tail -30 "$LOG_FILE"
+            echo ""
+            echo "Options:"
+            echo "  1) View more logs (last 50 lines)"
+            echo "  2) Follow logs (tail -f)"
+            echo "  3) View full log file"
+            echo "  0) Back"
+            echo ""
+            echo -n "Choose: "
+            read log_choice
+            case "$log_choice" in
+              1)
+                echo ""
+                tail -50 "$LOG_FILE"
+                echo ""
+                echo "Press Enter to continue..."
+                read
+                ;;
+              2)
+                echo ""
+                echo "Following logs (Ctrl+C to stop)..."
+                tail -f "$LOG_FILE"
+                ;;
+              3)
+                echo ""
+                less "$LOG_FILE"
+                ;;
+              0|"")
+                return 0
+                ;;
+            esac
+          else
+            echo "Log file is empty"
+            echo ""
+            echo "Press Enter to continue..."
+            read
+          fi
+        else
+          echo "Log file not found: $LOG_FILE"
+          echo ""
+          echo "Press Enter to continue..."
+          read
+        fi
+        ;;
+      0|"")
+        return 0
+        ;;
+      *)
+        echo "Invalid choice"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+    esac
+  else
+    echo ""
+    echo -e "${BOLD}${worker_name} Worker${NC}"
+    echo -e "  Status: ${RED}❌ Not running${NC}"
+    echo ""
+    echo "Options:"
+    echo "  1) Start worker"
+    echo "  0) Back"
+    echo ""
+    echo -n "Choose: "
+    read worker_action
+    
+    case "$worker_action" in
+      1)
+        echo ""
+        echo "Starting ${worker_name} worker..."
+        # Start worker using make command
+        if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
+          make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
+          make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+        fi
+        sleep 2
+        if pgrep -f "$worker_script" >/dev/null; then
+          echo -e "${GREEN}✅ Worker started${NC}"
+        else
+          echo -e "${YELLOW}⚠️  Worker may not have started. Check logs.${NC}"
+        fi
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+      0|"")
+        return 0
+        ;;
+      *)
+        echo "Invalid choice"
+        echo ""
+        echo "Press Enter to continue..."
+        read
+        ;;
+    esac
+  fi
 }
 

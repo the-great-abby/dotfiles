@@ -1,0 +1,384 @@
+#!/bin/bash
+# Automatic port-forward setup helper
+# Detects what service needs port forwarding and sets it up
+
+PORT="${1:-}"
+SERVICE_NAME="${2:-}"
+NAMESPACE="${3:-}"
+SERVICE_TYPE="${4:-}"  # rabbitmq, postgresql, etc.
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# Function to check if kubectl is available
+check_kubectl() {
+  if ! command -v kubectl &>/dev/null; then
+    echo -e "${YELLOW}⚠️  kubectl not found. Cannot set up port-forward.${NC}"
+    return 1
+  fi
+  return 0
+}
+
+# Function to check if port-forward already exists and is working
+check_existing_portforward() {
+  local port="$1"
+  # Check for any kubectl port-forward process that might be using this port
+  local existing_pf=$(ps aux | grep "[k]ubectl.*port-forward" | grep -E "(rabbitmq|$port)" | awk '{print $2}' | head -1)
+  if [[ -n "$existing_pf" ]]; then
+    # Check if port is actually accessible
+    if nc -zv localhost "$port" &>/dev/null 2>&1; then
+      echo -e "${GREEN}✓ Port-forward already running and working on port $port (PID: $existing_pf)${NC}"
+      return 0  # Working, don't need to do anything
+    else
+      echo -e "${YELLOW}⚠️  Port-forward process exists but port $port not accessible (PID: $existing_pf)${NC}"
+      echo -e "${CYAN}   Killing stale port-forward and restarting...${NC}"
+      kill "$existing_pf" 2>/dev/null || true
+      sleep 2
+      # Double-check it's dead
+      if ps -p "$existing_pf" &>/dev/null; then
+        kill -9 "$existing_pf" 2>/dev/null || true
+        sleep 1
+      fi
+      # Wait a bit more to ensure port is released
+      sleep 1
+      return 2  # Was broken, killed it
+    fi
+  fi
+  return 1  # No existing port-forward
+}
+
+# Function to check if Kubernetes service/pod is actually running
+check_service_health() {
+  local namespace="$1"
+  local service="$2"
+  
+  # Check if service exists
+  if ! kubectl get svc -n "$namespace" "$service" &>/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  Service $service not found in namespace $namespace${NC}"
+    return 1
+  fi
+  
+  # Check if there are pods backing this service
+  local selector_json=$(kubectl get svc -n "$namespace" "$service" -o jsonpath='{.spec.selector}' 2>/dev/null)
+  if [[ -z "$selector_json" ]]; then
+    echo -e "${YELLOW}⚠️  Service $service has no selector (may be an external service)${NC}"
+    return 0  # External services are OK
+  fi
+  
+  # Convert JSON selector to kubectl --selector format (key=value,key2=value2)
+  # Example: {"app.kubernetes.io/name":"rabbitmq"} -> app.kubernetes.io/name=rabbitmq
+  local selector=$(echo "$selector_json" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    pairs = [f'{k}={v}' for k, v in data.items()]
+    print(','.join(pairs))
+except:
+    # Fallback: simple string manipulation if JSON parsing fails
+    import re
+    s = sys.stdin.read()
+    # Remove braces and quotes, replace : with =
+    s = s.replace('{', '').replace('}', '').replace('\"', '')
+    s = re.sub(r'(\w+(?:\.\w+)*):(\w+)', r'\1=\2', s)
+    print(s.strip())
+" 2>/dev/null)
+  
+  if [[ -z "$selector" ]]; then
+    # If conversion failed, try direct pod listing as fallback
+    echo -e "${YELLOW}⚠️  Could not parse selector, checking all pods in namespace...${NC}"
+    local pod_count=$(kubectl get pods -n "$namespace" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | wc -w | tr -d ' ')
+    if [[ "$pod_count" -gt 0 ]]; then
+      echo -e "${GREEN}✓ Found $pod_count pod(s) in namespace${NC}"
+      return 0  # Allow it to proceed
+    fi
+    return 1
+  fi
+  
+  # Try to find pods using the converted selector
+  local pod_count=$(kubectl get pods -n "$namespace" --selector="$selector" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | wc -w | tr -d ' ')
+  
+  if [[ "$pod_count" -eq 0 ]]; then
+    echo -e "${YELLOW}⚠️  No pods found with selector $selector, checking all pods in namespace...${NC}"
+    local all_pods=$(kubectl get pods -n "$namespace" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | wc -w | tr -d ' ')
+    if [[ "$all_pods" -gt 0 ]]; then
+      echo -e "${CYAN}   Found $all_pods pod(s) total (selector may not match labels exactly)${NC}"
+      kubectl get pods -n "$namespace" 2>/dev/null || echo "   (Cannot list pods)"
+      # Still allow port-forward to proceed - pod exists even if selector doesn't match
+      return 0
+    fi
+    echo -e "${RED}❌ No pods found in namespace $namespace${NC}"
+    return 1
+  fi
+  
+  # Check if any pod is ready
+  # Note: The nested jsonpath filter can be unreliable, so we check readiness differently
+  local ready_pods=$(kubectl get pods -n "$namespace" --selector="$selector" -o json 2>/dev/null | \
+    python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    ready_count = 0
+    for item in data.get('items', []):
+        for condition in item.get('status', {}).get('conditions', []):
+            if condition.get('type') == 'Ready' and condition.get('status') == 'True':
+                ready_count += 1
+                break
+    print(ready_count)
+except:
+    # Fallback: check if phase is Running (less precise but more reliable)
+    print(0)
+" 2>/dev/null || echo "0")
+  
+  # Also check if pods are in Running phase (as fallback)
+  local running_pods=$(kubectl get pods -n "$namespace" --selector="$selector" -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' 2>/dev/null | wc -w | tr -d ' ')
+  
+  if [[ "$ready_pods" -eq 0 ]] && [[ "$running_pods" -eq 0 ]]; then
+    echo -e "${YELLOW}⚠️  Service $service has pods but none are Ready or Running${NC}"
+    echo -e "${CYAN}   Pod status:${NC}"
+    kubectl get pods -n "$namespace" --selector="$selector" -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,READY:.status.containerStatuses[0].ready 2>/dev/null || true
+    # Still allow to proceed if pods exist - they might be starting up
+    if [[ "$pod_count" -gt 0 ]]; then
+      return 0
+    fi
+    return 1
+  elif [[ "$ready_pods" -eq 0 ]] && [[ "$running_pods" -gt 0 ]]; then
+    echo -e "${YELLOW}⚠️  Service $service has $running_pods Running pod(s) but readiness check unclear${NC}"
+    # Allow to proceed - pods are running
+    ready_pods=$running_pods
+  fi
+  
+  echo -e "${GREEN}✓ Service $service is healthy ($ready_pods/$pod_count pods ready)${NC}"
+  return 0
+}
+
+# Function to setup RabbitMQ port-forward
+setup_rabbitmq_pf() {
+  if ! check_kubectl; then
+    return 1
+  fi
+  
+  local pf_status=$(check_existing_portforward 5672; echo $?)
+  if [[ "$pf_status" -eq 0 ]]; then
+    # Port-forward already exists and is working
+    local existing_pid=$(ps aux | grep "[k]ubectl.*port-forward.*5672" | awk '{print $2}' | head -1)
+    echo -e "${GREEN}✓ Port-forward already running and working (PID: $existing_pid)${NC}"
+    return 0
+  elif [[ "$pf_status" -eq 2 ]]; then
+    # Stale port-forward was killed, continue with setup
+    echo -e "${CYAN}Cleaned up stale port-forward, starting new one...${NC}"
+  fi
+  
+  # Check service health before attempting port-forward (but don't fail if check has issues)
+  if ! check_service_health "rabbitmq-system" "rabbitmq"; then
+    echo -e "${YELLOW}⚠️  Service health check had issues, but attempting port-forward anyway...${NC}"
+    echo -e "${CYAN}   (Pods may exist even if selector matching failed)${NC}"
+    # Continue anyway - port-forward might still work
+  fi
+  
+  echo -e "${CYAN}Setting up RabbitMQ port-forward...${NC}"
+  # Use nohup to ensure process persists even if parent shell exits
+  # Bind to 0.0.0.0 instead of 127.0.0.1 to avoid "connection reset by peer" issues in Rancher Desktop
+  nohup kubectl port-forward -n rabbitmq-system --address 0.0.0.0 svc/rabbitmq 5672:5672 15672:15672 15692:15692 > /tmp/rabbitmq-pf.log 2>&1 &
+  PF_PID=$!
+  
+  # Wait a moment for process to start
+  sleep 1
+  
+  # Wait for port-forward to initialize (initial connection errors are normal)
+  # Give it more time - kubectl port-forward can take a moment to establish
+  sleep 3
+  
+  # Check if any port-forward process is running (kubectl might spawn child processes)
+  local pf_running=$(ps aux | grep "[k]ubectl port-forward.*5672" | wc -l | tr -d ' ')
+  if [[ "$pf_running" -eq 0 ]]; then
+    # Double-check with a different pattern in case grep pattern issue
+    pf_running=$(ps aux | grep "kubectl.*port-forward" | grep "5672" | grep -v grep | wc -l | tr -d ' ')
+    if [[ "$pf_running" -eq 0 ]]; then
+      echo -e "${RED}❌ Port-forward process not found after starting${NC}"
+      echo -e "${CYAN}   Checking logs...${NC}"
+      tail -30 /tmp/rabbitmq-pf.log 2>/dev/null || echo "   (No logs available)"
+      return 1
+    fi
+  fi
+  
+  # Wait longer for port-forward to fully initialize
+  # Note: "lost connection to pod" errors during startup are normal - port-forward recovers
+  sleep 4
+  
+  # Get the actual PID for reporting
+  PF_PID=$(ps aux | grep "[k]ubectl.*port-forward" | grep -E "(rabbitmq|5672)" | awk '{print $2}' | head -1)
+  
+  # Check if process is running
+  if [[ -z "$PF_PID" ]]; then
+    # No process found - don't test port (it can crash any existing port-forward)
+    # Just report that process wasn't found
+    
+    # Process not found and port not accessible
+    echo -e "${RED}❌ Port-forward process not found after startup${NC}"
+    echo -e "${CYAN}   Checking logs...${NC}"
+    tail -30 /tmp/rabbitmq-pf.log 2>/dev/null || echo "   (No logs available)"
+    echo ""
+    echo -e "${YELLOW}Note:${NC} Port-forward may have crashed immediately after starting."
+    echo -e "${CYAN}   Common issues:${NC}"
+    echo "   - Pod may be restarting or unhealthy"
+    echo "   - Network connectivity issues"
+    echo "   - Service selector mismatch"
+    echo "   - Check pod status: kubectl get pods -n rabbitmq-system"
+    return 1
+  fi
+  
+  # Final verification: Just verify process is running
+  # CRITICAL: Don't test the port - ANY connection attempt (even nc -zv) can crash kubectl port-forward
+  # This is a known issue with kubectl port-forward - testing immediately after startup causes crashes
+  # Just verify the process is still running - actual connection will be tested when RabbitMQ is used
+  echo -e "${CYAN}   Verifying port-forward process is stable...${NC}"
+  sleep 2
+  
+  # Just check if process is still running (don't test port - it can crash the port-forward)
+  if ! ps -p $PF_PID &>/dev/null 2>&1; then
+    echo -e "${RED}❌ Port-forward process crashed (PID: $PF_PID)${NC}"
+    echo -e "${CYAN}   Checking logs...${NC}"
+    tail -20 /tmp/rabbitmq-pf.log 2>/dev/null | sed 's/^/     /' || echo "     (No logs available)"
+    return 1
+  fi
+  
+  # Process is running - report success
+  # We deliberately don't test the port because testing causes crashes
+  # The actual connection will be tested when RabbitMQ is accessed
+  echo -e "${GREEN}✓ RabbitMQ port-forward process started (PID: $PF_PID)${NC}"
+  echo -e "${CYAN}   Logs: tail -f /tmp/rabbitmq-pf.log${NC}"
+  echo -e "${YELLOW}   Note: Port-forward started (not tested to avoid crashes)${NC}"
+  echo -e "${CYAN}   Connection will be verified when RabbitMQ is actually accessed${NC}"
+  return 0
+}
+
+# Function to setup PostgreSQL port-forward
+setup_postgresql_pf() {
+  local port="${1:-13003}"
+  local namespace="${2:-postgres-system}"
+  local service="${3:-postgresql}"
+  
+  if ! check_kubectl; then
+    return 1
+  fi
+  
+  local pf_status=$(check_existing_portforward "$port"; echo $?)
+  if [[ "$pf_status" -eq 0 ]]; then
+    return 0  # Already working
+  fi
+  
+  # Try common PostgreSQL service names and namespaces
+  local found_service=""
+  local found_namespace=""
+  
+  # Check common locations
+  for ns in "$namespace" "default" "postgres" "database" "gtd-system"; do
+    for svc in "$service" "postgres" "postgresql" "postgres-service"; do
+      if kubectl get svc -n "$ns" "$svc" &>/dev/null 2>&1; then
+        found_service="$svc"
+        found_namespace="$ns"
+        break 2
+      fi
+    done
+  done
+  
+  if [[ -z "$found_service" ]]; then
+    echo -e "${YELLOW}⚠️  PostgreSQL service not found in common namespaces${NC}"
+    echo "   Tried: $namespace, default, postgres, database, gtd-system"
+    echo -e "${CYAN}   Available services in namespaces:${NC}"
+    for ns in "$namespace" "default" "postgres" "database" "gtd-system"; do
+      local svcs=$(kubectl get svc -n "$ns" -o name 2>/dev/null | head -5)
+      if [[ -n "$svcs" ]]; then
+        echo "   $ns: $svcs"
+      fi
+    done
+    return 1
+  fi
+  
+  # Check service health
+  if ! check_service_health "$found_namespace" "$found_service"; then
+    echo -e "${YELLOW}⚠️  Service exists but is not healthy. Attempting port-forward anyway...${NC}"
+  fi
+  
+  # Get the service port (try common PostgreSQL ports)
+  local svc_port="5432"
+  local port_info=$(kubectl get svc -n "$found_namespace" "$found_service" -o jsonpath='{.spec.ports[?(@.port==5432)].port}' 2>/dev/null || echo "")
+  if [[ -n "$port_info" ]]; then
+    svc_port="5432"
+  else
+    # Get first port
+    svc_port=$(kubectl get svc -n "$found_namespace" "$found_service" -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "5432")
+  fi
+  
+  echo -e "${CYAN}Setting up PostgreSQL port-forward (localhost:$port → $found_namespace/$found_service:$svc_port)...${NC}"
+  kubectl port-forward -n "$found_namespace" "svc/$found_service" "$port:$svc_port" > /tmp/postgresql-pf.log 2>&1 &
+  PF_PID=$!
+  
+  # Wait and verify
+  sleep 3
+  if nc -zv localhost "$port" &>/dev/null 2>&1; then
+    echo -e "${GREEN}✓ PostgreSQL port-forward established (PID: $PF_PID)${NC}"
+    return 0
+  else
+    echo -e "${RED}❌ Failed to establish PostgreSQL port-forward${NC}"
+    echo -e "${CYAN}   Checking port-forward logs...${NC}"
+    tail -20 /tmp/postgresql-pf.log 2>/dev/null || echo "   (No logs available)"
+    kill $PF_PID 2>/dev/null || true
+    return 1
+  fi
+}
+
+# Auto-detect and setup based on error message or port
+auto_setup() {
+  local port="$1"
+  
+  case "$port" in
+    5672|15672|15692)
+      echo -e "${CYAN}Auto-detected: RabbitMQ (port $port)${NC}"
+      setup_rabbitmq_pf
+      ;;
+    13003|5432|5433)
+      echo -e "${CYAN}Auto-detected: PostgreSQL (port $port)${NC}"
+      setup_postgresql_pf "$port"
+      ;;
+    *)
+      echo -e "${YELLOW}⚠️  Unknown port: $port. Cannot auto-detect service.${NC}"
+      echo "   Usage: $0 <port> [service-name] [namespace] [service-type]"
+      return 1
+      ;;
+  esac
+}
+
+# Main
+if [[ -z "$PORT" ]]; then
+  echo "Usage: $0 <port> [service-name] [namespace] [service-type]"
+  echo ""
+  echo "Examples:"
+  echo "  $0 5672              # Auto-detect RabbitMQ"
+  echo "  $0 13003             # Auto-detect PostgreSQL"
+  echo "  $0 5672 rabbitmq rabbitmq-system rabbitmq  # Explicit RabbitMQ"
+  echo ""
+  exit 1
+fi
+
+# If service type is provided, use specific setup
+if [[ -n "$SERVICE_TYPE" ]]; then
+  case "$SERVICE_TYPE" in
+    rabbitmq|rabbitmq-system)
+      setup_rabbitmq_pf
+      ;;
+    postgresql|postgres|database)
+      setup_postgresql_pf "$PORT" "$NAMESPACE" "$SERVICE_NAME"
+      ;;
+    *)
+      auto_setup "$PORT"
+      ;;
+  esac
+else
+  # Auto-detect based on port
+  auto_setup "$PORT"
+fi

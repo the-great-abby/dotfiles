@@ -1,0 +1,175 @@
+#!/bin/bash
+# Migrate advice requests from file queue to RabbitMQ
+
+# Find Python executable (prefer virtualenv)
+MCP_VENV="$HOME/code/dotfiles/mcp/venv/bin/python3"
+if [[ ! -f "$MCP_VENV" ]]; then
+  MCP_VENV="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+fi
+
+if [[ -f "$MCP_VENV" ]]; then
+  PYTHON_CMD="$MCP_VENV"
+else
+  PYTHON_CMD="python3"
+fi
+
+QUEUE_FILE="${HOME}/Documents/gtd/advice_queue.jsonl"
+
+if [[ ! -f "$QUEUE_FILE" ]] || [[ ! -s "$QUEUE_FILE" ]]; then
+    echo "⚠️  File queue is empty or doesn't exist"
+    echo "   File: $QUEUE_FILE"
+    exit 0
+fi
+
+# Count messages
+MESSAGE_COUNT=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
+echo "Found ${MESSAGE_COUNT} message(s) in file queue"
+echo ""
+
+# Check RabbitMQ connection
+echo "Checking RabbitMQ connection..."
+RABBITMQ_AVAILABLE=false
+if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
+    echo "✓ RabbitMQ NodePort is accessible (192.168.64.2:30672)"
+    RABBITMQ_AVAILABLE=true
+elif nc -zv localhost 5672 &>/dev/null 2>&1; then
+    echo "✓ RabbitMQ port-forward is active (localhost:5672)"
+    RABBITMQ_AVAILABLE=true
+fi
+
+if [[ "$RABBITMQ_AVAILABLE" == "false" ]]; then
+    echo "❌ RabbitMQ not accessible"
+    exit 1
+fi
+
+echo ""
+
+# Run migration
+cat > /tmp/migrate_advice_queue.py << PYTHON_EOF
+#!/usr/bin/env python3
+"""Migrate advice requests from file queue to RabbitMQ."""
+import json
+import sys
+import os
+from pathlib import Path
+
+# Add dotfiles directory to path
+dotfiles_dir = Path("$HOME/code/dotfiles")
+if not dotfiles_dir.exists():
+    dotfiles_dir = Path("$HOME/code/personal/dotfiles")
+
+sys.path.insert(0, str(dotfiles_dir))
+sys.path.insert(0, str(dotfiles_dir / "zsh" / "functions"))
+
+# Import functions
+from gtd_vector_db import read_database_config
+import pika
+
+queue_file = Path("$QUEUE_FILE")
+
+if not queue_file.exists() or queue_file.stat().st_size == 0:
+    print("File queue is empty")
+    sys.exit(0)
+
+# Read all messages
+with open(queue_file, 'r') as f:
+    lines = f.readlines()
+
+db_config = read_database_config()
+rabbitmq_enabled = db_config.get("rabbitmq_enabled", False)
+rabbitmq_url = db_config.get("rabbitmq_url", "amqp://localhost:5672")
+rabbitmq_queue = "gtd_advice"
+
+if not rabbitmq_enabled:
+    print("❌ RabbitMQ not enabled in config")
+    sys.exit(1)
+
+# Try to migrate each message
+migrated = []
+failed = []
+invalid = []
+
+print(f"Migrating {len(lines)} message(s) to RabbitMQ...")
+print("")
+
+try:
+    params = pika.URLParameters(rabbitmq_url)
+    params.blocked_connection_timeout = 5
+    connection = pika.BlockingConnection(params)
+    channel = connection.channel()
+    channel.queue_declare(queue=rabbitmq_queue, durable=True)
+    
+    for i, line in enumerate(lines, 1):
+        line = line.strip()
+        if not line:
+            continue
+        
+        try:
+            message = json.loads(line)
+            
+            # Validate required fields
+            if not message.get("id") or not message.get("question"):
+                print(f"  [{i}/{len(lines)}] ❌ Invalid message (missing required fields)")
+                invalid.append(line)
+                continue
+            
+            # Publish to RabbitMQ
+            channel.basic_publish(
+                exchange='',
+                routing_key=rabbitmq_queue,
+                body=json.dumps(message),
+                properties=pika.BasicProperties(
+                    delivery_mode=2,  # Make message persistent
+                )
+            )
+            
+            print(f"  [{i}/{len(lines)}] ✓ Migrated {message.get('id', 'unknown')}")
+            migrated.append(line)
+        
+        except json.JSONDecodeError as e:
+            print(f"  [{i}/{len(lines)}] ❌ Invalid JSON: {e}")
+            invalid.append(line)
+        except Exception as e:
+            print(f"  [{i}/{len(lines)}] ❌ Error: {e}")
+            failed.append(line)
+    
+    connection.close()
+    
+except Exception as e:
+    print(f"❌ Failed to connect to RabbitMQ: {e}")
+    sys.exit(1)
+
+print("")
+print(f"Migration complete:")
+print(f"  ✓ Migrated: {len(migrated)}")
+print(f"  ⚠️  Failed: {len(failed)}")
+print(f"  ❌ Invalid: {len(invalid)}")
+
+# Update file queue - remove migrated messages
+if migrated or invalid:
+    remaining = [l for l in lines if l.strip() not in migrated and l.strip() not in invalid]
+    
+    with open(queue_file, 'w') as f:
+        f.writelines(remaining)
+    
+    print(f"")
+    print(f"✓ Removed {len(migrated) + len(invalid)} message(s) from file queue")
+    print(f"  Remaining in file queue: {len(remaining)} message(s)")
+
+if failed:
+    print(f"")
+    print(f"⚠️  {len(failed)} message(s) failed to migrate and remain in file queue")
+
+if migrated:
+    sys.exit(0)
+else:
+    sys.exit(1)
+PYTHON_EOF
+
+# Run migration
+"$PYTHON_CMD" /tmp/migrate_advice_queue.py
+EXIT_CODE=$?
+
+rm -f /tmp/migrate_advice_queue.py
+
+exit $EXIT_CODE

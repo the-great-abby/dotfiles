@@ -4,11 +4,28 @@
 
 # Load config first
 GTD_CONFIG_FILE="$HOME/.gtd_config"
-if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+GTD_CONFIG_CALENDAR_FILE=""
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/dotfiles/zsh/.gtd_config"
+  GTD_CONFIG_CALENDAR_FILE="$HOME/code/dotfiles/zsh/.gtd_config_calendar"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
   GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+  GTD_CONFIG_CALENDAR_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config_calendar"
 fi
 if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
+fi
+# Load calendar-specific config (contains GTD_CALENDARS array)
+if [[ -z "$GTD_CONFIG_CALENDAR_FILE" ]]; then
+  # Try standard locations
+  if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config_calendar" ]]; then
+    GTD_CONFIG_CALENDAR_FILE="$HOME/code/dotfiles/zsh/.gtd_config_calendar"
+  elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config_calendar" ]]; then
+    GTD_CONFIG_CALENDAR_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config_calendar"
+  fi
+fi
+if [[ -n "$GTD_CONFIG_CALENDAR_FILE" ]] && [[ -f "$GTD_CONFIG_CALENDAR_FILE" ]]; then
+  source "$GTD_CONFIG_CALENDAR_FILE"
 fi
 
 # Source common GTD helpers (DRY - reuse existing helpers)
@@ -194,6 +211,36 @@ analyze_calendar_density() {
 }
 
 # Get upcoming events in context (for planning)
+# Parse calendar config entry (same logic as gtd-calendar)
+parse_calendar_config_enhanced() {
+  local config_entry="$1"
+  local part="${config_entry%%:*}"
+  local remaining="${config_entry#*:}"
+  
+  # Check if it's a valid format
+  if [[ "$config_entry" != *:* ]]; then
+    return 1
+  fi
+  
+  # Extract type (rw or ro)
+  local type="$part"
+  if [[ "$type" != "rw" && "$type" != "ro" ]]; then
+    return 1
+  fi
+  
+  # Extract calendar name and display name
+  local cal_name="${remaining%%:*}"
+  local display_name="${remaining#*:}"
+  
+  # If no display name provided, use calendar name
+  if [[ "$display_name" == "$remaining" ]]; then
+    display_name="$cal_name"
+  fi
+  
+  # Return in format: type|calendar_name|display_name
+  echo "${type}|${cal_name}|${display_name}"
+}
+
 get_upcoming_events_context() {
   local days_ahead="${1:-7}"
   local end_date=$(get_date_by_offset $days_ahead)
@@ -207,15 +254,50 @@ get_upcoming_events_context() {
     return 1
   fi
   
-  local events
-  events=$(get_google_events_simple "today" "$end_date" "$GOOGLE_CALENDAR_NAME" 2>/dev/null)
+  local all_events=""
+  local has_events=false
   
-  if [[ -z "$events" ]] || [[ "$events" == *"No Events Found"* ]]; then
+  # Query all configured calendars (same logic as view_calendar)
+  if [[ -n "${GTD_CALENDARS:-}" ]] && [[ ${#GTD_CALENDARS[@]} -gt 0 ]]; then
+    # Use GTD_CALENDARS array from config
+    for entry in "${GTD_CALENDARS[@]}"; do
+      local parsed=$(parse_calendar_config_enhanced "$entry")
+      if [[ -z "$parsed" ]]; then
+        continue
+      fi
+      
+      local type="${parsed%%|*}"
+      local cal_name="${parsed#*|}"
+      cal_name="${cal_name%%|*}"
+      
+      local events
+      events=$(get_google_events_simple "today" "$end_date" "$cal_name" 2>/dev/null)
+      
+      if [[ -n "$events" ]] && [[ "$events" != *"No Events Found"* ]] && [[ "$events" != *"No events"* ]]; then
+        if [[ "$has_events" == true ]]; then
+          all_events="${all_events}"$'\n'
+        fi
+        all_events="${all_events}${events}"
+        has_events=true
+      fi
+    done
+  else
+    # Fallback: use default calendar
+    local events
+    events=$(get_google_events_simple "today" "$end_date" "$GOOGLE_CALENDAR_NAME" 2>/dev/null)
+    
+    if [[ -n "$events" ]] && [[ "$events" != *"No Events Found"* ]]; then
+      all_events="$events"
+      has_events=true
+    fi
+  fi
+  
+  if [[ "$has_events" != true ]] || [[ -z "$all_events" ]]; then
     echo "  No upcoming events"
     return 0
   fi
   
-  echo "$events" | head -30 | sed 's/^/  /'
+  echo "$all_events" | head -30 | sed 's/^/  /'
 }
 
 # Warn about over-scheduled days during task creation

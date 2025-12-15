@@ -14,3 +14,4 @@ if [[ -f "$VENV_PYTHON" ]]; then
 else
   exec python3 "$PYTHON_SCRIPT" "$@"
 fi
+
