@@ -1811,6 +1811,20 @@ async def handle_list_tools() -> List[Tool]:
                 "required": ["query"]
             }
         ),
+        Tool(
+            name="summarize_web_page",
+            description="Fetch a web page and generate a concise summary. Use this when capturing links to automatically generate summaries alongside the URL. Returns the page title, a brief summary, and key points.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL of the web page to summarize (e.g., 'https://example.com/article')"
+                    }
+                },
+                "required": ["url"]
+            }
+        ),
     ]
 
 
@@ -3630,6 +3644,108 @@ IMPORTANT: Use the web search results above to provide accurate, factual answers
             return [TextContent(type="text", text=json.dumps({
                 "error": "Web search failed",
                 "message": str(e)
+            }))]
+    
+    elif name == "summarize_web_page":
+        url = arguments.get("url", "")
+        if not url:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "URL is required",
+                "message": "Please provide a URL to summarize"
+            }))]
+        
+        try:
+            try:
+                import requests
+                from bs4 import BeautifulSoup
+                import html2text
+            except ImportError as import_error:
+                return [TextContent(type="text", text=json.dumps({
+                    "error": "Missing required dependencies",
+                    "message": f"Please install required packages: pip install requests beautifulsoup4 html2text. Error: {str(import_error)}"
+                }))]
+            
+            # Fetch the web page
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            # Parse HTML
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Extract title
+            title = soup.find('title')
+            page_title = title.string.strip() if title and title.string else "Untitled"
+            
+            # Remove script and style elements
+            for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
+                script.decompose()
+            
+            # Convert to text
+            h = html2text.HTML2Text()
+            h.ignore_links = False
+            h.ignore_images = True
+            h.body_width = 0  # Don't wrap lines
+            text_content = h.handle(str(soup))
+            
+            # Limit content size for AI processing (keep first 4000 chars)
+            content_preview = text_content[:4000]
+            if len(text_content) > 4000:
+                content_preview += "\n\n[... content truncated ...]"
+            
+            # Generate summary using AI
+            summary_prompt = f"""Summarize the following web page content. Provide:
+1. A brief 2-3 sentence summary of what the page is about
+2. 3-5 key points or takeaways
+3. Any important details that would be useful to remember
+
+Page Title: {page_title}
+URL: {url}
+
+Content:
+{content_preview}
+
+Format your response as:
+SUMMARY: [brief summary]
+
+KEY POINTS:
+- [point 1]
+- [point 2]
+- [point 3]
+- [point 4]
+- [point 5]
+
+IMPORTANT DETAILS:
+[any important details worth noting]"""
+            
+            summary = call_fast_ai(
+                summary_prompt,
+                "You are a helpful assistant that creates concise, informative summaries of web pages. Focus on extracting the most important information."
+            )
+            
+            # Return structured result
+            result = {
+                "url": url,
+                "title": page_title,
+                "summary": summary,
+                "fetched_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+            
+        except requests.exceptions.RequestException as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Failed to fetch web page",
+                "message": str(e),
+                "url": url
+            }))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Error summarizing web page",
+                "message": str(e),
+                "url": url
             }))]
     
     elif name == "get_file_vector_info":

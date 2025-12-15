@@ -19,6 +19,11 @@ google-auth-oauthlib>=1.0.0
 google-auth-httplib2>=0.1.0
 google-api-python-client>=2.0.0
 
+# Web page fetching and parsing
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+html2text>=2020.1.16
+
 # Standard library should cover the rest
 # (json, pathlib, datetime, etc. are built-in)
 

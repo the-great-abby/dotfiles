@@ -119,6 +119,97 @@ echo "✓ Captured to inbox: ${FILEPATH}"
 echo "  Type: ${CAPTURE_TYPE}"
 echo "  Content: ${CONTENT}"
 
+# If this is a link capture, try to generate a summary
+if [[ "$CAPTURE_TYPE" == "link" ]]; then
+  # Extract URLs from content (simple regex match for http/https URLs)
+  # This regex matches URLs starting with http:// or https://
+  # Handle URLs that might be in parentheses, quotes, or at end of line
+  if echo "$CONTENT" | grep -qE 'https?://[^[:space:]]+'; then
+    # Extract the first URL found (handle trailing punctuation)
+    # Remove common trailing punctuation that might be part of the text but not the URL
+    URL=$(echo "$CONTENT" | grep -oE 'https?://[^[:space:]<>"]+' | sed 's/[.,;:!?)]*$//' | head -1)
+    
+    if [[ -n "$URL" ]]; then
+      echo ""
+      echo "🔗 Detected URL: $URL"
+      echo "📝 Generating summary..."
+      
+      # Get MCP Python interpreter
+      MCP_PYTHON=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+      
+      # Find MCP server location
+      MCP_SERVER="$HOME/code/dotfiles/mcp/gtd_mcp_server.py"
+      if [[ ! -f "$MCP_SERVER" ]]; then
+        MCP_SERVER="$HOME/code/personal/dotfiles/mcp/gtd_mcp_server.py"
+      fi
+      
+      if [[ -f "$MCP_SERVER" ]]; then
+        # Call the summarize_web_page tool
+        SUMMARY_RESULT=$("$MCP_PYTHON" -c "
+import sys
+import json
+import asyncio
+from pathlib import Path
+
+sys.path.insert(0, '$(dirname "$MCP_SERVER")')
+
+try:
+    from gtd_mcp_server import handle_call_tool
+    
+    # Call the summarize tool
+    result = asyncio.run(handle_call_tool('summarize_web_page', {'url': '$URL'}))
+    
+    # Extract text content
+    if result and len(result) > 0:
+        for content in result:
+            if hasattr(content, 'text'):
+                print(content.text)
+            else:
+                print(str(content))
+    else:
+        print(json.dumps({'error': 'No response from tool'}))
+        
+except Exception as e:
+    print(json.dumps({'error': f'Error calling tool: {str(e)}'}))
+" 2>&1)
+        
+        # Parse the result and add to file
+        if echo "$SUMMARY_RESULT" | "$MCP_PYTHON" -c "import sys, json; json.load(sys.stdin)" 2>/dev/null; then
+          # Extract summary from JSON
+          PAGE_TITLE=$(echo "$SUMMARY_RESULT" | "$MCP_PYTHON" -c "import sys, json; data=json.load(sys.stdin); print(data.get('title', 'Unknown'))" 2>/dev/null || echo "")
+          SUMMARY_TEXT=$(echo "$SUMMARY_RESULT" | "$MCP_PYTHON" -c "import sys, json; data=json.load(sys.stdin); print(data.get('summary', ''))" 2>/dev/null || echo "")
+          
+          if [[ -n "$SUMMARY_TEXT" ]]; then
+            # Append summary to the file
+            cat >> "$FILEPATH" <<EOF
+
+## Page Summary
+
+**Title:** ${PAGE_TITLE}
+**URL:** ${URL}
+
+${SUMMARY_TEXT}
+EOF
+            echo "✓ Summary generated and added to capture"
+          else
+            echo "⚠️  Could not extract summary from response"
+          fi
+        else
+          # Check if there's an error message
+          ERROR_MSG=$(echo "$SUMMARY_RESULT" | "$MCP_PYTHON" -c "import sys, json; data=json.load(sys.stdin); print(data.get('message', data.get('error', 'Unknown error')))" 2>/dev/null || echo "")
+          if [[ -n "$ERROR_MSG" ]]; then
+            echo "⚠️  Could not generate summary: $ERROR_MSG"
+          else
+            echo "⚠️  Could not generate summary (invalid response format)"
+          fi
+        fi
+      else
+        echo "⚠️  MCP server not found, skipping summary generation"
+      fi
+    fi
+  fi
+fi
+
 # Track capture time (time to capture = friction metric)
 CAPTURE_END_TIME=$(date +%s)
 CAPTURE_DURATION=$((CAPTURE_END_TIME - CAPTURE_START_TIME))
