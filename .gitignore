@@ -9,3 +9,6 @@ fonts/
 *venv*
 credentials.json
 .google_health/credentials.json
+.gtd_config_database.*
+.cursor/mcp.json
+zsh/.gtd_config_database.bak

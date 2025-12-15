@@ -117,12 +117,13 @@ process_advice_request() {
   if [[ $exit_code -ne 0 ]]; then
     echo "Error: Advice request failed (exit code: $exit_code)" >&2
     # Save error result
-    echo "$request_json" | python3 <<PYTHON_EOF
+    REQUEST_JSON="$request_json" python3 "$advice_output" "$request_id" "$persona" "$mode" "$result_file" "$duration" "$created_at_val" <<PYTHON_EOF
 import json
 import sys
+import os
 from datetime import datetime
 
-request = json.load(sys.stdin)
+request = json.loads(os.environ.get('REQUEST_JSON', '{}'))
 question = request.get('question', '')
 advice_output = sys.argv[1]
 request_id = sys.argv[2]
@@ -149,7 +150,6 @@ with open(result_file, "w") as f:
 
 print(json.dumps(result))
 PYTHON_EOF
-"$advice_output" "$request_id" "$persona" "$mode" "$result_file" "$duration" "$created_at_val"
     return 1
   fi
   
@@ -157,12 +157,13 @@ PYTHON_EOF
   echo "$advice_output" > "$answer_file"
   
   # Save result JSON
-  echo "$request_json" | python3 <<PYTHON_EOF
+  REQUEST_JSON="$request_json" python3 "$advice_output" "$request_id" "$persona" "$mode" "$answer_file" "$result_file" "$created_at_val" "$duration" <<PYTHON_EOF
 import json
 import sys
+import os
 from datetime import datetime
 
-request = json.load(sys.stdin)
+request = json.loads(os.environ.get('REQUEST_JSON', '{}'))
 question = request.get('question', '')
 answer_text = sys.argv[1]
 request_id = sys.argv[2]
@@ -194,7 +195,6 @@ with open(result_file, "w") as f:
 
 print(json.dumps(result))
 PYTHON_EOF
-"$advice_output" "$request_id" "$persona" "$mode" "$answer_file" "$result_file" "$created_at_val" "$duration"
   
   # Send Discord notification
   if [[ -n "${GTD_DISCORD_WEBHOOK_URL:-}" ]]; then

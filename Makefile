@@ -878,21 +878,6 @@ scheduler-run:
 	@echo "Running deep analysis scheduler (one-time check)..."
 	@$(HOME)/code/dotfiles/bin/gtd-deep-analysis-scheduler
 
-	@if pgrep -f "gtd_vector_filewatcher.py" >/dev/null; then \
-		pid=$$(pgrep -f "gtd_vector_filewatcher.py"); \
-		echo "  ✅ Running (PID: $$pid)"; \
-		echo "  Logs: tail -f /tmp/vector-filewatcher.log"; \
-		echo "  Stop:  make filewatcher-stop"; \
-	else \
-		echo "  ❌ Not running"; \
-		echo "  Start: make filewatcher-start"; \
-		echo "  Setup: See FILEWATCHER_SETUP.md"; \
-	fi
-	@echo ""
-	@echo "  💡 To scan existing files and queue them:"
-	@echo "     make filewatcher-scan"
-	@echo ""
-
 # Convenience targets (aliases for worker-status)
 worker-deep-status:
 	@echo "📊 Deep Analysis Worker Status"
