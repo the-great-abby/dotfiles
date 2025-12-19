@@ -1970,9 +1970,11 @@ show_dashboard() {
   echo ""
   
   # Quick Stats Section - Compact format
-  echo -e "${BOLD}📈 Quick Stats${NC}"
+  # Wrap entire section in error handling to prevent crashes
+  set +e  # Don't exit on errors in this section
+  echo -e "${BOLD}📈 Quick Stats${NC}" 2>/dev/null || echo "📈 Quick Stats"
   
-  # Logging streak (with timeout protection)
+  # Logging streak (with aggressive timeout protection and error isolation)
   local streak_script=""
   if command -v gtd-log-stats &>/dev/null; then
     streak_script="gtd-log-stats"
@@ -1984,44 +1986,58 @@ show_dashboard() {
   
   if [[ -n "$streak_script" ]]; then
     local current_streak=0
-    # Use timeout if available to prevent hanging
+    # Use timeout with aggressive limits and run in subshell to isolate errors
     if command -v timeout &>/dev/null; then
-      current_streak=$(timeout 2 "$streak_script" streak 2>/dev/null || echo "0")
+      # Run in subshell with timeout and error suppression
+      current_streak=$(timeout 1 bash -c "exec '$streak_script' streak 2>/dev/null" 2>/dev/null || echo "0")
     else
-      current_streak=$("$streak_script" streak 2>/dev/null || echo "0")
+      # Without timeout, use background process with kill after delay
+      current_streak=$(bash -c "exec '$streak_script' streak 2>/dev/null & PID=\$!; sleep 1; kill \$PID 2>/dev/null; wait \$PID 2>/dev/null" 2>/dev/null || echo "0")
     fi
-    current_streak=$(echo "$current_streak" | tr -d '[:space:]')
+    # Clean and validate the result
+    current_streak=$(echo "$current_streak" | tr -d '[:space:]' | head -c 10)
     if [[ ! "$current_streak" =~ ^[0-9]+$ ]]; then
       current_streak=0
     fi
+    # Only display if we got a valid result
     if [[ $current_streak -gt 0 ]]; then
-      echo -e "  ${GREEN}🔥${NC} ${BOLD}Streak:${NC} ${current_streak} day(s)"
+      echo -e "  ${GREEN}🔥${NC} ${BOLD}Streak:${NC} ${current_streak} day(s)" 2>/dev/null || echo "  🔥 Streak: ${current_streak} day(s)"
     else
-      echo -e "  ${YELLOW}📝${NC} ${BOLD}Streak:${NC} Start logging!"
+      echo -e "  ${YELLOW}📝${NC} ${BOLD}Streak:${NC} Start logging!" 2>/dev/null || echo "  📝 Streak: Start logging!"
     fi
   fi
   
-  # Today's log entries - with error handling
+  # Today's log entries - with aggressive error handling
   local today=""
   local today_log=""
   local today_entries=0
   if command -v date &>/dev/null; then
-    today=$(gtd_get_today 2>/dev/null || echo "$(date +%Y-%m-%d 2>/dev/null || echo '')")
-    if [[ -n "$today" ]]; then
-      today_log="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}/${today}.md"
+    # Get today's date with timeout protection
+    if command -v timeout &>/dev/null; then
+      today=$(timeout 1 bash -c "gtd_get_today 2>/dev/null || date +%Y-%m-%d 2>/dev/null" 2>/dev/null || echo "")
+    else
+      today=$(gtd_get_today 2>/dev/null || date +%Y-%m-%d 2>/dev/null || echo "")
+    fi
+    if [[ -n "$today" ]] && [[ -n "${DAILY_LOG_DIR:-}" ]] && [[ -d "${DAILY_LOG_DIR:-}" ]]; then
+      today_log="${DAILY_LOG_DIR}/${today}.md"
       if [[ -f "$today_log" ]] && [[ -r "$today_log" ]]; then
-        today_entries=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
+        # Use timeout for grep to prevent hanging on large files
+        if command -v timeout &>/dev/null; then
+          today_entries=$(timeout 1 grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
+        else
+          today_entries=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
+        fi
         [[ "$today_entries" =~ ^[0-9]+$ ]] || today_entries=0
       fi
     fi
   fi
   echo -e "  ${CYAN}📝${NC} ${BOLD}Today:${NC} ${today_entries} entries" 2>/dev/null || echo "  📝 Today: ${today_entries} entries"
   
-  # Waiting for items (cached) - with error handling
+  # Waiting for items (cached) - with aggressive error handling
   local waiting_count=0
-  if [[ -n "${WAITING_PATH:-}" ]] && [[ -d "${WAITING_PATH:-}" ]]; then
+  if [[ -n "${WAITING_PATH:-}" ]] && [[ -d "${WAITING_PATH:-}" ]] && [[ -r "${WAITING_PATH:-}" ]]; then
     if command -v timeout &>/dev/null; then
-      waiting_count=$(timeout 2 bash -c "gtd_get_cached_count 'waiting' '${WAITING_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+      waiting_count=$(timeout 1 bash -c "gtd_get_cached_count 'waiting' '${WAITING_PATH}' '*.md' 5" 2>/dev/null || echo "0")
     else
       waiting_count=$(gtd_get_cached_count "waiting" "${WAITING_PATH}" "*.md" 5 2>/dev/null || echo "0")
     fi
@@ -2032,11 +2048,11 @@ show_dashboard() {
     echo -e "  ${YELLOW}⏳${NC} ${BOLD}Waiting:${NC} ${waiting_count}" 2>/dev/null || echo "  ⏳ Waiting: ${waiting_count}"
   fi
   
-  # Someday/Maybe items (cached) - with error handling
+  # Someday/Maybe items (cached) - with aggressive error handling
   local someday_count=0
-  if [[ -n "${SOMEDAY_PATH:-}" ]] && [[ -d "${SOMEDAY_PATH:-}" ]]; then
+  if [[ -n "${SOMEDAY_PATH:-}" ]] && [[ -d "${SOMEDAY_PATH:-}" ]] && [[ -r "${SOMEDAY_PATH:-}" ]]; then
     if command -v timeout &>/dev/null; then
-      someday_count=$(timeout 2 bash -c "gtd_get_cached_count 'someday' '${SOMEDAY_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+      someday_count=$(timeout 1 bash -c "gtd_get_cached_count 'someday' '${SOMEDAY_PATH}' '*.md' 5" 2>/dev/null || echo "0")
     else
       someday_count=$(gtd_get_cached_count "someday" "${SOMEDAY_PATH}" "*.md" 5 2>/dev/null || echo "0")
     fi
@@ -2046,16 +2062,22 @@ show_dashboard() {
   if [[ $someday_count -gt 0 ]]; then
     echo -e "  ${MAGENTA}💭${NC} ${BOLD}Someday:${NC} ${someday_count}" 2>/dev/null || echo "  💭 Someday: ${someday_count}"
   fi
+  set -e  # Re-enable error handling
   
   echo ""
   
-  # Smart Defaults Section - with error handling
+  # Smart Defaults Section - with aggressive error handling and timeout
   # Only show if function exists and directories are available
   if declare -f show_smart_defaults &>/dev/null; then
     set +e
     # Check if required paths exist before calling
-    if [[ -n "${GTD_BASE_DIR:-}" ]] && [[ -d "${GTD_BASE_DIR:-}" ]]; then
-      show_smart_defaults 2>/dev/null || true
+    if [[ -n "${GTD_BASE_DIR:-}" ]] && [[ -d "${GTD_BASE_DIR:-}" ]] && [[ -r "${GTD_BASE_DIR:-}" ]]; then
+      # Use timeout if available to prevent hanging
+      if command -v timeout &>/dev/null; then
+        timeout 2 bash -c "show_smart_defaults" 2>/dev/null || true
+      else
+        show_smart_defaults 2>/dev/null || true
+      fi
     fi
     set -e
   fi
