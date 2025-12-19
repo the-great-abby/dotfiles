@@ -1823,7 +1823,9 @@ show_dashboard() {
   # Waiting count - with error handling
   local waiting_count=0
   if [[ -n "${WAITING_PATH:-}" ]]; then
+    set +e
     waiting_count=$(gtd_get_cached_count "waiting" "${WAITING_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    set -e
     # Ensure it's numeric
     [[ "$waiting_count" =~ ^[0-9]+$ ]] || waiting_count=0
   fi
@@ -1834,7 +1836,9 @@ show_dashboard() {
   # Someday/Maybe items (cached) - with error handling
   local someday_count=0
   if [[ -n "${SOMEDAY_PATH:-}" ]]; then
+    set +e
     someday_count=$(gtd_get_cached_count "someday" "${SOMEDAY_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    set -e
     # Ensure it's numeric
     [[ "$someday_count" =~ ^[0-9]+$ ]] || someday_count=0
   fi
