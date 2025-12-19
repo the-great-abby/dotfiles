@@ -9,7 +9,7 @@ GTD_USER_NAME="${GTD_USER_NAME:-Abby}"
 
 # Computer mode: "work" or "home" (default: "home")
 # Used to customize behavior based on which computer you're using
-GTD_COMPUTER_MODE="work"
+GTD_COMPUTER_MODE="home"
 
 # ============================================================================
 # Directory Structure
