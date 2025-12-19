@@ -296,16 +296,33 @@ git_sync_to_second_brain() {
   # Initialize git repo if needed
   init_gtd_git_repo
   
-  cd "$GTD_BASE_DIR" || return 1
+  # Check if we're in a git repo (might be in daily log dir, not GTD base)
+  local git_root=""
+  if git rev-parse --git-dir &>/dev/null; then
+    git_root=$(git rev-parse --show-toplevel 2>/dev/null)
+  fi
   
-  # Stage all changes
-  git add -A 2>/dev/null || true
-  
-  # Check if there are changes to commit
-  if git diff --staged --quiet 2>/dev/null && git diff --quiet 2>/dev/null; then
-    # No changes, but still sync files
-    echo "  ℹ️  No git changes to commit"
+  # If not in a git repo, try GTD_BASE_DIR
+  if [[ -z "$git_root" && -d "$GTD_BASE_DIR/.git" ]]; then
+    cd "$GTD_BASE_DIR" || return 1
+    git_root="$GTD_BASE_DIR"
+  elif [[ -z "$git_root" ]]; then
+    # Not a git repo - that's okay, we'll still sync files
+    echo "  ℹ️  Not in a git repository (this is okay, files will still sync)"
   else
+    cd "$git_root" || return 1
+  fi
+  
+  # Only try git operations if we're in a git repo
+  if [[ -n "$git_root" && -d "$git_root/.git" ]]; then
+    # Stage all changes
+    git add -A 2>/dev/null || true
+    
+    # Check if there are changes to commit
+    if git diff --staged --quiet 2>/dev/null && git diff --quiet 2>/dev/null; then
+      # No changes, but still sync files
+      echo "  ℹ️  No git changes to commit"
+    else
     # Show what's being committed
     local changed_files=$(git diff --staged --name-only 2>/dev/null | wc -l | tr -d ' ')
     if [[ -n "$changed_files" && "$changed_files" -gt 0 ]]; then
@@ -322,11 +339,12 @@ git_sync_to_second_brain() {
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     local commit_msg="Sync ${sync_type} to Second Brain - ${timestamp}"
     
-    git commit -m "$commit_msg" --quiet 2>/dev/null && {
-      echo "  ✓ Committed changes: ${commit_msg}"
-    } || {
-      echo "  ⚠️  Commit failed or no changes to commit"
-    }
+      git commit -m "$commit_msg" --quiet 2>/dev/null && {
+        echo "  ✓ Committed changes: ${commit_msg}"
+      } || {
+        echo "  ⚠️  Commit failed or no changes to commit"
+      }
+    fi
   fi
   
   # Create destination directory
@@ -347,21 +365,58 @@ git_sync_to_second_brain() {
       
       mkdir -p "$dest_dir_path"
       
-      # Only copy if source is newer or doesn't exist in dest
-      if [[ ! -f "$dest_file" ]] || [[ "$file" -nt "$dest_file" ]]; then
+      # Check if destination exists and compare
+      if [[ ! -f "$dest_file" ]]; then
+        # File doesn't exist in destination - always copy
         if cp "$file" "$dest_file" 2>/dev/null; then
           ((files_copied++))
-          echo "    ✓ Copied: ${rel_path}"
+          echo "    ✓ Copied (new): ${rel_path}"
+        else
+          echo "    ⚠️  Failed to copy: ${rel_path}"
+        fi
+      elif [[ "$file" -nt "$dest_file" ]]; then
+        # Source is newer - copy
+        if cp "$file" "$dest_file" 2>/dev/null; then
+          ((files_copied++))
+          echo "    ✓ Copied (updated): ${rel_path}"
         else
           echo "    ⚠️  Failed to copy: ${rel_path}"
         fi
       else
-        ((files_skipped++))
+        # Files exist and source is not newer - check if they're actually different
+        # Use checksum comparison to be more accurate than timestamp
+        local source_checksum=""
+        local dest_checksum=""
+        
+        if command -v md5sum &>/dev/null; then
+          source_checksum=$(md5sum "$file" 2>/dev/null | cut -d' ' -f1)
+          dest_checksum=$(md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1)
+        elif command -v md5 &>/dev/null; then
+          source_checksum=$(md5 -q "$file" 2>/dev/null)
+          dest_checksum=$(md5 -q "$dest_file" 2>/dev/null)
+        elif command -v shasum &>/dev/null; then
+          source_checksum=$(shasum -a 256 "$file" 2>/dev/null | cut -d' ' -f1)
+          dest_checksum=$(shasum -a 256 "$dest_file" 2>/dev/null | cut -d' ' -f1)
+        fi
+        
+        if [[ -n "$source_checksum" && -n "$dest_checksum" && "$source_checksum" != "$dest_checksum" ]]; then
+          # Files are different - copy even if timestamp says otherwise
+          if cp "$file" "$dest_file" 2>/dev/null; then
+            ((files_copied++))
+            echo "    ✓ Copied (content differs): ${rel_path}"
+          else
+            echo "    ⚠️  Failed to copy: ${rel_path}"
+          fi
+        else
+          # Files are the same - skip
+          ((files_skipped++))
+          echo "    ⏭️  Skipped (identical): ${rel_path}"
+        fi
       fi
     fi
   done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
   
-  echo "  📊 Sync summary: ${files_copied} copied, ${files_skipped} skipped (up to date), ${total_files} total"
+  echo "  📊 Sync summary: ${files_copied} copied, ${files_skipped} skipped (identical), ${total_files} total"
 }
 
 # Git-based sync: pull from Second Brain
@@ -391,36 +446,88 @@ git_sync_from_second_brain() {
       
       mkdir -p "$dest_dir_path"
       
-      # Only copy if source is newer or doesn't exist in dest
-      if [[ ! -f "$dest_file" ]] || [[ "$file" -nt "$dest_file" ]]; then
+      # Check if destination exists and compare
+      if [[ ! -f "$dest_file" ]]; then
+        # File doesn't exist locally - always pull
         if cp "$file" "$dest_file" 2>/dev/null; then
           ((files_copied++))
-          echo "    ✓ Pulled: ${rel_path}"
+          echo "    ✓ Pulled (new): ${rel_path}"
+        else
+          echo "    ⚠️  Failed to pull: ${rel_path}"
+        fi
+      elif [[ "$file" -nt "$dest_file" ]]; then
+        # Source is newer - pull
+        if cp "$file" "$dest_file" 2>/dev/null; then
+          ((files_copied++))
+          echo "    ✓ Pulled (updated): ${rel_path}"
         else
           echo "    ⚠️  Failed to pull: ${rel_path}"
         fi
       else
-        ((files_skipped++))
+        # Files exist and source is not newer - check if they're actually different
+        # Use checksum comparison to be more accurate than timestamp
+        local source_checksum=""
+        local dest_checksum=""
+        
+        if command -v md5sum &>/dev/null; then
+          source_checksum=$(md5sum "$file" 2>/dev/null | cut -d' ' -f1)
+          dest_checksum=$(md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1)
+        elif command -v md5 &>/dev/null; then
+          source_checksum=$(md5 -q "$file" 2>/dev/null)
+          dest_checksum=$(md5 -q "$dest_file" 2>/dev/null)
+        elif command -v shasum &>/dev/null; then
+          source_checksum=$(shasum -a 256 "$file" 2>/dev/null | cut -d' ' -f1)
+          dest_checksum=$(shasum -a 256 "$dest_file" 2>/dev/null | cut -d' ' -f1)
+        fi
+        
+        if [[ -n "$source_checksum" && -n "$dest_checksum" && "$source_checksum" != "$dest_checksum" ]]; then
+          # Files are different - pull even if timestamp says otherwise
+          if cp "$file" "$dest_file" 2>/dev/null; then
+            ((files_copied++))
+            echo "    ✓ Pulled (content differs): ${rel_path}"
+          else
+            echo "    ⚠️  Failed to pull: ${rel_path}"
+          fi
+        else
+          # Files are the same - skip
+          ((files_skipped++))
+          echo "    ⏭️  Skipped (identical): ${rel_path}"
+        fi
       fi
     fi
   done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
   
   if [[ $files_copied -gt 0 ]]; then
-    echo "  📊 Pull summary: ${files_copied} pulled, ${files_skipped} skipped (up to date), ${total_files} total"
+    echo "  📊 Pull summary: ${files_copied} pulled, ${files_skipped} skipped (identical), ${total_files} total"
     
     # Commit the pulled changes
     init_gtd_git_repo
-    cd "$GTD_BASE_DIR" || return 1
     
-    git add -A 2>/dev/null || true
-    if ! git diff --staged --quiet 2>/dev/null; then
-      local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-      git commit -m "Sync from Second Brain - ${timestamp}" --quiet 2>/dev/null && {
-        echo "  ✓ Committed pulled changes"
-      }
+    # Check if we're in a git repo
+    local git_root=""
+    if git rev-parse --git-dir &>/dev/null; then
+      git_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    fi
+    
+    # If not in a git repo, try GTD_BASE_DIR
+    if [[ -z "$git_root" && -d "$GTD_BASE_DIR/.git" ]]; then
+      cd "$GTD_BASE_DIR" || return 1
+      git_root="$GTD_BASE_DIR"
+    elif [[ -n "$git_root" ]]; then
+      cd "$git_root" || return 1
+    fi
+    
+    if [[ -n "$git_root" && -d "$git_root/.git" ]]; then
+      git add -A 2>/dev/null || true
+      if ! git diff --staged --quiet 2>/dev/null; then
+        local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+        git commit -m "Sync from Second Brain - ${timestamp}" --quiet 2>/dev/null && {
+          echo "  ✓ Committed pulled changes"
+        }
+      fi
     fi
   else
-    echo "  ℹ️  No files to pull (all up to date)"
+    echo "  ℹ️  No files to pull (all identical)"
   fi
 }
 
