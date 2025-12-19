@@ -1203,24 +1203,44 @@ show_dashboard() {
   # System Status Section - Compact format
   echo -e "${BOLD}📊 System Status${NC}"
   
-  # Inbox count (cached for 5 seconds)
-  local inbox_count=$(gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md" 5)
+  # Inbox count (cached for 5 seconds) - with error handling
+  local inbox_count=0
+  if [[ -n "${INBOX_PATH:-}" ]]; then
+    inbox_count=$(gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    # Ensure it's numeric
+    [[ "$inbox_count" =~ ^[0-9]+$ ]] || inbox_count=0
+  fi
   if [[ $inbox_count -gt 0 ]]; then
     echo -e "  ${RED}📥${NC} ${BOLD}Inbox:${NC} ${inbox_count} ${YELLOW}→ Process first! (2)${NC}"
   else
     echo -e "  ${GREEN}✓${NC} ${BOLD}Inbox:${NC} Empty"
   fi
   
-  # Active tasks count (cached)
-  local tasks_count=$(gtd_get_cached_count "tasks" "${TASKS_PATH}" "*.md" 5)
+  # Active tasks count (cached) - with error handling
+  local tasks_count=0
+  if [[ -n "${TASKS_PATH:-}" ]]; then
+    tasks_count=$(gtd_get_cached_count "tasks" "${TASKS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    # Ensure it's numeric
+    [[ "$tasks_count" =~ ^[0-9]+$ ]] || tasks_count=0
+  fi
   echo -e "  ${CYAN}✅${NC} ${BOLD}Tasks:${NC} ${tasks_count}"
   
-  # Active projects count (cached) - special pattern for projects
-  local projects_count=$(gtd_get_cached_count "projects" "${PROJECTS_PATH}" "projects" 5)
+  # Active projects count (cached) - special pattern for projects - with error handling
+  local projects_count=0
+  if [[ -n "${PROJECTS_PATH:-}" ]]; then
+    projects_count=$(gtd_get_cached_count "projects" "${PROJECTS_PATH}" "projects" 5 2>/dev/null || echo "0")
+    # Ensure it's numeric
+    [[ "$projects_count" =~ ^[0-9]+$ ]] || projects_count=0
+  fi
   echo -e "  ${CYAN}📁${NC} ${BOLD}Projects:${NC} ${projects_count}"
   
-  # Areas count (cached)
-  local areas_count=$(gtd_get_cached_count "areas" "${AREAS_PATH}" "*.md" 5)
+  # Areas count (cached) - with error handling
+  local areas_count=0
+  if [[ -n "${AREAS_PATH:-}" ]]; then
+    areas_count=$(gtd_get_cached_count "areas" "${AREAS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    # Ensure it's numeric
+    [[ "$areas_count" =~ ^[0-9]+$ ]] || areas_count=0
+  fi
   echo -e "  ${CYAN}🎯${NC} ${BOLD}Areas:${NC} ${areas_count}"
   
   # Smart Suggestions count
@@ -1302,13 +1322,24 @@ show_dashboard() {
   echo -e "  ${CYAN}📝${NC} ${BOLD}Today:${NC} ${today_entries} entries"
   
   # Waiting for items (cached)
-  local waiting_count=$(gtd_get_cached_count "waiting" "${WAITING_PATH}" "*.md" 5)
+  # Waiting count - with error handling
+  local waiting_count=0
+  if [[ -n "${WAITING_PATH:-}" ]]; then
+    waiting_count=$(gtd_get_cached_count "waiting" "${WAITING_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    # Ensure it's numeric
+    [[ "$waiting_count" =~ ^[0-9]+$ ]] || waiting_count=0
+  fi
   if [[ $waiting_count -gt 0 ]]; then
     echo -e "  ${YELLOW}⏳${NC} ${BOLD}Waiting:${NC} ${waiting_count}"
   fi
   
-  # Someday/Maybe items (cached)
-  local someday_count=$(gtd_get_cached_count "someday" "${SOMEDAY_PATH}" "*.md" 5)
+  # Someday/Maybe items (cached) - with error handling
+  local someday_count=0
+  if [[ -n "${SOMEDAY_PATH:-}" ]]; then
+    someday_count=$(gtd_get_cached_count "someday" "${SOMEDAY_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    # Ensure it's numeric
+    [[ "$someday_count" =~ ^[0-9]+$ ]] || someday_count=0
+  fi
   if [[ $someday_count -gt 0 ]]; then
     echo -e "  ${MAGENTA}💭${NC} ${BOLD}Someday:${NC} ${someday_count}"
   fi

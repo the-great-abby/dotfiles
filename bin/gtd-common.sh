@@ -290,59 +290,81 @@ gtd_get_cache_file() {
 
 # Get cached count or compute and cache it
 # Usage: gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md"
+# Returns: count (always a number, defaults to 0 on error)
 gtd_get_cached_count() {
   local cache_key="$1"
   local path="$2"
   local pattern="${3:-*.md}"
   local cache_age="${4:-5}"  # Cache for 5 seconds by default
   
+  # Validate inputs - return 0 if cache_key or path is empty
+  if [[ -z "$cache_key" ]] || [[ -z "$path" ]]; then
+    echo "0"
+    return 0
+  fi
+  
   local cache_file=$(gtd_get_cache_file)
   local cache_time=$(stat -f "%m" "$cache_file" 2>/dev/null || echo "0")
-  local current_time=$(date +%s)
+  local current_time=$(date +%s 2>/dev/null || echo "0")
   local age=$((current_time - cache_time))
   
   # If cache is fresh, use it
-  if [[ -f "$cache_file" ]] && [[ $age -lt $cache_age ]]; then
+  if [[ -f "$cache_file" ]] && [[ $age -lt $cache_age ]] && [[ $age -ge 0 ]]; then
     # Try to get cached value
     local cached_value=$(grep "^${cache_key}=" "$cache_file" 2>/dev/null | cut -d'=' -f2)
-    if [[ -n "$cached_value" ]]; then
+    if [[ -n "$cached_value" ]] && [[ "$cached_value" =~ ^[0-9]+$ ]]; then
       echo "$cached_value"
       return 0
     fi
   fi
   
-  # Compute count
+  # Compute count - default to 0 on any error
   local count=0
-  if [[ -d "$path" ]]; then
+  if [[ -n "$path" ]] && [[ -d "$path" ]]; then
     if [[ "$pattern" == "*.md" ]]; then
       # Simple file count
-      count=$(ls -1 "${path}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+      count=$(ls -1 "${path}"/*.md 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+      # Ensure count is numeric
+      [[ "$count" =~ ^[0-9]+$ ]] || count=0
     elif [[ "$pattern" == "projects" ]]; then
       # Project count (README.md in subdirectories) - special case
-      count=$(ls -1 "${path}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+      count=$(ls -1 "${path}"/*/README.md 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+      # Ensure count is numeric
+      [[ "$count" =~ ^[0-9]+$ ]] || count=0
     else
       # Use find for complex patterns
-      count=$(find "$path" -name "$pattern" -type f 2>/dev/null | wc -l | tr -d ' ')
+      count=$(find "$path" -name "$pattern" -type f 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+      # Ensure count is numeric
+      [[ "$count" =~ ^[0-9]+$ ]] || count=0
     fi
   fi
   
-  # Update cache
-  if [[ -f "$cache_file" ]]; then
-    # Update existing entry or add new one
-    if grep -q "^${cache_key}=" "$cache_file" 2>/dev/null; then
-      if [[ "$(uname)" == "Darwin" ]]; then
-        sed -i '' "s/^${cache_key}=.*/${cache_key}=${count}/" "$cache_file"
+  # Update cache (only if cache_file path is valid)
+  if [[ -n "$cache_file" ]]; then
+    local cache_dir=$(dirname "$cache_file")
+    if [[ -n "$cache_dir" ]]; then
+      mkdir -p "$cache_dir" 2>/dev/null
+    fi
+    
+    if [[ -f "$cache_file" ]]; then
+      # Update existing entry or add new one
+      if grep -q "^${cache_key}=" "$cache_file" 2>/dev/null; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+          sed -i '' "s/^${cache_key}=.*/${cache_key}=${count}/" "$cache_file" 2>/dev/null
+        else
+          sed -i "s/^${cache_key}=.*/${cache_key}=${count}/" "$cache_file" 2>/dev/null
+        fi
       else
-        sed -i "s/^${cache_key}=.*/${cache_key}=${count}/" "$cache_file"
+        echo "${cache_key}=${count}" >> "$cache_file" 2>/dev/null
       fi
     else
-      echo "${cache_key}=${count}" >> "$cache_file"
+      # Create new cache file
+      echo "${cache_key}=${count}" > "$cache_file" 2>/dev/null
     fi
-  else
-    echo "${cache_key}=${count}" > "$cache_file"
   fi
   
-  echo "$count"
+  # Always return a number (default to 0 if something went wrong)
+  echo "${count:-0}"
 }
 
 # Invalidate dashboard cache (call after operations that change counts)
