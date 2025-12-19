@@ -1,4 +1,5 @@
 
+╰─⠠⠵ gtd-brain-sync 
 🧠 GTD ↔ Second Brain Sync
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -20,22 +21,242 @@
 🔄 Syncing Daily Logs to Second Brain (Git-based)...
   Syncing local → Second Brain...
   ℹ️  No git changes to commit
+  📂 Source directory: /Users/abbymalson/Documents/daily_logs
+  📂 Destination directory: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs
+
+  🔍 File: 2025-12-19.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-19.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-19.md
+  🔍 File: 2025-12-09.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-09.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-09.md
+  🔍 File: 2025-11-26.txt
+    Source: /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.txt
     ⏭️  Skipped (identical per md5sum and diff): 2025-11-26.txt
+  🔍 File: 2025-12-08.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-08.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-08.md
+  🔍 File: 2025-11-26.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-11-26.md
+  🔍 File: 2025-12-03.txt
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-03.txt
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-03.txt
+  🔍 File: 2025-12-04.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-04.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-04.md
   📊 Sync summary: 0 copied, 7 skipped (identical), 7 total
   Syncing Second Brain → local...
+  📂 Source directory (Second Brain): /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs
+  📂 Destination directory (local): /Users/abbymalson/Documents/daily_logs
+
+  🔍 File: 2025-12-19.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-19.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-19.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-19.md
+  🔍 File: 2025-12-09.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-09.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-09.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-09.md
+  🔍 File: 2025-11-26.txt
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
     ⏭️  Skipped (identical per md5sum and diff): 2025-11-26.txt
+  🔍 File: 2025-12-08.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-08.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-08.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-08.md
+  🔍 File: 2025-11-26.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-11-26.md
+  🔍 File: 2025-12-03.txt
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-03.txt
+  🔍 File: 2025-12-04.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-04.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-04.md
     ⏭️  Skipped (identical per md5sum and diff): 2025-12-04.md
   ℹ️  No files to pull (all identical)
   ✓ Daily logs synced to: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs
     (Will sync automatically via Obsidian to other computers)
+
+✓ Sync complete!
+╰─⠠⠵ gtd-brain-sync 
+🧠 GTD ↔ Second Brain Sync
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔄 Syncing GTD Projects to Second Brain...
+  📄 Processing: 20251208112552-task
+    ⏭️  Already linked, skipping
+  📄 Processing: README
+    ⏭️  Already linked, skipping
+  📄 Processing: 20251208104653-task
+    ⏭️  Already linked, skipping
+✓ Project sync complete (Total: 3, Created: 0, Skipped: 3, Linked: 0)
+
+🔄 Syncing GTD Areas to Second Brain...
+✓ Area sync complete (Total: 0, Created: 0, Skipped: 0, Linked: 0)
+
+🔄 Syncing GTD References to Second Brain Resources...
+✓ Reference sync complete (Total: 0, Copied: 0, Skipped: 0, Linked: 0)
+
+🔄 Syncing Daily Logs to Second Brain (Git-based)...
+  Syncing local → Second Brain...
+  ℹ️  No git changes to commit
+  📂 Source directory: /Users/abbymalson/Documents/daily_logs
+  📂 Destination directory: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs
+
+  🔍 File: 2025-12-19.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-19.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-19.md
+  🔍 File: 2025-12-09.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-09.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-09.md
+  🔍 File: 2025-11-26.txt
+    Source: /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.txt
+    ⏭️  Skipped (identical per md5sum and diff): 2025-11-26.txt
+  🔍 File: 2025-12-08.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-08.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-08.md
+  🔍 File: 2025-11-26.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-11-26.md
+  🔍 File: 2025-12-03.txt
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-03.txt
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-03.txt
+  🔍 File: 2025-12-04.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-04.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-04.md
+  📊 Sync summary: 0 copied, 7 skipped (identical), 7 total
+  Syncing Second Brain → local...
+  📂 Source directory (Second Brain): /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs
+  📂 Destination directory (local): /Users/abbymalson/Documents/daily_logs
+
+  🔍 File: 2025-12-19.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-19.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-19.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-19.md
+  🔍 File: 2025-12-09.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-09.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-09.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-09.md
+  🔍 File: 2025-11-26.txt
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
+    ⏭️  Skipped (identical per md5sum and diff): 2025-11-26.txt
+  🔍 File: 2025-12-08.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-08.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-08.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-08.md
+  🔍 File: 2025-11-26.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-11-26.md
+  🔍 File: 2025-12-03.txt
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-03.txt
+  🔍 File: 2025-12-04.md
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-04.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-04.md
+    ⏭️  Skipped (identical per md5sum and diff): 2025-12-04.md
+  ℹ️  No files to pull (all identical)
+  ✓ Daily logs synced to: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs
+    (Will sync automatically via Obsidian to other computers)
+
+✓ Sync complete!
+
+
+
+╰─⠠⠵ cat /Users/abbymalson/Documents/daily_logs/2025-12-19.md                                                                   
+# Daily Log - 2025-12-19
+
+08:15 - at work and trying to log new entries from the work computer so the system can sync back with the system
+11:22 - testing out the sync with the work computer - still doesn't appear to be working correctly
+11:44 - working on ec2 instance - docimports (which is manged via an asg), and and deployed via backend with many servers project - I should probably write up some details about this forgotten architecture
+╭─abbymalson at MBP166-002 in ~/code/personal/dotfiles on gtd✔ 25-12-19 - 14:19:56
+╰─⠠⠵ cat /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs/2025-12-19.md                                                    
+cat: /Users/abbymalson/Documents/obsidian/Second: No such file or directory
+cat: Brain/Daily: No such file or directory
+cat: Logs/2025-12-19.md: No such file or directory
+
+╰─⠠⠵ cat /Users/abbymalson/Documents/obsidian/Second\ Brain/Daily\ Logs/2025-12-19.md 
+# Daily Log - 2025-12-19
+
+08:15 - at work and trying to log new entries from the work computer so the system can sync back with the system
+11:22 - testing out the sync with the work computer - still doesn't appear to be working correctly
+11:44 - working on ec2 instance - docimports (which is manged via an asg), and and deployed via backend with many servers project - I should probably write up some details about this forgotten architecture
+╭─abbymalson at MBP166-002 in ~/code/personal/dotfiles on gtd✔ 25-12-19 - 14:21:47
+
+
+╭─abbymalson at MBP166-002 in ~/code/personal/dotfiles on gtd✔ 25-12-19 - 14:21:47
+╰─⠠⠵ cat /Users/abbymalson/Documents/Second\ Brain/Daily\ Logs/2025-12-19.md
+# Daily Log - 2025-12-19
+
+07:25 - Added an automated task completion scanner/reviewer to allow us to log things as we complete them and the system would help detect if we completed something based on our log entries
+07:25 - Weather: Cloudy, 42°F
+07:30 - The unit tests are failing currently and I'm trying to get the ai to help fix them but they take too long and the ai gets tired and cancels the running tests ...  - trying to run the tests first then ask the ai for help to see if that improves the fixes
+07:31 - Weather: Cloudy, 42°F
+08:01 - I feel like I built a cool organizational system and while people are impressed by it, they'd rather talk about something else, so I'd like to figure out how to be more interesting without talking about the thing I'm really excited about - anyway, this system allows me to talk to it, and it answers back "sometimes" ... this is pretty neat to watch though
+08:01 - Weather: Cloudy, 43°F
+12:12 - I feel like I need to look at the steam sale to see if there is any good games on sale that I'm interested in purchasing ...
+12:12 - Weather: Cloudy, 63°F
+                                                                                       

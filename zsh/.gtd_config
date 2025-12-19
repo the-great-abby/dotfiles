@@ -14,7 +14,7 @@ GTD_COMPUTER_MODE="work"
 # ============================================================================
 # Directory Structure
 # Mode-specific directories (work mode)
-SECOND_BRAIN_WORK="/Users/abbymalson/Documents/obsidian/Second Brain"
+SECOND_BRAIN_WORK="/Users/abbymalson/Documents/Second Brain"
 # Mode-specific directories (work mode)
 GTD_BASE_DIR_WORK="/Users/abbymalson/Documents/gtd"
 # ============================================================================
