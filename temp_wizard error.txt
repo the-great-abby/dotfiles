@@ -1,22 +1,9 @@
-wizard error
-
-
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 GTD Command Center
-   Friday, 2025-12-19 14:48
+   Friday, 2025-12-19 15:12
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📊 System Status
-  ✓ Inbox: Empty
-  ✅ Tasks: 1
-  📁 Projects: 1
-  🎯 Areas: 0
-
-📈 Quick Stats
-  🔥 Streak: 17 day(s)
-  📝 Today: 3 entries
-
 make: *** [gtd-wizard] Killed: 9
-
