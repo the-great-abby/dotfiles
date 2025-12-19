@@ -78,19 +78,36 @@ init_gtd_paths() {
   
   local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]')
   
-  # Check for mode-specific directories first, then fall back to general
-  # Use indirect variable expansion to check for mode-specific paths
-  local mode_gtd_base="GTD_BASE_DIR_${mode_upper}"
-  if [[ -n "${!mode_gtd_base:-}" ]]; then
-    GTD_BASE_DIR="${!mode_gtd_base}"
-  else
-    GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  # Safety check: ensure mode_upper is valid
+  if [[ -z "$mode_upper" ]] || [[ ! "$mode_upper" =~ ^(HOME|WORK)$ ]]; then
+    mode_upper="HOME"
   fi
   
-  local mode_second_brain="SECOND_BRAIN_${mode_upper}"
-  if [[ -n "${!mode_second_brain:-}" ]]; then
-    SECOND_BRAIN="${!mode_second_brain}"
+  # Check for mode-specific directories by reading from config files directly
+  # This avoids issues with indirect variable expansion
+  local gtd_config_file="$HOME/code/dotfiles/zsh/.gtd_config"
+  if [[ ! -f "$gtd_config_file" ]]; then
+    gtd_config_file="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+  fi
+  
+  # Check for mode-specific GTD_BASE_DIR
+  if [[ -f "$gtd_config_file" ]]; then
+    local mode_gtd_base=$(grep "^GTD_BASE_DIR_${mode_upper}=" "$gtd_config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g")
+    if [[ -n "$mode_gtd_base" ]]; then
+      GTD_BASE_DIR="$mode_gtd_base"
+    else
+      GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+    fi
+    
+    # Check for mode-specific SECOND_BRAIN
+    local mode_second_brain=$(grep "^SECOND_BRAIN_${mode_upper}=" "$gtd_config_file" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g")
+    if [[ -n "$mode_second_brain" ]]; then
+      SECOND_BRAIN="$mode_second_brain"
+    else
+      SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+    fi
   else
+    GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
     SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
   fi
   
@@ -101,9 +118,10 @@ init_gtd_paths() {
   fi
   if [[ -f "$daily_log_config" ]]; then
     source "$daily_log_config" 2>/dev/null || true
-    local mode_daily_log="DAILY_LOG_DIR_${mode_upper}"
-    if [[ -n "${!mode_daily_log:-}" ]]; then
-      DAILY_LOG_DIR="${!mode_daily_log}"
+    # Check for mode-specific DAILY_LOG_DIR by reading from config file
+    local mode_daily_log=$(grep "^DAILY_LOG_DIR_${mode_upper}=" "$daily_log_config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g")
+    if [[ -n "$mode_daily_log" ]]; then
+      DAILY_LOG_DIR="$mode_daily_log"
     fi
   fi
   
