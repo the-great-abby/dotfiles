@@ -129,51 +129,11 @@ SECOND_BRAIN=\"${!mode_second_brain}\"
     export SECOND_BRAIN="${!mode_second_brain}"
   fi
   
-  # Apply mode-specific settings from .gtd_config_database if it exists
-  if [[ -f "$db_config" ]]; then
-    # Check for mode-specific GTD_VECTORIZATION_ENABLED
-    local mode_vectorization="GTD_VECTORIZATION_ENABLED_${mode_upper}"
-    if [[ -n "${!mode_vectorization:-}" ]]; then
-      # Use mode-specific value
-      local vectorization_value="${!mode_vectorization}"
-      if grep -q "^GTD_VECTORIZATION_ENABLED=" "$db_config" 2>/dev/null; then
-        if [[ -n "$is_macos" ]]; then
-          sed -i '' "s/^GTD_VECTORIZATION_ENABLED=.*/GTD_VECTORIZATION_ENABLED=${vectorization_value}/" "$db_config"
-        else
-          sed -i "s/^GTD_VECTORIZATION_ENABLED=.*/GTD_VECTORIZATION_ENABLED=${vectorization_value}/" "$db_config"
-        fi
-      else
-        # Add it
-        echo "GTD_VECTORIZATION_ENABLED=${vectorization_value}" >> "$db_config"
-      fi
-    fi
-    
-    # Check for mode-specific RABBITMQ_ENABLED
-    local mode_rabbitmq="RABBITMQ_ENABLED_${mode_upper}"
-    if [[ -n "${!mode_rabbitmq:-}" ]]; then
-      # Use mode-specific value
-      local rabbitmq_value="${!mode_rabbitmq}"
-      if grep -q "^RABBITMQ_ENABLED=" "$db_config" 2>/dev/null; then
-        if [[ -n "$is_macos" ]]; then
-          sed -i '' "s/^RABBITMQ_ENABLED=.*/RABBITMQ_ENABLED=${rabbitmq_value}/" "$db_config"
-        else
-          sed -i "s/^RABBITMQ_ENABLED=.*/RABBITMQ_ENABLED=${rabbitmq_value}/" "$db_config"
-        fi
-      else
-        # Add it after RABBITMQ_URL line if found, otherwise append
-        if grep -q "^RABBITMQ_URL=" "$db_config" 2>/dev/null; then
-          if [[ -n "$is_macos" ]]; then
-            sed -i '' "/^RABBITMQ_URL=/a\\
-RABBITMQ_ENABLED=${rabbitmq_value}
-" "$db_config"
-          else
-            sed -i "/^RABBITMQ_URL=/a RABBITMQ_ENABLED=${rabbitmq_value}" "$db_config"
-          fi
-        else
-          echo "RABBITMQ_ENABLED=${rabbitmq_value}" >> "$db_config"
-        fi
-      fi
-    fi
+  # Note: Mode-specific settings (GTD_VECTORIZATION_ENABLED_WORK, etc.) are now read
+  # dynamically from .gtd_config by the Python and bash scripts based on GTD_COMPUTER_MODE.
+  # We no longer write them to .gtd_config_database to avoid sync conflicts.
+  # The read_database_config() function in Python and bash scripts check for mode-specific
+  # variables first, then fall back to .gtd_config_database values.
     
     # Apply mode-specific Vector Database connection settings
     local vector_db_settings=(

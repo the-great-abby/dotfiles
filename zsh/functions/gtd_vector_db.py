@@ -44,6 +44,7 @@ except ImportError:
 def read_database_config() -> Dict[str, Any]:
     """
     Read database configuration from .gtd_config_database file.
+    Also checks for mode-specific settings in .gtd_config based on GTD_COMPUTER_MODE.
     
     Returns:
         Dictionary with database configuration settings
@@ -53,6 +54,12 @@ def read_database_config() -> Dict[str, Any]:
         Path.home() / ".gtd_config_database",
         # Dotfiles directory configs (override home)
         Path(__file__).parent.parent / ".gtd_config_database"
+    ]
+    
+    # Also check .gtd_config for mode-specific settings
+    gtd_config_paths = [
+        Path.home() / ".gtd_config",
+        Path(__file__).parent.parent / ".gtd_config"
     ]
     
     config = {
@@ -69,7 +76,79 @@ def read_database_config() -> Dict[str, Any]:
         "rabbitmq_queue": "gtd_vectorization",
     }
     
-    # Read from config files (later files override earlier ones)
+    # First, read GTD_COMPUTER_MODE from .gtd_config to determine which mode-specific variables to use
+    computer_mode = None
+    for gtd_config_path in gtd_config_paths:
+        if gtd_config_path.exists():
+            with open(gtd_config_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        if key == "GTD_COMPUTER_MODE":
+                            computer_mode = value.lower()
+                            break
+            if computer_mode:
+                break
+    
+    # Normalize mode (default to "home" if not found or invalid)
+    if computer_mode not in ("work", "home"):
+        computer_mode = "home"
+    mode_upper = computer_mode.upper()
+    
+    # Read from .gtd_config first to get mode-specific settings
+    # Check for mode-specific variables (e.g., GTD_VECTORIZATION_ENABLED_WORK)
+    mode_specific_mappings = {
+        "GTD_VECTORIZATION_ENABLED": "vectorization_enabled",
+        "RABBITMQ_ENABLED": "rabbitmq_enabled",
+        "VECTOR_DB_HOST": "host",
+        "VECTOR_DB_PORT": "port",
+        "VECTOR_DB_NAME": "database",
+        "VECTOR_DB_USER": "user",
+        "VECTOR_DB_PASSWORD": "password",
+        "RABBITMQ_URL": "rabbitmq_url",
+        "RABBITMQ_USER": "rabbitmq_user",
+        "RABBITMQ_PASS": "rabbitmq_pass",
+    }
+    
+    for gtd_config_path in gtd_config_paths:
+        if gtd_config_path.exists():
+            with open(gtd_config_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        # Remove comments
+                        if '#' in value:
+                            value = value.split('#')[0].strip()
+                        # Remove quotes
+                        value = value.strip('"').strip("'")
+                        # Handle variable expansion syntax like ${VAR:-default}
+                        if value.startswith("${") and ":-" in value:
+                            value = value.split(":-", 1)[1].rstrip("}")
+                        
+                        # Check if this is a mode-specific setting for the current mode
+                        # Format: BASE_KEY_MODE (e.g., GTD_VECTORIZATION_ENABLED_WORK)
+                        if key.endswith(f"_{mode_upper}"):
+                            base_key = key[:-len(f"_{mode_upper}")]
+                            if base_key in mode_specific_mappings:
+                                config_key = mode_specific_mappings[base_key]
+                                if config_key in ("vectorization_enabled", "rabbitmq_enabled"):
+                                    config[config_key] = value.lower() in ("true", "1", "yes")
+                                elif config_key == "port":
+                                    try:
+                                        config[config_key] = int(value)
+                                    except ValueError:
+                                        pass
+                                else:
+                                    config[config_key] = value
+    
+    # Read from .gtd_config_database files (later files override earlier ones)
+    # These will override mode-specific settings if present
     for config_path in config_paths:
         if config_path.exists():
             with open(config_path, 'r') as f:
@@ -103,7 +182,9 @@ def read_database_config() -> Dict[str, Any]:
                         elif key == "VECTOR_DB_PASSWORD":
                             config["password"] = value
                         elif key == "GTD_VECTORIZATION_ENABLED":
-                            config["vectorization_enabled"] = value.lower() in ("true", "1", "yes")
+                            # Only override if not set by mode-specific variable
+                            if "vectorization_enabled" not in config or config.get("vectorization_enabled") is None:
+                                config["vectorization_enabled"] = value.lower() in ("true", "1", "yes")
                         elif key == "VECTOR_BATCH_SIZE":
                             try:
                                 config["batch_size"] = int(value)
@@ -115,7 +196,10 @@ def read_database_config() -> Dict[str, Any]:
                             except ValueError:
                                 pass
                         elif key == "RABBITMQ_ENABLED":
-                            config["rabbitmq_enabled"] = value.lower() in ("true", "1", "yes")
+                            # Only set if not already set by mode-specific variable
+                            # Mode-specific variables take precedence (checked earlier)
+                            if "rabbitmq_enabled" not in config or config.get("rabbitmq_enabled") is None:
+                                config["rabbitmq_enabled"] = value.lower() in ("true", "1", "yes")
                         elif key == "RABBITMQ_URL":
                             config["rabbitmq_url"] = value
                         elif key == "RABBITMQ_USER":

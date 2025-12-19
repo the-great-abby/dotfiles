@@ -17,11 +17,45 @@ if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
   GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
 fi
 
-# Load database config
-if [[ -f "$GTD_CONFIG_DIR/.gtd_config_database" ]]; then
-  source "$GTD_CONFIG_DIR/.gtd_config_database"
-elif [[ -f "$HOME/.gtd_config_database" ]]; then
-  source "$HOME/.gtd_config_database"
+# Load GTD config to get computer mode and mode-specific settings
+GTD_CONFIG_FILE="$GTD_CONFIG_DIR/.gtd_config"
+if [[ ! -f "$GTD_CONFIG_FILE" ]]; then
+  GTD_CONFIG_FILE="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+fi
+if [[ ! -f "$GTD_CONFIG_FILE" ]]; then
+  GTD_CONFIG_FILE="$HOME/.gtd_config"
+fi
+
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  # Source with error suppression
+  set +e
+  source "$GTD_CONFIG_FILE" 2>/dev/null || true
+  set -e
+fi
+
+# Get current computer mode
+current_mode="${GTD_COMPUTER_MODE:-home}"
+mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+if [[ -z "$mode_upper" ]] || [[ ! "$mode_upper" =~ ^(HOME|WORK)$ ]]; then
+  mode_upper="HOME"
+fi
+
+# Check for mode-specific GTD_VECTORIZATION_ENABLED first
+mode_vectorization="GTD_VECTORIZATION_ENABLED_${mode_upper}"
+if [[ -n "${!mode_vectorization:-}" ]]; then
+  # Use mode-specific value
+  GTD_VECTORIZATION_ENABLED="${!mode_vectorization}"
+else
+  # Fall back to database config
+  if [[ -f "$GTD_CONFIG_DIR/.gtd_config_database" ]]; then
+    set +e
+    source "$GTD_CONFIG_DIR/.gtd_config_database" 2>/dev/null || true
+    set -e
+  elif [[ -f "$HOME/.gtd_config_database" ]]; then
+    set +e
+    source "$HOME/.gtd_config_database" 2>/dev/null || true
+    set -e
+  fi
 fi
 
 # Check if vectorization is enabled
