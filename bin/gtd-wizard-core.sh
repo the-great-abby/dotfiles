@@ -1822,6 +1822,12 @@ show_dashboard() {
   # Enable error handling that doesn't exit on failures
   set +e
   
+  # Initialize paths safely with error suppression
+  # This prevents bad substitution errors from crashing the dashboard
+  if command -v init_gtd_paths &>/dev/null; then
+    init_gtd_paths 2>/dev/null || true
+  fi
+  
   # Get current date/time with error handling
   local current_date=""
   local current_time=""
