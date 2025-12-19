@@ -1,0 +1,27 @@
+
+🔄 Syncing Daily Logs to Second Brain (Git-based)...
+  Syncing local → Second Brain...
+  📝 Staging 3 file(s) for commit
+    • zsh/.daily_log_config
+    • zsh/.gtd_config
+    • zsh/.gtd_config_database
+  ✓ Committed changes: Sync daily-logs to Second Brain - 2025-12-19 14:04:25
+    ⏭️  Skipped (identical): 2025-12-19.md
+    ⏭️  Skipped (identical): 2025-12-09.md
+    ⏭️  Skipped (identical): 2025-11-26.txt
+    ⏭️  Skipped (identical): 2025-12-08.md
+    ⏭️  Skipped (identical): 2025-11-26.md
+    ⏭️  Skipped (identical): 2025-12-03.txt
+    ⏭️  Skipped (identical): 2025-12-04.md
+  📊 Sync summary: 0 copied, 7 skipped (identical), 7 total
+  Syncing Second Brain → local...
+    ⏭️  Skipped (identical): 2025-12-19.md
+    ⏭️  Skipped (identical): 2025-12-09.md
+    ⏭️  Skipped (identical): 2025-11-26.txt
+    ⏭️  Skipped (identical): 2025-12-08.md
+    ⏭️  Skipped (identical): 2025-11-26.md
+    ⏭️  Skipped (identical): 2025-12-03.txt
+    ⏭️  Skipped (identical): 2025-12-04.md
+  ℹ️  No files to pull (all identical)
+  ✓ Daily logs synced to: /Users/abbymalson/Documents/obsidian/Second Brain/Daily Logs
+    (Will sync automatically via Obsidian to other computers)
