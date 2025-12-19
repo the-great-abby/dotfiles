@@ -2,9 +2,14 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 GTD Command Center
-   Friday, 2025-12-19 15:39
+   Friday, 2025-12-19 16:00
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📊 System Status
   ✓ Inbox: Empty
+  ✅ Tasks: 1
+  📁 Projects: 1
+  🎯 Areas: 0
+
+📈 Quick Stats
 make: *** [gtd-wizard] Killed: 9
