@@ -1011,6 +1011,9 @@ ${key}=\"${new_path}\"
 
 # Computer Mode Wizard
 computer_mode_wizard() {
+  # Set error handling - don't exit on errors in this function
+  set +e
+  
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1064,16 +1067,20 @@ computer_mode_wizard() {
   local current_gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
   local current_second_brain="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
   
-  # Check for mode-specific overrides
+  # Check for mode-specific overrides (use indirect variable expansion)
   local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]')
-  if [[ -n "${DAILY_LOG_DIR_${mode_upper}:-}" ]]; then
-    current_daily_log="${DAILY_LOG_DIR_${mode_upper}}"
+  local mode_daily_log="DAILY_LOG_DIR_${mode_upper}"
+  local mode_gtd_base="GTD_BASE_DIR_${mode_upper}"
+  local mode_second_brain="SECOND_BRAIN_${mode_upper}"
+  
+  if [[ -n "${!mode_daily_log:-}" ]]; then
+    current_daily_log="${!mode_daily_log}"
   fi
-  if [[ -n "${GTD_BASE_DIR_${mode_upper}:-}" ]]; then
-    current_gtd_base="${GTD_BASE_DIR_${mode_upper}}"
+  if [[ -n "${!mode_gtd_base:-}" ]]; then
+    current_gtd_base="${!mode_gtd_base}"
   fi
-  if [[ -n "${SECOND_BRAIN_${mode_upper}:-}" ]]; then
-    current_second_brain="${SECOND_BRAIN_${mode_upper}}"
+  if [[ -n "${!mode_second_brain:-}" ]]; then
+    current_second_brain="${!mode_second_brain}"
   fi
   
   echo -e "${BOLD}Current Directory Paths:${NC}"
@@ -1129,6 +1136,7 @@ computer_mode_wizard() {
       configure_mode_directories "$current_mode"
       ;;
     0|"")
+      set -e  # Restore error handling
       return 0
       ;;
     *)
@@ -1137,6 +1145,11 @@ computer_mode_wizard() {
       gtd_quick_pause
       ;;
   esac
+  
+  # Restore error handling before returning
+  set -e
+  
+  return 0
 }
 
 # Configure directories for a specific mode
@@ -1174,9 +1187,25 @@ configure_mode_directories() {
   fi
   
   # Get current values (mode-specific or fallback to general)
-  local current_daily_log="${DAILY_LOG_DIR_${mode_upper}:-${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}}"
-  local current_gtd_base="${GTD_BASE_DIR_${mode_upper}:-${GTD_BASE_DIR:-$HOME/Documents/gtd}}"
-  local current_second_brain="${SECOND_BRAIN_${mode_upper}:-${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}}"
+  # Use indirect variable expansion (mode_upper already defined above)
+  local mode_daily_log="DAILY_LOG_DIR_${mode_upper}"
+  local mode_gtd_base="GTD_BASE_DIR_${mode_upper}"
+  local mode_second_brain="SECOND_BRAIN_${mode_upper}"
+  
+  local current_daily_log="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+  local current_gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  local current_second_brain="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+  
+  # Check for mode-specific overrides
+  if [[ -n "${!mode_daily_log:-}" ]]; then
+    current_daily_log="${!mode_daily_log}"
+  fi
+  if [[ -n "${!mode_gtd_base:-}" ]]; then
+    current_gtd_base="${!mode_gtd_base}"
+  fi
+  if [[ -n "${!mode_second_brain:-}" ]]; then
+    current_second_brain="${!mode_second_brain}"
+  fi
   
   echo -e "${BOLD}Current paths:${NC}"
   echo -e "  1) Daily Logs:    ${CYAN}${current_daily_log}${NC}"

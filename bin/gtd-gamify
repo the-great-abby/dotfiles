@@ -1175,8 +1175,60 @@ PYTHON_SCRIPT
   read -p "Press Enter to continue..."
 }
 
+# Sync actual streaks from log files
+sync_streaks_from_logs() {
+  # Sync daily logging streak from actual log files
+  if command -v gtd-log-stats &>/dev/null; then
+    local actual_streak=$(gtd-log-stats streak 2>/dev/null || echo "0")
+    local actual_longest=$(gtd-log-stats longest 2>/dev/null || echo "0")
+    local total_days=$(gtd-log-stats total 2>/dev/null || echo "0")
+    
+    # Update gamification file with actual values
+    python3 <<EOF
+import json
+import sys
+
+try:
+    with open("$GAMIFICATION_FILE", "r") as f:
+        data = json.load(f)
+    
+    # Update streaks with actual calculated values
+    if "streaks" not in data:
+        data["streaks"] = {}
+    if "longest_streaks" not in data:
+        data["longest_streaks"] = {}
+    if "stats" not in data:
+        data["stats"] = {}
+    
+    # Update daily logging streak from actual log files
+    actual_streak = int("$actual_streak" or "0")
+    actual_longest = int("$actual_longest" or "0")
+    total_days = int("$total_days" or "0")
+    
+    # Only update if actual streak is higher (more accurate)
+    if actual_streak > data["streaks"].get("daily_logging", 0):
+        data["streaks"]["daily_logging"] = actual_streak
+    
+    if actual_longest > data["longest_streaks"].get("daily_logging", 0):
+        data["longest_streaks"]["daily_logging"] = actual_longest
+    
+    # Update total days logged stat
+    if total_days > data["stats"].get("daily_logs", 0):
+        data["stats"]["daily_logs"] = total_days
+    
+    with open("$GAMIFICATION_FILE", "w") as f:
+        json.dump(data, f, indent=2)
+except:
+    pass
+EOF
+  fi
+}
+
 # Show dashboard
 show_dashboard() {
+  # Sync actual streaks from log files before showing dashboard
+  sync_streaks_from_logs
+  
   local data=$(get_gamification_data)
   
   # Use Python for proper JSON parsing
@@ -1281,6 +1333,10 @@ main() {
       ;;
     streak)
       update_streak "${2:-daily_logging}"
+      ;;
+    sync)
+      sync_streaks_from_logs
+      echo "✓ Synced streaks from log files"
       ;;
     achievements)
       check_achievements

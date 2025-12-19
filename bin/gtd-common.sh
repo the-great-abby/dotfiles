@@ -79,14 +79,17 @@ init_gtd_paths() {
   local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]')
   
   # Check for mode-specific directories first, then fall back to general
-  if [[ -n "${GTD_BASE_DIR_${mode_upper}:-}" ]]; then
-    GTD_BASE_DIR="${GTD_BASE_DIR_${mode_upper}}"
+  # Use indirect variable expansion to check for mode-specific paths
+  local mode_gtd_base="GTD_BASE_DIR_${mode_upper}"
+  if [[ -n "${!mode_gtd_base:-}" ]]; then
+    GTD_BASE_DIR="${!mode_gtd_base}"
   else
     GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
   fi
   
-  if [[ -n "${SECOND_BRAIN_${mode_upper}:-}" ]]; then
-    SECOND_BRAIN="${SECOND_BRAIN_${mode_upper}}"
+  local mode_second_brain="SECOND_BRAIN_${mode_upper}"
+  if [[ -n "${!mode_second_brain:-}" ]]; then
+    SECOND_BRAIN="${!mode_second_brain}"
   else
     SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
   fi
@@ -98,8 +101,9 @@ init_gtd_paths() {
   fi
   if [[ -f "$daily_log_config" ]]; then
     source "$daily_log_config" 2>/dev/null || true
-    if [[ -n "${DAILY_LOG_DIR_${mode_upper}:-}" ]]; then
-      DAILY_LOG_DIR="${DAILY_LOG_DIR_${mode_upper}}"
+    local mode_daily_log="DAILY_LOG_DIR_${mode_upper}"
+    if [[ -n "${!mode_daily_log:-}" ]]; then
+      DAILY_LOG_DIR="${!mode_daily_log}"
     fi
   fi
   
