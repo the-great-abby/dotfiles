@@ -282,6 +282,376 @@ EOF
   fi
 }
 
+# General merge function for all file types
+# Detects file type and uses appropriate merge strategy
+merge_files() {
+  local source_file="$1"
+  local dest_file="$2"
+  local output_file="$3"
+  
+  # Check if files exist
+  if [[ ! -f "$source_file" && ! -f "$dest_file" ]]; then
+    return 1
+  fi
+  
+  # If one file doesn't exist, use the other
+  if [[ ! -f "$source_file" ]]; then
+    cp "$dest_file" "$output_file" 2>/dev/null
+    return $?
+  fi
+  
+  if [[ ! -f "$dest_file" ]]; then
+    cp "$source_file" "$output_file" 2>/dev/null
+    return $?
+  fi
+  
+  # Determine file type
+  local filename=$(basename "$source_file")
+  local extension="${filename##*.}"
+  local is_daily_log=false
+  local is_markdown=false
+  
+  # Check if it's a daily log (by pattern or extension)
+  if [[ "$filename" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\.(md|txt)$ ]]; then
+    is_daily_log=true
+  fi
+  
+  # Check if it's markdown
+  if [[ "$extension" == "md" ]] || [[ "$extension" == "markdown" ]]; then
+    is_markdown=true
+  fi
+  
+  # Use appropriate merge strategy
+  if [[ "$is_daily_log" == "true" ]]; then
+    merge_daily_log "$source_file" "$dest_file" "$output_file"
+    return $?
+  elif [[ "$is_markdown" == "true" ]]; then
+    merge_markdown "$source_file" "$dest_file" "$output_file"
+    return $?
+  else
+    # For other files, try to merge intelligently
+    merge_text_file "$source_file" "$dest_file" "$output_file"
+    return $?
+  fi
+}
+
+# Merge daily log files by combining unique entries
+# Preserves all entries from both files, deduplicates by timestamp
+merge_daily_log() {
+  local source_file="$1"
+  local dest_file="$2"
+  local output_file="$3"
+  
+  # Create temp files for processing
+  local temp_dir=$(mktemp -d)
+  local source_entries="$temp_dir/source_entries"
+  local dest_entries="$temp_dir/dest_entries"
+  local merged_entries="$temp_dir/merged_entries"
+  local all_entries="$temp_dir/all_entries"
+  
+  # Extract header (first line if it's not a timestamp entry)
+  local source_header=""
+  local dest_header=""
+  
+  if [[ -f "$source_file" ]]; then
+    local first_line=$(head -n 1 "$source_file" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [[ -n "$first_line" ]] && ! [[ "$first_line" =~ ^[0-9]{2}:[0-9]{2} ]]; then
+      source_header="$first_line"
+    fi
+  fi
+  
+  if [[ -f "$dest_file" ]]; then
+    local first_line=$(head -n 1 "$dest_file" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [[ -n "$first_line" ]] && ! [[ "$first_line" =~ ^[0-9]{2}:[0-9]{2} ]]; then
+      dest_header="$first_line"
+    fi
+  fi
+  
+  # Use the header from the source file, or dest if source doesn't have one
+  local header="${source_header:-${dest_header}}"
+  
+  # Extract time-stamped entries from source file (format: HH:MM - entry)
+  # Use process substitution to avoid subshell issues
+  if [[ -f "$source_file" ]]; then
+    grep -E '^[0-9]{2}:[0-9]{2}\s+-' "$source_file" 2>/dev/null > "$source_entries" || touch "$source_entries"
+  else
+    touch "$source_entries"
+  fi
+  
+  # Extract time-stamped entries from dest file
+  if [[ -f "$dest_file" ]]; then
+    grep -E '^[0-9]{2}:[0-9]{2}\s+-' "$dest_file" 2>/dev/null > "$dest_entries" || touch "$dest_entries"
+  else
+    touch "$dest_entries"
+  fi
+  
+  # Merge entries: combine both, prefer newer file for conflicts
+  local source_mtime=0
+  local dest_mtime=0
+  
+  if [[ -f "$source_file" ]]; then
+    source_mtime=$(stat -f %m "$source_file" 2>/dev/null || stat -c %Y "$source_file" 2>/dev/null || echo "0")
+  fi
+  
+  if [[ -f "$dest_file" ]]; then
+    dest_mtime=$(stat -f %m "$dest_file" 2>/dev/null || stat -c %Y "$dest_file" 2>/dev/null || echo "0")
+  fi
+  
+  # Build a map of timestamps to entries, preferring newer file for conflicts
+  > "$all_entries"
+  
+  # Process source entries
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -n "$line" ]]; then
+      local timestamp=$(echo "$line" | sed -E 's/^([0-9]{2}:[0-9]{2}).*/\1/')
+      echo "${timestamp}|${line}" >> "$all_entries"
+    fi
+  done < "$source_entries"
+  
+  # Process dest entries (overwrite if timestamp exists and dest is newer)
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -n "$line" ]]; then
+      local timestamp=$(echo "$line" | sed -E 's/^([0-9]{2}:[0-9]{2}).*/\1/')
+      # Check if this timestamp already exists
+      if grep -q "^${timestamp}|" "$all_entries" 2>/dev/null; then
+        # Timestamp exists - replace if dest is newer
+        if [[ "$dest_mtime" -gt "$source_mtime" ]]; then
+          # Remove old entry and add new one
+          grep -v "^${timestamp}|" "$all_entries" > "${all_entries}.tmp" && mv "${all_entries}.tmp" "$all_entries"
+          echo "${timestamp}|${line}" >> "$all_entries"
+        fi
+      else
+        # New timestamp, add it
+        echo "${timestamp}|${line}" >> "$all_entries"
+      fi
+    fi
+  done < "$dest_entries"
+  
+  # Build merged content with proper time sorting
+  {
+    # Add header if present
+    if [[ -n "$header" ]]; then
+      echo "$header"
+      echo ""
+    fi
+    
+    # Sort by timestamp (convert HH:MM to minutes since midnight for proper sorting)
+    # Format: convert "HH:MM" to "HHMM" for numeric sort, then back
+    while IFS='|' read -r timestamp entry || [[ -n "$timestamp" ]]; do
+      if [[ -n "$timestamp" && -n "$entry" ]]; then
+        # Convert HH:MM to sortable format (pad with zeros for numeric sort)
+        local hours=$(echo "$timestamp" | cut -d: -f1)
+        local minutes=$(echo "$timestamp" | cut -d: -f2)
+        local sort_key=$(printf "%02d%02d" "$hours" "$minutes")
+        echo "${sort_key}|${timestamp}|${entry}"
+      fi
+    done < "$all_entries" | sort -t'|' -k1,1n | cut -d'|' -f3-
+  } > "$merged_entries"
+  
+  # Copy merged content to output file
+  if [[ -f "$merged_entries" && -s "$merged_entries" ]]; then
+    cp "$merged_entries" "$output_file" 2>/dev/null
+    local result=$?
+  else
+    # If merge produced empty file, try to preserve at least one file
+    if [[ -f "$source_file" && -s "$source_file" ]]; then
+      cp "$source_file" "$output_file" 2>/dev/null
+      local result=$?
+    elif [[ -f "$dest_file" && -s "$dest_file" ]]; then
+      cp "$dest_file" "$output_file" 2>/dev/null
+      local result=$?
+    else
+      local result=1
+    fi
+  fi
+  
+  # Cleanup
+  rm -rf "$temp_dir" 2>/dev/null
+  
+  return $result
+}
+
+# Merge markdown files by sections
+# Preserves unique sections from both files, merges conflicting sections
+merge_markdown() {
+  local source_file="$1"
+  local dest_file="$2"
+  local output_file="$3"
+  
+  # Use the simpler section-based merge
+  merge_markdown_sections "$source_file" "$dest_file" "$output_file"
+  return $?
+}
+
+# Merge markdown files by sections (headers)
+# Extracts sections and merges them intelligently
+merge_markdown_sections() {
+  local source_file="$1"
+  local dest_file="$2"
+  local output_file="$3"
+  
+  local temp_dir=$(mktemp -d)
+  local source_sections="$temp_dir/source_sections"
+  local dest_sections="$temp_dir/dest_sections"
+  local merged="$temp_dir/merged"
+  
+  # Extract sections from both files (sections are defined by headers: #, ##, ###, etc.)
+  # This is a simplified approach - extract content between headers
+  > "$merged"
+  
+  # Get modification times
+  local source_mtime=0
+  local dest_mtime=0
+  
+  if [[ -f "$source_file" ]]; then
+    source_mtime=$(stat -f %m "$source_file" 2>/dev/null || stat -c %Y "$source_file" 2>/dev/null || echo "0")
+  fi
+  
+  if [[ -f "$dest_file" ]]; then
+    dest_mtime=$(stat -f %m "$dest_file" 2>/dev/null || stat -c %Y "$dest_file" 2>/dev/null || echo "0")
+  fi
+  
+  # Simple strategy: combine both files, with newer file taking precedence for overlapping content
+  # Start with older file as base, then overlay newer file
+  if [[ "$source_mtime" -gt "$dest_mtime" ]]; then
+    # Source is newer - use dest as base, overlay source
+    cat "$dest_file" > "$merged" 2>/dev/null
+    echo "" >> "$merged"
+    echo "<!-- Merged from: $(basename "$source_file") (newer) -->" >> "$merged"
+    echo "" >> "$merged"
+    # Append unique content from source (lines not in dest)
+    comm -13 <(sort "$dest_file" 2>/dev/null) <(sort "$source_file" 2>/dev/null) >> "$merged" 2>/dev/null || cat "$source_file" >> "$merged" 2>/dev/null
+  else
+    # Dest is newer - use source as base, overlay dest
+    cat "$source_file" > "$merged" 2>/dev/null
+    echo "" >> "$merged"
+    echo "<!-- Merged from: $(basename "$dest_file") (newer) -->" >> "$merged"
+    echo "" >> "$merged"
+    # Append unique content from dest (lines not in source)
+    comm -13 <(sort "$source_file" 2>/dev/null) <(sort "$dest_file" 2>/dev/null) >> "$merged" 2>/dev/null || cat "$dest_file" >> "$merged" 2>/dev/null
+  fi
+  
+  # If merge is too large or failed, prefer newer file
+  if [[ ! -s "$merged" ]] || [[ $(wc -l < "$merged" 2>/dev/null || echo "0") -gt 10000 ]]; then
+    if [[ "$source_mtime" -gt "$dest_mtime" ]]; then
+      cp "$source_file" "$output_file" 2>/dev/null
+    else
+      cp "$dest_file" "$output_file" 2>/dev/null
+    fi
+  else
+    cp "$merged" "$output_file" 2>/dev/null
+  fi
+  
+  local result=$?
+  rm -rf "$temp_dir" 2>/dev/null
+  return $result
+}
+
+# Merge general text files
+# Tries to preserve content from both files
+merge_text_file() {
+  local source_file="$1"
+  local dest_file="$2"
+  local output_file="$3"
+  
+  local temp_dir=$(mktemp -d)
+  local merged="$temp_dir/merged"
+  
+  # Get modification times
+  local source_mtime=0
+  local dest_mtime=0
+  
+  if [[ -f "$source_file" ]]; then
+    source_mtime=$(stat -f %m "$source_file" 2>/dev/null || stat -c %Y "$source_file" 2>/dev/null || echo "0")
+  fi
+  
+  if [[ -f "$dest_file" ]]; then
+    dest_mtime=$(stat -f %m "$dest_file" 2>/dev/null || stat -c %Y "$dest_file" 2>/dev/null || echo "0")
+  fi
+  
+  # Try to use diff3 if available
+  if command -v diff3 &>/dev/null; then
+    local base_file="$temp_dir/base"
+    if [[ "$source_mtime" -lt "$dest_mtime" ]]; then
+      cp "$source_file" "$base_file" 2>/dev/null || echo "" > "$base_file"
+    else
+      cp "$dest_file" "$base_file" 2>/dev/null || echo "" > "$base_file"
+    fi
+    
+    if diff3 -m "$source_file" "$base_file" "$dest_file" > "$merged" 2>/dev/null; then
+      # Prefer newer file for conflicts
+      local prefer_newer=""
+      if [[ "$source_mtime" -gt "$dest_mtime" ]]; then
+        prefer_newer="source"
+      else
+        prefer_newer="dest"
+      fi
+      
+      # Simple conflict resolution: remove markers and use newer
+      if [[ "$prefer_newer" == "source" ]]; then
+        # Remove conflict markers and keep source content
+        sed -E '/^<<<<<<< /,/^>>>>>>> /d' "$merged" > "${merged}.tmp" 2>/dev/null || cp "$merged" "${merged}.tmp"
+        # Actually, let's keep the merged result but prefer source in conflicts
+        awk -v prefer="$prefer_newer" '
+          /^<<<<<<< / { in_conflict=1; conflict_source=""; conflict_dest=""; next }
+          /^=======/ { in_dest=1; next }
+          /^>>>>>>> / { 
+            if (prefer=="source") print conflict_source; 
+            else print conflict_dest; 
+            in_conflict=0; in_dest=0; next 
+          }
+          in_conflict && !in_dest { conflict_source=conflict_source (conflict_source?"\n":"") $0; next }
+          in_conflict && in_dest { conflict_dest=conflict_dest (conflict_dest?"\n":"") $0; next }
+          !in_conflict { print }
+        ' "$merged" > "${merged}.tmp" 2>/dev/null || cp "$merged" "${merged}.tmp"
+        mv "${merged}.tmp" "$merged"
+      fi
+      
+      cp "$merged" "$output_file" 2>/dev/null
+      local result=$?
+    else
+      # diff3 failed, prefer newer file
+      if [[ "$source_mtime" -gt "$dest_mtime" ]]; then
+        cp "$source_file" "$output_file" 2>/dev/null
+      else
+        cp "$dest_file" "$output_file" 2>/dev/null
+      fi
+      local result=$?
+    fi
+  else
+    # No diff3 - combine files with newer taking precedence
+    if [[ "$source_mtime" -gt "$dest_mtime" ]]; then
+      # Source is newer - use it as base, append unique lines from dest
+      cat "$source_file" > "$merged" 2>/dev/null
+      echo "" >> "$merged"
+      echo "# Merged content from: $(basename "$dest_file")" >> "$merged"
+      echo "" >> "$merged"
+      comm -13 <(sort "$source_file" 2>/dev/null) <(sort "$dest_file" 2>/dev/null) >> "$merged" 2>/dev/null || {
+        # comm failed, just append dest
+        echo "---" >> "$merged"
+        cat "$dest_file" >> "$merged" 2>/dev/null
+      }
+    else
+      # Dest is newer - use it as base, append unique lines from source
+      cat "$dest_file" > "$merged" 2>/dev/null
+      echo "" >> "$merged"
+      echo "# Merged content from: $(basename "$source_file")" >> "$merged"
+      echo "" >> "$merged"
+      comm -13 <(sort "$dest_file" 2>/dev/null) <(sort "$source_file" 2>/dev/null) >> "$merged" 2>/dev/null || {
+        # comm failed, just append source
+        echo "---" >> "$merged"
+        cat "$source_file" >> "$merged" 2>/dev/null
+      }
+    fi
+    
+    cp "$merged" "$output_file" 2>/dev/null
+    local result=$?
+  fi
+  
+  rm -rf "$temp_dir" 2>/dev/null
+  return $result
+}
+
 # Git-based sync: commit changes and sync to Second Brain
 git_sync_to_second_brain() {
   local source_dir="$1"
@@ -383,6 +753,31 @@ git_sync_to_second_brain() {
         else
           echo "    ⚠️  Failed to copy: ${rel_path}"
         fi
+      elif [[ "$file" -nt "$dest_file" ]] || ! diff -q "$file" "$dest_file" &>/dev/null; then
+        # Files differ - merge instead of overwriting
+        local temp_merged=$(mktemp)
+        if merge_files "$file" "$dest_file" "$temp_merged"; then
+          if cp "$temp_merged" "$dest_file" 2>/dev/null; then
+            ((files_copied++))
+            echo "    ✓ Merged (preserved existing content): ${rel_path}"
+          else
+            echo "    ⚠️  Failed to write merged file: ${rel_path}"
+          fi
+        else
+          # Merge failed, fall back to copy if source is newer
+          if [[ "$file" -nt "$dest_file" ]]; then
+            if cp "$file" "$dest_file" 2>/dev/null; then
+              ((files_copied++))
+              echo "    ✓ Copied (merge failed, source newer): ${rel_path}"
+            else
+              echo "    ⚠️  Failed to copy: ${rel_path}"
+            fi
+          else
+            echo "    ⏭️  Skipped (merge failed, dest newer): ${rel_path}"
+            ((files_skipped++))
+          fi
+        fi
+        rm -f "$temp_merged" 2>/dev/null
       elif [[ "$file" -nt "$dest_file" ]]; then
         # Source is newer - copy
         if cp "$file" "$dest_file" 2>/dev/null; then
@@ -420,23 +815,55 @@ git_sync_to_second_brain() {
           local dest_size=$(stat -f%z "$dest_file" 2>/dev/null || stat -c%s "$dest_file" 2>/dev/null || echo "0")
           
           if [[ "$source_size" != "$dest_size" ]]; then
-            # Different sizes - definitely different
-            if cp "$file" "$dest_file" 2>/dev/null; then
-              ((files_copied++))
-              echo "    ✓ Copied (size differs: ${source_size} vs ${dest_size}): ${rel_path}"
+            # Different sizes - definitely different, merge them
+            local temp_merged=$(mktemp)
+            if merge_files "$file" "$dest_file" "$temp_merged"; then
+              if cp "$temp_merged" "$dest_file" 2>/dev/null; then
+                ((files_copied++))
+                echo "    ✓ Merged (size differs: ${source_size} vs ${dest_size}): ${rel_path}"
+              else
+                echo "    ⚠️  Failed to write merged file: ${rel_path}"
+              fi
             else
-              echo "    ⚠️  Failed to copy: ${rel_path}"
+              if [[ "$file" -nt "$dest_file" ]]; then
+                if cp "$file" "$dest_file" 2>/dev/null; then
+                  ((files_copied++))
+                  echo "    ✓ Copied (merge failed, size differs): ${rel_path}"
+                else
+                  echo "    ⚠️  Failed to copy: ${rel_path}"
+                fi
+              else
+                ((files_skipped++))
+                echo "    ⏭️  Skipped (merge failed, dest newer): ${rel_path}"
+              fi
             fi
+            rm -f "$temp_merged" 2>/dev/null
           elif command -v diff &>/dev/null; then
             # Same size - do a quick diff check
             if ! diff -q "$file" "$dest_file" &>/dev/null; then
-              # Files differ
-              if cp "$file" "$dest_file" 2>/dev/null; then
-                ((files_copied++))
-                echo "    ✓ Copied (content differs per diff): ${rel_path}"
+              # Files differ - merge them
+              local temp_merged=$(mktemp)
+              if merge_files "$file" "$dest_file" "$temp_merged"; then
+                if cp "$temp_merged" "$dest_file" 2>/dev/null; then
+                  ((files_copied++))
+                  echo "    ✓ Merged (content differs per diff): ${rel_path}"
+                else
+                  echo "    ⚠️  Failed to write merged file: ${rel_path}"
+                fi
               else
-                echo "    ⚠️  Failed to copy: ${rel_path}"
+                if [[ "$file" -nt "$dest_file" ]]; then
+                  if cp "$file" "$dest_file" 2>/dev/null; then
+                    ((files_copied++))
+                    echo "    ✓ Copied (merge failed, content differs): ${rel_path}"
+                  else
+                    echo "    ⚠️  Failed to copy: ${rel_path}"
+                  fi
+                else
+                  ((files_skipped++))
+                  echo "    ⏭️  Skipped (merge failed, dest newer): ${rel_path}"
+                fi
               fi
+              rm -f "$temp_merged" 2>/dev/null
             else
               # Files are the same
               ((files_skipped++))
@@ -453,13 +880,30 @@ git_sync_to_second_brain() {
             fi
           fi
         elif [[ "$source_checksum" != "$dest_checksum" ]]; then
-          # Checksums differ - files are different
-          if cp "$file" "$dest_file" 2>/dev/null; then
-            ((files_copied++))
-            echo "    ✓ Copied (content differs per ${checksum_tool}): ${rel_path}"
+          # Checksums differ - files are different, merge them
+          local temp_merged=$(mktemp)
+          if merge_files "$file" "$dest_file" "$temp_merged"; then
+            if cp "$temp_merged" "$dest_file" 2>/dev/null; then
+              ((files_copied++))
+              echo "    ✓ Merged (content differs per ${checksum_tool}): ${rel_path}"
+            else
+              echo "    ⚠️  Failed to write merged file: ${rel_path}"
+            fi
           else
-            echo "    ⚠️  Failed to copy: ${rel_path}"
+            # Merge failed, copy source if it's newer
+            if [[ "$file" -nt "$dest_file" ]]; then
+              if cp "$file" "$dest_file" 2>/dev/null; then
+                ((files_copied++))
+                echo "    ✓ Copied (merge failed, content differs): ${rel_path}"
+              else
+                echo "    ⚠️  Failed to copy: ${rel_path}"
+              fi
+            else
+              ((files_skipped++))
+              echo "    ⏭️  Skipped (merge failed, dest newer): ${rel_path}"
+            fi
           fi
+          rm -f "$temp_merged" 2>/dev/null
         else
           # Checksums match - but verify with diff to catch silent checksum failures
           if command -v diff &>/dev/null; then
@@ -540,6 +984,31 @@ git_sync_from_second_brain() {
         else
           echo "    ⚠️  Failed to pull: ${rel_path}"
         fi
+      elif [[ "$file" -nt "$dest_file" ]] || ! diff -q "$file" "$dest_file" &>/dev/null; then
+        # Files differ - merge instead of overwriting
+        local temp_merged=$(mktemp)
+        if merge_files "$dest_file" "$file" "$temp_merged"; then
+          if cp "$temp_merged" "$dest_file" 2>/dev/null; then
+            ((files_copied++))
+            echo "    ✓ Merged (preserved existing content): ${rel_path}"
+          else
+            echo "    ⚠️  Failed to write merged file: ${rel_path}"
+          fi
+        else
+          # Merge failed, fall back to pull if source is newer
+          if [[ "$file" -nt "$dest_file" ]]; then
+            if cp "$file" "$dest_file" 2>/dev/null; then
+              ((files_copied++))
+              echo "    ✓ Pulled (merge failed, source newer): ${rel_path}"
+            else
+              echo "    ⚠️  Failed to pull: ${rel_path}"
+            fi
+          else
+            echo "    ⏭️  Skipped (merge failed, dest newer): ${rel_path}"
+            ((files_skipped++))
+          fi
+        fi
+        rm -f "$temp_merged" 2>/dev/null
       elif [[ "$file" -nt "$dest_file" ]]; then
         # Source is newer - pull
         if cp "$file" "$dest_file" 2>/dev/null; then
@@ -577,23 +1046,55 @@ git_sync_from_second_brain() {
           local dest_size=$(stat -f%z "$dest_file" 2>/dev/null || stat -c%s "$dest_file" 2>/dev/null || echo "0")
           
           if [[ "$source_size" != "$dest_size" ]]; then
-            # Different sizes - definitely different
-            if cp "$file" "$dest_file" 2>/dev/null; then
-              ((files_copied++))
-              echo "    ✓ Pulled (size differs: ${source_size} vs ${dest_size}): ${rel_path}"
+            # Different sizes - definitely different, merge them
+            local temp_merged=$(mktemp)
+            if merge_files "$dest_file" "$file" "$temp_merged"; then
+              if cp "$temp_merged" "$dest_file" 2>/dev/null; then
+                ((files_copied++))
+                echo "    ✓ Merged (size differs: ${source_size} vs ${dest_size}): ${rel_path}"
+              else
+                echo "    ⚠️  Failed to write merged file: ${rel_path}"
+              fi
             else
-              echo "    ⚠️  Failed to pull: ${rel_path}"
+              if [[ "$file" -nt "$dest_file" ]]; then
+                if cp "$file" "$dest_file" 2>/dev/null; then
+                  ((files_copied++))
+                  echo "    ✓ Pulled (merge failed, size differs): ${rel_path}"
+                else
+                  echo "    ⚠️  Failed to pull: ${rel_path}"
+                fi
+              else
+                ((files_skipped++))
+                echo "    ⏭️  Skipped (merge failed, dest newer): ${rel_path}"
+              fi
             fi
+            rm -f "$temp_merged" 2>/dev/null
           elif command -v diff &>/dev/null; then
             # Same size - do a quick diff check
             if ! diff -q "$file" "$dest_file" &>/dev/null; then
-              # Files differ
-              if cp "$file" "$dest_file" 2>/dev/null; then
-                ((files_copied++))
-                echo "    ✓ Pulled (content differs per diff): ${rel_path}"
+              # Files differ - merge them
+              local temp_merged=$(mktemp)
+              if merge_files "$dest_file" "$file" "$temp_merged"; then
+                if cp "$temp_merged" "$dest_file" 2>/dev/null; then
+                  ((files_copied++))
+                  echo "    ✓ Merged (content differs per diff): ${rel_path}"
+                else
+                  echo "    ⚠️  Failed to write merged file: ${rel_path}"
+                fi
               else
-                echo "    ⚠️  Failed to pull: ${rel_path}"
+                if [[ "$file" -nt "$dest_file" ]]; then
+                  if cp "$file" "$dest_file" 2>/dev/null; then
+                    ((files_copied++))
+                    echo "    ✓ Pulled (merge failed, content differs): ${rel_path}"
+                  else
+                    echo "    ⚠️  Failed to pull: ${rel_path}"
+                  fi
+                else
+                  ((files_skipped++))
+                  echo "    ⏭️  Skipped (merge failed, dest newer): ${rel_path}"
+                fi
               fi
+              rm -f "$temp_merged" 2>/dev/null
             else
               # Files are the same
               ((files_skipped++))
@@ -609,13 +1110,30 @@ git_sync_from_second_brain() {
             fi
           fi
         elif [[ "$source_checksum" != "$dest_checksum" ]]; then
-          # Checksums differ - files are different
-          if cp "$file" "$dest_file" 2>/dev/null; then
-            ((files_copied++))
-            echo "    ✓ Pulled (content differs per ${checksum_tool}): ${rel_path}"
+          # Checksums differ - files are different, merge them
+          local temp_merged=$(mktemp)
+          if merge_files "$dest_file" "$file" "$temp_merged"; then
+            if cp "$temp_merged" "$dest_file" 2>/dev/null; then
+              ((files_copied++))
+              echo "    ✓ Merged (content differs per ${checksum_tool}): ${rel_path}"
+            else
+              echo "    ⚠️  Failed to write merged file: ${rel_path}"
+            fi
           else
-            echo "    ⚠️  Failed to pull: ${rel_path}"
+            # Merge failed, pull source if it's newer
+            if [[ "$file" -nt "$dest_file" ]]; then
+              if cp "$file" "$dest_file" 2>/dev/null; then
+                ((files_copied++))
+                echo "    ✓ Pulled (merge failed, content differs): ${rel_path}"
+              else
+                echo "    ⚠️  Failed to pull: ${rel_path}"
+              fi
+            else
+              ((files_skipped++))
+              echo "    ⏭️  Skipped (merge failed, dest newer): ${rel_path}"
+            fi
           fi
+          rm -f "$temp_merged" 2>/dev/null
         else
           # Checksums match - but verify with diff to catch silent checksum failures
           if command -v diff &>/dev/null; then
