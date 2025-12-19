@@ -11,7 +11,7 @@ VECTOR_DB_USER="${VECTOR_DB_USER:-gtd_organization_system}"
 VECTOR_DB_PASSWORD="${VECTOR_DB_PASSWORD:-gtd_organization_system}"
 
 # Enable vectorization (true/false)
-GTD_VECTORIZATION_ENABLED=false
+GTD_VECTORIZATION_ENABLED=true
 
 # Vectorization batch size (number of items to process at once)
 VECTOR_BATCH_SIZE="${VECTOR_BATCH_SIZE:-10}"
@@ -26,7 +26,7 @@ VECTOR_DIMENSION="${VECTOR_DIMENSION:-768}"
 # RabbitMQ connection settings (optional, for async vectorization)
 # For Kubernetes: Use NodePort (192.168.64.2:30672) - no port-forward needed!
 # Old port-forward: localhost:5672 (deprecated)
-RABBITMQ_ENABLED=false
+RABBITMQ_ENABLED=true
 RABBITMQ_URL="${RABBITMQ_URL:-amqp://192.168.64.2:30672}"
 # Username and password (optional - can also be in URL as amqp://user:pass@host:port)
 RABBITMQ_USER="${RABBITMQ_USER:-guest}"

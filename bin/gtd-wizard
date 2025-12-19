@@ -1,16 +1,25 @@
 #!/bin/bash
 # GTD Interactive Wizard - Guides you through GTD processes
 
+# Enable error handling that doesn't exit on failures during initialization
+set +e
+
 # Source common GTD helpers
 GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
 if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
   GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
 fi
 if [[ -f "$GTD_COMMON" ]]; then
-  source "$GTD_COMMON"
+  # Source with error suppression to handle config file issues gracefully
+  source "$GTD_COMMON" 2>/dev/null || {
+    echo "Warning: Error loading gtd-common.sh. Some features may not work." >&2
+  }
 else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
+
+# Re-enable error handling
+set -e
 
 # Source guide functions
 GTD_GUIDES="$HOME/code/dotfiles/bin/gtd-guides.sh"
@@ -27,7 +36,15 @@ if [[ ! -f "$GTD_WIZARD_CORE" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard
   GTD_WIZARD_CORE="$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh"
 fi
 if [[ -f "$GTD_WIZARD_CORE" ]]; then
-  source "$GTD_WIZARD_CORE"
+  set +e
+  source "$GTD_WIZARD_CORE" 2>/dev/null || {
+    echo "Error: Failed to load gtd-wizard-core.sh" >&2
+    exit 1
+  }
+  set -e
+else
+  echo "Error: gtd-wizard-core.sh not found" >&2
+  exit 1
 fi
 
 # Source select helper for project/area selection

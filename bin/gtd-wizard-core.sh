@@ -1849,74 +1849,106 @@ show_process_reminders() {
 }
 
 # Dashboard - Show system status and quick stats (polished version)
+# Made robust for different environments (work/home) with comprehensive error handling
 show_dashboard() {
-  # Get current date/time
-  local current_date=$(gtd_get_today)
-  local current_time=$(gtd_get_current_time)
-  local day_name=$(date +"%A" 2>/dev/null || echo "")
+  # Enable error handling that doesn't exit on failures
+  set +e
+  
+  # Get current date/time with error handling
+  local current_date=""
+  local current_time=""
+  local day_name=""
+  
+  if command -v date &>/dev/null; then
+    current_date=$(gtd_get_today 2>/dev/null || echo "$(date +%Y-%m-%d 2>/dev/null || echo 'N/A')")
+    current_time=$(gtd_get_current_time 2>/dev/null || echo "$(date +%H:%M 2>/dev/null || echo 'N/A')")
+    day_name=$(date +"%A" 2>/dev/null || echo "")
+  else
+    current_date="N/A"
+    current_time="N/A"
+  fi
   
   echo ""
-  gtd_section_divider "$CYAN"
-  echo -e "${BOLD}${CYAN}🎯 GTD Command Center${NC}"
+  gtd_section_divider "$CYAN" 2>/dev/null || echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "${BOLD}${CYAN}🎯 GTD Command Center${NC}" 2>/dev/null || echo "🎯 GTD Command Center"
   if [[ -n "$day_name" ]]; then
-    echo -e "${CYAN}   ${day_name}, ${current_date} ${current_time}${NC}"
+    echo -e "${CYAN}   ${day_name}, ${current_date} ${current_time}${NC}" 2>/dev/null || echo "   ${day_name}, ${current_date} ${current_time}"
   else
-    echo -e "${CYAN}   ${current_date} ${current_time}${NC}"
+    echo -e "${CYAN}   ${current_date} ${current_time}${NC}" 2>/dev/null || echo "   ${current_date} ${current_time}"
   fi
-  gtd_section_divider "$CYAN"
+  gtd_section_divider "$CYAN" 2>/dev/null || echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
   # System Status Section - Compact format
-  echo -e "${BOLD}📊 System Status${NC}"
+  echo -e "${BOLD}📊 System Status${NC}" 2>/dev/null || echo "📊 System Status"
   
   # Inbox count (cached for 5 seconds) - with error handling
   local inbox_count=0
-  if [[ -n "${INBOX_PATH:-}" ]]; then
-    inbox_count=$(gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md" 5 2>/dev/null || echo "0")
+  if [[ -n "${INBOX_PATH:-}" ]] && [[ -d "${INBOX_PATH:-}" ]]; then
+    # Use timeout if available to prevent hanging
+    if command -v timeout &>/dev/null; then
+      inbox_count=$(timeout 2 bash -c "gtd_get_cached_count 'inbox' '${INBOX_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+    else
+      inbox_count=$(gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    fi
     # Ensure it's numeric
     [[ "$inbox_count" =~ ^[0-9]+$ ]] || inbox_count=0
   fi
   if [[ $inbox_count -gt 0 ]]; then
-    echo -e "  ${RED}📥${NC} ${BOLD}Inbox:${NC} ${inbox_count} ${YELLOW}→ Process first! (2)${NC}"
+    echo -e "  ${RED}📥${NC} ${BOLD}Inbox:${NC} ${inbox_count} ${YELLOW}→ Process first! (2)${NC}" 2>/dev/null || echo "  📥 Inbox: ${inbox_count} → Process first! (2)"
   else
-    echo -e "  ${GREEN}✓${NC} ${BOLD}Inbox:${NC} Empty"
+    echo -e "  ${GREEN}✓${NC} ${BOLD}Inbox:${NC} Empty" 2>/dev/null || echo "  ✓ Inbox: Empty"
   fi
   
   # Active tasks count (cached) - with error handling
   local tasks_count=0
-  if [[ -n "${TASKS_PATH:-}" ]]; then
-    tasks_count=$(gtd_get_cached_count "tasks" "${TASKS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+  if [[ -n "${TASKS_PATH:-}" ]] && [[ -d "${TASKS_PATH:-}" ]]; then
+    if command -v timeout &>/dev/null; then
+      tasks_count=$(timeout 2 bash -c "gtd_get_cached_count 'tasks' '${TASKS_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+    else
+      tasks_count=$(gtd_get_cached_count "tasks" "${TASKS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    fi
     # Ensure it's numeric
     [[ "$tasks_count" =~ ^[0-9]+$ ]] || tasks_count=0
   fi
-  echo -e "  ${CYAN}✅${NC} ${BOLD}Tasks:${NC} ${tasks_count}"
+  echo -e "  ${CYAN}✅${NC} ${BOLD}Tasks:${NC} ${tasks_count}" 2>/dev/null || echo "  ✅ Tasks: ${tasks_count}"
   
   # Active projects count (cached) - special pattern for projects - with error handling
   local projects_count=0
-  if [[ -n "${PROJECTS_PATH:-}" ]]; then
-    projects_count=$(gtd_get_cached_count "projects" "${PROJECTS_PATH}" "projects" 5 2>/dev/null || echo "0")
+  if [[ -n "${PROJECTS_PATH:-}" ]] && [[ -d "${PROJECTS_PATH:-}" ]]; then
+    if command -v timeout &>/dev/null; then
+      projects_count=$(timeout 2 bash -c "gtd_get_cached_count 'projects' '${PROJECTS_PATH}' 'projects' 5" 2>/dev/null || echo "0")
+    else
+      projects_count=$(gtd_get_cached_count "projects" "${PROJECTS_PATH}" "projects" 5 2>/dev/null || echo "0")
+    fi
     # Ensure it's numeric
     [[ "$projects_count" =~ ^[0-9]+$ ]] || projects_count=0
   fi
-  echo -e "  ${CYAN}📁${NC} ${BOLD}Projects:${NC} ${projects_count}"
+  echo -e "  ${CYAN}📁${NC} ${BOLD}Projects:${NC} ${projects_count}" 2>/dev/null || echo "  📁 Projects: ${projects_count}"
   
   # Areas count (cached) - with error handling
   local areas_count=0
-  if [[ -n "${AREAS_PATH:-}" ]]; then
-    areas_count=$(gtd_get_cached_count "areas" "${AREAS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+  if [[ -n "${AREAS_PATH:-}" ]] && [[ -d "${AREAS_PATH:-}" ]]; then
+    if command -v timeout &>/dev/null; then
+      areas_count=$(timeout 2 bash -c "gtd_get_cached_count 'areas' '${AREAS_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+    else
+      areas_count=$(gtd_get_cached_count "areas" "${AREAS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    fi
     # Ensure it's numeric
     [[ "$areas_count" =~ ^[0-9]+$ ]] || areas_count=0
   fi
-  echo -e "  ${CYAN}🎯${NC} ${BOLD}Areas:${NC} ${areas_count}"
+  echo -e "  ${CYAN}🎯${NC} ${BOLD}Areas:${NC} ${areas_count}" 2>/dev/null || echo "  🎯 Areas: ${areas_count}"
   
   # Smart Suggestions count (with timeout protection and efficiency)
-  local suggestions_dir="$HOME/Documents/gtd/suggestions"
+  # Use GTD_BASE_DIR if available, otherwise fallback to default
+  local suggestions_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/suggestions"
   local total_suggestions=0
   local high_conf_suggestions=0
   local medium_conf_suggestions=0
   local low_conf_suggestions=0
   
-  if [[ -d "$suggestions_dir" ]]; then
+  # Only check suggestions if directory exists and is accessible
+  if [[ -d "$suggestions_dir" ]] && [[ -r "$suggestions_dir" ]]; then
     # Use a simple, fast approach: count pending files with single grep
     # This is much faster than reading each file individually
     set +e  # Allow errors in case of permission issues
@@ -2001,62 +2033,84 @@ show_dashboard() {
     fi
   fi
   
-  # Today's log entries
-  local today=$(gtd_get_today)
-  local today_log="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}/${today}.md"
+  # Today's log entries - with error handling
+  local today=""
+  local today_log=""
   local today_entries=0
-  if [[ -f "$today_log" ]]; then
-    today_entries=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
+  if command -v date &>/dev/null; then
+    today=$(gtd_get_today 2>/dev/null || echo "$(date +%Y-%m-%d 2>/dev/null || echo '')")
+    if [[ -n "$today" ]]; then
+      today_log="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}/${today}.md"
+      if [[ -f "$today_log" ]] && [[ -r "$today_log" ]]; then
+        today_entries=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
+        [[ "$today_entries" =~ ^[0-9]+$ ]] || today_entries=0
+      fi
+    fi
   fi
-  echo -e "  ${CYAN}📝${NC} ${BOLD}Today:${NC} ${today_entries} entries"
+  echo -e "  ${CYAN}📝${NC} ${BOLD}Today:${NC} ${today_entries} entries" 2>/dev/null || echo "  📝 Today: ${today_entries} entries"
   
-  # Waiting for items (cached)
-  # Waiting count - with error handling
+  # Waiting for items (cached) - with error handling
   local waiting_count=0
-  if [[ -n "${WAITING_PATH:-}" ]]; then
-    set +e
-    waiting_count=$(gtd_get_cached_count "waiting" "${WAITING_PATH}" "*.md" 5 2>/dev/null || echo "0")
-    set -e
+  if [[ -n "${WAITING_PATH:-}" ]] && [[ -d "${WAITING_PATH:-}" ]]; then
+    if command -v timeout &>/dev/null; then
+      waiting_count=$(timeout 2 bash -c "gtd_get_cached_count 'waiting' '${WAITING_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+    else
+      waiting_count=$(gtd_get_cached_count "waiting" "${WAITING_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    fi
     # Ensure it's numeric
     [[ "$waiting_count" =~ ^[0-9]+$ ]] || waiting_count=0
   fi
   if [[ $waiting_count -gt 0 ]]; then
-    echo -e "  ${YELLOW}⏳${NC} ${BOLD}Waiting:${NC} ${waiting_count}"
+    echo -e "  ${YELLOW}⏳${NC} ${BOLD}Waiting:${NC} ${waiting_count}" 2>/dev/null || echo "  ⏳ Waiting: ${waiting_count}"
   fi
   
   # Someday/Maybe items (cached) - with error handling
   local someday_count=0
-  if [[ -n "${SOMEDAY_PATH:-}" ]]; then
-    set +e
-    someday_count=$(gtd_get_cached_count "someday" "${SOMEDAY_PATH}" "*.md" 5 2>/dev/null || echo "0")
-    set -e
+  if [[ -n "${SOMEDAY_PATH:-}" ]] && [[ -d "${SOMEDAY_PATH:-}" ]]; then
+    if command -v timeout &>/dev/null; then
+      someday_count=$(timeout 2 bash -c "gtd_get_cached_count 'someday' '${SOMEDAY_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+    else
+      someday_count=$(gtd_get_cached_count "someday" "${SOMEDAY_PATH}" "*.md" 5 2>/dev/null || echo "0")
+    fi
     # Ensure it's numeric
     [[ "$someday_count" =~ ^[0-9]+$ ]] || someday_count=0
   fi
   if [[ $someday_count -gt 0 ]]; then
-    echo -e "  ${MAGENTA}💭${NC} ${BOLD}Someday:${NC} ${someday_count}"
+    echo -e "  ${MAGENTA}💭${NC} ${BOLD}Someday:${NC} ${someday_count}" 2>/dev/null || echo "  💭 Someday: ${someday_count}"
   fi
   
   echo ""
   
-  # Smart Defaults Section
-  show_smart_defaults
+  # Smart Defaults Section - with error handling
+  # Only show if function exists and directories are available
+  if declare -f show_smart_defaults &>/dev/null; then
+    set +e
+    # Check if required paths exist before calling
+    if [[ -n "${GTD_BASE_DIR:-}" ]] && [[ -d "${GTD_BASE_DIR:-}" ]]; then
+      show_smart_defaults 2>/dev/null || true
+    fi
+    set -e
+  fi
   
   # Quick Actions Section - Compact format
-  echo -e "${BOLD}⚡ Quick Actions${NC}"
+  echo -e "${BOLD}⚡ Quick Actions${NC}" 2>/dev/null || echo "⚡ Quick Actions"
   if [[ $inbox_count -gt 0 ]]; then
-    echo -e "  ${YELLOW}⚠️${NC} ${BOLD}${inbox_count}${NC} inbox → Press ${BOLD}2${NC}"
+    echo -e "  ${YELLOW}⚠️${NC} ${BOLD}${inbox_count}${NC} inbox → Press ${BOLD}2${NC}" 2>/dev/null || echo "  ⚠️ ${inbox_count} inbox → Press 2"
   fi
   if [[ $waiting_count -gt 0 ]]; then
-    echo -e "  ${YELLOW}⏳${NC} ${waiting_count} waiting → Review (6)"
+    echo -e "  ${YELLOW}⏳${NC} ${waiting_count} waiting → Review (6)" 2>/dev/null || echo "  ⏳ ${waiting_count} waiting → Review (6)"
   fi
-  echo -e "  ${CYAN}💡${NC} 'What now?' → ${BOLD}40${NC}"
-  echo -e "  ${CYAN}📝${NC} Daily log → ${BOLD}15${NC}"
-  echo -e "  ${CYAN}📊${NC} Full status → ${BOLD}17${NC}"
+  echo -e "  ${CYAN}💡${NC} 'What now?' → ${BOLD}40${NC}" 2>/dev/null || echo "  💡 'What now?' → 40"
+  echo -e "  ${CYAN}📝${NC} Daily log → ${BOLD}15${NC}" 2>/dev/null || echo "  📝 Daily log → 15"
+  echo -e "  ${CYAN}📊${NC} Full status → ${BOLD}17${NC}" 2>/dev/null || echo "  📊 Full status → 17"
   echo ""
   
-  gtd_section_divider "$CYAN"
+  gtd_section_divider "$CYAN" 2>/dev/null || echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
+  
+  # Re-enable error handling and return successfully
+  set -e
+  return 0
 }
 
 # Compact dashboard - one-line status display
@@ -2532,8 +2586,10 @@ show_main_menu() {
   echo ""
   
   # Show dashboard (command center) at the bottom
-  # Wrap in error handling to prevent wizard from crashing if dashboard fails
-  if ! show_dashboard 2>/dev/null; then
+  # Wrap in comprehensive error handling to prevent wizard from crashing
+  set +e  # Don't exit on errors
+  # Run dashboard with error isolation - if it fails, show fallback
+  show_dashboard 2>/dev/null || {
     # Fallback: show minimal status if dashboard fails
     echo ""
     echo "🎯 GTD Command Center"
@@ -2543,7 +2599,8 @@ show_main_menu() {
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-  fi
+  }
+  set -e  # Re-enable error handling
   
   echo -n "Choose: "
 }
