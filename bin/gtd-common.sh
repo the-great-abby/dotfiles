@@ -32,7 +32,10 @@ load_gtd_config() {
   fi
   
   if [[ -f "$GTD_CONFIG_FILE" ]]; then
-    source "$GTD_CONFIG_FILE"
+    # Use set +e to prevent script from exiting on errors in sourced file
+    set +e
+    source "$GTD_CONFIG_FILE" 2>/dev/null || true
+    set -e
   fi
 }
 
@@ -46,14 +49,24 @@ load_daily_log_config() {
   fi
   
   if [[ -f "$DAILY_LOG_CONFIG" ]]; then
-    source "$DAILY_LOG_CONFIG"
+    # Use set +e to prevent script from exiting on errors in sourced file
+    set +e
+    source "$DAILY_LOG_CONFIG" 2>/dev/null || true
+    set -e
   fi
   
   # Apply mode-specific DAILY_LOG_DIR if it exists
   local current_mode="${GTD_COMPUTER_MODE:-home}"
-  local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]')
+  local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+  
+  # Safety check: ensure mode_upper is valid
+  if [[ -z "$mode_upper" ]] || [[ ! "$mode_upper" =~ ^(HOME|WORK)$ ]]; then
+    mode_upper="HOME"
+  fi
+  
   local mode_daily_log="DAILY_LOG_DIR_${mode_upper}"
   
+  # Use indirect variable expansion safely
   if [[ -n "${!mode_daily_log:-}" ]]; then
     DAILY_LOG_DIR="${!mode_daily_log}"
     export DAILY_LOG_DIR
@@ -72,16 +85,22 @@ init_gtd_paths() {
     fi
     if [[ -f "$gtd_config" ]]; then
       # Source config with error handling to prevent bad substitution errors
-      # Redirect stderr to prevent error messages from breaking the script
-      # Use set +e to prevent script from exiting on errors in sourced file
-      set +e
-      source "$gtd_config" 2>/dev/null || true
-      set -e
-      # Re-read GTD_COMPUTER_MODE after sourcing (may have been set)
+      # Use eval with error redirection to catch syntax errors
+      # This prevents bad substitutions in the config file from killing the script
+      {
+        set +e
+        source "$gtd_config" 2>&1 | grep -v "bad substitution" >&2 || true
+        set -e
+      } 2>/dev/null || true
+      
+      # Re-read GTD_COMPUTER_MODE from file (more reliable than sourced variable)
       if [[ -f "$gtd_config" ]]; then
-        current_mode=$(grep "^GTD_COMPUTER_MODE=" "$gtd_config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]')
-        current_mode="${current_mode:-home}"
+        local file_mode=$(grep "^GTD_COMPUTER_MODE=" "$gtd_config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+        if [[ -n "$file_mode" ]]; then
+          current_mode="$file_mode"
+        fi
       fi
+      current_mode="${current_mode:-home}"
     fi
   fi
   
@@ -127,7 +146,10 @@ init_gtd_paths() {
     daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
   fi
   if [[ -f "$daily_log_config" ]]; then
+    # Use set +e to prevent script from exiting on errors in sourced file
+    set +e
     source "$daily_log_config" 2>/dev/null || true
+    set -e
     # Check for mode-specific DAILY_LOG_DIR by reading from config file
     local mode_daily_log=$(grep "^DAILY_LOG_DIR_${mode_upper}=" "$daily_log_config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g")
     if [[ -n "$mode_daily_log" ]]; then
