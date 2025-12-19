@@ -2637,32 +2637,32 @@ main() {
   while true; do
     # Show menu with error handling
     set +e
-    show_main_menu 2>/dev/null || {
+    show_main_menu 2>&1 | grep -v "bad substitution" || {
       echo ""
       echo "Error displaying menu. Press Enter to continue..."
-      read -t 60 || true
+      read -t 60 choice 2>/dev/null || true
       continue
     }
     set -e
     
-    # Read user choice with timeout to prevent infinite wait
-    # Use read -t to set a timeout (60 seconds should be plenty for user input)
+    # Read user choice - use simple read without timeout to avoid issues
+    # The timeout might be causing problems in some environments
     local choice=""
-    set +e  # Don't exit if read fails or times out
-    if command -v read &>/dev/null; then
-      # Try to read with timeout (works in bash)
-      read -t 60 choice 2>/dev/null || choice=""
-    else
-      # Fallback: regular read
-      read choice 2>/dev/null || choice=""
-    fi
+    set +e  # Don't exit if read fails
+    # Flush any pending output before reading
+    exec >&2  # Ensure we're writing to stderr for prompts
+    read choice 2>/dev/null || {
+      # If read fails (e.g., EOF), exit gracefully
+      echo ""
+      echo "Exiting..."
+      exit 0
+    }
     set -e  # Re-enable error handling
     
-    # Handle empty choice (timeout or Ctrl+D)
+    # Handle empty choice (just Enter)
     if [[ -z "$choice" ]]; then
-      echo ""
-      echo "No input received. Exiting..."
-      exit 0
+      # Empty input - show menu again
+      continue
     fi
     
     # Track wizard option usage for preferences learning (with timeout)
