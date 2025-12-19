@@ -14,9 +14,9 @@ GTD_COMPUTER_MODE="work"
 # ============================================================================
 # Directory Structure
 # Mode-specific directories (work mode)
-SECOND_BRAIN_WORK="/Users/abbymalson/Documents/Second Brain"
+SECOND_BRAIN_WORK="$HOME/Documents/Second Brain"
 # Mode-specific directories (work mode)
-GTD_BASE_DIR_WORK="/Users/abbymalson/Documents/gtd"
+GTD_BASE_DIR_WORK="$HOME/Documents/gtd"
 # ============================================================================
 # Mode-Specific Feature Settings
 # These settings are applied when switching computer modes
