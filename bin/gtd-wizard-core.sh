@@ -2597,23 +2597,79 @@ show_main_menu() {
 
 # Main function - entry point for the wizard
 main() {
-  # Award XP for opening wizard (first time in this session)
-  award_wizard_xp "wizard_use" "Opened GTD wizard"
+  # Set up signal handlers to prevent crashes
+  trap 'echo ""; echo "Exiting wizard..."; exit 0' INT TERM
+  trap 'echo ""; echo "Error in wizard. Exiting..."; exit 1' ERR
   
-  # Track daily usage
-  if command -v gtd-success-metrics &>/dev/null; then
-    gtd-success-metrics track "gtd-wizard" 2>/dev/null || true
-  elif [[ -f "$HOME/code/dotfiles/bin/gtd-success-metrics" ]]; then
-    "$HOME/code/dotfiles/bin/gtd-success-metrics" track "gtd-wizard" 2>/dev/null || true
+  # Award XP for opening wizard (first time in this session)
+  # Use timeout and error isolation to prevent hanging
+  set +e
+  if command -v timeout &>/dev/null; then
+    timeout 1 bash -c "award_wizard_xp 'wizard_use' 'Opened GTD wizard'" 2>/dev/null || true
+  else
+    award_wizard_xp "wizard_use" "Opened GTD wizard" 2>/dev/null || true
   fi
+  set -e
+  
+  # Track daily usage with timeout protection
+  set +e
+  if command -v gtd-success-metrics &>/dev/null; then
+    if command -v timeout &>/dev/null; then
+      timeout 1 gtd-success-metrics track "gtd-wizard" 2>/dev/null || true
+    else
+      gtd-success-metrics track "gtd-wizard" 2>/dev/null || true
+    fi
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-success-metrics" ]]; then
+    if command -v timeout &>/dev/null; then
+      timeout 1 "$HOME/code/dotfiles/bin/gtd-success-metrics" track "gtd-wizard" 2>/dev/null || true
+    else
+      "$HOME/code/dotfiles/bin/gtd-success-metrics" track "gtd-wizard" 2>/dev/null || true
+    fi
+  fi
+  set -e
   
   while true; do
-    show_main_menu
-    read choice
+    # Show menu with error handling
+    set +e
+    show_main_menu 2>/dev/null || {
+      echo ""
+      echo "Error displaying menu. Press Enter to continue..."
+      read -t 60 || true
+      continue
+    }
+    set -e
     
-    # Track wizard option usage for preferences learning
-    if [[ "$choice" =~ ^[0-9]+$ ]] && command -v gtd-preferences-learn &>/dev/null; then
-      gtd-preferences-learn track-feature "wizard_option" "$choice" 2>/dev/null || true
+    # Read user choice with timeout to prevent infinite wait
+    # Use read -t to set a timeout (60 seconds should be plenty for user input)
+    local choice=""
+    set +e  # Don't exit if read fails or times out
+    if command -v read &>/dev/null; then
+      # Try to read with timeout (works in bash)
+      read -t 60 choice 2>/dev/null || choice=""
+    else
+      # Fallback: regular read
+      read choice 2>/dev/null || choice=""
+    fi
+    set -e  # Re-enable error handling
+    
+    # Handle empty choice (timeout or Ctrl+D)
+    if [[ -z "$choice" ]]; then
+      echo ""
+      echo "No input received. Exiting..."
+      exit 0
+    fi
+    
+    # Track wizard option usage for preferences learning (with timeout)
+    if [[ "$choice" =~ ^[0-9]+$ ]]; then
+      set +e
+      if command -v gtd-preferences-learn &>/dev/null; then
+        if command -v timeout &>/dev/null; then
+          timeout 1 gtd-preferences-learn track-feature "wizard_option" "$choice" 2>/dev/null || true
+        else
+          gtd-preferences-learn track-feature "wizard_option" "$choice" 2>/dev/null || true
+        fi
+      fi
+      set -e
     fi
     
     case "$choice" in
