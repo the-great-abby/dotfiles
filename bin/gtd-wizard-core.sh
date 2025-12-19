@@ -835,8 +835,45 @@ show_smart_defaults() {
   local time_of_day=$(get_time_of_day)
   local computer_mode=$(get_computer_mode)
   
-  # Get suggestions
-  local suggestions_output=$(get_smart_defaults)
+  # Get suggestions with error handling
+  local suggestions_output=""
+  set +e
+  suggestions_output=$(get_smart_defaults 2>/dev/null || echo "")
+  set -e
+  
+  # If get_smart_defaults failed or returned empty, show default message
+  if [[ -z "$suggestions_output" ]]; then
+    echo -e "${BOLD}🎯 Smart Suggestions${NC}"
+    echo ""
+    local time_emoji=""
+    case "$time_of_day" in
+      morning) time_emoji="🌅" ;;
+      afternoon) time_emoji="☀️" ;;
+      evening) time_emoji="🌙" ;;
+      *) time_emoji="🕐" ;;
+    esac
+    
+    local mode_emoji=""
+    case "$computer_mode" in
+      work) mode_emoji="💼" ;;
+      home) mode_emoji="🏠" ;;
+      *) mode_emoji="💻" ;;
+    esac
+    
+    local time_first="${time_of_day:0:1}"
+    local time_rest="${time_of_day:1}"
+    local time_display="$(echo "$time_first" | tr '[:lower:]' '[:upper:]')$time_rest"
+    
+    local mode_first="${computer_mode:0:1}"
+    local mode_rest="${computer_mode:1}"
+    local mode_display="$(echo "$mode_first" | tr '[:lower:]' '[:upper:]')$mode_rest"
+    
+    echo -e "  ${CYAN}Context: ${time_emoji} ${time_display} | ${mode_emoji} ${mode_display}${NC}"
+    echo "  No specific suggestions at this time. Check your inbox and tasks!"
+    echo ""
+    return 0
+  fi
+  
   local suggestions=()
   local priorities=()
   

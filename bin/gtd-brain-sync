@@ -304,7 +304,7 @@ git_sync_to_second_brain() {
   
   # If not in a git repo, try GTD_BASE_DIR
   if [[ -z "$git_root" && -d "$GTD_BASE_DIR/.git" ]]; then
-    cd "$GTD_BASE_DIR" || return 1
+  cd "$GTD_BASE_DIR" || return 1
     git_root="$GTD_BASE_DIR"
   elif [[ -z "$git_root" ]]; then
     # Not a git repo - that's okay, we'll still sync files
@@ -315,12 +315,12 @@ git_sync_to_second_brain() {
   
   # Only try git operations if we're in a git repo
   if [[ -n "$git_root" && -d "$git_root/.git" ]]; then
-    # Stage all changes
-    git add -A 2>/dev/null || true
-    
-    # Check if there are changes to commit
-    if git diff --staged --quiet 2>/dev/null && git diff --quiet 2>/dev/null; then
-      # No changes, but still sync files
+  # Stage all changes
+  git add -A 2>/dev/null || true
+  
+  # Check if there are changes to commit
+  if git diff --staged --quiet 2>/dev/null && git diff --quiet 2>/dev/null; then
+    # No changes, but still sync files
       echo "  ℹ️  No git changes to commit"
     else
     # Show what's being committed
@@ -339,11 +339,11 @@ git_sync_to_second_brain() {
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     local commit_msg="Sync ${sync_type} to Second Brain - ${timestamp}"
     
-      git commit -m "$commit_msg" --quiet 2>/dev/null && {
-        echo "  ✓ Committed changes: ${commit_msg}"
-      } || {
+    git commit -m "$commit_msg" --quiet 2>/dev/null && {
+      echo "  ✓ Committed changes: ${commit_msg}"
+    } || {
         echo "  ⚠️  Commit failed or no changes to commit"
-      }
+    }
     fi
   fi
   
@@ -356,6 +356,10 @@ git_sync_to_second_brain() {
   local files_skipped=0
   local total_files=0
   
+  echo "  📂 Source directory: $source_dir"
+  echo "  📂 Destination directory: $dest_dir"
+  echo ""
+  
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
       ((total_files++))
@@ -364,6 +368,11 @@ git_sync_to_second_brain() {
       local dest_dir_path=$(dirname "$dest_file")
       
       mkdir -p "$dest_dir_path"
+      
+      # Show what files we're comparing (verbose mode)
+      echo "  🔍 File: ${rel_path}"
+      echo "    Source: $file"
+      echo "    Dest:   $dest_file"
       
       # Check if destination exists and compare
       if [[ ! -f "$dest_file" ]]; then
@@ -499,6 +508,10 @@ git_sync_from_second_brain() {
   local files_skipped=0
   local total_files=0
   
+  echo "  📂 Source directory (Second Brain): $source_dir"
+  echo "  📂 Destination directory (local): $dest_dir"
+  echo ""
+  
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
       ((total_files++))
@@ -507,6 +520,16 @@ git_sync_from_second_brain() {
       local dest_dir_path=$(dirname "$dest_file")
       
       mkdir -p "$dest_dir_path"
+      
+      # Show what files we're comparing (verbose mode)
+      echo "  🔍 File: ${rel_path}"
+      echo "    Source: $file"
+      echo "    Dest:   $dest_file"
+      
+      # Show what files we're comparing (verbose mode)
+      echo "  🔍 Comparing files:"
+      echo "    Source: $file"
+      echo "    Dest:   $dest_file"
       
       # Check if destination exists and compare
       if [[ ! -f "$dest_file" ]]; then
@@ -634,20 +657,20 @@ git_sync_from_second_brain() {
     
     # If not in a git repo, try GTD_BASE_DIR
     if [[ -z "$git_root" && -d "$GTD_BASE_DIR/.git" ]]; then
-      cd "$GTD_BASE_DIR" || return 1
+    cd "$GTD_BASE_DIR" || return 1
       git_root="$GTD_BASE_DIR"
     elif [[ -n "$git_root" ]]; then
       cd "$git_root" || return 1
     fi
     
     if [[ -n "$git_root" && -d "$git_root/.git" ]]; then
-      git add -A 2>/dev/null || true
-      if ! git diff --staged --quiet 2>/dev/null; then
-        local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-        git commit -m "Sync from Second Brain - ${timestamp}" --quiet 2>/dev/null && {
-          echo "  ✓ Committed pulled changes"
-        }
-      fi
+    git add -A 2>/dev/null || true
+    if ! git diff --staged --quiet 2>/dev/null; then
+      local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+      git commit -m "Sync from Second Brain - ${timestamp}" --quiet 2>/dev/null && {
+        echo "  ✓ Committed pulled changes"
+      }
+    fi
     fi
   else
     echo "  ℹ️  No files to pull (all identical)"
