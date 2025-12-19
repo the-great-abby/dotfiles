@@ -1,0 +1,149 @@
+#!/bin/bash
+# Setup weekly knowledge organization scan
+
+PLIST_FILE="$HOME/Library/LaunchAgents/com.gtd.knowledge-scan.plist"
+SCAN_SCRIPT="$HOME/code/dotfiles/bin/gtd-knowledge-scan-weekly"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🗺️  Weekly Knowledge Organization Scan Setup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+show_status() {
+  echo "Status:"
+  echo ""
+  
+  if [[ -f "$PLIST_FILE" ]]; then
+    echo "  ✓ Launch agent plist exists"
+  else
+    echo "  ✗ Launch agent plist NOT found"
+  fi
+  
+  if [[ -f "$SCAN_SCRIPT" ]]; then
+    echo "  ✓ Scan script exists"
+  else
+    echo "  ✗ Scan script NOT found"
+  fi
+  
+  # Check if loaded
+  if launchctl list | grep -q "com.gtd.knowledge-scan"; then
+    echo "  ✓ Launch agent is LOADED"
+  else
+    echo "  ✗ Launch agent is NOT loaded"
+  fi
+  
+  echo ""
+  echo "Schedule: Every Sunday at 9:00 AM"
+  echo ""
+}
+
+case "${1:-status}" in
+  status)
+    show_status
+    ;;
+    
+  install|enable)
+    echo "Installing weekly knowledge scan..."
+    echo ""
+    
+    if [[ ! -f "$PLIST_FILE" ]]; then
+      echo "❌ Plist file not found: $PLIST_FILE"
+      echo "   Run this from the dotfiles directory"
+      exit 1
+    fi
+    
+    if [[ ! -f "$SCAN_SCRIPT" ]]; then
+      echo "❌ Scan script not found: $SCAN_SCRIPT"
+      exit 1
+    fi
+    
+    # Unload if already loaded
+    if launchctl list | grep -q "com.gtd.knowledge-scan"; then
+      echo "Unloading existing agent..."
+      launchctl unload "$PLIST_FILE" 2>/dev/null
+    fi
+    
+    # Load the agent
+    echo "Loading launch agent..."
+    launchctl load "$PLIST_FILE"
+    
+    if launchctl list | grep -q "com.gtd.knowledge-scan"; then
+      echo ""
+      echo "✓ Weekly knowledge scan installed and enabled!"
+      echo ""
+      echo "Schedule: Every Sunday at 9:00 AM"
+      echo "Logs: ~/Documents/gtd/logs/"
+      echo ""
+    else
+      echo ""
+      echo "❌ Failed to load launch agent"
+      exit 1
+    fi
+    ;;
+    
+  disable|uninstall)
+    echo "Disabling weekly knowledge scan..."
+    echo ""
+    
+    if launchctl list | grep -q "com.gtd.knowledge-scan"; then
+      launchctl unload "$PLIST_FILE" 2>/dev/null
+      echo "✓ Launch agent unloaded"
+    else
+      echo "⚠️  Launch agent was not loaded"
+    fi
+    echo ""
+    ;;
+    
+  test)
+    echo "Testing knowledge scan..."
+    echo ""
+    
+    if [[ ! -f "$SCAN_SCRIPT" ]]; then
+      echo "❌ Scan script not found: $SCAN_SCRIPT"
+      exit 1
+    fi
+    
+    "$SCAN_SCRIPT"
+    echo ""
+    echo "Check logs at: ~/Documents/gtd/logs/"
+    echo ""
+    ;;
+    
+  logs)
+    LOG_DIR="$HOME/Documents/gtd/logs"
+    if [[ -d "$LOG_DIR" ]]; then
+      echo "Recent knowledge scan logs:"
+      echo ""
+      ls -lt "$LOG_DIR"/knowledge-scan-*.log 2>/dev/null | head -5
+      echo ""
+      echo "View latest:"
+      echo "  tail -f $LOG_DIR/knowledge-scan-stdout.log"
+    else
+      echo "No logs directory found"
+    fi
+    ;;
+    
+  --help|-h|help)
+    echo "Usage: gtd-knowledge-scan-setup [command]"
+    echo ""
+    echo "Commands:"
+    echo "  status           Show current status (default)"
+    echo "  install|enable   Install and enable weekly scan"
+    echo "  disable|uninstall Disable weekly scan"
+    echo "  test             Run scan manually to test"
+    echo "  logs             Show recent log files"
+    echo ""
+    echo "Examples:"
+    echo "  gtd-knowledge-scan-setup status"
+    echo "  gtd-knowledge-scan-setup install"
+    echo "  gtd-knowledge-scan-setup test"
+    ;;
+    
+  *)
+    echo "Unknown command: $1"
+    echo "Run 'gtd-knowledge-scan-setup --help' for usage"
+    exit 1
+    ;;
+esac
+

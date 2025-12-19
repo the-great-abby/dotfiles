@@ -1,0 +1,202 @@
+# ============================================================================
+# GTD-Optimized tmux Configuration
+# To use: Copy to ~/.tmux.conf or symlink: ln -s ~/code/dotfiles/tmux/tmux.conf.gtd ~/.tmux.conf
+# ============================================================================
+
+# -----------------------------------------------------------------------------
+# General Settings
+# -----------------------------------------------------------------------------
+
+# True color support
+set -g default-terminal "screen-256color"
+set -ga terminal-overrides ",xterm-256color:Tc"
+
+# Enable mouse (click, scroll, resize)
+set -g mouse on
+
+# Start window/pane numbering at 1
+set -g base-index 1
+setw -g pane-base-index 1
+
+# Renumber windows when one is closed
+set -g renumber-windows on
+
+# Increase scrollback
+set -g history-limit 50000
+
+# Faster escape (better for vim)
+set -sg escape-time 0
+
+# Enable focus events for vim
+set -g focus-events on
+
+# -----------------------------------------------------------------------------
+# Key Bindings
+# -----------------------------------------------------------------------------
+
+# Remap prefix to Ctrl+a (easier to reach than Ctrl+b)
+unbind C-b
+set -g prefix C-a
+bind C-a send-prefix
+
+# Split panes with | and - (more intuitive)
+bind | split-window -h -c "#{pane_current_path}"
+bind - split-window -v -c "#{pane_current_path}"
+unbind '"'
+unbind %
+
+# Vim-style pane navigation
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+
+# Resize panes with Vim keys
+bind -r H resize-pane -L 5
+bind -r J resize-pane -D 5
+bind -r K resize-pane -U 5
+bind -r L resize-pane -R 5
+
+# Quick pane cycling
+bind -r C-h select-window -t :-
+bind -r C-l select-window -t :+
+
+# Reload config
+bind r source-file ~/.tmux.conf \; display "✅ Config reloaded!"
+
+# -----------------------------------------------------------------------------
+# GTD-Specific Key Bindings
+# -----------------------------------------------------------------------------
+
+# Ctrl+a, g - Quick GTD dashboard in bottom pane
+bind g split-window -v -p 30 'gtd-dashboard --watch'
+
+# Ctrl+a, G - GTD wizard in right pane
+bind G split-window -h 'gtd-wizard'
+
+# Ctrl+a, w - Show advice worker monitor
+bind w split-window -v 'watch -n 30 gtd-advice-monitor'
+
+# Ctrl+a, d - Show daily log (use D, lowercase d is detach)
+bind D split-window -h "tail -f ~/Documents/gtd/$(date +%Y-%m-%d).md"
+
+# Ctrl+a, t - Show today's tasks
+bind t split-window -v 'gtd-task list; read -p "Press Enter to close..."'
+
+# -----------------------------------------------------------------------------
+# Status Bar (with GTD info)
+# -----------------------------------------------------------------------------
+
+# Update status bar frequently
+set -g status-interval 60
+
+# Status bar position
+set -g status-position bottom
+
+# Status bar colors (adjust to your theme preference)
+set -g status-style bg=colour235,fg=colour255
+
+# Left side: session name
+set -g status-left-length 40
+set -g status-left "#[fg=green,bold]#S #[fg=yellow]│ "
+
+# Right side: GTD compact status + time
+set -g status-right-length 120
+set -g status-right "#(gtd-dashboard --plain 2>/dev/null || echo '🎯 GTD') │ %H:%M %d-%b"
+
+# Window status
+set -g window-status-format " #I:#W "
+set -g window-status-current-format " #[fg=black,bg=green,bold] #I:#W "
+
+# Pane border colors
+set -g pane-border-style fg=colour238
+set -g pane-active-border-style fg=green,bold
+
+# Message colors
+set -g message-style bg=colour235,fg=colour255,bold
+
+# -----------------------------------------------------------------------------
+# Copy Mode (Vim-like)
+# -----------------------------------------------------------------------------
+
+setw -g mode-keys vi
+bind -T copy-mode-vi v send -X begin-selection
+bind -T copy-mode-vi y send -X copy-selection-and-cancel
+
+# macOS clipboard integration
+if-shell "uname | grep -q Darwin" \
+  'bind -T copy-mode-vi y send -X copy-pipe-and-cancel "pbcopy"'
+
+# -----------------------------------------------------------------------------
+# Visual Improvements
+# -----------------------------------------------------------------------------
+
+# Show pane numbers longer
+set -g display-panes-time 2000
+
+# Show messages longer
+set -g display-time 4000
+
+# Activity monitoring
+setw -g monitor-activity on
+set -g visual-activity off
+
+# Clock mode (Ctrl+a t by default, but we remapped to tasks)
+set -g clock-mode-style 24
+
+# -----------------------------------------------------------------------------
+# Quick Layouts
+# -----------------------------------------------------------------------------
+
+# Ctrl+a, M - GTD Monitor layout
+bind M run-shell "~/bin/tmux-layouts/gtd-monitor.sh"
+
+# Ctrl+a, C - GTD Command Center layout  
+bind C run-shell "~/bin/tmux-layouts/gtd-command-center.sh"
+
+# Ctrl+a, P - GTD Productivity Suite layout
+bind P run-shell "~/bin/tmux-layouts/gtd-productivity.sh"
+
+# -----------------------------------------------------------------------------
+# Tips
+# -----------------------------------------------------------------------------
+
+# Display help on startup (first window only)
+# This shows useful keybindings when you start tmux
+bind ? split-window -h "echo '🎯 GTD tmux Keybindings
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Navigation:
+  Ctrl+a h/j/k/l    Navigate panes (vim-style)
+  Ctrl+a arrow      Navigate panes (arrow keys)
+  Ctrl+a n/p        Next/previous window
+
+Splitting:
+  Ctrl+a |          Split vertically
+  Ctrl+a -          Split horizontally
+
+GTD Shortcuts:
+  Ctrl+a g          Show dashboard (bottom)
+  Ctrl+a G          Open wizard (right)
+  Ctrl+a w          Advice worker monitor
+  Ctrl+a D          Show daily log
+  Ctrl+a t          Show tasks
+  
+Layouts:
+  Ctrl+a M          Monitor layout
+  Ctrl+a C          Command Center layout
+  Ctrl+a P          Productivity Suite
+
+Other:
+  Ctrl+a d          Detach session
+  Ctrl+a x          Close pane
+  Ctrl+a z          Zoom/unzoom pane
+  Ctrl+a r          Reload config
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Press Enter to close...'; read"
+
+# -----------------------------------------------------------------------------
+# End of GTD tmux configuration
+# -----------------------------------------------------------------------------
+

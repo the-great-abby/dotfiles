@@ -1,0 +1,150 @@
+#!/bin/bash
+#
+# gtd-dashboard - Show GTD Command Center info at a glance
+#
+# Quick status display showing inbox, tasks, projects, and system stats
+
+set -euo pipefail
+
+# Source common GTD helpers first (provides functions and colors)
+GTD_COMMON=""
+for path in "$HOME/code/dotfiles/bin/gtd-common.sh" \
+            "$HOME/code/personal/dotfiles/bin/gtd-common.sh"; do
+  if [[ -f "$path" ]]; then
+    GTD_COMMON="$path"
+    break
+  fi
+done
+
+if [[ -z "$GTD_COMMON" ]]; then
+  echo "Error: gtd-common.sh not found" >&2
+  exit 1
+fi
+
+source "$GTD_COMMON"
+
+# Find and source the wizard core to get the dashboard function
+WIZARD_CORE=""
+for path in "$HOME/code/dotfiles/bin/gtd-wizard-core.sh" \
+            "$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh"; do
+  if [[ -f "$path" ]]; then
+    WIZARD_CORE="$path"
+    break
+  fi
+done
+
+if [[ -z "$WIZARD_CORE" ]]; then
+  echo "Error: gtd-wizard-core.sh not found" >&2
+  exit 1
+fi
+
+# Source the wizard core (this gives us access to show_dashboard function)
+source "$WIZARD_CORE"
+
+# Parse arguments
+WATCH_MODE=false
+COMPACT_MODE=false
+PLAIN_MODE=false
+LOOP_INTERVAL=5
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --watch|-w)
+      WATCH_MODE=true
+      shift
+      ;;
+    --interval|-i)
+      LOOP_INTERVAL="$2"
+      shift 2
+      ;;
+    --compact|-c)
+      COMPACT_MODE=true
+      shift
+      ;;
+    --plain|-p)
+      PLAIN_MODE=true
+      COMPACT_MODE=true  # Plain implies compact
+      shift
+      ;;
+    --help|-h)
+      cat << EOF
+Usage: gtd-dashboard [OPTIONS]
+
+Show GTD Command Center status at a glance.
+
+OPTIONS:
+    --watch, -w          Watch mode - refresh every 5 seconds
+    --interval, -i SEC   Set refresh interval (requires --watch)
+    --compact, -c        Compact mode - less spacing
+    --plain, -p          Plain text (no colors, for tmux status bar)
+    --help, -h           Show this help message
+
+EXAMPLES:
+    # Quick status check
+    gtd-dashboard
+
+    # Watch mode (auto-refresh every 5 seconds)
+    gtd-dashboard --watch
+
+    # Watch with custom interval
+    gtd-dashboard --watch --interval 10
+
+    # Compact display
+    gtd-dashboard --compact
+
+    # Plain text (for tmux status bar)
+    gtd-dashboard --plain
+
+DESCRIPTION:
+    Shows a quick overview of your GTD system:
+    - Inbox items (items needing processing)
+    - Active tasks, projects, and areas
+    - Recent activity and stats
+    - System health
+
+    Perfect for adding to your shell prompt, terminal multiplexer,
+    or running in a dedicated terminal window.
+
+EOF
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Try: gtd-dashboard --help" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Note: show_compact_dashboard() is now defined in gtd-wizard-core.sh
+# We use the shared function instead of duplicating code
+
+# Main display logic
+if [[ "$WATCH_MODE" == true ]]; then
+  # Watch mode - continuous refresh
+  echo "GTD Dashboard - Watch Mode (Ctrl+C to exit)"
+  echo "Refresh interval: ${LOOP_INTERVAL}s"
+  echo ""
+  
+  while true; do
+    clear
+    if [[ "$PLAIN_MODE" == true ]]; then
+      show_plain_dashboard
+    elif [[ "$COMPACT_MODE" == true ]]; then
+      show_compact_dashboard
+    else
+      show_dashboard
+    fi
+    sleep "$LOOP_INTERVAL"
+  done
+else
+  # Single display
+  if [[ "$PLAIN_MODE" == true ]]; then
+    show_plain_dashboard
+  elif [[ "$COMPACT_MODE" == true ]]; then
+    show_compact_dashboard
+  else
+    show_dashboard
+  fi
+fi
+

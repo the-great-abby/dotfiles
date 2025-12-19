@@ -228,20 +228,20 @@ review_draft() {
         echo -e "${GREEN}✓ Accepted! Created zettelkasten note:${NC} $(basename "$zet_file")"
         reject_draft "$draft_path" >/dev/null 2>&1
         echo ""
-        read -p "Press Enter to continue..."
+        gtd_quick_pause
         return 0
       else
         echo ""
         echo -e "${RED}✗ Failed to create zettelkasten note${NC}"
         echo ""
-        read -p "Press Enter to continue..."
+        gtd_quick_pause
         return 1
       fi
       ;;
     e|E|edit)
       edit_draft "$draft_path"
       echo ""
-      read -p "Press Enter to continue..."
+      gtd_quick_pause
       return 2  # Continue reviewing
       ;;
     r|R|reject)
@@ -250,7 +250,7 @@ review_draft() {
       if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         reject_draft "$draft_path"
         echo ""
-        read -p "Press Enter to continue..."
+        gtd_quick_pause
         return 3  # Rejected
       else
         return 2  # Continue reviewing (skipped)
@@ -260,7 +260,7 @@ review_draft() {
       echo ""
       echo "Skipped. Will review later."
       echo ""
-      read -p "Press Enter to continue..."
+      gtd_quick_pause
       return 2  # Continue reviewing
       ;;
     q|Q|quit)

@@ -655,9 +655,11 @@ advice_wizard() {
       echo ""
       echo "$advice_output"
       
-      # Handle follow-up questions (using default persona)
-      local default_persona="${GTD_DEFAULT_PERSONA:-skippy}"
-      handle_followup_questions "$default_persona" "Daily log review" "$advice_output" "false" "false"
+      # Handle follow-up questions (extract persona from output or use random)
+      # Note: advise_random prints "Randomly selected: <persona>", but for simplicity
+      # we'll use random selection for follow-ups too to maintain variety
+      local followup_persona="random"
+      handle_followup_questions "$followup_persona" "Daily log review" "$advice_output" "false" "false"
       
       # Save conversation if there were follow-ups, or ask to save if no follow-ups
       if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
@@ -665,14 +667,14 @@ advice_wizard() {
         echo -e "${BOLD}Save this conversation? (y/n):${NC} "
         read save_advice
         if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-          save_advice_conversation "Daily log review" "$default_persona" "$FOLLOWUP_CONVERSATION"
+          save_advice_conversation "Daily log review" "$followup_persona" "$FOLLOWUP_CONVERSATION"
         fi
       else
         echo ""
         echo -e "${BOLD}Save this review? (y/n):${NC} "
         read save_advice
         if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-          save_advice_conversation "Daily log review" "default persona" "$advice_output"
+          save_advice_conversation "Daily log review" "random persona" "$advice_output"
         fi
       fi
       ;;
@@ -791,8 +793,7 @@ advice_wizard() {
         echo "💡 Tip: When asking for advice, choose the background option to get"
         echo "   notified via Discord when the advice is ready!"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -808,8 +809,7 @@ advice_wizard() {
       if [[ ${#results[@]} -eq 0 ]]; then
         echo "No results found."
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -842,8 +842,7 @@ advice_wizard() {
       if ! [[ "$selection" =~ ^[0-9]+$ ]] || [[ "$selection" -lt 1 ]] || [[ "$selection" -gt ${#results[@]} ]]; then
         echo "Invalid selection"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -917,8 +916,7 @@ advice_wizard() {
       esac
       
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       return 0
@@ -929,8 +927,7 @@ advice_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 configure_mode_specific_ai() {
@@ -974,8 +971,7 @@ configure_mode_specific_ai() {
     echo -e "${RED}❌ Config file not found:${NC}"
     echo "   $GTD_AI_CONFIG"
     echo ""
-    echo "Press Enter to continue..."
-    read
+    gtd_quick_pause
     return 1
   fi
   
@@ -1017,8 +1013,7 @@ configure_mode_specific_ai() {
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
 }
@@ -1101,8 +1096,7 @@ configure_mode_ai() {
         *)
           echo "Invalid choice"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           return
           ;;
       esac
@@ -1174,8 +1168,7 @@ configure_mode_ai() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 update_config_value() {
@@ -1250,8 +1243,7 @@ view_mode_ai_settings() {
   if [[ ! -f "$config_file" ]]; then
     echo -e "${RED}❌ Config file not found${NC}"
     echo ""
-    echo "Press Enter to continue..."
-    read
+    gtd_quick_pause
     return 1
   fi
   
@@ -1279,8 +1271,7 @@ view_mode_ai_settings() {
   echo "  Deep Model: $home_deep"
   echo ""
   
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 clear_mode_ai_settings() {
@@ -1372,8 +1363,7 @@ clear_mode_ai_settings() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 config_wizard() {
@@ -1463,8 +1453,7 @@ config_wizard() {
         *)
           echo "❌ Invalid choice"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           return
           ;;
       esac
@@ -1761,8 +1750,7 @@ AI_BACKEND=\"$new_backend\"
             echo "Run option 1 first to create the virtualenv, or:"
             echo "   cd $MCP_DIR && ./setup.sh"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             return 0
           fi
           
@@ -1771,8 +1759,7 @@ AI_BACKEND=\"$new_backend\"
             echo -e "${RED}❌ Requirements file not found${NC}"
             echo "   Expected: $REQUIREMENTS_FILE"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             return 0
           fi
           
@@ -1791,8 +1778,7 @@ AI_BACKEND=\"$new_backend\"
           if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
             echo "Cancelled."
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             return 0
           fi
           
@@ -1845,8 +1831,7 @@ AI_BACKEND=\"$new_backend\"
           fi
           
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           return 0
           ;;
         3)
@@ -1866,8 +1851,7 @@ AI_BACKEND=\"$new_backend\"
             echo "  ~/code/dotfiles/.cursor/mcp_config.json"
           fi
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           return 0
           ;;
         4)
@@ -1892,8 +1876,7 @@ AI_BACKEND=\"$new_backend\"
           echo -e "${YELLOW}Note:${NC} After updating gtd_mcp_server.py code, you must restart"
           echo "Cursor for the changes to take effect."
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           return 0
           ;;
         5)
@@ -1946,8 +1929,7 @@ AI_BACKEND=\"$new_backend\"
           if [[ -z "$tool_name" ]]; then
             echo "❌ No tool name provided"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             return 0
           fi
           
@@ -1987,8 +1969,7 @@ for tool in tools:
               echo "❌ MCP server not found"
             fi
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             return 0
           fi
           
@@ -2014,8 +1995,7 @@ for tool in tools:
             echo -e "${RED}❌ MCP server not found${NC}"
             echo "Expected at: $HOME/code/dotfiles/mcp/gtd_mcp_server.py"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             return 0
           fi
           
@@ -2074,8 +2054,7 @@ except Exception as e:
           fi
           
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           return 0
           ;;
         0)
@@ -2084,8 +2063,7 @@ except Exception as e:
         *)
           echo "Invalid choice"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           return 0
           ;;
       esac
@@ -2101,8 +2079,7 @@ except Exception as e:
         echo ""
         echo "Make sure the MCP directory exists and contains setup.sh"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -2122,8 +2099,7 @@ except Exception as e:
         if [[ "$setup_choice" != "1" ]]; then
           echo "Skipping setup."
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           return 0
         fi
       fi
@@ -2141,8 +2117,7 @@ except Exception as e:
       if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
         echo "Setup cancelled."
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -2407,8 +2382,7 @@ except:
       if ! [[ "$edit_choice" =~ ^[0-9]+$ ]] || [[ $edit_choice -lt 1 ]] || [[ $edit_choice -gt ${#config_files[@]} ]]; then
         echo "❌ Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -2420,8 +2394,7 @@ except:
       if ! command -v vim &>/dev/null; then
         echo "❌ vim not found. Please install vim to edit configuration files."
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -2449,8 +2422,7 @@ except:
       echo -e "${CYAN}Opening ${BOLD}${file_name}${NC}${CYAN} in vim...${NC}"
       echo -e "${YELLOW}Tip:${NC} When done editing, save with ${BOLD}:wq${NC} or exit without saving with ${BOLD}:q!${NC}"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       
       # Edit file with vim
       if vim "$selected_file"; then
@@ -2539,8 +2511,7 @@ except:
               echo -e "${RED}❌ kubectl not found${NC}"
               echo "kubectl is required for port-forwarding to Kubernetes RabbitMQ."
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               return 0
             fi
             
@@ -2551,8 +2522,7 @@ except:
               echo "Available RabbitMQ services:"
               kubectl get svc -A | grep rabbitmq || echo "  None found"
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               return 0
             fi
             
@@ -2677,8 +2647,7 @@ except:
           else
             echo -e "${YELLOW}⚠️  RabbitMQ status script not found${NC}"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             continue
           fi
           
@@ -2833,8 +2802,7 @@ except:
           esac
           
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         0|"")
           return 0
@@ -2931,8 +2899,7 @@ except:
                 echo -e "${CYAN}ℹ️  Filewatcher not running${NC}"
               fi
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             2)
               echo ""
@@ -2993,8 +2960,7 @@ except:
               echo -e "${GREEN}✅ Configuration updated!${NC}"
               echo "   Updated: $CONFIG_DB_FILE"
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             3)
               echo ""
@@ -3099,8 +3065,7 @@ except:
                 echo "The filewatcher will automatically follow these symlinks."
               fi
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             4)
               echo ""
@@ -3125,8 +3090,7 @@ except:
               if [[ -z "$new_watch_dir" ]]; then
                 echo "No change made."
                 echo ""
-                echo "Press Enter to continue..."
-                read
+                gtd_quick_pause
                 continue
               fi
               
@@ -3159,8 +3123,7 @@ except:
               echo ""
               echo "Note: You'll need to recreate symlinks in the new location if you changed it."
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             5)
               echo ""
@@ -3180,22 +3143,19 @@ except:
                   else
                     echo "Please install manually: pip3 install watchdog"
                     echo ""
-                    echo "Press Enter to continue..."
-                    read
+                    gtd_quick_pause
                     continue
                   fi
                 else
                   echo ""
-                  echo "Press Enter to continue..."
-                  read
+                  gtd_quick_pause
                   continue
                 fi
               fi
               
               cd "$HOME/code/dotfiles" && make filewatcher-start
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             6)
               echo ""
@@ -3203,8 +3163,7 @@ except:
               echo ""
               cd "$HOME/code/dotfiles" && make filewatcher-stop
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             7)
               echo ""
@@ -3218,15 +3177,13 @@ except:
               echo ""
               echo -e "${GREEN}✅ Filewatcher restarted${NC}"
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             8)
               echo ""
               cd "$HOME/code/dotfiles" && make filewatcher-status
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             9)
               echo ""
@@ -3250,8 +3207,7 @@ except:
                 echo -e "${YELLOW}⚠️  Installation may have failed. Check output above.${NC}"
               fi
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             10)
               echo ""
@@ -3271,8 +3227,7 @@ except:
                 echo ""
                 cd "$HOME/code/dotfiles" && make filewatcher-scan
                 echo ""
-                echo "Press Enter to continue..."
-                read
+                gtd_quick_pause
               else
                 echo "Cancelled."
                 sleep 1
@@ -3372,8 +3327,7 @@ except:
                 echo -e "${CYAN}ℹ️  Scheduler daemon not running${NC}"
               fi
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             2)
               echo ""
@@ -3443,8 +3397,7 @@ except:
               
               echo ""
               echo -e "${GREEN}✅ Configuration updated!${NC}"
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             3)
               echo ""
@@ -3515,8 +3468,7 @@ except:
               
               echo ""
               echo -e "${GREEN}✅ Configuration updated!${NC}"
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             4)
               echo ""
@@ -3609,8 +3561,7 @@ except:
                 echo "Review suggestions: gtd-wizard → AI Suggestions → Review pending suggestions"
               fi
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             5)
               echo ""
@@ -3618,8 +3569,7 @@ except:
               echo ""
               cd "$HOME/code/dotfiles" && make scheduler-start
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             6)
               echo ""
@@ -3627,15 +3577,13 @@ except:
               echo ""
               cd "$HOME/code/dotfiles" && make scheduler-stop
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             7)
               echo ""
               cd "$HOME/code/dotfiles" && make scheduler-status
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             8)
               echo ""
@@ -3643,8 +3591,7 @@ except:
               echo ""
               cd "$HOME/code/dotfiles" && make scheduler-run
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               ;;
             0)
               ;;
@@ -3686,8 +3633,7 @@ except:
           echo "💡 After deployment, set up port-forward:"
           echo "   Use: gtd-wizard → Configuration → Setup RabbitMQ → Start Port-Forward"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         2)
           echo ""
@@ -3700,8 +3646,7 @@ except:
           echo "💡 After deployment, set up port-forward:"
           echo "   setup-port-forward 13003"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         3)
           echo ""
@@ -3711,8 +3656,7 @@ except:
           echo ""
           echo "✓ All services deployment initiated"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         4)
           echo ""
@@ -3724,8 +3668,7 @@ except:
           echo "PostgreSQL:"
           kubectl get pods -A | grep -i postgres || echo "  (Not found)"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         0|"")
           return 0
@@ -3813,8 +3756,7 @@ except:
             make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             ;;
           4)
             echo ""
@@ -3822,8 +3764,7 @@ except:
             make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             ;;
           5)
             echo ""
@@ -3836,8 +3777,7 @@ except:
             echo ""
             echo "✓ Workers restarted"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             ;;
           6)
             echo ""
@@ -3847,8 +3787,7 @@ except:
               echo "❌ RabbitMQ status script not found"
             fi
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             ;;
           7)
             # Migrate file queue to RabbitMQ
@@ -3861,8 +3800,7 @@ except:
               echo -e "${RED}❌ Migration script not found${NC}"
             fi
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             ;;
           0|"")
             return 0
@@ -3870,16 +3808,14 @@ except:
           *)
             echo "Invalid choice"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             ;;
         esac
       else
         echo "⚠️  Worker management functions not available"
         echo "  Use: Main Menu → 17) System Status → 3) Background Worker Status"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       fi
       ;;
     0|"")
@@ -3891,8 +3827,7 @@ except:
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 learn_second_brain_wizard() {
@@ -3951,8 +3886,7 @@ learn_second_brain_wizard() {
       echo ""
       echo "Your GTD projects, areas, and references are now linked to Second Brain."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     5)
       clear
@@ -3986,8 +3920,7 @@ learn_second_brain_wizard() {
       echo ""
       echo "✓ Created! Open it in Obsidian to fill it in."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     6)
       clear
@@ -4029,8 +3962,7 @@ learn_second_brain_wizard() {
           ;;
       esac
       
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     7)
       clear
@@ -4048,8 +3980,7 @@ learn_second_brain_wizard() {
       echo ""
       echo "Or use the Express wizard from the main menu (option 9)."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     8)
       clear
@@ -4058,8 +3989,7 @@ learn_second_brain_wizard() {
       echo ""
       gtd-brain-metrics dashboard 2>/dev/null || echo "Run: gtd-brain-metrics dashboard"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     9)
       clear
@@ -4084,26 +4014,22 @@ learn_second_brain_wizard() {
         1)
           gtd-daily-log-sync sync
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         2)
           gtd-daily-log-sync push
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         3)
           gtd-daily-log-sync pull
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         4)
           gtd-daily-log-sync status
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         *)
           echo "Invalid choice"
@@ -4155,7 +4081,7 @@ life_vision_wizard() {
         echo "Guide not found. Creating it now..."
         echo "See: zsh/LIFE_VISION_DISCOVERY_GUIDE.md"
       fi
-      read -p "Press Enter to continue..."
+      gtd_quick_pause
       life_vision_wizard
       ;;
     2)
@@ -4181,7 +4107,7 @@ life_vision_wizard() {
       echo "  - What patterns do you see?"
       echo "  - What matters to you based on what you're doing?"
       echo ""
-      read -p "Press Enter to continue..."
+      gtd_quick_pause
       life_vision_wizard
       ;;
     3)
@@ -4275,7 +4201,7 @@ EOF
         fi
         echo "✓ Saved to: $vision_file"
       fi
-      read -p "Press Enter to continue..."
+      gtd_quick_pause
       life_vision_wizard
       ;;
     4)
@@ -4420,8 +4346,7 @@ EOF
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 greek_wizard() {
@@ -4497,8 +4422,7 @@ greek_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 vector_database_wizard() {
@@ -4540,8 +4464,7 @@ vector_database_wizard() {
       echo ""
       cd "$HOME/code/dotfiles" && gtd-vector-db-status stats
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     2)
       clear
@@ -4554,8 +4477,7 @@ vector_database_wizard() {
       limit="${limit_input:-100}"
       cd "$HOME/code/dotfiles" && gtd-vector-db-status list "" "$limit"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     3)
       clear
@@ -4572,8 +4494,7 @@ vector_database_wizard() {
       limit="${limit_input:-20}"
       cd "$HOME/code/dotfiles" && gtd-vector-db-status list "$content_type" "$limit"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     4)
       clear
@@ -4589,8 +4510,7 @@ vector_database_wizard() {
         cd "$HOME/code/dotfiles" && gtd-vector-db-status count
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     5)
       clear
@@ -4600,8 +4520,7 @@ vector_database_wizard() {
       echo ""
       cd "$HOME/code/dotfiles" && gtd-vector-db-status test
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     6)
       clear
@@ -4617,8 +4536,7 @@ vector_database_wizard() {
       if [[ -z "$search_query" ]]; then
         echo "No query provided."
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       else
         echo ""
         echo "Search options:"
@@ -4693,8 +4611,7 @@ else:
     print("  - Checking if content has been vectorized")
 PYEOF
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       fi
       ;;
     7)
@@ -4708,12 +4625,10 @@ PYEOF
       echo ""
       echo "The extension only needs to be created once per database."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       cd "$HOME/code/dotfiles" && make vector-db-init-extension
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     8)
       clear
@@ -4724,12 +4639,10 @@ PYEOF
       echo "This will create the vector_embeddings table and indexes."
       echo "⚠️  Requires pgvector extension to be installed first (option 6)."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       cd "$HOME/code/dotfiles" && make vector-db-init-schema
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     9)
       clear
@@ -4740,12 +4653,10 @@ PYEOF
       echo "This will scan all markdown files in configured directories"
       echo "and queue them for vectorization."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       cd "$HOME/code/dotfiles" && make filewatcher-scan
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     10)
       clear
@@ -4756,12 +4667,10 @@ PYEOF
       echo "This will detect the correct IP address for your Kubernetes setup"
       echo "and update your database configuration."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       cd "$HOME/code/dotfiles" && bash bin/fix-nodeport-ip
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     10)
       # Reuse the filewatcher setup from config wizard
@@ -4772,8 +4681,7 @@ PYEOF
       echo ""
       echo "This will help you set up automatic vectorization of files."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       
       # Call the filewatcher setup from config wizard
       GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
@@ -4873,8 +4781,7 @@ PYEOF
           ;;
       esac
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     11)
       clear
@@ -4884,8 +4791,7 @@ PYEOF
       echo ""
       cd "$HOME/code/dotfiles" && gtd-vector-db-status system-stats
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     13)
       clear
@@ -4904,8 +4810,7 @@ PYEOF
         echo "❌ No file path provided"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       return 0
@@ -4913,8 +4818,7 @@ PYEOF
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
 }
@@ -4944,6 +4848,10 @@ ai_suggestions_wizard() {
   echo "  13) 📋 View Analysis Results (weekly reviews, energy analysis, etc.)"
   echo "  14) Check MCP System Status"
   echo "  15) 🚀 Deploy Worker to Kubernetes"
+  echo "  16) 🗺️  Scan for MoC/Area Opportunities (background)"
+  echo "  17) 📚 Review Knowledge Organization Results"
+  echo "  18) 📊 View Unified Learning Stats (All Suggestions)"
+  echo "  19) 🤖 Auto-Suggest Controls (Autonomous Implementation)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -4965,8 +4873,7 @@ ai_suggestions_wizard() {
       if [[ -z "$suggestion_text" ]]; then
         echo "❌ No text provided"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -5033,8 +4940,7 @@ print('Use option 2 to review pending suggestions.')
       if [[ ! -d "$SUGGESTIONS_DIR" ]]; then
         echo "No suggestions directory found. No pending suggestions."
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -5054,8 +4960,7 @@ print('Use option 2 to review pending suggestions.')
       if [[ $pending_count -eq 0 ]]; then
         echo "✅ No pending suggestions!"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -5412,8 +5317,7 @@ PYTHON_EOF
         "$HOME/code/dotfiles/bin/gtd-smart-suggestions" review
       else
         echo "Smart suggestions not available"
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       fi
       ;;
     4)
@@ -5424,8 +5328,7 @@ PYTHON_EOF
         "$HOME/code/dotfiles/bin/gtd-smart-suggestions" stats
       else
         echo "Smart suggestions not available"
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       fi
       ;;
     5)
@@ -5441,16 +5344,19 @@ PYTHON_EOF
       echo ""
       echo "Analyzing recent logs..."
       
-      AUTO_SUGGEST_SCRIPT="$HOME/code/dotfiles/mcp/gtd_auto_suggest.py"
-      if [[ ! -f "$AUTO_SUGGEST_SCRIPT" ]]; then
-        AUTO_SUGGEST_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_auto_suggest.py"
+      PROGRESS_ANALYZER="$HOME/code/dotfiles/mcp/gtd_progress_analyzer.py"
+      if [[ ! -f "$PROGRESS_ANALYZER" ]]; then
+        PROGRESS_ANALYZER="$HOME/code/personal/dotfiles/mcp/gtd_progress_analyzer.py"
       fi
       
-      if [[ -f "$AUTO_SUGGEST_SCRIPT" ]]; then
-        result=$(python3 "$AUTO_SUGGEST_SCRIPT" analyze "$days" 2>&1)
+      if [[ -f "$PROGRESS_ANALYZER" ]]; then
+        # Get Python executable (prefer virtualenv if available)
+        MCP_PYTHON=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+        result=$("$MCP_PYTHON" "$PROGRESS_ANALYZER" summary "$days" 2>&1)
         echo "$result"
       else
-        echo "❌ Auto-suggest script not found"
+        echo "❌ Progress analyzer script not found"
+        echo "Expected location: $PROGRESS_ANALYZER"
       fi
       ;;
     6)
@@ -5465,8 +5371,7 @@ PYTHON_EOF
       if [[ -z "$log_entry" ]]; then
         echo "❌ No entry provided"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -5548,8 +5453,7 @@ print(status)
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     8)
       vector_database_wizard
@@ -5605,8 +5509,7 @@ print(status)
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     10)
       clear
@@ -5659,8 +5562,7 @@ print(status)
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     11)
       clear
@@ -5717,8 +5619,7 @@ print(status)
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     12)
       clear
@@ -5791,8 +5692,7 @@ else:
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     13)
       # View analysis results - source the function if needed
@@ -5815,8 +5715,7 @@ else:
         echo ""
         echo "⚠️  Analysis viewer not available. Please use Review Wizard (option 6) → option 8"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       fi
       ;;
     14)
@@ -5866,11 +5765,456 @@ else:
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     15)
       deployment_wizard
+      ;;
+    16)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🗺️  Scan for MoC/Area Opportunities${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "This will analyze your GTD system and suggest:"
+      echo "  • MoCs (Maps of Content) to create from note clusters"
+      echo "  • Areas of Responsibility for orphaned projects"
+      echo "  • New Areas based on daily log themes"
+      echo ""
+      echo "What type of scan would you like?"
+      echo ""
+      echo "  1) Full scan (all analysis)"
+      echo "  2) Area assignments only (orphaned projects)"
+      echo "  3) MoC suggestions only (note clusters)"
+      echo "  4) Theme analysis only (daily logs)"
+      echo ""
+      echo -n "Choose (1-4): "
+      read scan_choice
+      
+      local scan_type="full"
+      case "$scan_choice" in
+        1) scan_type="full" ;;
+        2) scan_type="areas" ;;
+        3) scan_type="mocs" ;;
+        4) scan_type="themes" ;;
+        *)
+          echo "Invalid choice"
+          echo ""
+          gtd_quick_pause
+          continue
+          ;;
+      esac
+      
+      echo ""
+      echo "Queuing knowledge organization scan (type: $scan_type)..."
+      
+      local python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+      local queue_result=$("$python_cmd" -c "
+import sys
+sys.path.insert(0, '$(dirname "$0")/../mcp')
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import queue_knowledge_organization
+
+status = queue_knowledge_organization('$scan_type')
+print(status)
+" 2>&1)
+      
+      if [[ "$queue_result" =~ "queued_to_rabbitmq" || "$queue_result" =~ "queued_to_file" ]]; then
+        echo "✅ Analysis queued! Processing in the background."
+        echo ""
+        echo "You'll see results in the wizard when complete, or use option 17."
+        echo ""
+      else
+        echo "⚠️  Failed to queue analysis: $queue_result"
+        echo ""
+      fi
+      ;;
+    17)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📚 Knowledge Organization Results${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      local results_dir="$GTD_BASE_DIR/knowledge_organization_results"
+      
+      if [[ ! -d "$results_dir" ]] || [[ -z "$(find "$results_dir" -name "knowledge_org_*.json" -type f 2>/dev/null)" ]]; then
+        echo "No knowledge organization results found."
+        echo ""
+        echo "Run option 16 to trigger a scan first."
+        echo ""
+        gtd_quick_pause
+        continue
+      fi
+      
+      # Find most recent result
+      local result_file=$(find "$results_dir" -name "knowledge_org_*.json" -type f 2>/dev/null | sort -r | head -1)
+      
+      if [[ -z "$result_file" ]]; then
+        echo "No results found."
+        echo ""
+        gtd_quick_pause
+        continue
+      fi
+      
+      local python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+      
+      # Display results
+      "$python_cmd" -c "
+import json
+with open('$result_file') as f:
+    data = json.load(f)
+
+suggestions = data.get('suggestions', [])
+counts = data.get('counts', {})
+learning_applied = data.get('learning_applied', False)
+learning_stats = data.get('learning_stats', {})
+
+print(f\"Found {len(suggestions)} suggestion(s):\")
+print(f\"  • {counts.get('area_assignments', 0)} area assignment(s)\")
+print(f\"  • {counts.get('moc_creations', 0)} MoC creation(s)\")
+print(f\"  • {counts.get('area_creations', 0)} new area suggestion(s)\")
+print()
+
+# Show learning stats if available
+if learning_applied and learning_stats:
+    print(\"📊 Learning System Active:\")
+    thresholds = learning_stats.get('thresholds', {})
+    acceptance_rates = learning_stats.get('acceptance_rates', {})
+    
+    print(f\"  Confidence thresholds:\")
+    for stype, threshold in thresholds.items():
+        rate = acceptance_rates.get(stype, 0.0)
+        print(f\"    {stype}: {threshold:.0%} (acceptance: {rate:.0%})\")
+    
+    total_decisions = learning_stats.get('total_decisions', 0)
+    print(f\"  Total decisions tracked: {total_decisions}\")
+    print()
+print()
+
+# Group by type
+for suggestion_type in ['area_assignment', 'moc_creation', 'area_creation']:
+    typed_suggestions = [s for s in suggestions if s.get('type') == suggestion_type]
+    if not typed_suggestions:
+        continue
+    
+    type_names = {
+        'area_assignment': 'Area Assignments',
+        'moc_creation': 'MoC Creations',
+        'area_creation': 'New Area Suggestions'
+    }
+    
+    print(f\"{type_names[suggestion_type]}:\")
+    print()
+    
+    for idx, s in enumerate(typed_suggestions, 1):
+        if suggestion_type == 'area_assignment':
+            print(f\"[{idx}] {s.get('project_name', 'Unknown')}\")
+            print(f\"    → {s.get('suggested_area', 'Unknown')}\")
+            print(f\"    Confidence: {int(s.get('confidence', 0) * 100)}%\")
+            print(f\"    Reason: {s.get('reason', 'N/A')}\")
+        elif suggestion_type == 'moc_creation':
+            print(f\"[{idx}] Create MoC: {s.get('moc_name', 'Unknown')}\")
+            print(f\"    Estimated notes: {s.get('estimated_note_count', 'N/A')}\")
+            print(f\"    Confidence: {int(s.get('confidence', 0) * 100)}%\")
+            print(f\"    Reason: {s.get('reason', 'N/A')}\")
+        elif suggestion_type == 'area_creation':
+            print(f\"[{idx}] Create Area: {s.get('area_name', 'Unknown')}\")
+            print(f\"    Themes: {', '.join(s.get('supporting_themes', []))}\")
+            print(f\"    Confidence: {int(s.get('confidence', 0) * 100)}%\")
+            print(f\"    Reason: {s.get('reason', 'N/A')}\")
+        print()
+"
+      
+      echo ""
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) Implement these suggestions (guided)"
+      echo "  2) Delete this result"
+      echo "  3) Keep and go back"
+      echo ""
+      echo -n "Choose (1-3): "
+      read results_choice
+      
+      case "$results_choice" in
+        1)
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Implementation Options"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "  1) Implement all suggestions"
+          echo "  2) Choose specific suggestions"
+          echo "  3) Cancel"
+          echo ""
+          echo -n "Choose (1-3): "
+          read impl_choice
+          
+          case "$impl_choice" in
+            1)
+              # Implement all
+              echo ""
+              echo "Implementing all suggestions..."
+              echo ""
+              "$python_cmd" "$HOME/code/dotfiles/mcp/knowledge_org_implement.py" "$result_file"
+              echo ""
+              gtd_quick_pause
+              ;;
+            2)
+              # Choose specific
+              echo ""
+              echo -n "Enter suggestion numbers (comma-separated, e.g., 1,3,5): "
+              read indices
+              echo ""
+              echo "Implementing selected suggestions..."
+              echo ""
+              "$python_cmd" "$HOME/code/dotfiles/mcp/knowledge_org_implement.py" "$result_file" --indices="$indices"
+              echo ""
+              gtd_quick_pause
+              ;;
+            3)
+              # Cancel
+              ;;
+          esac
+          ;;
+        2)
+          rm -f "$result_file"
+          echo ""
+          echo "✓ Result deleted"
+          echo ""
+          ;;
+        3)
+          # Just go back
+          ;;
+      esac
+      ;;
+    18)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}📊 Unified Learning Stats (All Suggestions)${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      local python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+      
+      # Display unified learning stats
+      "$python_cmd" "$HOME/code/dotfiles/mcp/gtd_unified_learning.py" stats
+      
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "💡 Cross-Domain Insights"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      "$python_cmd" "$HOME/code/dotfiles/mcp/gtd_unified_learning.py" insights
+      
+      echo ""
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) View stats for specific suggestion type"
+      echo "  2) Reset learning data (start fresh)"
+      echo "  3) Migrate old learning data"
+      echo "  4) Go back"
+      echo ""
+      echo -n "Choose (1-4): "
+      read stats_choice
+      
+      case "$stats_choice" in
+        1)
+          echo ""
+          echo "Suggestion types:"
+          echo "  1) Task from Log"
+          echo "  2) Area Assignment"
+          echo "  3) MoC Creation"
+          echo "  4) Area Creation"
+          echo "  5) Project Suggestion"
+          echo "  6) Insight"
+          echo ""
+          echo -n "Choose type (1-6): "
+          read type_choice
+          
+          type_map=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+          if [[ "$type_choice" =~ ^[1-6]$ ]]; then
+            selected_type="${type_map[$((type_choice - 1))]}"
+            echo ""
+            "$python_cmd" "$HOME/code/dotfiles/mcp/gtd_unified_learning.py" stats --type="$selected_type"
+          fi
+          echo ""
+          gtd_quick_pause
+          ;;
+        2)
+          echo ""
+          echo -n "Are you sure you want to reset learning data? (y/N): "
+          read confirm_reset
+          if [[ "$confirm_reset" =~ ^[Yy]$ ]]; then
+            "$python_cmd" "$HOME/code/dotfiles/mcp/gtd_unified_learning.py" reset
+            echo ""
+            gtd_quick_pause
+          fi
+          ;;
+        3)
+          echo ""
+          echo "Running migration..."
+          "$python_cmd" "$HOME/code/dotfiles/mcp/migrate_to_unified_learning.py"
+          echo ""
+          gtd_quick_pause
+          ;;
+        4)
+          # Go back
+          ;;
+      esac
+      ;;
+    19)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🤖 Auto-Suggest Controls (Autonomous Implementation)${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Show current status
+      echo "Current Status:"
+      echo ""
+      "$HOME/code/dotfiles/bin/gtd-auto-suggest" status
+      
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) Run auto-suggest (dry-run mode - safe preview)"
+      echo "  2) Run auto-suggest (LIVE mode - actually implement)"
+      echo "  3) Enable auto-suggest (dry-run mode)"
+      echo "  4) Enable auto-suggest (LIVE mode)"
+      echo "  5) Disable auto-suggest"
+      echo "  6) Configure thresholds"
+      echo "  7) View action history"
+      echo "  8) Go back"
+      echo ""
+      echo -n "Choose (1-8): "
+      read auto_choice
+      
+      case "$auto_choice" in
+        1)
+          echo ""
+          echo "Running auto-suggest in DRY-RUN mode..."
+          echo "(No actual changes will be made)"
+          echo ""
+          "$HOME/code/dotfiles/bin/gtd-auto-suggest" run --dry-run
+          echo ""
+          gtd_quick_pause
+          ;;
+        2)
+          echo ""
+          echo -e "${YELLOW}⚠️  WARNING: This will ACTUALLY implement suggestions!${NC}"
+          echo -n "Are you sure? (y/N): "
+          read confirm_live
+          if [[ "$confirm_live" =~ ^[Yy]$ ]]; then
+            echo ""
+            "$HOME/code/dotfiles/bin/gtd-auto-suggest" run --live
+          else
+            echo "Cancelled"
+          fi
+          echo ""
+          gtd_quick_pause
+          ;;
+        3)
+          echo ""
+          "$HOME/code/dotfiles/bin/gtd-auto-suggest" enable
+          echo ""
+          gtd_quick_pause
+          ;;
+        4)
+          echo ""
+          echo -e "${YELLOW}⚠️  WARNING: This will enable AUTONOMOUS suggestion implementation!${NC}"
+          echo -n "Are you sure? (y/N): "
+          read confirm_enable_live
+          if [[ "$confirm_enable_live" =~ ^[Yy]$ ]]; then
+            echo ""
+            "$HOME/code/dotfiles/bin/gtd-auto-suggest" enable --live --force
+          else
+            echo "Cancelled"
+          fi
+          echo ""
+          gtd_quick_pause
+          ;;
+        5)
+          echo ""
+          "$HOME/code/dotfiles/bin/gtd-auto-suggest" disable
+          echo ""
+          gtd_quick_pause
+          ;;
+        6)
+          echo ""
+          echo "Configure Auto-Suggest Thresholds"
+          echo ""
+          echo "Suggestion types:"
+          echo "  1) task_suggestion"
+          echo "  2) project_suggestion"
+          echo "  3) moc_suggestion"
+          echo "  4) area_suggestion"
+          echo ""
+          echo -n "Choose type (1-4, or 0 to go back): "
+          read type_choice
+          
+          case "$type_choice" in
+            1) type_name="task_suggestion" ;;
+            2) type_name="project_suggestion" ;;
+            3) type_name="moc_suggestion" ;;
+            4) type_name="area_suggestion" ;;
+            0|"") ;;
+            *) 
+              echo "Invalid choice"
+              echo ""
+              gtd_quick_pause
+              ;;
+          esac
+          
+          if [[ -n "$type_name" ]]; then
+            echo ""
+            echo "Configure $type_name:"
+            echo ""
+            echo "  1) Enable/Disable"
+            echo "  2) Set minimum confidence (0.0 - 1.0)"
+            echo ""
+            echo -n "Choose (1-2): "
+            read config_choice
+            
+            case "$config_choice" in
+              1)
+                echo ""
+                echo -n "Enable $type_name? (y/n): "
+                read enable_choice
+                if [[ "$enable_choice" =~ ^[Yy]$ ]]; then
+                  "$HOME/code/dotfiles/bin/gtd-auto-suggest" config --type="$type_name" --value="true"
+                else
+                  "$HOME/code/dotfiles/bin/gtd-auto-suggest" config --type="$type_name" --value="false"
+                fi
+                ;;
+              2)
+                echo ""
+                echo -n "Enter minimum confidence (0.0 - 1.0): "
+                read confidence_value
+                "$HOME/code/dotfiles/bin/gtd-auto-suggest" config --type="$type_name" --value="$confidence_value"
+                ;;
+            esac
+            
+            echo ""
+            gtd_quick_pause
+          fi
+          ;;
+        7)
+          echo ""
+          "$HOME/code/dotfiles/bin/gtd-auto-suggest" history
+          echo ""
+          gtd_quick_pause
+          ;;
+        8)
+          # Go back
+          ;;
+      esac
       ;;
     0|"")
       return 0
@@ -5881,8 +6225,7 @@ else:
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 deployment_wizard() {
@@ -5917,8 +6260,7 @@ deployment_wizard() {
     echo ""
     echo "Make sure the MCP system is set up. See mcp/README.md for details."
     echo ""
-    echo "Press Enter to continue..."
-    read
+    gtd_quick_pause
     return 1
   fi
   
@@ -5984,8 +6326,7 @@ deployment_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 gamification_wizard() {
@@ -6053,8 +6394,7 @@ gamification_wizard() {
         echo "❌ gtd-gamify command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     4)
       echo ""
@@ -6070,8 +6410,7 @@ gamification_wizard() {
         echo "❌ gtd-gamify command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     5)
       echo ""
@@ -6087,8 +6426,7 @@ gamification_wizard() {
         echo "❌ gtd-gamify command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     6)
       echo ""
@@ -6097,8 +6435,7 @@ gamification_wizard() {
       if [[ -z "$xp_amount" ]] || ! [[ "$xp_amount" =~ ^[0-9]+$ ]]; then
         echo "❌ Invalid XP amount"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -6120,8 +6457,7 @@ gamification_wizard() {
         echo "❌ gtd-gamify command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     7)
       echo ""
@@ -6147,8 +6483,7 @@ gamification_wizard() {
             echo "❌ gtd-gamify not found"
           fi
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         2)
           echo ""
@@ -6162,8 +6497,7 @@ gamification_wizard() {
             echo "❌ gtd-gamify not found"
           fi
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         3)
           echo ""
@@ -6177,8 +6511,7 @@ gamification_wizard() {
             echo "❌ gtd-gamify not found"
           fi
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           ;;
         *)
           echo "Invalid choice"
@@ -6253,8 +6586,7 @@ gamification_wizard() {
           ;;
       esac
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       return 0
@@ -6262,8 +6594,7 @@ gamification_wizard() {
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
 }
@@ -6354,8 +6685,7 @@ healthkit_wizard() {
           echo "💡 Tip: Health data is logged automatically via Apple Health shortcuts"
           echo "   or manually using: gtd-sync-health"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -6424,8 +6754,7 @@ healthkit_wizard() {
         fi
         
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     2)
       configure_mode_specific_ai
@@ -6450,8 +6779,7 @@ healthkit_wizard() {
           echo ""
           echo "❌ No daily log found for $input_date"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -6506,8 +6834,7 @@ healthkit_wizard() {
         fi
         
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       3)
         clear
@@ -6544,8 +6871,7 @@ healthkit_wizard() {
         if [[ "$start_ts" == "0" || "$end_ts" == "0" ]]; then
           echo "❌ Invalid date format. Please use YYYY-MM-DD"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -6553,8 +6879,7 @@ healthkit_wizard() {
         if [[ $days_diff -lt 0 ]]; then
           echo "❌ Start date must be before end date"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -6598,8 +6923,7 @@ healthkit_wizard() {
         fi
         
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       4)
         clear
@@ -6624,8 +6948,7 @@ healthkit_wizard() {
         fi
         
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       5)
         clear
@@ -6641,8 +6964,7 @@ healthkit_wizard() {
         if [[ ! -f "$log_file" ]]; then
           echo "❌ No daily log found for today"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -6700,8 +7022,7 @@ healthkit_wizard() {
         echo "   • Track workouts, steps, and other metrics consistently"
         echo ""
         
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       6)
         clear
@@ -6734,8 +7055,7 @@ healthkit_wizard() {
           fi
         done
         
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       7)
         clear
@@ -6750,8 +7070,7 @@ healthkit_wizard() {
         if [[ -z "$search_term" ]]; then
           echo "❌ No search term provided"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -6784,8 +7103,7 @@ healthkit_wizard() {
         fi
         
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       8)
         clear
@@ -6833,8 +7151,7 @@ healthkit_wizard() {
         echo ""
         echo -e "${BOLD}💡${NC} ${YELLOW}Tip:${NC} All documentation files are in ${GREEN}zsh/${NC} directory"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       9)
         clear
@@ -6861,8 +7178,7 @@ healthkit_wizard() {
         echo "  ${GREEN}gtd-sync-google-health${NC} (command line)"
         echo "  or enable option 9 in this menu"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       0)
         return 0
@@ -6870,8 +7186,7 @@ healthkit_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
     esac
   done
@@ -6926,8 +7241,7 @@ calendar_wizard() {
           echo "❌ gtd-calendar command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       2)
         echo ""
@@ -6945,8 +7259,7 @@ calendar_wizard() {
           echo "❌ gtd-calendar command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       3)
         echo ""
@@ -6960,8 +7273,7 @@ calendar_wizard() {
         if [[ -z "$start_time" || -z "$end_time" ]]; then
           echo "❌ Both start and end times are required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -6976,8 +7288,7 @@ calendar_wizard() {
           echo "❌ gtd-calendar command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       4)
         echo ""
@@ -6994,8 +7305,7 @@ calendar_wizard() {
         if [[ -z "$task_id" ]]; then
           echo "❌ No task ID provided"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -7017,8 +7327,7 @@ calendar_wizard() {
           *)
             echo "❌ Invalid choice"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             continue
             ;;
         esac
@@ -7034,8 +7343,7 @@ calendar_wizard() {
           echo "❌ gtd-calendar command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       5)
         echo ""
@@ -7047,8 +7355,7 @@ calendar_wizard() {
         if [[ -z "$event_title" ]]; then
           echo "❌ Event title is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -7058,8 +7365,7 @@ calendar_wizard() {
         if [[ -z "$event_when" ]]; then
           echo "❌ Event time is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
           continue
         fi
         
@@ -7081,8 +7387,7 @@ calendar_wizard() {
           echo "❌ gtd-calendar command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
     6)
       echo ""
@@ -7107,8 +7412,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     7)
       echo ""
@@ -7126,8 +7430,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     8)
       echo ""
@@ -7145,8 +7448,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     9)
       echo ""
@@ -7158,8 +7460,7 @@ calendar_wizard() {
       if [[ -z "$task_title" ]]; then
         echo "❌ Task title required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         continue
       fi
       
@@ -7182,8 +7483,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     10)
       echo ""
@@ -7201,8 +7501,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     11)
       echo ""
@@ -7220,8 +7519,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     12)
       echo ""
@@ -7235,8 +7533,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       pop_menu
@@ -7245,8 +7542,7 @@ calendar_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
     esac
   done
@@ -7269,8 +7565,7 @@ tips_wizard() {
     echo "❌ gtd-tips command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 # Kubernetes learning wizard
@@ -7365,13 +7660,11 @@ k8s_wizard() {
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 

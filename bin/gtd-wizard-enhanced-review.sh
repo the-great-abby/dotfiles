@@ -178,8 +178,7 @@ quick_daily_review() {
   echo ""
   echo "✓ Quick review complete!"
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Medium Weekly Review (30-60 min)
@@ -237,8 +236,7 @@ medium_weekly_review() {
   fi
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Deep Monthly Review (2-3 hours)
@@ -304,8 +302,7 @@ deep_monthly_review() {
   fi
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Comparison View: This week vs last week
@@ -349,8 +346,7 @@ comparison_view() {
   
   echo "💡 Tip: Enhanced tracking can be added to show detailed comparisons"
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Review Templates Menu
@@ -426,8 +422,7 @@ project_review_template() {
   if [[ -z "$project_name" ]]; then
     echo "No project specified"
     echo ""
-    echo "Press Enter to continue..."
-    read
+        gtd_quick_pause
     return 0
   fi
   
@@ -444,8 +439,7 @@ project_review_template() {
   echo ""
   echo "💡 Use these questions as a guide for your review"
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Energy Review Template
@@ -467,8 +461,7 @@ energy_review_template() {
   echo ""
   echo "💡 Tip: Schedule high-energy tasks during your peak times"
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Goal Review Template
@@ -490,8 +483,7 @@ goal_review_template() {
   echo ""
   echo "💡 Use this template for weekly/monthly goal check-ins"
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Area Review Template
@@ -511,8 +503,7 @@ area_review_template() {
   echo "4. Are there any issues or concerns in this area?"
   echo "5. What improvements could be made?"
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Habit Review Template
@@ -532,8 +523,7 @@ habit_review_template() {
   echo "4. What new habits should you consider?"
   echo "5. Which habits are no longer serving you?"
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # View Review Summaries
@@ -550,8 +540,7 @@ view_review_summaries() {
     echo ""
     echo "Summaries are saved to: $REVIEW_SUMMARIES_DIR"
     echo ""
-    echo "Press Enter to continue..."
-    read
+        gtd_quick_pause
     return 0
   fi
   
@@ -584,8 +573,7 @@ view_review_summaries() {
       echo ""
       cat "$selected_summary" 2>/dev/null || echo "Error reading summary"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
     fi
   fi
 }
@@ -629,8 +617,7 @@ save_review_summary() {
     echo "No summary content provided."
     rm -f "$temp_file"
     echo ""
-    echo "Press Enter to continue..."
-    read
+        gtd_quick_pause
     return 0
   fi
   
@@ -674,8 +661,7 @@ EOF
   
   rm -f "$temp_file"
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }
 
 # Configure Review Settings
@@ -725,6 +711,5 @@ configure_review_settings() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+        gtd_quick_pause
 }

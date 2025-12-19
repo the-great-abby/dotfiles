@@ -100,13 +100,91 @@ select_from_list() {
   
   # Find items
   if [[ "$item_type" == "project" ]]; then
-    # Projects are directories with README.md
+    # Projects are directories (with or without README.md)
+    # Show all project directories, not just those with README.md
     while IFS= read -r project_dir; do
       local readme="${project_dir}/README.md"
+      # Use README.md if it exists, otherwise use the directory name
       if [[ -f "$readme" ]]; then
         item_paths+=("$readme")
         local display_name=$(get_display_name "$readme" "$format")
+        
+        # Add task count and area to display name if available
+        local task_count=$(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
+        local area=""
+        if command -v get_frontmatter_value &>/dev/null; then
+          area=$(get_frontmatter_value "$readme" "area" 2>/dev/null)
+        elif command -v gtd_get_frontmatter_value &>/dev/null; then
+          area=$(gtd_get_frontmatter_value "$readme" "area" 2>/dev/null)
+        fi
+        
+        if [[ $task_count -gt 0 ]] || [[ -n "$area" ]]; then
+          local suffix=""
+          if [[ $task_count -gt 0 ]]; then
+            suffix=" (${task_count} task"
+            [[ $task_count -ne 1 ]] && suffix="${suffix}s"
+            suffix="${suffix})"
+          fi
+          if [[ -n "$area" ]]; then
+            local area_display=$(echo "$area" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+            if [[ -n "$suffix" ]]; then
+              suffix="${suffix} | Area: $area_display"
+            else
+              suffix=" (Area: $area_display)"
+            fi
+          fi
+          display_name="${display_name}${suffix}"
+        fi
+        
         item_names+=("$display_name")
+      else
+        # Project without README.md - use directory name as display name
+        item_paths+=("$project_dir")
+        local project_slug=$(basename "$project_dir")
+        # Skip empty or invalid directory names
+        if [[ -z "$project_slug" || "$project_slug" == "." || "$project_slug" == ".." ]]; then
+          continue
+        fi
+        # Remove trailing hyphens and spaces
+        project_slug=$(echo "$project_slug" | sed 's/[- ]*$//')
+        # Convert slug to readable format: work-&-career -> Work & Career
+        # Use bash string manipulation to avoid encoding issues with awk/sed
+        # First, replace hyphens with spaces
+        local display_name=$(echo "$project_slug" | sed 's/-/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        
+        # Capitalize using bash string manipulation (most reliable)
+        if [[ -n "$display_name" ]]; then
+          local capitalized=""
+          local old_IFS="$IFS"
+          IFS=' '
+          local word_count=0
+          for word in $display_name; do
+            if [[ $word_count -gt 0 ]]; then
+              capitalized="$capitalized "
+            fi
+            # Capitalize first character using bash substring and tr
+            if [[ ${#word} -gt 0 ]]; then
+              local first_char="${word:0:1}"
+              local rest="${word:1}"
+              # Uppercase first char (handle encoding issues gracefully)
+              first_char=$(echo "$first_char" | tr '[:lower:]' '[:upper:]' 2>/dev/null || echo "$first_char")
+              capitalized="$capitalized$first_char$rest"
+            else
+              capitalized="$capitalized$word"
+            fi
+            ((word_count++))
+          done
+          IFS="$old_IFS"
+          
+          # If capitalization produced empty result, use display name
+          if [[ -z "$capitalized" ]]; then
+            capitalized="$display_name"
+          fi
+          item_names+=("$capitalized")
+        else
+          # Fallback to slug if display name is empty
+          item_names+=("$project_slug")
+        fi
       fi
     done < <(find "$search_path" -type d -mindepth 1 -maxdepth 1 2>/dev/null | sort)
   else
@@ -145,11 +223,21 @@ select_from_list() {
   if [[ "$user_input" =~ ^[0-9]+$ ]]; then
     local selected_index=$((user_input - 1))
     if [[ $selected_index -ge 0 && $selected_index -lt $item_count ]]; then
-      # For projects, return the directory name (basename of directory containing README)
+      # For projects, return the directory name (basename of directory)
       # For other items, return the display name
       if [[ "$item_type" == "project" ]]; then
-        local readme_path="${item_paths[$selected_index]}"
-        echo "$(basename "$(dirname "$readme_path")")"
+        local project_path="${item_paths[$selected_index]}"
+        # If it's a README.md file, get the parent directory
+        # If it's already a directory, use it directly
+        local project_dir_name=""
+        if [[ -f "$project_path" ]]; then
+          project_dir_name=$(basename "$(dirname "$project_path")")
+        else
+          project_dir_name=$(basename "$project_path")
+        fi
+        # Remove any trailing hyphens or spaces
+        project_dir_name=$(echo "$project_dir_name" | sed 's/[- ]*$//')
+        echo "$project_dir_name"
       else
         echo "${item_names[$selected_index]}"
       fi
@@ -209,8 +297,18 @@ select_from_list() {
         # For projects, return the directory name instead of display name
         if [[ "$item_type" == "project" ]]; then
           local match_array_index="${match_indices[$selected_index]}"
-          local readme_path="${item_paths[$match_array_index]}"
-          echo "$(basename "$(dirname "$readme_path")")"
+          local project_path="${item_paths[$match_array_index]}"
+          # If it's a README.md file, get the parent directory
+          # If it's already a directory, use it directly
+          local project_dir_name=""
+          if [[ -f "$project_path" ]]; then
+            project_dir_name=$(basename "$(dirname "$project_path")")
+          else
+            project_dir_name=$(basename "$project_path")
+          fi
+          # Remove any trailing hyphens or spaces
+          project_dir_name=$(echo "$project_dir_name" | sed 's/[- ]*$//')
+          echo "$project_dir_name"
         else
           echo "${matches[$selected_index]}"
         fi

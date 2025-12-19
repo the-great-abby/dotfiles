@@ -154,8 +154,7 @@ review_pending_suggestions() {
   if [[ ! -d "$SUGGESTIONS_DIR" ]]; then
     gtd_print_info "No suggestions directory found. No pending suggestions."
     echo ""
-    echo "Press Enter to continue..."
-    read
+    gtd_quick_pause
     return 0
   fi
   
@@ -176,8 +175,7 @@ review_pending_suggestions() {
   if [[ $pending_count -eq 0 ]]; then
     gtd_print_success "No pending suggestions!"
     echo ""
-    echo "Press Enter to continue..."
-    read
+    gtd_quick_pause
     return 0
   fi
   
@@ -288,8 +286,7 @@ print(suggestion_type)
   done
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 # Morning check-in
@@ -499,8 +496,9 @@ EOF
   # Queue morning review analysis in background if enabled
   if [[ "${GTD_INSIGHT_AUTO_SCAN:-true}" == "true" && "${GTD_INSIGHT_SCANNING_ENABLED:-true}" == "true" ]]; then
     # Queue for background processing using deep analysis worker
-    if command -v python3 &>/dev/null; then
-      python3 <<PYTHON_EOF
+    local PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+    if command -v "$PYTHON_CMD" &>/dev/null; then
+      "$PYTHON_CMD" <<PYTHON_EOF
 import sys
 import json
 from datetime import datetime
@@ -629,8 +627,7 @@ PYTHON_EOF
               echo "Opening task in editor..."
               echo "Tip: Press :q to exit (read-only) or :wq to save changes"
               echo ""
-              echo "Press Enter to continue..."
-              read
+              gtd_quick_pause
               
               # Use vim in read-only mode by default, but allow editing
               local editor="${EDITOR:-vim}"
@@ -640,18 +637,15 @@ PYTHON_EOF
                 # Fallback to cat if no editor
                 cat "$task_file"
                 echo ""
-                echo "Press Enter to continue..."
-                read
+                gtd_quick_pause
               fi
             else
-              echo "❌ Could not find task file for: $selected_task_id"
-              echo "Press Enter to continue..."
-              read
+              gtd_feedback error "Could not find task file for: $selected_task_id"
+              gtd_quick_pause
             fi
           else
-            echo "❌ Invalid task number. Please select 1-${#task_ids[@]}"
-            echo "Press Enter to continue..."
-            read
+            gtd_feedback error "Invalid task number. Please select 1-${#task_ids[@]}"
+            gtd_quick_pause
           fi
         fi
       fi
@@ -680,6 +674,12 @@ PYTHON_EOF
       else
         review_pending_suggestions
       fi
+      ;;
+    6|0|"")
+      # Continue/Exit - do nothing
+      ;;
+    *)
+      # Invalid choice - do nothing
       ;;
   esac
   
@@ -940,8 +940,9 @@ EOF
   # Queue evening review analysis in background if enabled
   if [[ "${GTD_INSIGHT_AUTO_SCAN:-true}" == "true" && "${GTD_INSIGHT_SCANNING_ENABLED:-true}" == "true" ]]; then
     # Queue for background processing using deep analysis worker
-    if command -v python3 &>/dev/null; then
-      python3 <<PYTHON_EOF
+    local PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+    if command -v "$PYTHON_CMD" &>/dev/null; then
+      "$PYTHON_CMD" <<PYTHON_EOF
 import sys
 import json
 from datetime import datetime
@@ -1020,6 +1021,22 @@ PYTHON_EOF
       ;;
     4)
       review_pending_suggestions
+      ;;
+    5)
+      # Review mode for medium-confidence
+      if command -v gtd-smart-suggestions &>/dev/null; then
+        gtd-smart-suggestions review
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-smart-suggestions" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-smart-suggestions" review
+      else
+        review_pending_suggestions
+      fi
+      ;;
+    6|0|"")
+      # Continue/Exit - do nothing
+      ;;
+    *)
+      # Invalid choice - do nothing
       ;;
   esac
   

@@ -10,7 +10,8 @@ import re
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Tuple
+from difflib import SequenceMatcher
 
 # Import AI helper from MCP server (with graceful error handling)
 sys.path.insert(0, str(Path(__file__).parent))
@@ -76,6 +77,95 @@ def get_existing_tasks() -> Set[str]:
                 pass
     
     return existing
+
+
+def get_all_active_tasks() -> List[Dict[str, Any]]:
+    """
+    Get all active tasks with full details (ID, title, path, project).
+    
+    Returns list of task dictionaries with:
+    - id: Task ID (filename without extension)
+    - title: Task title
+    - path: Full path to task file
+    - project: Project name (if in a project directory)
+    - type: Always "task"
+    """
+    tasks = []
+    tasks_path = GTD_BASE_DIR / "tasks"
+    projects_path = GTD_BASE_DIR / "1-projects"
+    
+    # Get tasks from tasks directory
+    if tasks_path.exists():
+        for task_file in tasks_path.glob("*.md"):
+            try:
+                content = task_file.read_text()
+                # Extract frontmatter
+                frontmatter_match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+                status = "active"
+                if frontmatter_match:
+                    frontmatter = frontmatter_match.group(1)
+                    status_match = re.search(r'status:\s*(.+)', frontmatter)
+                    if status_match:
+                        status = status_match.group(1).strip().strip('"').strip("'")
+                
+                # Only include active tasks
+                if status != "active":
+                    continue
+                
+                # Extract title
+                title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+                if title_match:
+                    title = title_match.group(1).strip()
+                    task_id = task_file.stem
+                    tasks.append({
+                        "id": task_id,
+                        "title": title,
+                        "path": str(task_file),
+                        "type": "task"
+                    })
+            except Exception:
+                continue
+    
+    # Get tasks from project directories
+    if projects_path.exists():
+        for project_dir in projects_path.iterdir():
+            if not project_dir.is_dir():
+                continue
+            for task_file in project_dir.glob("*.md"):
+                if task_file.name == "README.md":
+                    continue
+                try:
+                    content = task_file.read_text()
+                    # Extract frontmatter
+                    frontmatter_match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+                    status = "active"
+                    if frontmatter_match:
+                        frontmatter = frontmatter_match.group(1)
+                        status_match = re.search(r'status:\s*(.+)', frontmatter)
+                        if status_match:
+                            status = status_match.group(1).strip().strip('"').strip("'")
+                    
+                    # Only include active tasks
+                    if status != "active":
+                        continue
+                    
+                    # Extract title
+                    title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+                    if title_match:
+                        title = title_match.group(1).strip()
+                        task_id = task_file.stem
+                        project = project_dir.name
+                        tasks.append({
+                            "id": task_id,
+                            "title": title,
+                            "path": str(task_file),
+                            "project": project,
+                            "type": "task"
+                        })
+                except Exception:
+                    continue
+    
+    return tasks
 
 
 def read_daily_log(date: Optional[str] = None) -> str:
@@ -252,6 +342,128 @@ def generate_progress_summary(days: int = 7) -> str:
         summary += "Consider recording these in your GTD system to maintain accurate progress tracking!"
     
     return summary
+
+
+def similarity_score(text1: str, text2: str) -> float:
+    """Calculate similarity between two texts (0.0 to 1.0)."""
+    text1_lower = text1.lower().strip()
+    text2_lower = text2.lower().strip()
+    
+    # Exact match
+    if text1_lower == text2_lower:
+        return 1.0
+    
+    # Substring match (one contains the other)
+    if text1_lower in text2_lower or text2_lower in text1_lower:
+        # Calculate how much of the shorter is in the longer
+        shorter = min(len(text1_lower), len(text2_lower))
+        longer = max(len(text1_lower), len(text2_lower))
+        return shorter / longer if longer > 0 else 0.0
+    
+    # Use SequenceMatcher for fuzzy matching
+    return SequenceMatcher(None, text1_lower, text2_lower).ratio()
+
+
+def find_matching_tasks(completion_description: str, all_tasks: List[Dict[str, Any]], 
+                        min_similarity: float = 0.5) -> List[Tuple[Dict[str, Any], float]]:
+    """
+    Find tasks that match a completion description.
+    
+    Returns list of (task, similarity_score) tuples, sorted by similarity (highest first).
+    """
+    matches = []
+    completion_lower = completion_description.lower().strip()
+    
+    for task in all_tasks:
+        task_title = task.get("title", "").lower().strip()
+        if not task_title:
+            continue
+        
+        # Calculate similarity
+        score = similarity_score(completion_description, task_title)
+        
+        if score >= min_similarity:
+            matches.append((task, score))
+    
+    # Sort by similarity (highest first)
+    matches.sort(key=lambda x: x[1], reverse=True)
+    
+    return matches
+
+
+def analyze_completions_for_tasks(days: int = 7) -> Dict[str, Any]:
+    """
+    Analyze logs to find completed work and match it to existing tasks.
+    
+    This extends analyze_progress() to return matched tasks with full details.
+    
+    Returns:
+    - potential_completions: List of completions with matched tasks
+    - unmatched_completions: Completions that don't match any task
+    """
+    logs = read_recent_logs(days)
+    all_tasks = get_all_active_tasks()
+    
+    potential_completions = []
+    unmatched_completions = []
+    
+    for log in logs:
+        completed_items = extract_completion_indicators(log["content"])
+        
+        for item in completed_items:
+            description = item.get("description", "")
+            if not description:
+                continue
+            
+            # Only look for task-type completions (not projects)
+            if item.get("type") != "task":
+                continue
+            
+            # Find matching tasks
+            matches = find_matching_tasks(description, all_tasks, min_similarity=0.4)
+            
+            if matches:
+                # Take the best match (or multiple if very similar)
+                best_match, best_score = matches[0]
+                
+                # Include multiple matches if they're very close in score
+                included_matches = [(best_match, best_score)]
+                if len(matches) > 1:
+                    for match, score in matches[1:]:
+                        if score >= best_score * 0.9:  # Within 10% of best
+                            included_matches.append((match, score))
+                
+                potential_completions.append({
+                    "completion": item,
+                    "log_date": log["date"],
+                    "matches": [
+                        {
+                            "task": match[0],
+                            "similarity": match[1],
+                            "confidence": item.get("confidence", 0.7) * match[1]  # Combined confidence
+                        }
+                        for match in included_matches
+                    ]
+                })
+            else:
+                # No match found
+                unmatched_completions.append({
+                    "completion": item,
+                    "log_date": log["date"]
+                })
+    
+    # Sort by combined confidence (highest first)
+    potential_completions.sort(
+        key=lambda x: max(m["confidence"] for m in x["matches"]),
+        reverse=True
+    )
+    
+    return {
+        "days_analyzed": days,
+        "potential_completions": potential_completions,
+        "unmatched_completions": unmatched_completions,
+        "analysis_date": datetime.now().isoformat()
+    }
 
 
 if __name__ == "__main__":

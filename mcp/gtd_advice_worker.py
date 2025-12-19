@@ -374,8 +374,10 @@ def process_rabbitmq_queue():
             params.retry_delay = 2
             params.socket_timeout = 10  # Increased from 5 to 10 seconds
             # Add heartbeat to keep connection alive during long operations
+            # For advice worker, processing can take 5-10 minutes, so use longer heartbeat
             try:
-                params.heartbeat = 60  # 60 seconds - keep connection alive
+                params.heartbeat = 1800  # 30 minutes - extra long for advice processing
+                params.blocked_connection_timeout = 1800  # 30 minutes
             except:
                 # If heartbeat setting fails, continue without it
                 pass
@@ -459,13 +461,33 @@ def process_rabbitmq_queue():
                         return
                     
                     print(f"📥 Processing: {message.get('id', 'unknown')} at {datetime.now()}")
+                    
+                    # Store start time to detect long-running operations
+                    process_start = datetime.now()
                     success = process_advice_request(message)
+                    process_duration = (datetime.now() - process_start).total_seconds()
+                    
+                    print(f"⏱️  Processing took {process_duration:.1f}s for {message.get('id', 'unknown')}")
                     
                     if success:
                         try:
+                            # CRITICAL FIX: Check connection health before attempting ack
+                            # This prevents BrokenPipeError when connection died during processing
+                            if connection.is_closed or not connection.is_open:
+                                print(f"⚠️  Connection closed during processing of {message.get('id')}, cannot ack")
+                                print(f"   Message will be redelivered after worker reconnects")
+                                connection_error_occurred = True
+                                try:
+                                    ch.stop_consuming()
+                                except:
+                                    pass
+                                return
+                            
                             ch.basic_ack(delivery_tag=method.delivery_tag)
+                            print(f"✅ Message acknowledged: {message.get('id')}")
                         except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError, BrokenPipeError) as conn_err:
                             print(f"⚠️  Connection lost while acknowledging: {conn_err}")
+                            print(f"   Message ID: {message.get('id')} will be requeued")
                             connection_error_occurred = True
                             try:
                                 ch.stop_consuming()
@@ -474,6 +496,16 @@ def process_rabbitmq_queue():
                             return
                     else:
                         try:
+                            # Check connection before nack too
+                            if connection.is_closed or not connection.is_open:
+                                print(f"⚠️  Connection closed, cannot nack message {message.get('id')}")
+                                connection_error_occurred = True
+                                try:
+                                    ch.stop_consuming()
+                                except:
+                                    pass
+                                return
+                            
                             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
                         except (pika.exceptions.StreamLostError, pika.exceptions.AMQPConnectionError, OSError, BrokenPipeError) as conn_err:
                             print(f"⚠️  Connection lost while nacking: {conn_err}")

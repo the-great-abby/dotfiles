@@ -230,8 +230,14 @@ def calculate_optimal_thresholds() -> Dict[str, float]:
         new_thresholds["high"] = DEFAULT_HIGH_CONFIDENCE_THRESHOLD
     
     # Medium confidence threshold: Use lowest confidence with 60%+ acceptance
+    # MUST be lower than high threshold
     if medium_acceptance_buckets:
-        new_thresholds["medium"] = min(c for c, rate in medium_acceptance_buckets)
+        medium_candidate = min(c for c, rate in medium_acceptance_buckets)
+        # Ensure medium < high
+        if medium_candidate >= new_thresholds["high"]:
+            new_thresholds["medium"] = max(DEFAULT_MEDIUM_CONFIDENCE_THRESHOLD, new_thresholds["high"] - 0.05)
+        else:
+            new_thresholds["medium"] = medium_candidate
     else:
         new_thresholds["medium"] = DEFAULT_MEDIUM_CONFIDENCE_THRESHOLD
     
@@ -298,9 +304,180 @@ def save_suggestion(suggestion: Dict[str, Any]) -> str:
     return suggestion["id"]
 
 
-def create_task_from_suggestion(suggestion: Dict[str, Any]) -> Tuple[bool, str]:
+def resolve_project_for_task(suggestion: Dict[str, Any]) -> Optional[str]:
+    """
+    Use AI to help resolve which project a task should belong to.
+    Can suggest existing projects OR suggest creating a new project for tracking.
+    
+    Returns:
+        Project name (slug format) or None if unclear
+    """
+    try:
+        # Get list of existing projects
+        projects_dir = GTD_BASE_DIR.parent / "1-projects"
+        if not projects_dir.exists():
+            projects_dir = GTD_BASE_DIR / "1-projects"
+        
+        projects = []
+        if projects_dir.exists():
+            for project_dir in projects_dir.iterdir():
+                if project_dir.is_dir() and (project_dir / "README.md").exists():
+                    projects.append(project_dir.name)
+        
+        # Use AI to suggest project (existing or new)
+        try:
+            from zsh.functions.gtd_persona_helper import call_persona
+            
+            projects_list = ", ".join(projects[:15]) if projects else "none"
+            title = suggestion.get("title", "")
+            reason = suggestion.get("reason", "")
+            source_text = suggestion.get("source_text", "")
+            
+            prompt = f"""Task: {title}
+Reason: {reason}
+Source context: {source_text[:300] if source_text else "N/A"}
+
+Existing projects: {projects_list}
+
+Analyze this task and determine:
+1. Does it fit an existing project? If yes, return that project name exactly.
+2. If not, does this task suggest a NEW project should be created for tracking related work? 
+   - If yes, suggest a project name (2-4 words, descriptive, lowercase with hyphens)
+   - If no clear project needed, return "none"
+
+Return ONLY:
+- An existing project name (exact match) OR
+- A new project name (format: "new:project-name") OR  
+- "none"
+
+Examples:
+- "website-redesign" (existing project)
+- "new:home-automation-setup" (suggest new project)
+- "none" (standalone task)"""
+            
+            response = call_persona("david", prompt)
+            suggested = response.strip().lower().replace(" ", "-")
+            
+            # Check if it's a new project suggestion
+            if suggested.startswith("new:"):
+                new_project_name = suggested.replace("new:", "").strip()
+                if new_project_name and len(new_project_name) > 2:
+                    # Generate outcome from task context
+                    outcome = f"Complete {title}" if title else f"Complete {new_project_name.replace('-', ' ').title()}"
+                    # Create the new project
+                    return create_or_get_project(new_project_name, outcome)
+            
+            # Check if it matches an existing project
+            for project in projects:
+                if project.lower() == suggested or project.lower().startswith(suggested):
+                    return project
+                # Also check if suggested is contained in project name
+                if suggested in project.lower() or project.lower() in suggested:
+                    return project
+            
+            # If "none" or no match, return None
+            if "none" in suggested or not suggested or len(suggested) < 2:
+                return None
+            
+            # If we got a project-like name but it doesn't match, try creating it
+            if "-" in suggested or len(suggested.split()) == 1:
+                return create_or_get_project(suggested)
+                
+        except ImportError:
+            # Fallback if persona helper not available
+            pass
+        
+        return None
+    except Exception:
+        return None
+
+
+def create_or_get_project(project_name: str, suggested_outcome: str = None) -> Optional[str]:
+    """
+    Create a new project or return existing one if it already exists.
+    Creates project directly without interactive prompts.
+    
+    Args:
+        project_name: Project name in slug format (e.g., "home-automation")
+        suggested_outcome: Optional outcome description for the project
+    
+    Returns:
+        Project name (slug format) or None if creation failed
+    """
+    # Normalize project name
+    project_slug = project_name.lower().strip().replace(" ", "-")
+    # Remove any invalid characters
+    project_slug = "".join(c if c.isalnum() or c == "-" else "" for c in project_slug)
+    project_slug = "-".join(filter(None, project_slug.split("-")))  # Remove multiple hyphens
+    
+    if not project_slug or len(project_slug) < 2:
+        return None
+    
+    # Determine projects directory
+    projects_dir = GTD_BASE_DIR.parent / "1-projects"
+    if not projects_dir.exists():
+        projects_dir = GTD_BASE_DIR / "1-projects"
+    
+    # Check if project already exists
+    project_dir = projects_dir / project_slug
+    if project_dir.exists() and (project_dir / "README.md").exists():
+        return project_slug  # Already exists
+    
+    # Create project directory
+    try:
+        project_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create project README with frontmatter
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%H:%M")
+        
+        # Generate a default outcome if not provided
+        if not suggested_outcome:
+            # Convert project name to a readable outcome
+            display_name = project_slug.replace("-", " ").title()
+            suggested_outcome = f"Complete {display_name}"
+        
+        readme_content = f"""---
+type: project
+status: active
+created: {today}T{now}
+project: {project_slug}
+tags: []
+---
+
+# {project_slug.replace("-", " ").title()}
+
+## Outcome
+
+{suggested_outcome}
+
+## Description
+
+## Goals
+
+## Next Actions
+
+## Tasks
+
+"""
+        
+        readme_file = project_dir / "README.md"
+        with open(readme_file, 'w') as f:
+            f.write(readme_content)
+        
+        return project_slug
+    except Exception as e:
+        # If creation failed, return None (task will be created without project)
+        return None
+
+
+def create_task_from_suggestion(suggestion: Dict[str, Any], ask_for_project: bool = True) -> Tuple[bool, str]:
     """
     Create a task from a suggestion.
+    
+    Args:
+        suggestion: The suggestion dictionary
+        ask_for_project: If True, use AI to help resolve project assignment
     
     Returns:
         (success, message)
@@ -311,6 +488,15 @@ def create_task_from_suggestion(suggestion: Dict[str, Any]) -> Tuple[bool, str]:
     context = suggestion.get("context", "computer")
     priority = suggestion.get("priority", "not_urgent_important")
     project = suggestion.get("suggested_project", "")
+    
+    # If no project assigned and we should ask, try to resolve it
+    if ask_for_project and not project:
+        resolved_project = resolve_project_for_task(suggestion)
+        if resolved_project:
+            project = resolved_project
+            suggestion["suggested_project"] = project
+            suggestion["project_resolved"] = True
+            save_suggestion(suggestion)  # Update suggestion with resolved project
     
     cmd = [
         "gtd-task", "add",
@@ -346,7 +532,8 @@ def create_task_from_suggestion(suggestion: Dict[str, Any]) -> Tuple[bool, str]:
                 auto_created=True
             )
             
-            return True, f"Task created: {title}"
+            project_msg = f" (project: {project})" if project else ""
+            return True, f"Task created: {title}{project_msg}"
         else:
             return False, f"Failed to create task: {result.stderr}"
     except Exception as e:

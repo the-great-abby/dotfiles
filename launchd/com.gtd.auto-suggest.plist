@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gtd.auto-suggest</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>__DOTFILES_DIR__/bin/gtd-auto-suggest-run-scheduled</string>
+    </array>
+    
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    
+    <key>StandardOutPath</key>
+    <string>__HOME_DIR__/Documents/gtd/auto_suggest_scheduled.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>__HOME_DIR__/Documents/gtd/auto_suggest_scheduled_error.log</string>
+    
+    <key>RunAtLoad</key>
+    <false/>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:__HOME_DIR__/code/dotfiles/bin</string>
+    </dict>
+</dict>
+</plist>
+

@@ -37,13 +37,40 @@ for test_file in "$SCRIPT_DIR"/test_*.sh; do
   fi
 done
 
+# Get MCP Python (virtualenv if available, otherwise system Python)
+# Source gtd-common.sh to get gtd_get_mcp_python function
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON" 2>/dev/null || true
+fi
+
+# Get Python command (prefer MCP virtualenv)
+if command -v gtd_get_mcp_python &>/dev/null; then
+  PYTHON_CMD=$(gtd_get_mcp_python)
+else
+  # Fallback: check for MCP virtualenv directly
+  MCP_VENV_PYTHON="$HOME/code/dotfiles/mcp/venv/bin/python3"
+  if [[ ! -f "$MCP_VENV_PYTHON" ]]; then
+    MCP_VENV_PYTHON="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+  fi
+  if [[ -f "$MCP_VENV_PYTHON" ]]; then
+    PYTHON_CMD="$MCP_VENV_PYTHON"
+  else
+    PYTHON_CMD="python3"
+  fi
+fi
+
 # Run Python test files
 for test_file in "$SCRIPT_DIR"/test_*.py; do
   if [[ -f "$test_file" ]]; then
     echo -e "${YELLOW}Running: $(basename "$test_file")${NC}"
+    echo -e "${GRAY}Using: $PYTHON_CMD${NC}"
     echo ""
     
-    if python3 "$test_file" 2>&1; then
+    if "$PYTHON_CMD" "$test_file" 2>&1; then
       TOTAL_PASSED=$((TOTAL_PASSED + 1))
     else
       TOTAL_FAILED=$((TOTAL_FAILED + 1))

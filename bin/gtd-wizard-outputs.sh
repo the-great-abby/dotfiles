@@ -90,8 +90,7 @@ review_wizard() {
       else
         echo "Enhanced Review System not found"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
       fi
       ;;
     0)
@@ -117,8 +116,7 @@ view_analysis_results() {
     echo "No analysis results directory found."
     echo "Analysis results will be saved to: $DEEP_ANALYSIS_DIR"
     echo ""
-    echo "Press Enter to continue..."
-    read
+      gtd_quick_pause
     return 0
   fi
   
@@ -128,8 +126,7 @@ view_analysis_results() {
   if [[ ${#analysis_files[@]} -eq 0 ]]; then
     echo "No analysis results found."
     echo ""
-    echo "Press Enter to continue..."
-    read
+      gtd_quick_pause
     return 0
   fi
   
@@ -283,8 +280,7 @@ PYTHON_EXTRACT
   echo "Opening analysis in vim..."
   echo "Tip: Press :q to exit when done reading"
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
   
   echo "$analysis_text" | vim -R - "+set filetype=markdown" - 2>/dev/null || echo "$analysis_text" | less -R
   
@@ -845,8 +841,7 @@ ${ai_response_text}
   done
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 # Generate Suggestions from Analysis
@@ -920,8 +915,7 @@ PYTHON_READ
   if [[ -z "$analysis_content" ]]; then
     echo "❌ Could not read analysis content from file"
     echo ""
-    echo "Press Enter to continue..."
-    read
+      gtd_quick_pause
     return 1
   fi
   
@@ -1699,8 +1693,7 @@ if data.get('success') and data.get('suggestions'):
   fi
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 # Express Phase Wizard
@@ -1739,8 +1732,7 @@ express_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 # Template Wizard
@@ -1779,8 +1771,7 @@ template_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 # Diagram Wizard
@@ -1821,8 +1812,7 @@ review_drafts_wizard() {
         else
           echo "❌ gtd-review-drafts command not found"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
         fi
         # After review, ask if user wants to continue
         echo ""
@@ -1864,8 +1854,7 @@ review_drafts_wizard() {
           echo "📝 Draft directory not found: ${DRAFTS_DIR}"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       3)
         echo ""
@@ -1879,8 +1868,7 @@ review_drafts_wizard() {
           echo "❌ gtd-scan-insights command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       4)
         SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
@@ -1899,8 +1887,7 @@ review_drafts_wizard() {
           echo "📝 Draft directory not found: ${DRAFTS_DIR}"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       0|"")
         return 0
@@ -1908,8 +1895,7 @@ review_drafts_wizard() {
       *)
         echo "❌ Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
     esac
     # Loop continues automatically
@@ -1953,8 +1939,7 @@ diagram_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 # Morning Routine Wizard
@@ -1969,8 +1954,7 @@ morning_routine_wizard() {
   echo ""
   echo "Use option 19 (Morning/Evening Check-In) for full check-in functionality."
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 # Afternoon Routine Wizard
@@ -1985,8 +1969,7 @@ afternoon_routine_wizard() {
   echo ""
   echo "Use option 19 (Morning/Evening Check-In) for check-in functionality."
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 # Evening Routine Wizard
@@ -2001,8 +1984,7 @@ evening_routine_wizard() {
   echo ""
   echo "Use option 19 (Morning/Evening Check-In) for full check-in functionality."
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 # Evening Summary Wizard
@@ -2017,6 +1999,5 @@ evening_summary_wizard() {
   echo ""
   echo "Use option 19 (Morning/Evening Check-In) for full check-in functionality."
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }

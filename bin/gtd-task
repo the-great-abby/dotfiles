@@ -91,6 +91,7 @@ add_task() {
   local non_interactive=false
   
   # Parse arguments
+  # Support both --flag=value and --flag value formats
   local remaining_args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -99,20 +100,60 @@ add_task() {
         non_interactive=true
         shift
         ;;
+      --context)
+        if [[ $# -gt 1 ]]; then
+          context="$2"
+          non_interactive=true
+          shift 2
+        else
+          echo "Error: --context requires a value" >&2
+          return 1
+        fi
+        ;;
       --energy=*)
         energy="${1#*=}"
         non_interactive=true
         shift
+        ;;
+      --energy)
+        if [[ $# -gt 1 ]]; then
+          energy="$2"
+          non_interactive=true
+          shift 2
+        else
+          echo "Error: --energy requires a value" >&2
+          return 1
+        fi
         ;;
       --priority=*)
         priority="${1#*=}"
         non_interactive=true
         shift
         ;;
+      --priority)
+        if [[ $# -gt 1 ]]; then
+          priority="$2"
+          non_interactive=true
+          shift 2
+        else
+          echo "Error: --priority requires a value" >&2
+          return 1
+        fi
+        ;;
       --project=*)
         project="${1#*=}"
         non_interactive=true
         shift
+        ;;
+      --project)
+        if [[ $# -gt 1 ]]; then
+          project="$2"
+          non_interactive=true
+          shift 2
+        else
+          echo "Error: --project requires a value" >&2
+          return 1
+        fi
         ;;
       --repository=*|--repo=*)
         repository="${1#*=}"
@@ -120,15 +161,46 @@ add_task() {
         non_interactive=true
         shift
         ;;
+      --repository|--repo)
+        if [[ $# -gt 1 ]]; then
+          repository="$2"
+          repository=$(normalize_repo_url "$repository")
+          non_interactive=true
+          shift 2
+        else
+          echo "Error: --repository requires a value" >&2
+          return 1
+        fi
+        ;;
       --recurring=*)
         recurring="${1#*=}"
         non_interactive=true
         shift
         ;;
+      --recurring)
+        if [[ $# -gt 1 ]]; then
+          recurring="$2"
+          non_interactive=true
+          shift 2
+        else
+          echo "Error: --recurring requires a value" >&2
+          return 1
+        fi
+        ;;
       --frequency=*)
         frequency="${1#*=}"
         non_interactive=true
         shift
+        ;;
+      --frequency)
+        if [[ $# -gt 1 ]]; then
+          frequency="$2"
+          non_interactive=true
+          shift 2
+        else
+          echo "Error: --frequency requires a value" >&2
+          return 1
+        fi
         ;;
       --non-interactive)
         non_interactive=true
@@ -143,6 +215,12 @@ add_task() {
   
   # Get task description from remaining args
   task_desc="${remaining_args[*]}"
+  
+  # Clean up task description - remove any flags that might have been included
+  # This handles cases where flags were passed incorrectly before the fix
+  task_desc=$(echo "$task_desc" | sed -E 's/^[[:space:]]*(--(context|priority|energy|project|repository|repo|recurring|frequency)=?[[:space:]]*[^[:space:]]*[[:space:]]*)+//')
+  task_desc=$(echo "$task_desc" | sed -E 's/[[:space:]]*(--(context|priority|energy|project|repository|repo|recurring|frequency)=?[[:space:]]*[^[:space:]]*[[:space:]]*)+$//')
+  task_desc=$(echo "$task_desc" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   
   if [[ -z "$task_desc" ]]; then
     read -p "Task description: " task_desc
@@ -926,6 +1004,144 @@ EOF
   fi
 }
 
+# Clean up task titles that have flags embedded in them
+cleanup_task_titles() {
+  local task_id="$1"
+  local dry_run="${2:-false}"
+  local count=0
+  local fixed=0
+  
+  if [[ -z "$task_id" ]]; then
+    # Clean up all tasks
+    echo "Cleaning up task titles with embedded flags..."
+    echo ""
+    
+    local tasks=()
+    while IFS= read -r -d '' task; do
+      tasks+=("$task")
+    done < <(find "$TASKS_PATH" "$PROJECTS_PATH" -name "*-task.md" -type f -print0 2>/dev/null)
+    
+    for task_file in "${tasks[@]}"; do
+      local title=$(grep "^# " "$task_file" 2>/dev/null | head -1 | sed 's/^# //')
+      
+      # Check if title contains flags (use pattern matching instead of grep to avoid -- option issue)
+      if [[ "$title" =~ --(context|priority|energy|project|repository|repo|recurring|frequency) ]]; then
+        ((count++))
+        
+        # Extract clean title (remove all flag occurrences and their values)
+        # First pass: remove --flag=value format
+        local clean_title=$(echo "$title" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)=[^[:space:]]*[[:space:]]*/ /g')
+        # Second pass: remove --flag value format (flag followed by space and value)
+        clean_title=$(echo "$clean_title" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)[[:space:]]+[^[:space:]]*[[:space:]]*/ /g')
+        clean_title=$(echo "$clean_title" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/[[:space:]]\{2,\}/ /g')
+        
+        if [[ -n "$clean_title" && "$clean_title" != "$title" ]]; then
+          if [[ "$dry_run" != "true" ]]; then
+            # Update the title in the file (escape special chars for sed)
+            local escaped_title=$(echo "$title" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            local escaped_clean=$(echo "$clean_title" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              sed -i '' "s/^# ${escaped_title}/# ${escaped_clean}/" "$task_file"
+            else
+              sed -i "s/^# ${escaped_title}/# ${escaped_clean}/" "$task_file"
+            fi
+            
+            # Also update "Next Action" if it matches the old title
+            if grep -q "^## Next Action$" "$task_file"; then
+              local next_line=$(grep -A 1 "^## Next Action$" "$task_file" | tail -1)
+              if [[ "$next_line" == "$title" ]]; then
+                # Use a simpler sed approach - replace the line after "## Next Action"
+                local temp_file=$(mktemp)
+                local found_section=false
+                while IFS= read -r line || [[ -n "$line" ]]; do
+                  if [[ "$line" == "## Next Action" ]]; then
+                    found_section=true
+                    echo "$line" >> "$temp_file"
+                    # Skip the next line (old title) and write the new one
+                    read -r old_line || true
+                    echo "$clean_title" >> "$temp_file"
+                  else
+                    echo "$line" >> "$temp_file"
+                  fi
+                done < "$task_file"
+                mv "$temp_file" "$task_file"
+              fi
+            fi
+            
+            ((fixed++))
+            echo "✓ Fixed: $(basename "$task_file")"
+            echo "  Old: $title"
+            echo "  New: $clean_title"
+            echo ""
+          else
+            echo "Would fix: $(basename "$task_file")"
+            echo "  Old: $title"
+            echo "  New: $clean_title"
+            echo ""
+          fi
+        fi
+      fi
+    done
+    
+    if [[ "$dry_run" == "true" ]]; then
+      echo "Dry run complete. Found $count task(s) with flags in titles."
+      echo "Run without --dry-run to fix them."
+    else
+      echo "✓ Cleanup complete! Fixed $fixed of $count task(s)."
+    fi
+  else
+    # Clean up specific task
+    local task_file=""
+    if [[ -f "${TASKS_PATH}/${task_id}.md" ]]; then
+      task_file="${TASKS_PATH}/${task_id}.md"
+    elif [[ -f "${task_id}" ]]; then
+      task_file="${task_id}"
+    else
+      # Search in projects
+      task_file=$(find "$PROJECTS_PATH" -name "${task_id}.md" -type f 2>/dev/null | head -1)
+    fi
+    
+    if [[ -z "$task_file" || ! -f "$task_file" ]]; then
+      echo "❌ Task not found: $task_id"
+      return 1
+    fi
+    
+    local title=$(grep "^# " "$task_file" 2>/dev/null | head -1 | sed 's/^# //')
+    
+    if [[ "$title" =~ --(context|priority|energy|project|repository|repo|recurring|frequency) ]]; then
+      # Extract clean title (remove all flag occurrences and their values)
+      # First pass: remove --flag=value format
+      local clean_title=$(echo "$title" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)=[^[:space:]]*[[:space:]]*/ /g')
+      # Second pass: remove --flag value format (flag followed by space and value)
+      clean_title=$(echo "$clean_title" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)[[:space:]]+[^[:space:]]*[[:space:]]*/ /g')
+      clean_title=$(echo "$clean_title" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/[[:space:]]\{2,\}/ /g')
+      
+      if [[ -n "$clean_title" && "$clean_title" != "$title" ]]; then
+        if [[ "$dry_run" != "true" ]]; then
+          local escaped_title=$(echo "$title" | sed 's/[[\.*^$()+?{|]/\\&/g')
+          local escaped_clean=$(echo "$clean_title" | sed 's/[[\.*^$()+?{|]/\\&/g')
+          
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s/^# ${escaped_title}/# ${escaped_clean}/" "$task_file"
+          else
+            sed -i "s/^# ${escaped_title}/# ${escaped_clean}/" "$task_file"
+          fi
+          echo "✓ Fixed title in: $task_file"
+          echo "  Old: $title"
+          echo "  New: $clean_title"
+        else
+          echo "Would fix: $task_file"
+          echo "  Old: $title"
+          echo "  New: $clean_title"
+        fi
+      fi
+    else
+      echo "✓ Task title is already clean: $title"
+    fi
+  fi
+}
+
 # Main
 main() {
   case "$1" in
@@ -953,6 +1169,10 @@ main() {
       shift
       add_note_to_task "$@"
       ;;
+    cleanup-titles)
+      shift
+      cleanup_task_titles "$@"
+      ;;
     view)
       shift
       view_task "$@"
@@ -968,6 +1188,7 @@ main() {
       echo "  update <task-id>                Update task properties"
       echo "  move <task-id> <project>        Move task to project"
       echo "  add-note <task-id> [note]       Add note to task"
+      echo "  cleanup-titles [task-id]         Clean up task titles with embedded flags"
       echo ""
       echo "List filters:"
       echo "  --context=<context>             Filter by context"

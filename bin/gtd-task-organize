@@ -1,0 +1,2077 @@
+#!/bin/bash
+# GTD Task Organizer - Clean up and organize your task backlog
+# Helps with:
+# - Finding tasks without projects
+# - Suggesting which project tasks belong to (using AI)
+# - Marking completed tasks
+# - Bulk operations
+
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+  # Initialize GTD paths
+  load_gtd_config
+  init_gtd_paths
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# Ensure paths are set
+if [[ -z "${GTD_BASE_DIR:-}" ]]; then
+  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+fi
+if [[ -z "${TASKS_PATH:-}" ]]; then
+  TASKS_PATH="${GTD_BASE_DIR}/tasks"
+fi
+if [[ -z "${PROJECTS_PATH:-}" ]]; then
+  PROJECTS_PATH="${GTD_BASE_DIR}/1-projects"
+fi
+
+# Use common frontmatter helper
+alias get_frontmatter_value='gtd_get_frontmatter_value'
+
+# Define wrapper function (aliases don't always work in subshells)
+get_frontmatter_value() {
+  gtd_get_frontmatter_value "$@"
+}
+
+# Update frontmatter value
+update_frontmatter_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  
+  if grep -q "^${key}:" "$file" 2>/dev/null; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/^${key}:.*/${key}: ${value}/" "$file"
+    else
+      sed -i "s/^${key}:.*/${key}: ${value}/" "$file"
+    fi
+  else
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "/^---$/a\\
+${key}: ${value}
+" "$file"
+    else
+      sed -i "/^---$/a\\${key}: ${value}" "$file"
+    fi
+  fi
+}
+
+# Find task file by ID
+find_task_file() {
+  local task_id="$1"
+  
+  # Search in tasks directory
+  if [[ -d "$TASKS_PATH" ]]; then
+    local task_file="${TASKS_PATH}/${task_id}.md"
+    if [[ -f "$task_file" ]]; then
+      echo "$task_file"
+      return 0
+    fi
+  fi
+  
+  # Search in project directories
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      if [[ -f "$task_file" ]]; then
+        echo "$task_file"
+        return 0
+      fi
+    done < <(find "$PROJECTS_PATH" -name "${task_id}.md" -type f 2>/dev/null)
+  fi
+  
+  return 1
+}
+
+# Get all tasks without projects
+get_tasks_without_projects() {
+  local tasks=()
+  
+  # Search in tasks directory (standalone tasks)
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      # Validate file exists and is readable
+      [[ ! -f "$task_file" ]] && continue
+      [[ ! -r "$task_file" ]] && continue
+      
+      local status=$(get_frontmatter_value "$task_file" "status" 2>/dev/null)
+      if [[ "$status" == "active" ]]; then
+        local project=$(get_frontmatter_value "$task_file" "project" 2>/dev/null)
+        if [[ -z "$project" ]]; then
+          tasks+=("$task_file")
+        fi
+      fi
+    done < <(find "$TASKS_PATH" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  printf '%s\0' "${tasks[@]}"
+}
+
+# Check cache for task analysis result
+get_cached_task_analysis() {
+  local task_id="$1"
+  local cache_file="${GTD_BASE_DIR}/.task_analysis_cache.json"
+  
+  if [[ ! -f "$cache_file" ]]; then
+    return 1
+  fi
+  
+  # Use Python to read JSON cache (more reliable than bash JSON parsing)
+  local python_cmd=""
+  if declare -f gtd_get_mcp_python &>/dev/null; then
+    python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+  else
+    local mcp_dir="$HOME/code/dotfiles/mcp"
+    if [[ ! -d "$mcp_dir" ]]; then
+      mcp_dir="$HOME/code/personal/dotfiles/mcp"
+    fi
+    local venv_python="${mcp_dir}/venv/bin/python3"
+    if [[ -f "$venv_python" ]]; then
+      python_cmd="$venv_python"
+    else
+      python_cmd="python3"
+    fi
+  fi
+  
+  if command -v "$python_cmd" &>/dev/null; then
+    local cached=$("$python_cmd" -c "
+import json
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+cache_file = Path('$cache_file')
+if not cache_file.exists():
+    sys.exit(1)
+
+try:
+    with open(cache_file) as f:
+        cache = json.load(f)
+    
+    if '$task_id' in cache:
+        entry = cache['$task_id']
+        # Check if cache is still valid (not older than 30 days)
+        cached_time = datetime.fromisoformat(entry.get('timestamp', '2000-01-01T00:00:00'))
+        if (datetime.now() - cached_time).days < 30:
+            print(entry.get('suggested_project', ''))
+            sys.exit(0)
+except:
+    pass
+
+sys.exit(1)
+" 2>/dev/null)
+    
+    if [[ -n "$cached" ]]; then
+      echo "$cached"
+      return 0
+    fi
+  fi
+  
+  return 1
+}
+
+# Use AI to suggest which project a task belongs to
+suggest_project_for_task() {
+  local task_file="$1"
+  local force_reanalyze="${2:-false}"
+  
+  if [[ ! -f "$task_file" ]]; then
+    echo ""
+    return 1
+  fi
+  
+  local task_id=$(basename "$task_file" .md)
+  
+  # Check cache first (unless force_reanalyze is true)
+  if [[ "$force_reanalyze" != "true" ]]; then
+    local cached=$(get_cached_task_analysis "$task_id")
+    if [[ -n "$cached" ]]; then
+      echo "$cached"
+      return 0
+    fi
+  fi
+  
+  # Get task details
+  local task_name=$(head -20 "$task_file" | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+  # Remove any flags and their values that might be embedded in the title
+  # First pass: remove --flag=value format
+  task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)=[^[:space:]]*[[:space:]]*/ /g')
+  # Second pass: remove --flag value format (flag followed by space and value)
+  task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)[[:space:]]+[^[:space:]]*[[:space:]]*/ /g')
+  task_name=$(echo "$task_name" | sed 's/[[:space:]]\{2,\}/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  local task_content=$(cat "$task_file")
+  
+  # Get list of existing projects
+  local projects=()
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r project_dir; do
+      [[ ! -d "$project_dir" ]] && continue
+      local project_name=$(basename "$project_dir")
+      projects+=("$project_name")
+    done < <(find "$PROJECTS_PATH" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+  fi
+  
+  # Build projects list for prompt
+  local projects_list=""
+  if [[ ${#projects[@]} -gt 0 ]]; then
+    projects_list=$(printf '%s\n' "${projects[@]}" | tr '\n' ',' | sed 's/,$//')
+  fi
+  
+  # Use the project suggestion script (uses fast AI model, not deep thinking model)
+  local project_suggest_script="$HOME/code/dotfiles/mcp/gtd_project_suggest.py"
+  if [[ ! -f "$project_suggest_script" ]]; then
+    project_suggest_script="$HOME/code/personal/dotfiles/mcp/gtd_project_suggest.py"
+  fi
+  
+  # Get the correct Python executable (venv if available)
+  local python_cmd=""
+  if declare -f gtd_get_mcp_python &>/dev/null; then
+    python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+  else
+    # Fallback: check for venv manually
+    local mcp_dir="$HOME/code/dotfiles/mcp"
+    if [[ ! -d "$mcp_dir" ]]; then
+      mcp_dir="$HOME/code/personal/dotfiles/mcp"
+    fi
+    local venv_python="${mcp_dir}/venv/bin/python3"
+    if [[ -f "$venv_python" ]]; then
+      python_cmd="$venv_python"
+    else
+      python_cmd="python3"
+    fi
+  fi
+  
+  if [[ -f "$project_suggest_script" ]] && command -v "$python_cmd" &>/dev/null; then
+    # Use fast AI model for quick, concise project suggestions
+    local ai_timeout=60  # 1 minute should be enough for fast model
+    local suggested_project=""
+    local temp_output=$(mktemp)
+    local temp_done=$(mktemp)
+    local ai_pid=""
+    
+    # Always show timer for long-running AI calls
+    if declare -f show_thinking_timer &>/dev/null; then
+      # Start timer (parent_pid=0 means run until explicitly stopped)
+      show_thinking_timer "Analyzing task" 2 0 >&2 &
+      local timer_pid=$!
+      
+      # Run AI call in background - write to done file when complete
+      (
+        "$python_cmd" "$project_suggest_script" "$task_name" "$task_file" "$projects_list" 2>/dev/null > "$temp_output"
+        echo "done" > "$temp_done"
+      ) &
+      ai_pid=$!
+      
+      # Use timeout mechanism that actually works
+      (
+        sleep "$ai_timeout"
+        if [[ ! -f "$temp_done" ]]; then
+          # Force kill the process and its children
+          kill -9 "$ai_pid" 2>/dev/null || true
+          pkill -9 -P "$ai_pid" 2>/dev/null || true
+          # Also kill any gtd_project_suggest processes that might be stuck
+          pkill -9 -f "gtd_project_suggest.py" 2>/dev/null || true
+        fi
+      ) &
+      local killer_pid=$!
+      
+      # Wait for AI call to finish, but with a maximum wait time
+      local waited=0
+      local max_wait=$((ai_timeout + 5))
+      while [[ $waited -lt $max_wait ]]; do
+        if ! kill -0 "$ai_pid" 2>/dev/null; then
+          # Process finished
+          break
+        fi
+        if [[ -f "$temp_done" ]]; then
+          # Process finished normally
+          break
+        fi
+        sleep 1
+        ((waited++))
+      done
+      
+      # Force kill if still running
+      if kill -0 "$ai_pid" 2>/dev/null; then
+        kill -9 "$ai_pid" 2>/dev/null || true
+        pkill -9 -P "$ai_pid" 2>/dev/null || true
+        pkill -9 -f "gtd_project_suggest.py" 2>/dev/null || true
+      fi
+      
+      # Kill the killer process (don't wait for it - it's in background)
+      kill "$killer_pid" 2>/dev/null || true
+      
+      # Read result if available (process finished normally)
+      if [[ -f "$temp_done" && -f "$temp_output" ]]; then
+        suggested_project=$(cat "$temp_output" 2>/dev/null | grep -v '^[[:space:]]*$' | head -1 | tr -d '\n\r')
+      else
+        # Timeout occurred or process was killed
+        suggested_project="TIMEOUT"
+      fi
+      rm -f "$temp_output" "$temp_done" 2>/dev/null || true
+      
+      stop_thinking_timer $timer_pid 2>/dev/null || true
+    else
+      # Run AI call in background - write to done file when complete
+      (
+        "$python_cmd" "$project_suggest_script" "$task_name" "$task_file" "$projects_list" 2>/dev/null > "$temp_output"
+        echo "done" > "$temp_done"
+      ) &
+      ai_pid=$!
+      
+      # Use timeout mechanism that actually works
+      (
+        sleep "$ai_timeout"
+        if [[ ! -f "$temp_done" ]]; then
+          # Force kill the process and its children
+          kill -9 "$ai_pid" 2>/dev/null || true
+          pkill -9 -P "$ai_pid" 2>/dev/null || true
+          # Also kill any gtd_project_suggest processes that might be stuck
+          pkill -9 -f "gtd_project_suggest.py" 2>/dev/null || true
+        fi
+      ) &
+      local killer_pid=$!
+      
+      # Wait for AI call to finish, but with a maximum wait time
+      local waited=0
+      local max_wait=$((ai_timeout + 5))
+      while [[ $waited -lt $max_wait ]]; do
+        if ! kill -0 "$ai_pid" 2>/dev/null; then
+          # Process finished
+          break
+        fi
+        if [[ -f "$temp_done" ]]; then
+          # Process finished normally
+          break
+        fi
+        sleep 1
+        ((waited++))
+      done
+      
+      # Force kill if still running
+      if kill -0 "$ai_pid" 2>/dev/null; then
+        kill -9 "$ai_pid" 2>/dev/null || true
+        pkill -9 -P "$ai_pid" 2>/dev/null || true
+        pkill -9 -f "gtd_project_suggest.py" 2>/dev/null || true
+      fi
+      
+      # Kill the killer process (don't wait for it - it's in background)
+      kill "$killer_pid" 2>/dev/null || true
+      
+      # Read result if available (process finished normally)
+      if [[ -f "$temp_done" && -f "$temp_output" ]]; then
+        suggested_project=$(cat "$temp_output" 2>/dev/null | grep -v '^[[:space:]]*$' | head -1 | tr -d '\n\r')
+      else
+        # Timeout occurred or process was killed
+        suggested_project="TIMEOUT"
+      fi
+      rm -f "$temp_output" "$temp_done" 2>/dev/null || true
+    fi
+    
+    # Handle timeout case
+    if [[ "$suggested_project" == "TIMEOUT" ]]; then
+      echo "TIMEOUT" >&2  # Log to stderr for debugging
+      echo ""
+      return 0
+    fi
+    
+    # Clean up the suggestion (the Python script already handles most cleanup)
+    suggested_project=$(echo "$suggested_project" | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    
+    # Cache the result (if not timeout)
+    if [[ -n "$suggested_project" && "$suggested_project" != "TIMEOUT" ]]; then
+      # Cache using Python
+      "$python_cmd" -c "
+import json
+from datetime import datetime
+from pathlib import Path
+
+cache_file = Path('${GTD_BASE_DIR}/.task_analysis_cache.json')
+cache = {}
+if cache_file.exists():
+    try:
+        with open(cache_file) as f:
+            cache = json.load(f)
+    except:
+        pass
+
+cache['$task_id'] = {
+    'suggested_project': '$suggested_project',
+    'timestamp': datetime.now().isoformat()
+}
+
+with open(cache_file, 'w') as f:
+    json.dump(cache, f, indent=2)
+" 2>/dev/null || true
+    fi
+    
+    # Check if it matches an existing project
+    if [[ -n "$suggested_project" && "$suggested_project" != "none" ]]; then
+      for project in "${projects[@]}"; do
+        if [[ "$project" == "$suggested_project" ]]; then
+          echo "$suggested_project"
+          return 0
+        fi
+      done
+    fi
+    
+    # Only output if we have a non-blank suggestion
+    if [[ -n "$suggested_project" ]]; then
+      echo "$suggested_project"
+    else
+      echo ""
+    fi
+  else
+    echo ""
+  fi
+}
+
+# Suggest area for a new project using AI
+suggest_area_for_project() {
+  local project_slug="$1"
+  local project_name="$2"
+  local project_outcome="$3"
+  
+  echo ""
+  echo "🤔 Analyzing project to suggest area..."
+  echo ""
+  
+  # Get existing areas
+  local areas=()
+  if [[ -d "${GTD_BASE_DIR}/2-areas" ]]; then
+    while IFS= read -r area_file; do
+      local area_slug=$(basename "$area_file" .md)
+      areas+=("$area_slug")
+    done < <(find "${GTD_BASE_DIR}/2-areas" -type f -name "*.md" 2>/dev/null)
+  fi
+  
+  local areas_list=$(IFS=,; echo "${areas[*]}")
+  
+  # Ask AI for suggestion
+  local python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+  local suggested_area=$("$python_cmd" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import call_fast_ai
+
+project_name = '''$project_name'''
+project_outcome = '''$project_outcome'''
+existing_areas = '''$areas_list'''.split(',')
+
+prompt = f'''Suggest which area of responsibility this project belongs to.
+
+Project: {project_name}
+Outcome: {project_outcome}
+Existing areas: {', '.join(existing_areas) if existing_areas and existing_areas[0] else 'none'}
+
+Return ONLY the area slug (lowercase, dash-separated) that best fits, or suggest a new area name.
+If none of the existing areas fit, suggest a NEW area name.
+
+Response format: Just the area slug, nothing else.
+Examples:
+- work-sre
+- health-fitness
+- home-automation
+'''
+
+try:
+    response = call_fast_ai(prompt, 'You are a GTD organization assistant.')
+    area = response.strip().lower().replace(' ', '-')
+    # Remove any extra text
+    area = area.split()[0] if area else ''
+    print(area)
+except Exception as e:
+    print('', file=sys.stderr)
+" 2>/dev/null)
+  
+  if [[ -z "$suggested_area" ]]; then
+    echo "⚠️  Could not get area suggestion. You can assign manually later."
+    return 0
+  fi
+  
+  # Check if it's an existing area
+  local is_new_area=true
+  for area in "${areas[@]}"; do
+    if [[ "$area" == "$suggested_area" ]]; then
+      is_new_area=false
+      break
+    fi
+  done
+  
+  if [[ "$is_new_area" == "true" ]]; then
+    echo "💡 Suggested NEW area: $(echo "$suggested_area" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')"
+    echo ""
+    echo "Would you like to:"
+    echo "  1) Create this area and assign project"
+    echo "  2) Choose existing area"
+    echo "  3) Skip"
+    echo ""
+    echo -n "Choose (1-3): "
+    read choice
+    
+    case "$choice" in
+      1)
+        # Create new area
+        if command -v gtd-area &>/dev/null; then
+          local area_name=$(echo "$suggested_area" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+          echo "$area_name" | gtd-area create "$area_name" >/dev/null 2>&1
+          
+          # Assign project to area
+          local project_readme="${GTD_BASE_DIR}/1-projects/${project_slug}/README.md"
+          if [[ -f "$project_readme" ]]; then
+            update_project_area "$project_readme" "$suggested_area"
+            echo "✓ Created area and assigned project!"
+          fi
+        fi
+        ;;
+      2)
+        # Show existing areas
+        show_area_selector "$project_slug"
+        ;;
+      3)
+        # Skip
+        ;;
+    esac
+  else
+    echo "💡 Suggested area: $(echo "$suggested_area" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')"
+    echo ""
+    echo -n "Assign to this area? (Y/n): "
+    read assign_choice
+    
+    if [[ ! "$assign_choice" =~ ^[Nn]$ ]]; then
+      local project_readme="${GTD_BASE_DIR}/1-projects/${project_slug}/README.md"
+      if [[ -f "$project_readme" ]]; then
+        update_project_area "$project_readme" "$suggested_area"
+        echo "✓ Assigned project to area: $suggested_area"
+      fi
+    else
+      show_area_selector "$project_slug"
+    fi
+  fi
+}
+
+# Show area selector for manual selection
+show_area_selector() {
+  local project_slug="$1"
+  
+  echo ""
+  echo "Available areas:"
+  
+  local areas=()
+  local idx=1
+  
+  if [[ -d "${GTD_BASE_DIR}/2-areas" ]]; then
+    while IFS= read -r area_file; do
+      local area_slug=$(basename "$area_file" .md)
+      local area_name=$(echo "$area_slug" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      echo "  $idx) $area_name"
+      areas+=("$area_slug")
+      ((idx++))
+    done < <(find "${GTD_BASE_DIR}/2-areas" -type f -name "*.md" 2>/dev/null | sort)
+  fi
+  
+  if [[ ${#areas[@]} -eq 0 ]]; then
+    echo "  No areas defined yet."
+    return 0
+  fi
+  
+  echo ""
+  echo -n "Choose area (1-${#areas[@]}): "
+  read area_choice
+  
+  if [[ "$area_choice" =~ ^[0-9]+$ ]] && [[ $area_choice -ge 1 && $area_choice -le ${#areas[@]} ]]; then
+    local selected_area="${areas[$((area_choice - 1))]}"
+    local project_readme="${GTD_BASE_DIR}/1-projects/${project_slug}/README.md"
+    if [[ -f "$project_readme" ]]; then
+      update_project_area "$project_readme" "$selected_area"
+      echo "✓ Assigned project to area: $selected_area"
+    fi
+  fi
+}
+
+# Update project frontmatter with area
+update_project_area() {
+  local project_readme="$1"
+  local area_slug="$2"
+  
+  if [[ ! -f "$project_readme" ]]; then
+    return 1
+  fi
+  
+  # Use sed to update or add area field
+  if grep -q "^area:" "$project_readme" 2>/dev/null; then
+    # Update existing area
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/^area:.*$/area: $area_slug/" "$project_readme"
+    else
+      sed -i "s/^area:.*$/area: $area_slug/" "$project_readme"
+    fi
+  else
+    # Add area field to frontmatter
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "/^---$/a\\
+area: $area_slug
+" "$project_readme"
+    else
+      sed -i "/^---$/a\\area: $area_slug" "$project_readme"
+    fi
+  fi
+}
+
+# Check for completed background analysis
+check_background_results() {
+  local results_files=($(ls -t "${GTD_BASE_DIR}"/.bulk_organize_results_*.txt 2>/dev/null | head -1))
+  if [[ ${#results_files[@]} -gt 0 ]]; then
+    local latest_results="${results_files[0]}"
+    local status_file="${latest_results/_results_/_status_}"
+    
+    if [[ -f "$status_file" ]] && grep -q "complete" "$status_file" 2>/dev/null; then
+      return 0  # Has completed results
+    fi
+  fi
+  return 1
+}
+
+# Review saved background analysis results
+review_saved_results() {
+  local results_files=($(ls -t "${GTD_BASE_DIR}"/.bulk_organize_results_*.txt 2>/dev/null))
+  if [[ ${#results_files[@]} -eq 0 ]]; then
+    echo ""
+    echo "No saved analysis results found."
+    echo ""
+    gtd_quick_pause
+    return 1
+  fi
+  
+  # Use most recent results file
+  local results_file="${results_files[0]}"
+  
+  echo ""
+  echo "Loading results from: $(basename "$results_file")"
+  echo ""
+  
+  # Load suggestions from results file
+  local suggestions=()
+  local total=0
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^TOTAL:([0-9]+)$ ]]; then
+      total="${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ ^(.+)\|(.+)\|(.+)$ ]]; then
+      suggestions+=("$line")
+    fi
+  done < "$results_file"
+  
+  if [[ ${#suggestions[@]} -eq 0 ]]; then
+    echo "No suggestions found in results file."
+    echo ""
+    gtd_quick_pause
+    return 1
+  fi
+  
+  echo "Found ${#suggestions[@]} suggestions to review."
+  echo ""
+  echo "Press Enter to start review..."
+  read
+  
+  # Review the suggestions
+  clear
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📋 Review AI Suggestions"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local accepted=0
+  local skipped=0
+  local total=${#suggestions[@]}
+  local current=0
+  
+  for suggestion in "${suggestions[@]}"; do
+    ((current++))
+    IFS='|' read -r task_id task_name suggested_project <<< "$suggestion"
+    
+    local display_project=""
+    if [[ "$suggested_project" == "none" ]]; then
+      display_project="(no suggestion)"
+    else
+      display_project=$(echo "$suggested_project" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+    fi
+    
+    clear
+    gtd_print_header "Review AI Suggestions ($current/$total)" "📋"
+    echo -e "${BOLD}Task:${NC} ${task_name}"
+    echo -e "${BOLD}Suggested:${NC} ${display_project}"
+    echo ""
+    gtd_format_list_item "1" "Accept suggestion"
+    gtd_format_list_item "2" "Choose different project"
+    gtd_format_list_item "3" "Skip"
+    echo ""
+    echo -n "Choose (1-3): "
+    read choice
+    
+    case "$choice" in
+      1)
+        if [[ "$suggested_project" != "none" ]]; then
+          if command -v gtd-task &>/dev/null; then
+            gtd-task move "$task_id" "$suggested_project" >/dev/null 2>&1
+            gtd_action_success "assigned" "task" "to project '$display_project'"
+            ((accepted++))
+          fi
+        else
+          gtd_feedback info "No suggestion to accept"
+        fi
+        ;;
+      2)
+        assign_task_to_project "$task_id"
+        ((accepted++))
+        ;;
+      3)
+        ((skipped++))
+        ;;
+      *)
+        echo "Invalid choice, skipping..."
+        ((skipped++))
+        ;;
+    esac
+    
+    echo ""
+  done
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "✓ Bulk organization complete!"
+  echo "  Accepted: $accepted"
+  echo "  Skipped: $skipped"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+        gtd_quick_pause
+}
+
+# Review suggestions from an array
+review_suggestions_from_array() {
+  local suggestions_ref="$1[@]"
+  local suggestions=("${!suggestions_ref}")
+  
+  clear
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📋 Review AI Suggestions"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local accepted=0
+  local skipped=0
+  local timeout_count=0
+  local total=${#suggestions[@]}
+  local current=0
+  
+  for suggestion in "${suggestions[@]}"; do
+    ((current++))
+    IFS='|' read -r task_id task_name suggested_project <<< "$suggestion"
+    
+    local display_project=""
+    if [[ "$suggested_project" == "none" ]]; then
+      display_project="(no suggestion)"
+    elif [[ "$suggested_project" == "timeout" ]]; then
+      display_project="⏱️  (timeout - AI call took too long)"
+      ((timeout_count++))
+    else
+      display_project=$(echo "$suggested_project" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+    fi
+    
+    clear
+    gtd_print_header "Review AI Suggestions ($current/$total)" "📋"
+    echo -e "${BOLD}Task:${NC} ${task_name}"
+    echo -e "${BOLD}Suggested:${NC} ${display_project}"
+    echo ""
+    
+    if [[ "$suggested_project" == "timeout" ]]; then
+      gtd_feedback warning "This task timed out during analysis (took > 3 minutes)"
+      echo ""
+      gtd_format_list_item "1" "Retry analysis (may take a while)"
+      gtd_format_list_item "2" "Choose project manually"
+      gtd_format_list_item "3" "Skip"
+      echo ""
+      echo -n "Choose (1-3): "
+      read choice
+      
+      case "$choice" in
+        1)
+          echo "Retrying analysis (this may take a few minutes)..."
+          local retry_project=$(suggest_project_for_task "${GTD_BASE_DIR}/tasks/${task_id}.md" 2>/dev/null | grep -v '^[[:space:]]*$' | grep -v "TIMEOUT" | head -1 | tr -d '\n\r')
+          if [[ -n "$retry_project" && "$retry_project" != "none" ]]; then
+            if command -v gtd-task &>/dev/null; then
+              gtd-task move "$task_id" "$retry_project" >/dev/null 2>&1
+              local retry_display=$(echo "$retry_project" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+              gtd_action_success "assigned" "task" "to project '$retry_display'"
+              ((accepted++))
+            fi
+          else
+            echo "Still no suggestion. You can choose manually."
+            assign_task_to_project "$task_id"
+            ((accepted++))
+          fi
+          ;;
+        2)
+          assign_task_to_project "$task_id"
+          ((accepted++))
+          ;;
+        3)
+          ((skipped++))
+          ;;
+        *)
+          echo "Invalid choice, skipping..."
+          ((skipped++))
+          ;;
+      esac
+    else
+      echo "  1) Accept suggestion"
+      echo "  2) Choose different project"
+      echo "  3) Skip"
+      echo ""
+      echo -n "Choose (1-3): "
+      read choice
+      
+      case "$choice" in
+        1)
+          if [[ "$suggested_project" != "none" ]]; then
+            if command -v gtd-task &>/dev/null; then
+              gtd-task move "$task_id" "$suggested_project" >/dev/null 2>&1
+              echo "✓ Assigned to: $display_project"
+              ((accepted++))
+            fi
+          else
+            echo "No suggestion to accept."
+          fi
+          ;;
+        2)
+          assign_task_to_project "$task_id"
+          ((accepted++))
+          ;;
+        3)
+          ((skipped++))
+          ;;
+        *)
+          echo "Invalid choice, skipping..."
+          ((skipped++))
+          ;;
+      esac
+    fi
+    
+    echo ""
+  done
+  
+  if [[ $timeout_count -gt 0 ]]; then
+    echo "Note: $timeout_count task(s) timed out during analysis."
+    echo "You can retry them individually or assign projects manually."
+    echo ""
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "✓ Bulk organization complete!"
+  echo "  Accepted: $accepted"
+  echo "  Skipped: $skipped"
+  if [[ $timeout_count -gt 0 ]]; then
+    echo "  Timeouts: $timeout_count"
+  fi
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+        gtd_quick_pause
+}
+
+# Main organize menu
+organize_menu() {
+  # Ensure paths are initialized
+  if [[ -z "${TASKS_PATH:-}" ]] || [[ -z "${PROJECTS_PATH:-}" ]]; then
+    load_gtd_config
+    init_gtd_paths
+  fi
+  
+  # Ensure GTD_BASE_DIR is set
+  if [[ -z "${GTD_BASE_DIR:-}" ]]; then
+    GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  fi
+  
+  while true; do
+    clear
+    gtd_print_header "Task Organizer" "📋"
+    
+    # Check for completed background results
+    if check_background_results; then
+      echo -e "${YELLOW}🔔${NC} You have completed analysis results ready for review!"
+      echo ""
+    fi
+    
+    echo "What would you like to do?"
+    echo ""
+    gtd_format_list_item "1" "Review tasks without projects"
+    gtd_format_list_item "2" "Clean up completed tasks"
+    gtd_format_list_item "3" "Bulk organize tasks (AI suggestions)"
+    gtd_format_list_item "4" "Suggest new projects from related tasks"
+    if check_background_results; then
+      gtd_format_list_item "5" "Review saved analysis results"
+      gtd_format_list_item "6" "Exit"
+      echo ""
+      echo -n "Choose (1-6): "
+      read choice
+    else
+      gtd_format_list_item "5" "Exit"
+      echo ""
+      echo -n "Choose (1-5): "
+      read choice
+    fi
+    
+    case "$choice" in
+      1)
+        review_unassigned_tasks
+        ;;
+      2)
+        cleanup_completed_tasks
+        ;;
+      3)
+        bulk_organize_tasks
+        ;;
+      4)
+        suggest_projects_from_tasks
+        ;;
+      5)
+        if check_background_results; then
+          review_saved_results
+        else
+          echo ""
+          echo "Goodbye!"
+          exit 0
+        fi
+        ;;
+      6)
+        echo ""
+        echo "Goodbye!"
+        exit 0
+        ;;
+      *)
+        gtd_feedback error "Invalid choice"
+        gtd_quick_pause
+        ;;
+    esac
+  done
+}
+
+# Review tasks without projects
+review_unassigned_tasks() {
+  local tasks=()
+  while IFS= read -r -d '' task; do
+    tasks+=("$task")
+  done < <(get_tasks_without_projects)
+  
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    gtd_empty_state "unassigned tasks" "All tasks are assigned to projects! 🎉"
+    gtd_quick_pause
+    return 0
+  fi
+  
+  # Filter out any tasks that don't exist before starting
+  local valid_tasks=()
+  for t in "${tasks[@]}"; do
+    if [[ -f "$t" ]] && [[ -r "$t" ]]; then
+      valid_tasks+=("$t")
+    fi
+  done
+  tasks=("${valid_tasks[@]}")
+  
+  # Check if we have any valid tasks
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    clear
+    gtd_empty_state "unassigned tasks" "All tasks have been processed! 🎉"
+    gtd_quick_pause
+    return 0
+  fi
+  
+  local current_idx=0
+  local total_tasks=${#tasks[@]}
+  while [[ $current_idx -lt $total_tasks ]]; do
+    
+    clear
+    gtd_print_header "Tasks Without Projects ($((current_idx + 1))/${total_tasks})" "📋"
+    echo ""
+    
+    local task_file="${tasks[$current_idx]}"
+    
+    # Validate task file exists before reading
+    if [[ ! -f "$task_file" ]]; then
+      # File was deleted, remove from array and continue
+      local new_tasks=()
+      for t in "${tasks[@]}"; do
+        if [[ "$t" != "$task_file" ]]; then
+          new_tasks+=("$t")
+        fi
+      done
+      tasks=("${new_tasks[@]}")
+      total_tasks=${#tasks[@]}
+      continue
+    fi
+    
+    local task_id=$(basename "$task_file" .md)
+    local task_name=""
+    if [[ -f "$task_file" ]]; then
+      task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+    else
+      task_name="$task_id"
+    fi
+    # Remove any flags that might be embedded in the title
+    task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)(=[^[:space:]]*)?[[:space:]]*/ /g' | sed 's/[[:space:]]\{2,\}/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    local context=$(get_frontmatter_value "$task_file" "context")
+    local energy=$(get_frontmatter_value "$task_file" "energy")
+    local priority=$(get_frontmatter_value "$task_file" "priority")
+    
+    # Format task display better
+    echo -e "${BOLD}Task:${NC} ${task_name}"
+    echo -e "${BOLD}ID:${NC} ${task_id}"
+    echo -e "${BOLD}Context:${NC} ${context} | ${BOLD}Energy:${NC} ${energy} | ${BOLD}Priority:${NC} ${priority}"
+    echo ""
+    echo -e "${BOLD}Content:${NC}"
+    if [[ -f "$task_file" ]]; then
+      head -10 "$task_file" 2>/dev/null | tail -5 | sed 's/^/  /'
+    else
+      echo "  (Task file not found)"
+    fi
+    echo ""
+    gtd_section_divider "$CYAN"
+    echo ""
+    echo "What would you like to do?"
+    echo ""
+    gtd_format_list_item "1" "Assign to project"
+    gtd_format_list_item "2" "Get AI suggestion for project"
+    gtd_format_list_item "3" "Mark as completed"
+    gtd_format_list_item "4" "Edit task details"
+    gtd_format_list_item "5" "Add note to task"
+    gtd_format_list_item "6" "Skip (next task)"
+    gtd_format_list_item "7" "Back to menu"
+    echo ""
+    echo -n "Choose (1-7): "
+    read action
+    
+    case "$action" in
+      1)
+        assign_task_to_project "$task_id"
+        ;;
+      2)
+        suggest_and_assign "$task_id" "$task_file"
+        ;;
+      3)
+        complete_task "$task_id"
+        ;;
+      4)
+        # Edit task details
+        if command -v gtd-task &>/dev/null; then
+          clear
+          gtd-task update "$task_id"
+          echo ""
+          gtd_feedback success "Task updated"
+          gtd_quick_pause
+        else
+          gtd_feedback error "gtd-task command not found"
+          gtd_quick_pause
+        fi
+        ;;
+      5)
+        # Add note to task
+        echo ""
+        echo -n "Note title: "
+        read note_title
+        if [[ -n "$note_title" ]]; then
+          if command -v gtd-task &>/dev/null; then
+            if gtd-task add-note "$task_id" "$note_title" >/dev/null 2>&1; then
+              gtd_action_success "added" "note" "'$note_title' to task"
+            else
+              gtd_feedback error "Failed to add note"
+            fi
+          else
+            gtd_feedback error "gtd-task command not found"
+          fi
+        else
+          gtd_feedback error "Note title required"
+        fi
+        gtd_quick_pause
+        ;;
+      6)
+        ((current_idx++))
+        continue
+        ;;
+      7)
+        return 0
+        ;;
+      *)
+        gtd_feedback error "Invalid choice"
+        gtd_quick_pause
+        ;;
+    esac
+    
+    # Remove from array if completed or assigned
+    if [[ "$action" == "1" || "$action" == "2" || "$action" == "3" ]]; then
+      # Rebuild array without this task
+      local new_tasks=()
+      for t in "${tasks[@]}"; do
+        if [[ "$t" != "$task_file" ]]; then
+          new_tasks+=("$t")
+        fi
+      done
+      tasks=("${new_tasks[@]}")
+      total_tasks=${#tasks[@]}
+      
+      # Check if we're done
+      if [[ $total_tasks -eq 0 ]]; then
+        clear
+        gtd_feedback success "All tasks have been processed!"
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      
+      # Don't increment index since we removed an item
+      continue
+    fi
+    
+    ((current_idx++))
+  done
+  
+  # Final check - in case we exited the loop but still have tasks
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    clear
+    gtd_feedback success "All tasks have been processed!"
+  else
+    echo ""
+    gtd_feedback success "Finished reviewing unassigned tasks!"
+  fi
+  echo ""
+  gtd_quick_pause
+}
+
+# Assign task to project
+assign_task_to_project() {
+  local task_id="$1"
+  
+  # List available projects
+  local projects=()
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r project_dir; do
+      [[ ! -d "$project_dir" ]] && continue
+      local project_name=$(basename "$project_dir")
+      projects+=("$project_name")
+    done < <(find "$PROJECTS_PATH" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+  fi
+  
+  if [[ ${#projects[@]} -eq 0 ]]; then
+    gtd_empty_state "projects" "Create one first with: gtd-project create \"Project Name\""
+    gtd_quick_pause
+    return 1
+  fi
+  
+  echo ""
+  echo "Available projects:"
+  local idx=1
+  for project in "${projects[@]}"; do
+    local display_name=$(echo "$project" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+    gtd_format_list_item "$idx" "$display_name"
+    ((idx++))
+  done
+  echo "  $idx) Create new project"
+  echo ""
+  echo -n "Choose project (1-$idx): "
+  read project_choice
+  
+  if [[ "$project_choice" == "$idx" ]]; then
+    echo -n "New project name: "
+    read new_project_name
+    if [[ -n "$new_project_name" ]]; then
+      echo -n "Project outcome (what does 'done' look like?): "
+      read project_outcome
+      
+      if command -v gtd-project &>/dev/null; then
+        local project_slug=$(echo "$new_project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+        if [[ -n "$project_outcome" ]]; then
+          gtd-project create "$new_project_name" --outcome="$project_outcome"
+        else
+          gtd-project create "$new_project_name" --outcome="Complete $new_project_name"
+        fi
+        
+        if [[ $? -eq 0 ]] && command -v gtd-task &>/dev/null; then
+          gtd-task move "$task_id" "$project_slug"
+          gtd_action_success "created and assigned" "project" "$new_project_name"
+          
+          # Suggest area for the new project
+          echo ""
+          echo -e "${CYAN}💡${NC} Would you like to assign this project to an area? (y/N): "
+          read assign_area
+          if [[ "$assign_area" =~ ^[Yy]$ ]]; then
+            suggest_area_for_project "$project_slug" "$new_project_name" "$project_outcome"
+          fi
+        fi
+      fi
+    fi
+  elif [[ "$project_choice" =~ ^[0-9]+$ ]] && [[ $project_choice -ge 1 && $project_choice -le $((${#projects[@]})) ]]; then
+    local project_idx=$((project_choice - 1))
+    local selected_project="${projects[$project_idx]}"
+    local display_project=$(echo "$selected_project" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+    if command -v gtd-task &>/dev/null; then
+      gtd-task move "$task_id" "$selected_project" >/dev/null 2>&1
+      gtd_action_success "assigned" "task" "to project '$display_project'"
+    fi
+  else
+    echo "Invalid choice."
+  fi
+  
+  echo ""
+        gtd_quick_pause
+}
+
+# Suggest and assign using AI
+suggest_and_assign() {
+  local task_id="$1"
+  local task_file="$2"
+  
+  echo ""
+  echo "🤔 Analyzing task with AI..."
+  echo ""
+  
+  local suggested_project=$(suggest_project_for_task "$task_file")
+  
+  if [[ -z "$suggested_project" || "$suggested_project" == "none" ]]; then
+    echo "AI couldn't find a good project match. Would you like to assign manually?"
+    echo -n "(y/N): "
+    read assign_manually
+    if [[ "$assign_manually" =~ ^[Yy]$ ]]; then
+      assign_task_to_project "$task_id"
+    fi
+    return 0
+  fi
+  
+  # Show suggestion
+  local display_name=$(echo "$suggested_project" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+  echo "💡 Suggested project: $display_name"
+  echo ""
+  echo "Would you like to:"
+  echo "  1) Assign to this project"
+  echo "  2) Choose a different project"
+  echo "  3) Skip"
+  echo ""
+  echo -n "Choose (1-3): "
+  read choice
+  
+  case "$choice" in
+    1)
+      if command -v gtd-task &>/dev/null; then
+        gtd-task move "$task_id" "$suggested_project" >/dev/null 2>&1
+        echo "✓ Assigned to project: $display_name"
+      fi
+      ;;
+    2)
+      assign_task_to_project "$task_id"
+      ;;
+    3)
+      echo "Skipped."
+      ;;
+    *)
+      echo "Invalid choice."
+      ;;
+  esac
+  
+  echo ""
+        gtd_quick_pause
+}
+
+# Complete a task
+complete_task() {
+  local task_id="$1"
+  
+  if command -v gtd-task &>/dev/null; then
+    # Get task name for success message
+    local task_file="${TASKS_PATH}/${task_id}.md"
+    local task_name=""
+    if [[ -f "$task_file" ]]; then
+      task_name=$(head -20 "$task_file" | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+      task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)(=[^[:space:]]*)?[[:space:]]*/ /g' | sed 's/[[:space:]]\{2,\}/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    fi
+    
+    gtd-task complete "$task_id" >/dev/null 2>&1
+    if [[ -n "$task_name" ]]; then
+      gtd_action_success "completed" "task" "$task_name"
+    else
+      gtd_feedback success "Task completed"
+    fi
+  else
+    gtd_feedback error "gtd-task command not found"
+  fi
+  
+  echo ""
+  gtd_quick_pause
+}
+
+# Clean up completed tasks
+cleanup_completed_tasks() {
+  echo ""
+  echo "This will help you review and clean up tasks that might already be completed."
+  echo ""
+  echo "Note: This reviews active tasks - if you've completed something but forgot"
+  echo "to mark it done, you can mark it here."
+  echo ""
+        gtd_quick_pause
+  
+  # Get all active tasks
+  local tasks=()
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" ]] && continue
+      local status=$(get_frontmatter_value "$task_file" "status")
+      if [[ "$status" == "active" ]]; then
+        tasks+=("$task_file")
+      fi
+    done < <(find "$TASKS_PATH" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  # Filter out any tasks that don't exist
+  local valid_tasks=()
+  for t in "${tasks[@]}"; do
+    if [[ -f "$t" ]] && [[ -r "$t" ]]; then
+      valid_tasks+=("$t")
+    fi
+  done
+  tasks=("${valid_tasks[@]}")
+  
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    gtd_empty_state "active tasks" "No active tasks found in tasks directory"
+    gtd_quick_pause
+    return 0
+  fi
+  
+  local current_idx=0
+  local total_tasks=${#tasks[@]}
+  while [[ $current_idx -lt $total_tasks ]]; do
+    # Validate task still exists
+    local task_file="${tasks[$current_idx]}"
+    if [[ ! -f "$task_file" ]] || [[ ! -r "$task_file" ]]; then
+      # File was deleted, remove from array
+      local new_tasks=()
+      for t in "${tasks[@]}"; do
+        if [[ "$t" != "$task_file" ]] && [[ -f "$t" ]] && [[ -r "$t" ]]; then
+          new_tasks+=("$t")
+        fi
+      done
+      tasks=("${new_tasks[@]}")
+      total_tasks=${#tasks[@]}
+      
+      if [[ $total_tasks -eq 0 ]]; then
+        clear
+        gtd_feedback success "All tasks have been processed!"
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      continue
+    fi
+    
+    clear
+    gtd_print_header "Clean Up Tasks ($((current_idx + 1))/${total_tasks})" "🧹"
+    echo ""
+    
+    local task_id=$(basename "$task_file" .md)
+    local task_name=""
+    if [[ -f "$task_file" ]]; then
+      task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+      # Remove any flags that might be embedded in the title
+      task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)(=[^[:space:]]*)?[[:space:]]*/ /g' | sed 's/[[:space:]]\{2,\}/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    else
+      task_name="$task_id"
+    fi
+    local context=$(get_frontmatter_value "$task_file" "context")
+    local project=$(get_frontmatter_value "$task_file" "project")
+    
+    echo "Task: $task_name"
+    echo "ID: $task_id"
+    if [[ -n "$project" ]]; then
+      echo "Project: $project"
+    fi
+    echo ""
+    echo -e "${BOLD}Content:${NC}"
+    if [[ -f "$task_file" ]]; then
+      head -15 "$task_file" 2>/dev/null | tail -10 | sed 's/^/  /'
+    else
+      echo "  (Task file not found)"
+    fi
+    echo ""
+    gtd_section_divider "$CYAN"
+    echo ""
+    echo "Is this task already completed?"
+    echo ""
+    gtd_format_list_item "1" "Yes, mark as completed"
+    gtd_format_list_item "2" "No, keep active"
+    gtd_format_list_item "3" "Skip (next task)"
+    gtd_format_list_item "4" "Back to menu"
+    echo ""
+    echo -n "Choose (1-4): "
+    read action
+    
+    case "$action" in
+      1)
+        complete_task "$task_id"
+        # Remove from array
+        local new_tasks=()
+        for t in "${tasks[@]}"; do
+          if [[ "$t" != "$task_file" ]]; then
+            new_tasks+=("$t")
+          fi
+        done
+        tasks=("${new_tasks[@]}")
+        total_tasks=${#tasks[@]}
+        
+        # Check if we're done
+        if [[ $total_tasks -eq 0 ]]; then
+          clear
+          gtd_feedback success "All tasks have been processed!"
+          echo ""
+          gtd_quick_pause
+          return 0
+        fi
+        continue
+        ;;
+      2)
+        ((current_idx++))
+        continue
+        ;;
+      3)
+        ((current_idx++))
+        continue
+        ;;
+      4)
+        return 0
+        ;;
+      *)
+        gtd_feedback error "Invalid choice"
+        gtd_quick_pause
+        ;;
+    esac
+  done
+  
+  # Final check
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    clear
+    gtd_feedback success "All tasks have been processed!"
+  else
+    echo ""
+    gtd_feedback success "Finished reviewing tasks!"
+  fi
+  echo ""
+  gtd_quick_pause
+}
+
+# Check for completed background analysis results
+check_background_results() {
+  local results_dir="$GTD_BASE_DIR/task_organization_results"
+  [[ ! -d "$results_dir" ]] && return 1
+  
+  # Check for project suggestion results
+  local project_results=$(find "$results_dir" -name "project_suggestions_*.json" -type f 2>/dev/null | head -1)
+  [[ -n "$project_results" ]] && return 0
+  
+  return 1
+}
+
+# Review saved analysis results
+review_saved_results() {
+  local results_dir="$GTD_BASE_DIR/task_organization_results"
+  
+  if [[ ! -d "$results_dir" ]]; then
+    echo ""
+    echo "No results directory found."
+    echo ""
+    gtd_quick_pause
+    return 0
+  fi
+  
+  # Find project suggestion results
+  local project_results=()
+  while IFS= read -r result_file; do
+    project_results+=("$result_file")
+  done < <(find "$results_dir" -name "project_suggestions_*.json" -type f 2>/dev/null | sort -r)
+  
+  if [[ ${#project_results[@]} -eq 0 ]]; then
+    echo ""
+    echo "No saved results found."
+    echo ""
+    gtd_quick_pause
+    return 0
+  fi
+  
+  clear
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "💡 Saved Project Suggestion Results"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Found ${#project_results[@]} result file(s):"
+  echo ""
+  
+  # Show most recent result
+  local result_file="${project_results[0]}"
+  local python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+  
+  # Parse and display results
+  local groups_json=$(cat "$result_file")
+  local group_count=$("$python_cmd" -c "
+import json
+import sys
+data = json.loads('''$groups_json''')
+print(len(data.get('groups', [])))
+" 2>/dev/null)
+  
+  if [[ "$group_count" -eq 0 ]]; then
+    echo "No project suggestions in this result."
+    echo ""
+    gtd_quick_pause
+    return 0
+  fi
+  
+  echo "Found $group_count project suggestion(s):"
+  echo ""
+  
+  # Display groups
+  "$python_cmd" -c "
+import json
+data = json.loads('''$groups_json''')
+groups = data.get('groups', [])
+
+for i, group in enumerate(groups, 1):
+    print(f\"Group {i}:\")
+    print(f\"  Theme: {group.get('theme', 'N/A')}\")
+    print(f\"  Suggested Project: {group.get('suggested_project_name', 'N/A')}\")
+    if group.get('suggested_outcome'):
+        print(f\"  Outcome: {group.get('suggested_outcome', '')}\")
+    if group.get('project_exists'):
+        print(f\"  ⚠️  Project already exists\")
+    print(f\"  Tasks ({len(group.get('task_ids', []))}):\")
+    for task_name in group.get('task_names', [])[:5]:
+        print(f\"    - {task_name}\")
+    if len(group.get('task_names', [])) > 5:
+        print(f\"    ... and {len(group.get('task_names', [])) - 5} more\")
+    print()
+" 2>/dev/null
+  
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) Create these projects"
+  echo "  2) Delete this result and go back"
+  echo "  3) Go back (keep result)"
+  echo ""
+  echo -n "Choose (1-3): "
+  read choice
+  
+  case "$choice" in
+    1)
+      # TODO: Implement project creation from results
+      echo ""
+      echo "Project creation from results not yet implemented."
+      echo "For now, manually create projects using gtd-project."
+      echo ""
+      gtd_quick_pause
+      ;;
+    2)
+      rm -f "$result_file"
+      echo ""
+      echo "✓ Result deleted"
+      echo ""
+      gtd_quick_pause
+      ;;
+    3)
+      # Just go back
+      ;;
+  esac
+}
+
+# Suggest new projects from related tasks
+suggest_projects_from_tasks() {
+  echo ""
+  echo "This will analyze all unassigned tasks and group related ones together."
+  echo "For groups that don't match existing projects, it will suggest creating new projects."
+  echo ""
+  echo "💡 This will run in the background - you'll be notified when complete!"
+  echo ""
+        gtd_quick_pause
+  
+  # Get all unassigned tasks
+  local tasks=()
+  while IFS= read -r -d '' task; do
+    tasks+=("$task")
+  done < <(get_tasks_without_projects)
+  
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    echo ""
+    echo "✓ All tasks are assigned to projects!"
+    echo ""
+    gtd_quick_pause
+    return 0
+  fi
+  
+  echo ""
+  echo "Queuing analysis of ${#tasks[@]} unassigned tasks..."
+  echo ""
+  
+  # Get Python command
+  local python_cmd=""
+  if declare -f gtd_get_mcp_python &>/dev/null; then
+    python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+  else
+    local mcp_dir="$HOME/code/dotfiles/mcp"
+    if [[ ! -d "$mcp_dir" ]]; then
+      mcp_dir="$HOME/code/personal/dotfiles/mcp"
+    fi
+    local venv_python="${mcp_dir}/venv/bin/python3"
+    if [[ -f "$venv_python" ]]; then
+      python_cmd="$venv_python"
+    else
+      python_cmd="python3"
+    fi
+  fi
+  
+  # Collect task IDs
+  local task_ids=()
+  for task_file in "${tasks[@]}"; do
+    local task_id=$(basename "$task_file" .md)
+    task_ids+=("$task_id")
+  done
+  
+  # Queue the analysis job
+  local queue_result=$("$python_cmd" -c "
+import sys
+import json
+sys.path.insert(0, '$(dirname "$0")/../mcp')
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import queue_project_suggestions
+
+task_ids = $(printf '%s\n' "${task_ids[@]}" | "$python_cmd" -c "import sys, json; print(json.dumps([line.strip() for line in sys.stdin if line.strip()]))")
+status = queue_project_suggestions(task_ids)
+print(status)
+" 2>&1)
+  
+  if [[ "$queue_result" =~ "queued_to_rabbitmq" || "$queue_result" =~ "queued_to_file" ]]; then
+    echo "✅ Analysis queued! Processing ${#task_ids[@]} tasks in the background."
+    echo ""
+    echo "You'll see results in the wizard when complete, or run:"
+    echo "  gtd-task-organize"
+    echo ""
+    echo "And select 'Review project suggestion results'"
+    echo ""
+  else
+    echo "⚠️  Failed to queue analysis: $queue_result"
+    echo ""
+  fi
+  
+        gtd_quick_pause
+  return 0
+}
+
+# Bulk organize tasks with AI suggestions (background version)
+bulk_organize_tasks_background() {
+  local tasks=()
+  while IFS= read -r -d '' task; do
+    tasks+=("$task")
+  done < <(get_tasks_without_projects)
+  
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    return 0
+  fi
+  
+  # Create results file
+  local results_file="${GTD_BASE_DIR}/.bulk_organize_results_$(date +%Y%m%d%H%M%S).json"
+  local status_file="${GTD_BASE_DIR}/.bulk_organize_status_$(date +%Y%m%d%H%M%S).txt"
+  
+  # Write initial status
+  echo "Starting analysis of ${#tasks[@]} tasks..." > "$status_file"
+  echo "0" >> "$status_file"  # Progress counter
+  
+  # Collect suggestions in background
+  local suggestions=()
+  local idx=0
+  for task_file in "${tasks[@]}"; do
+    ((idx++))
+    local task_id=$(basename "$task_file" .md)
+    local task_name=$(head -20 "$task_file" | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+    # Remove any flags that might be embedded in the title
+    task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)(=[^[:space:]]*)?[[:space:]]*/ /g' | sed 's/[[:space:]]\{2,\}/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    
+    # Update status
+    echo "[$idx/${#tasks[@]}] Analyzing: $task_name" > "$status_file"
+    echo "$idx" >> "$status_file"
+    
+    local suggested_project=$(suggest_project_for_task "$task_file")
+    
+    if [[ -n "$suggested_project" && "$suggested_project" != "none" ]]; then
+      suggestions+=("$task_id|$task_name|$suggested_project")
+    else
+      suggestions+=("$task_id|$task_name|none")
+    fi
+  done
+  
+  # Save results to JSON file
+  {
+    echo "{"
+    echo "  \"total_tasks\": ${#tasks[@]},"
+    echo "  \"analyzed_at\": \"$(date -Iseconds)\","
+    echo "  \"suggestions\": ["
+    local first=true
+    for suggestion in "${suggestions[@]}"; do
+      if [[ "$first" == "true" ]]; then
+        first=false
+      else
+        echo ","
+      fi
+      IFS='|' read -r task_id task_name suggested_project <<< "$suggestion"
+      echo "    {"
+      echo "      \"task_id\": \"$task_id\","
+      echo "      \"task_name\": $(echo "$task_name" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read().strip()))"),"
+      echo "      \"suggested_project\": \"$suggested_project\""
+      echo -n "    }"
+    done
+    echo ""
+    echo "  ]"
+    echo "}"
+  } > "$results_file"
+  
+  # Mark as complete
+  echo "✓ Analysis complete! Results saved." > "$status_file"
+  echo "${#tasks[@]}" >> "$status_file"
+  
+  # Send notification if available
+  if command -v gtd-notify &>/dev/null; then
+    gtd-notify "Task Organizer" "Analysis complete: ${#tasks[@]} tasks analyzed" "Ready for review" "Glass" 2>/dev/null || true
+  fi
+  
+  echo "$results_file"
+}
+
+# Bulk organize tasks with AI suggestions
+bulk_organize_tasks() {
+  echo ""
+  echo "This will analyze all unassigned tasks and suggest projects for them."
+  echo "You can then review and accept/reject suggestions in bulk."
+  echo ""
+  echo "Options:"
+  echo "  1) Queue via RabbitMQ/worker (recommended for many tasks)"
+  echo "  2) Run in background (legacy, direct processing)"
+  echo "  3) Run now (blocks until complete)"
+  echo ""
+  echo -n "Choose (1-3): "
+  read run_mode
+  
+  local tasks=()
+  while IFS= read -r -d '' task; do
+    tasks+=("$task")
+  done < <(get_tasks_without_projects)
+  
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    echo ""
+    echo "✓ All tasks are assigned to projects!"
+    echo ""
+    gtd_quick_pause
+    return 0
+  fi
+  
+  # Extract task IDs
+  local task_ids=()
+  for task_file in "${tasks[@]}"; do
+    local task_id=$(basename "$task_file" .md)
+    task_ids+=("$task_id")
+  done
+  
+  if [[ "$run_mode" == "1" ]]; then
+    # Queue via RabbitMQ/worker
+    echo ""
+    echo "🚀 Queueing ${#tasks[@]} tasks for background processing..."
+    echo ""
+    
+    # Get Python command
+    local python_cmd=""
+    if declare -f gtd_get_mcp_python &>/dev/null; then
+      python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+    else
+      local mcp_dir="$HOME/code/dotfiles/mcp"
+      if [[ ! -d "$mcp_dir" ]]; then
+        mcp_dir="$HOME/code/personal/dotfiles/mcp"
+      fi
+      local venv_python="${mcp_dir}/venv/bin/python3"
+      if [[ -f "$venv_python" ]]; then
+        python_cmd="$venv_python"
+      else
+        python_cmd="python3"
+      fi
+    fi
+    
+    # Queue the job
+    # First, create a temp file with task IDs as JSON
+    local temp_task_ids=$(mktemp)
+    printf '%s\n' "${task_ids[@]}" | "$python_cmd" -c "import sys, json; print(json.dumps([line.strip() for line in sys.stdin if line.strip()]))" > "$temp_task_ids"
+    
+    local queue_result=$("$python_cmd" -c "
+import sys
+import json
+from pathlib import Path
+
+sys.path.insert(0, str(Path.home() / 'code' / 'dotfiles' / 'mcp'))
+try:
+    from gtd_mcp_server import queue_task_organization
+    
+    with open('$temp_task_ids', 'r') as f:
+        task_ids = json.load(f)
+    
+    result = queue_task_organization(task_ids, force_reanalyze=False)
+    print(result)
+except Exception as e:
+    print(f'error: {e}')
+" 2>/dev/null)
+    
+    rm -f "$temp_task_ids" 2>/dev/null || true
+    
+    if [[ "$queue_result" == "queued_to_rabbitmq" ]]; then
+      echo "✓ Tasks queued to RabbitMQ. Worker will process them in the background."
+      echo ""
+      echo "You can check status via:"
+      echo "  • gtd-wizard → System status → Background Worker Status"
+      echo "  • tail -f \${GTD_BASE_DIR}/.bulk_organize_status_*.txt"
+      echo ""
+      echo "Results will be saved when complete."
+    elif [[ "$queue_result" == "queued_to_file" ]]; then
+      echo "✓ Tasks queued to file. Worker will process them when running."
+      echo ""
+      echo "To start the worker:"
+      echo "  cd ~/code/dotfiles/mcp"
+      echo "  python3 gtd_task_organize_worker.py file"
+      echo ""
+      echo "Or check if worker is already running:"
+      echo "  pgrep -f gtd_task_organize_worker.py"
+    else
+      echo "⚠️  Queueing failed: $queue_result"
+      echo "Falling back to direct processing..."
+      run_mode="2"  # Fall back to background mode
+    fi
+    
+    if [[ "$run_mode" != "1" ]]; then
+      # Fall through to background processing
+      :
+    else
+      echo ""
+      gtd_quick_pause
+      return 0
+    fi
+  fi
+  
+  if [[ "$run_mode" == "2" ]]; then
+    # Run in background
+    echo ""
+    echo "🚀 Starting background analysis of ${#tasks[@]} tasks..."
+    echo ""
+    
+    # Create unique file names
+    local timestamp=$(date +%Y%m%d%H%M%S)
+    local results_file="${GTD_BASE_DIR}/.bulk_organize_results_${timestamp}.txt"
+    local status_file="${GTD_BASE_DIR}/.bulk_organize_status_${timestamp}.txt"
+    local log_file="${GTD_BASE_DIR}/.bulk_organize_${timestamp}.log"
+    
+    # Start background process with nohup
+    (
+      # Write initial status (ensure no blank lines)
+      {
+        echo "Starting analysis of ${#tasks[@]} tasks..."
+        echo "0"
+      } > "$status_file"
+      
+      local suggestions=()
+      local idx=0
+      for task_file in "${tasks[@]}"; do
+        ((idx++))
+        local task_id=$(basename "$task_file" .md)
+        local task_name=$(head -20 "$task_file" | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+        
+        # Clean task name (remove flags and their values, newlines and extra whitespace)
+        # Remove any flags that might be embedded in the title (handles both --flag=value and --flag value formats)
+        # First pass: remove --flag=value format
+        task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)=[^[:space:]]*[[:space:]]*/ /g')
+        # Second pass: remove --flag value format (flag followed by space and value)
+        task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)[[:space:]]+[^[:space:]]*[[:space:]]*/ /g')
+        task_name=$(echo "$task_name" | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/[[:space:]]\{2,\}/ /g' | head -c 100)
+        
+        # Update status (write atomically to avoid blank lines)
+        {
+          echo "[$idx/${#tasks[@]}] Analyzing: $task_name"
+          echo "$idx"
+        } > "$status_file"
+        
+        # Capture output from suggest_project_for_task
+        # Note: stderr may contain "TIMEOUT" message, stdout contains the result
+        # Ensure stderr is not redirected so timer can display
+        local suggested_project=""
+        local timeout_occurred=false
+        
+        # Capture stdout only, let stderr (timer) display to terminal
+        # We'll detect timeout by checking if result is empty or "TIMEOUT"
+        local output=$(suggest_project_for_task "$task_file" 2>/dev/tty)
+        
+        # Check stderr for timeout message (redirected to stdout in our capture)
+        if echo "$output" | grep -q "TIMEOUT"; then
+          timeout_occurred=true
+          # Update status to show timeout
+          {
+            echo "[$idx/${#tasks[@]}] ⏱️  Timeout: $task_name (skipped, continuing...)"
+            echo "$idx"
+          } > "$status_file"
+        else
+          # Extract the actual suggestion (first non-empty line)
+          suggested_project=$(echo "$output" | grep -v '^[[:space:]]*$' | grep -v "TIMEOUT" | head -1 | tr -d '\n\r')
+        fi
+        
+        if [[ "$timeout_occurred" == "true" ]]; then
+          suggestions+=("$task_id|$task_name|timeout")
+        elif [[ -n "$suggested_project" && "$suggested_project" != "none" ]]; then
+          suggestions+=("$task_id|$task_name|$suggested_project")
+        else
+          suggestions+=("$task_id|$task_name|none")
+        fi
+      done
+      
+      # Save results as simple text file (pipe-delimited)
+      {
+        echo "TOTAL:${#tasks[@]}"
+        for suggestion in "${suggestions[@]}"; do
+          echo "$suggestion"
+        done
+      } > "$results_file"
+      
+      # Mark as complete (write atomically)
+      {
+        echo "✓ Analysis complete! ${#tasks[@]} tasks analyzed."
+        echo "${#tasks[@]}"
+      } > "$status_file"
+      
+      # Send notification
+      if command -v gtd-notify &>/dev/null; then
+        gtd-notify "Task Organizer" "Analysis complete: ${#tasks[@]} tasks analyzed" "Ready for review" "Glass" 2>/dev/null || true
+      fi
+    ) > "$log_file" 2>&1 &
+    
+    local bg_pid=$!
+    echo "✓ Background task started (PID: $bg_pid)"
+    echo ""
+    echo "Results file: $results_file"
+    echo "Status file: $status_file"
+    echo "Log file: $log_file"
+    echo ""
+    echo "You can:"
+    echo "  • Check progress: tail -f $status_file"
+    echo "  • View logs: tail -f $log_file"
+    echo "  • You'll be notified when complete"
+    echo ""
+    gtd_quick_pause
+    return 0
+  else
+    # Run synchronously (original behavior)
+    echo ""
+    echo "Analyzing ${#tasks[@]} tasks..."
+    echo ""
+    
+    # Collect suggestions
+    local suggestions=()
+    local idx=0
+    for task_file in "${tasks[@]}"; do
+      ((idx++))
+      local task_id=$(basename "$task_file" .md)
+      local task_name=$(head -20 "$task_file" | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+      # Remove any flags that might be embedded in the title
+      task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)(=[^[:space:]]*)?[[:space:]]*/ /g' | sed 's/[[:space:]]\{2,\}/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      
+      echo "[$idx/${#tasks[@]}] Analyzing: $task_name"
+      # Call function without redirecting stderr so timer can display
+      # Capture stdout only, let stderr (timer) display to terminal
+      local suggested_project=$(suggest_project_for_task "$task_file" 2>/dev/tty)
+      
+      if [[ -n "$suggested_project" && "$suggested_project" != "none" ]]; then
+        suggestions+=("$task_id|$task_name|$suggested_project")
+      else
+        suggestions+=("$task_id|$task_name|none")
+      fi
+    done
+    
+    echo ""
+    echo "✓ Analysis complete!"
+    echo ""
+    echo "Press Enter to review suggestions..."
+    read
+  fi
+  
+  # Load suggestions from results file if background mode was used
+  local suggestions=()
+  if [[ -n "$results_file" && -f "$results_file" ]]; then
+    # Load from JSON file
+    while IFS= read -r line; do
+      if [[ "$line" =~ \"task_id\":\ \"([^\"]+)\" ]]; then
+        local task_id="${BASH_REMATCH[1]}"
+        # This is simplified - in practice you'd parse the full JSON
+        # For now, we'll use a simpler approach
+      fi
+    done < "$results_file"
+    
+    # Re-analyze to get suggestions array (or parse JSON properly)
+    # For simplicity, let's just re-run the analysis if we need to review
+    echo ""
+    echo "Loading results from background analysis..."
+    # Parse JSON and rebuild suggestions array
+    local task_count=0
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" ]] && continue
+      local task_id=$(basename "$task_file" .md)
+      local task_name=$(head -20 "$task_file" | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+      
+      # Extract suggestion from JSON (simplified - would use jq or python in production)
+      local suggested_project=$(grep -A 3 "\"task_id\": \"$task_id\"" "$results_file" 2>/dev/null | grep "\"suggested_project\"" | sed 's/.*"suggested_project": "\([^"]*\)".*/\1/')
+      if [[ -z "$suggested_project" ]]; then
+        suggested_project="none"
+      fi
+      
+      suggestions+=("$task_id|$task_name|$suggested_project")
+    done < <(get_tasks_without_projects)
+  fi
+  
+  # Review suggestions using shared function
+  review_suggestions_from_array suggestions
+}
+
+# Main
+main() {
+  case "${1:-}" in
+    --help|-h)
+      echo "Usage: gtd-task-organize"
+      echo ""
+      echo "Interactive tool to organize your task backlog:"
+      echo "  - Review tasks without projects"
+      echo "  - Clean up completed tasks"
+      echo "  - Bulk organize with AI suggestions"
+      echo ""
+      exit 0
+      ;;
+    "")
+      # No arguments - launch interactive menu
+      organize_menu
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Run 'gtd-task-organize --help' for usage"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+

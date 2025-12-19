@@ -1,0 +1,37 @@
+#!/bin/bash
+# GTD Second Brain Sync Worker Wrapper
+# Starts the background worker for processing second brain sync jobs
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Default to file queue, but allow override
+QUEUE_TYPE="${1:-file}"
+
+# Get Python path
+MCP_PYTHON=$(command -v python3)
+if [[ -z "$MCP_PYTHON" ]]; then
+    echo "Error: python3 not found" >&2
+    exit 1
+fi
+
+# Worker script path
+WORKER_SCRIPT="$DOTFILES_DIR/mcp/gtd_second_brain_sync_worker.py"
+
+if [[ ! -f "$WORKER_SCRIPT" ]]; then
+    echo "Error: Worker script not found: $WORKER_SCRIPT" >&2
+    exit 1
+fi
+
+# Log file
+LOG_FILE="/tmp/second-brain-sync-worker.log"
+
+# Start worker
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Second Brain Sync Worker" >> "$LOG_FILE"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Queue type: $QUEUE_TYPE" >> "$LOG_FILE"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Queue: gtd_second_brain_sync" >> "$LOG_FILE"
+
+# Run worker
+exec "$MCP_PYTHON" "$WORKER_SCRIPT" --queue-type="$QUEUE_TYPE" >> "$LOG_FILE" 2>&1
+

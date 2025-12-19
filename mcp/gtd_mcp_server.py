@@ -1026,6 +1026,50 @@ def find_task_file_by_id(task_id: str) -> Optional[Path]:
     return None
 
 
+def get_task_analysis_cache() -> Dict[str, Dict[str, Any]]:
+    """Load task analysis cache from disk."""
+    cache_file = GTD_BASE_DIR / ".task_analysis_cache.json"
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def save_task_analysis_cache(cache: Dict[str, Dict[str, Any]]) -> None:
+    """Save task analysis cache to disk."""
+    cache_file = GTD_BASE_DIR / ".task_analysis_cache.json"
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump(cache, f, indent=2)
+    except IOError:
+        pass  # Silently fail if we can't write cache
+
+
+def get_cached_task_analysis(task_id: str) -> Optional[str]:
+    """Get cached project suggestion for a task, if available and still valid."""
+    cache = get_task_analysis_cache()
+    if task_id in cache:
+        entry = cache[task_id]
+        # Check if cache is still valid (not older than 30 days)
+        cached_time = datetime.fromisoformat(entry.get("timestamp", "2000-01-01T00:00:00"))
+        if (datetime.now() - cached_time).days < 30:
+            return entry.get("suggested_project")
+    return None
+
+
+def cache_task_analysis(task_id: str, suggested_project: str) -> None:
+    """Cache a task analysis result."""
+    cache = get_task_analysis_cache()
+    cache[task_id] = {
+        "suggested_project": suggested_project,
+        "timestamp": datetime.now().isoformat()
+    }
+    save_task_analysis_cache(cache)
+
+
 def queue_deep_analysis(analysis_type: str, context: Dict[str, Any]) -> str:
     """Queue a deep analysis task for background processing.
     
@@ -1059,6 +1103,268 @@ def queue_deep_analysis(analysis_type: str, context: Dict[str, Any]) -> str:
             channel.basic_publish(
                 exchange='',
                 routing_key=RABBITMQ_QUEUE,
+                body=json.dumps(message),
+                properties=pika.BasicProperties(
+                    delivery_mode=2,  # Make message persistent
+                )
+            )
+            connection.close()
+            return "queued_to_rabbitmq"
+        except (pika.exceptions.AMQPConnectionError, 
+                pika.exceptions.AMQPChannelError,
+                ConnectionRefusedError,
+                TimeoutError,
+                OSError) as e:
+            # RabbitMQ not available, fall back to file queue
+            # Uncomment for debugging: print(f"RabbitMQ connection error: {e}")
+            pass
+        except Exception as e:
+            # Other RabbitMQ errors, fall back to file queue
+            # Uncomment for debugging: print(f"RabbitMQ error: {e}")
+            pass
+    except ImportError:
+        # pika not installed, use file queue
+        pass
+    
+    # Fallback to file queue (always available)
+    try:
+        with open(queue_file, 'a') as f:
+            f.write(json.dumps(message) + '\n')
+        return "queued_to_file"
+    except Exception as e:
+        # Even file queue failed - this is a real problem
+        return f"queue_failed: {e}"
+
+
+def queue_task_organization(task_ids: List[str], force_reanalyze: bool = False) -> str:
+    """Queue task organization jobs for background processing.
+    
+    Args:
+        task_ids: List of task IDs to analyze
+        force_reanalyze: If True, ignore cache and re-analyze all tasks
+    
+    Returns:
+        Status string: "queued_to_rabbitmq", "queued_to_file", or error message
+    """
+    message = {
+        "type": "task_organization",
+        "task_ids": task_ids,
+        "force_reanalyze": force_reanalyze,
+        "timestamp": datetime.now().isoformat(),
+    }
+    
+    # Ensure file queue directory exists (always available as fallback)
+    queue_file = GTD_BASE_DIR / "task_organization_queue.jsonl"
+    GTD_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Try RabbitMQ first if pika is available
+    try:
+        import pika
+        # Try to connect with a short timeout to avoid hanging
+        try:
+            # Set connection parameters with timeout (pika 1.3.2 compatible)
+            params = pika.URLParameters(RABBITMQ_URL)
+            params.blocked_connection_timeout = 5  # 5 second timeout
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
+            task_org_queue = os.getenv("GTD_RABBITMQ_TASK_ORG_QUEUE", "gtd_task_organization")
+            channel.queue_declare(queue=task_org_queue, durable=True)
+            
+            channel.basic_publish(
+                exchange='',
+                routing_key=task_org_queue,
+                body=json.dumps(message),
+                properties=pika.BasicProperties(
+                    delivery_mode=2,  # Make message persistent
+                )
+            )
+            connection.close()
+            return "queued_to_rabbitmq"
+        except (pika.exceptions.AMQPConnectionError, 
+                pika.exceptions.AMQPChannelError,
+                ConnectionRefusedError,
+                TimeoutError,
+                OSError) as e:
+            # RabbitMQ not available, fall back to file queue
+            pass
+        except Exception as e:
+            # Other RabbitMQ errors, fall back to file queue
+            pass
+    except ImportError:
+        # pika not installed, use file queue
+        pass
+    
+    # Fallback to file queue (always available)
+    try:
+        with open(queue_file, 'a') as f:
+            f.write(json.dumps(message) + '\n')
+        return "queued_to_file"
+    except Exception as e:
+        # Even file queue failed - this is a real problem
+        return f"queue_failed: {e}"
+
+
+def queue_project_suggestions(task_ids: List[str]) -> str:
+    """Queue a project suggestion request for background processing.
+    
+    Analyzes unassigned tasks and groups them to suggest new projects.
+    
+    Args:
+        task_ids: List of unassigned task IDs to analyze
+    
+    Returns:
+        Status string: "queued_to_rabbitmq", "queued_to_file", or error message
+    """
+    message = {
+        "request_type": "suggest_projects",
+        "task_ids": task_ids,
+        "timestamp": datetime.now().isoformat(),
+    }
+    
+    # Ensure file queue directory exists (always available as fallback)
+    queue_file = GTD_BASE_DIR / "task_organization_queue.jsonl"
+    GTD_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Try RabbitMQ first if pika is available
+    try:
+        import pika
+        try:
+            params = pika.URLParameters(RABBITMQ_URL)
+            params.blocked_connection_timeout = 5
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
+            task_org_queue = os.getenv("GTD_RABBITMQ_TASK_ORG_QUEUE", "gtd_task_organization")
+            channel.queue_declare(queue=task_org_queue, durable=True)
+            
+            channel.basic_publish(
+                exchange='',
+                routing_key=task_org_queue,
+                body=json.dumps(message),
+                properties=pika.BasicProperties(
+                    delivery_mode=2,  # Make message persistent
+                )
+            )
+            connection.close()
+            return "queued_to_rabbitmq"
+        except (pika.exceptions.AMQPConnectionError, 
+                pika.exceptions.AMQPChannelError,
+                ConnectionRefusedError,
+                TimeoutError,
+                OSError):
+            pass
+        except Exception:
+            pass
+    except ImportError:
+        pass
+    
+    # Fallback to file queue
+    try:
+        with open(queue_file, 'a') as f:
+            f.write(json.dumps(message) + '\n')
+        return "queued_to_file"
+    except Exception as e:
+        return f"queue_failed: {e}"
+
+
+def queue_knowledge_organization(scan_type: str = "full") -> str:
+    """Queue a knowledge organization scan for background processing.
+    
+    Analyzes projects, notes, and daily logs to suggest MoCs and Areas.
+    
+    Args:
+        scan_type: Type of scan - "full", "areas", "mocs", or "themes"
+    
+    Returns:
+        Status string: "queued_to_rabbitmq", "queued_to_file", or error message
+    """
+    message = {
+        "scan_type": scan_type,
+        "timestamp": datetime.now().isoformat(),
+    }
+    
+    # Ensure file queue directory exists
+    queue_file = GTD_BASE_DIR / "knowledge_organization_queue.jsonl"
+    GTD_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Try RabbitMQ first if pika is available
+    try:
+        import pika
+        try:
+            params = pika.URLParameters(RABBITMQ_URL)
+            params.blocked_connection_timeout = 5
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
+            knowledge_org_queue = os.getenv("GTD_RABBITMQ_KNOWLEDGE_ORG_QUEUE", "gtd_knowledge_organization")
+            channel.queue_declare(queue=knowledge_org_queue, durable=True)
+            
+            channel.basic_publish(
+                exchange='',
+                routing_key=knowledge_org_queue,
+                body=json.dumps(message),
+                properties=pika.BasicProperties(
+                    delivery_mode=2,  # Make message persistent
+                )
+            )
+            connection.close()
+            return "queued_to_rabbitmq"
+        except (pika.exceptions.AMQPConnectionError, 
+                pika.exceptions.AMQPChannelError,
+                ConnectionRefusedError,
+                TimeoutError,
+                OSError):
+            pass
+        except Exception:
+            pass
+    except ImportError:
+        pass
+    
+    # Fallback to file queue
+    try:
+        with open(queue_file, 'a') as f:
+            f.write(json.dumps(message) + '\n')
+        return "queued_to_file"
+    except Exception as e:
+        return f"queue_failed: {e}"
+
+
+def queue_second_brain_sync(sync_type: str = "full", context: Optional[Dict[str, Any]] = None) -> str:
+    """Queue a second brain sync job for background processing.
+    
+    Args:
+        sync_type: Type of sync ("full", "projects", "areas", "references", "daily-logs")
+        context: Optional context dictionary
+    
+    Returns:
+        Status string: "queued_to_rabbitmq", "queued_to_file", or error message
+    """
+    message = {
+        "sync_type": sync_type,
+        "context": context or {},
+        "timestamp": datetime.now().isoformat(),
+    }
+    
+    # Ensure file queue directory exists (always available as fallback)
+    queue_file = GTD_BASE_DIR / "second_brain_sync_queue.jsonl"
+    GTD_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # RabbitMQ queue name
+    RABBITMQ_SYNC_QUEUE = os.getenv("GTD_RABBITMQ_SECOND_BRAIN_SYNC_QUEUE", "gtd_second_brain_sync")
+    
+    # Try RabbitMQ first if pika is available
+    try:
+        import pika
+        # Try to connect with a short timeout to avoid hanging
+        try:
+            # Set connection parameters with timeout (pika 1.3.2 compatible)
+            params = pika.URLParameters(RABBITMQ_URL)
+            params.blocked_connection_timeout = 5  # 5 second timeout
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
+            channel.queue_declare(queue=RABBITMQ_SYNC_QUEUE, durable=True)
+            
+            channel.basic_publish(
+                exchange='',
+                routing_key=RABBITMQ_SYNC_QUEUE,
                 body=json.dumps(message),
                 properties=pika.BasicProperties(
                     delivery_mode=2,  # Make message persistent
@@ -1897,8 +2203,10 @@ Only suggest tasks that are clearly actionable. If no tasks are found, return an
                 suggestion_id = save_smart_suggestion(suggestion)
                 
                 # Auto-create if confidence is very high
+                # The resolver will help assign tasks to appropriate projects before creating
                 if mode == "immediate" and should_auto_create(confidence):
-                    success, message = create_task_from_suggestion(suggestion)
+                    # Use AI to help resolve project assignment before auto-creating
+                    success, message = create_task_from_suggestion(suggestion, ask_for_project=True)
                     if success:
                         auto_created.append({
                             "id": suggestion_id,

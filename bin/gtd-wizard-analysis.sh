@@ -42,8 +42,7 @@ search_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 status_wizard() {
@@ -178,277 +177,328 @@ status_wizard() {
       echo -e "${CYAN}Note:${NC} Check Cursor MCP status indicator for server connection"
       ;;
     3)
-      clear
-      echo ""
-      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo -e "${BOLD}${CYAN}⚙️  Background Worker Status${NC}"
-      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo ""
-      
-      # Check local workers
-      echo -e "${BOLD}Local Workers:${NC}"
-      echo ""
-      
-      # Deep Analysis Worker
-      echo -e "${CYAN}Deep Analysis Worker:${NC}"
-      if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
-        pid=$(pgrep -f "gtd_deep_analysis_worker.py" | head -1)
-        echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
-        DEEP_WORKER_RUNNING=true
-      else
-        echo -e "  ${CYAN}ℹ️  Not running${NC}"
-        DEEP_WORKER_RUNNING=false
-      fi
-      echo ""
-      
-      # Vectorization Worker
-      echo -e "${CYAN}Vectorization Worker:${NC}"
-      if pgrep -f "gtd_vector_worker.py" >/dev/null; then
-        pid=$(pgrep -f "gtd_vector_worker.py" | head -1)
-        echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
-        VECTOR_WORKER_RUNNING=true
-      else
-        echo -e "  ${CYAN}ℹ️  Not running${NC}"
-        VECTOR_WORKER_RUNNING=false
-      fi
-      echo ""
-      
-      # Advice Worker
-      echo -e "${CYAN}Advice Worker:${NC}"
-      if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
-        if pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
-          pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1)
+      # Background Worker Status - loop until user selects "0" to go back
+      while true; do
+        clear
+        echo ""
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${CYAN}⚙️  Background Worker Status${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        
+        # Check local workers
+        echo -e "${BOLD}Local Workers:${NC}"
+        echo ""
+        
+        # Deep Analysis Worker
+        echo -e "${CYAN}Deep Analysis Worker:${NC}"
+        if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_deep_analysis_worker.py" | head -1)
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+          DEEP_WORKER_RUNNING=true
         else
-          pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+          DEEP_WORKER_RUNNING=false
         fi
-        echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
-        ADVICE_WORKER_RUNNING=true
-      else
-        echo -e "  ${CYAN}ℹ️  Not running${NC}"
-        ADVICE_WORKER_RUNNING=false
-      fi
-      echo ""
-      
-      # Show RabbitMQ Queue Status inline
-      echo -e "${BOLD}RabbitMQ Queue Status:${NC}"
-      # Check NodePort first (preferred), then fallback to port-forward
-      RABBITMQ_AVAILABLE=false
-      if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
-        RABBITMQ_AVAILABLE=true
-        RABBITMQ_METHOD="NodePort"
-      elif nc -zv localhost 5672 &>/dev/null 2>&1; then
-        RABBITMQ_AVAILABLE=true
-        RABBITMQ_METHOD="port-forward"
-      fi
-      
-      if [[ "$RABBITMQ_AVAILABLE" == "true" ]]; then
-        if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
-          # Call status script and show key info
-          QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
-          if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
-            # Extract queue info
-            echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
-            echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
-            echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6
+        echo ""
+        
+        # Vectorization Worker
+        echo -e "${CYAN}Vectorization Worker:${NC}"
+        if pgrep -f "gtd_vector_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_vector_worker.py" | head -1)
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+          VECTOR_WORKER_RUNNING=true
+        else
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+          VECTOR_WORKER_RUNNING=false
+        fi
+        echo ""
+        
+        # Advice Worker
+        echo -e "${CYAN}Advice Worker:${NC}"
+        if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
+          if pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
+            pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1)
           else
-            echo "  ⚠️  Connection issue - check RabbitMQ connection"
+            pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
           fi
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+          ADVICE_WORKER_RUNNING=true
         else
-          echo -e "  ${CYAN}ℹ️  Status script not available${NC}"
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+          ADVICE_WORKER_RUNNING=false
         fi
-      else
-        echo -e "  ${YELLOW}⚠️  RabbitMQ not accessible${NC}"
         echo ""
-        echo "  RabbitMQ should be accessible via:"
-        echo "    - NodePort: 192.168.64.2:30672 (preferred, no port-forward needed)"
-        echo "    - Port-forward: localhost:5672 (legacy)"
+        
+        # Task Organization Worker
+        echo -e "${CYAN}Task Organization Worker:${NC}"
+        if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_task_organize_worker.py" | head -1)
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+          TASK_ORG_WORKER_RUNNING=true
+        else
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+          TASK_ORG_WORKER_RUNNING=false
+        fi
         echo ""
-        echo "  Check connection info:"
-        echo "    cd ~/code/external_services/rabbitmq && make connection-info"
+        
+        # Second Brain Sync Worker
+        echo -e "${CYAN}Second Brain Sync Worker:${NC}"
+        if pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_second_brain_sync_worker.py" | head -1)
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+          BRAIN_SYNC_WORKER_RUNNING=true
+        else
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+          BRAIN_SYNC_WORKER_RUNNING=false
+        fi
         echo ""
-        echo "  Note: Port-forward is no longer required with NodePort setup"
-        if [[ -f "$HOME/code/dotfiles/bin/setup-port-forward" ]]; then
-          # Run setup-port-forward and capture output and exit code separately
-          # Use a temp file to capture full output while still showing progress
-          TEMP_OUTPUT=$(mktemp)
-          "$HOME/code/dotfiles/bin/setup-port-forward" 5672 > "$TEMP_OUTPUT" 2>&1
-          SETUP_EXIT_CODE=$?
-          
-          # Show output (limit to 20 lines for display)
-          head -20 "$TEMP_OUTPUT"
-          echo ""
-          
-          # Check exit code - if script reports success, trust it (it does comprehensive verification)
-          if [[ "$SETUP_EXIT_CODE" -eq 0 ]]; then
-            # Setup script already verified port-forward is working, so trust it
-            echo -e "${GREEN}✅ Port-forward successfully established${NC}"
-            # Show queue status if available
-            if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
-              sleep 1  # Brief pause for port-forward to be fully ready
-              QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
-              if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
-                echo ""
-                echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
-                echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
-                echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6
-              else
-                echo ""
-                echo -e "${CYAN}Note:${NC} Port-forward is active. RabbitMQ connection will be ready shortly."
-              fi
+        
+        # Show RabbitMQ Queue Status inline
+        echo -e "${BOLD}RabbitMQ Queue Status:${NC}"
+        # Check NodePort first (preferred), then fallback to port-forward
+        RABBITMQ_AVAILABLE=false
+        if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
+          RABBITMQ_AVAILABLE=true
+          RABBITMQ_METHOD="NodePort"
+        elif nc -zv localhost 5672 &>/dev/null 2>&1; then
+          RABBITMQ_AVAILABLE=true
+          RABBITMQ_METHOD="port-forward"
+        fi
+        
+        if [[ "$RABBITMQ_AVAILABLE" == "true" ]]; then
+          if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+            # Call status script and show key info
+            QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
+            if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
+              # Extract queue info
+              echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
+              echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
+              echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6
+              echo "$QUEUE_STATUS" | grep -A 5 "Task Organization Queue:" | head -6
+            else
+              echo "  ⚠️  Connection issue - check RabbitMQ connection"
             fi
           else
-            echo -e "${YELLOW}⚠️  Automatic port-forward setup failed (exit code: $SETUP_EXIT_CODE)${NC}"
-            echo "  Start manually: gtd-wizard → 9) Setup RabbitMQ → 2) Start Port-Forward"
-            echo ""
-            echo "  Last 20 lines of output:"
-            tail -20 "$TEMP_OUTPUT"
+            echo -e "  ${CYAN}ℹ️  Status script not available${NC}"
           fi
-          
-          rm -f "$TEMP_OUTPUT"
         else
-          echo "  Port-forward setup script not found"
-          echo "  Start manually: gtd-wizard → 9) Setup RabbitMQ → 2) Start Port-Forward"
+          echo -e "  ${YELLOW}⚠️  RabbitMQ not accessible${NC}"
+          echo ""
+          echo "  RabbitMQ should be accessible via:"
+          echo "    - NodePort: 192.168.64.2:30672 (preferred, no port-forward needed)"
+          echo "    - Port-forward: localhost:5672 (legacy)"
+          echo ""
+          echo "  Check connection info:"
+          echo "    cd ~/code/external_services/rabbitmq && make connection-info"
+          echo ""
+          echo "  Note: Port-forward is no longer required with NodePort setup"
+          if [[ -f "$HOME/code/dotfiles/bin/setup-port-forward" ]]; then
+            # Run setup-port-forward and capture output and exit code separately
+            # Use a temp file to capture full output while still showing progress
+            TEMP_OUTPUT=$(mktemp)
+            "$HOME/code/dotfiles/bin/setup-port-forward" 5672 > "$TEMP_OUTPUT" 2>&1
+            SETUP_EXIT_CODE=$?
+            
+            # Show output (limit to 20 lines for display)
+            head -20 "$TEMP_OUTPUT"
+            echo ""
+            
+            # Check exit code - if script reports success, trust it (it does comprehensive verification)
+            if [[ "$SETUP_EXIT_CODE" -eq 0 ]]; then
+              # Setup script already verified port-forward is working, so trust it
+              echo -e "${GREEN}✅ Port-forward successfully established${NC}"
+              # Show queue status if available
+              if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+                sleep 1  # Brief pause for port-forward to be fully ready
+                QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
+                if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
+                  echo ""
+                  echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
+                  echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
+                  echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6
+                else
+                  echo ""
+                  echo -e "${CYAN}Note:${NC} Port-forward is active. RabbitMQ connection will be ready shortly."
+                fi
+              fi
+            else
+              echo -e "${YELLOW}⚠️  Automatic port-forward setup failed (exit code: $SETUP_EXIT_CODE)${NC}"
+              echo "  Start manually: gtd-wizard → 9) Setup RabbitMQ → 2) Start Port-Forward"
+              echo ""
+              echo "  Last 20 lines of output:"
+              tail -20 "$TEMP_OUTPUT"
+            fi
+            
+            rm -f "$TEMP_OUTPUT"
+          else
+            echo "  Port-forward setup script not found"
+            echo "  Start manually: gtd-wizard → 9) Setup RabbitMQ → 2) Start Port-Forward"
+          fi
         fi
-      fi
-      echo ""
-      
-      echo "What would you like to do?"
-      echo "  1) Manage Deep Analysis Worker"
-      echo "  2) Manage Vectorization Worker"
-      echo "  3) Manage Advice Worker"
-      echo "  4) Start All Workers"
-      echo "  5) Stop All Workers"
-      echo "  6) View RabbitMQ Queue Status"
-      echo "  7) Restart All Workers (Reconnect to RabbitMQ)"
-      echo "  8) 📦 Migrate File Queue to RabbitMQ"
-      echo "  0) Back"
-      echo ""
-      echo -n "Choose: "
-      read worker_action
-      case "$worker_action" in
-        1)
-          # Manage Deep Analysis Worker
-          manage_worker "gtd_deep_analysis_worker.py" "Deep Analysis"
-          ;;
-        2)
-          # Manage Vectorization Worker
-          manage_worker "gtd_vector_worker.py" "Vectorization"
-          ;;
-        3)
-          # Manage Advice Worker
-          manage_advice_worker
-          ;;
-        4)
-          # Start all workers
-          echo ""
-          echo "Starting all workers..."
-          make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
-          make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
-          make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
-          echo ""
-          echo "Press Enter to continue..."
-          read
-          ;;
-        5)
-          # Stop all workers
-          echo ""
-          echo "Stopping all workers..."
-          make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
-          make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
-          make -C "$HOME/code/dotfiles" advice-worker-stop 2>/dev/null || true
-          echo ""
-          echo "Press Enter to continue..."
-          read
-          ;;
-        6)
-          # View RabbitMQ Queue Status
-          echo ""
-          # Check NodePort first (preferred), then fallback to port-forward
-          RABBITMQ_AVAILABLE=false
-          if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
-            RABBITMQ_AVAILABLE=true
-            echo -e "${GREEN}✓ RabbitMQ NodePort accessible (192.168.64.2:30672)${NC}"
-          elif nc -zv localhost 5672 &>/dev/null 2>&1; then
-            RABBITMQ_AVAILABLE=true
-            echo -e "${GREEN}✓ RabbitMQ port-forward accessible (localhost:5672)${NC}"
-          else
-            echo -e "${YELLOW}⚠️  RabbitMQ not accessible${NC}"
+        echo ""
+        
+        echo "What would you like to do?"
+        echo "  1) Manage Deep Analysis Worker"
+        echo "  2) Manage Vectorization Worker"
+        echo "  3) Manage Advice Worker"
+        echo "  4) Manage Task Organization Worker"
+        echo "  5) Manage Second Brain Sync Worker"
+        echo "  6) Start All Workers"
+        echo "  7) Stop All Workers"
+        echo "  8) View RabbitMQ Queue Status"
+        echo "  9) Restart All Workers (Reconnect to RabbitMQ)"
+        echo " 10) 📦 Migrate File Queue to RabbitMQ"
+        echo "  0) Back"
+        echo ""
+        echo -n "Choose: "
+        read worker_action
+        case "$worker_action" in
+          1)
+            # Manage Deep Analysis Worker
+            manage_worker "gtd_deep_analysis_worker.py" "Deep Analysis"
+            ;;
+          2)
+            # Manage Vectorization Worker
+            manage_worker "gtd_vector_worker.py" "Vectorization"
+            ;;
+          3)
+            # Manage Advice Worker
+            manage_advice_worker
+            ;;
+          4)
+            # Manage Task Organization Worker
+            manage_task_org_worker
+            ;;
+          5)
+            # Manage Second Brain Sync Worker
+            manage_worker "gtd_second_brain_sync_worker.py" "Second Brain Sync"
+            ;;
+          6)
+            # Start all workers
             echo ""
-            echo "  RabbitMQ should be accessible via:"
-            echo "    - NodePort: 192.168.64.2:30672 (preferred, no port-forward needed)"
-            echo "    - Port-forward: localhost:5672 (legacy)"
+            echo "Starting all workers..."
+            make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
             echo ""
-            echo "  Check connection info:"
-            echo "    cd ~/code/external_services/rabbitmq && make connection-info"
+            gtd_quick_pause
+            ;;
+          7)
+            # Stop all workers
             echo ""
-            echo "  Note: Port-forward is no longer required with NodePort setup"
-            echo ""
-            echo "Press Enter to continue..."
-            read
-            return 0
-          fi
-          
-          # Now try to get queue status
-          if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
-            "$HOME/code/dotfiles/bin/gtd-rabbitmq-status"
-          else
-            echo -e "${YELLOW}⚠️  RabbitMQ status script not found${NC}"
-          fi
-          echo ""
-          echo "Press Enter to continue..."
-          read
-          ;;
-        6)
-          # Restart all workers to reconnect to RabbitMQ
-          echo ""
-          echo -e "${CYAN}Restarting workers to connect to RabbitMQ...${NC}"
-          echo ""
-          
-          # Stop workers
-          if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
-            echo "Stopping Deep Analysis Worker..."
+            echo "Stopping all workers..."
             make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
-          fi
-          if pgrep -f "gtd_vector_worker.py" >/dev/null; then
-            echo "Stopping Vectorization Worker..."
             make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
-          fi
-          
-          sleep 2
-          
-          # Start workers
-          echo ""
-          echo "Starting workers..."
-          make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
-          make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
-          
-          echo ""
-          echo -e "${GREEN}✓ Workers restarted${NC}"
-          echo ""
-          echo "Wait a few seconds, then check connection:"
-          echo "  make rabbitmq-status"
-          echo ""
-          echo "Press Enter to continue..."
-          read
-          ;;
-        7)
-          # Migrate file queue to RabbitMQ
-          echo ""
-          if [[ -f "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
-            "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq"
-          elif [[ -f "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
-            "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq"
-          else
-            echo -e "${RED}❌ Migration script not found${NC}"
-          fi
-          echo ""
-          echo "Press Enter to continue..."
-          read
-          ;;
-        0)
-          return 0
-          ;;
-      esac
+            make -C "$HOME/code/dotfiles" advice-worker-stop 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-task-org-stop 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-brain-sync-stop 2>/dev/null || true
+            echo ""
+            gtd_quick_pause
+            ;;
+          8)
+            # View RabbitMQ Queue Status
+            echo ""
+            # Check NodePort first (preferred), then fallback to port-forward
+            RABBITMQ_AVAILABLE=false
+            if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
+              RABBITMQ_AVAILABLE=true
+              echo -e "${GREEN}✓ RabbitMQ NodePort accessible (192.168.64.2:30672)${NC}"
+            elif nc -zv localhost 5672 &>/dev/null 2>&1; then
+              RABBITMQ_AVAILABLE=true
+              echo -e "${GREEN}✓ RabbitMQ port-forward accessible (localhost:5672)${NC}"
+            else
+              echo -e "${YELLOW}⚠️  RabbitMQ not accessible${NC}"
+              echo ""
+              echo "  RabbitMQ should be accessible via:"
+              echo "    - NodePort: 192.168.64.2:30672 (preferred, no port-forward needed)"
+              echo "    - Port-forward: localhost:5672 (legacy)"
+              echo ""
+              echo "  Check connection info:"
+              echo "    cd ~/code/external_services/rabbitmq && make connection-info"
+              echo ""
+              echo "  Note: Port-forward is no longer required with NodePort setup"
+              echo ""
+              gtd_quick_pause
+              continue
+            fi
+            
+            # Now try to get queue status
+            if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-rabbitmq-status"
+            else
+              echo -e "${YELLOW}⚠️  RabbitMQ status script not found${NC}"
+            fi
+            echo ""
+            gtd_quick_pause
+            ;;
+          9)
+            # Restart all workers to reconnect to RabbitMQ
+            echo ""
+            echo -e "${CYAN}Restarting workers to connect to RabbitMQ...${NC}"
+            echo ""
+            
+            # Stop workers
+            if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+              echo "Stopping Deep Analysis Worker..."
+              make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_vector_worker.py" >/dev/null; then
+              echo "Stopping Vectorization Worker..."
+              make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+              echo "Stopping Task Organization Worker..."
+              make -C "$HOME/code/dotfiles" worker-task-org-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then
+              echo "Stopping Second Brain Sync Worker..."
+              make -C "$HOME/code/dotfiles" worker-brain-sync-stop 2>/dev/null || true
+            fi
+            
+            sleep 2
+            
+            # Start workers
+            echo ""
+            echo "Starting workers..."
+            make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
+            
+            echo ""
+            echo -e "${GREEN}✓ Workers restarted${NC}"
+            echo ""
+            echo "Wait a few seconds, then check connection:"
+            echo "  make rabbitmq-status"
+            echo ""
+            gtd_quick_pause
+            ;;
+          10)
+            # Migrate file queue to RabbitMQ
+            echo ""
+            if [[ -f "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
+              "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq"
+            elif [[ -f "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
+              "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq"
+            else
+              echo -e "${RED}❌ Migration script not found${NC}"
+            fi
+            echo ""
+            gtd_quick_pause
+            ;;
+          0)
+            break
+            ;;
+          *)
+            echo "Invalid choice"
+            echo ""
+            gtd_quick_pause
+            ;;
+        esac
+      done
       ;;
     4)
       clear
@@ -480,8 +530,7 @@ status_wizard() {
         echo -e "${BOLD}Active Tasks:${NC} ${tasks_count}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     5)
       clear
@@ -504,8 +553,7 @@ status_wizard() {
         echo "Location checked: $DEPLOY_SCRIPT"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     6)
       clear
@@ -521,8 +569,7 @@ status_wizard() {
         echo "kubectl is required to view pod logs."
         echo "Install kubectl or ensure it's in your PATH."
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -535,8 +582,7 @@ status_wizard() {
         echo "  2. You have access to the cluster"
         echo "  3. KUBECONFIG is set (if needed)"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -544,8 +590,7 @@ status_wizard() {
       echo ""
       kubectl logs --tail=50 -l app=gtd-deep-analysis-worker 2>/dev/null || echo "  No deep analysis worker logs found"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     7)
       clear
@@ -577,8 +622,7 @@ status_wizard() {
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     8)
       clear
@@ -612,9 +656,8 @@ status_wizard() {
           else
             echo "❌ gtd-vector-db-status command not found"
           fi
-          echo ""
-          echo "Press Enter to continue..."
-          read
+      echo ""
+      gtd_quick_pause
           ;;
         2)
           echo ""
@@ -631,9 +674,8 @@ status_wizard() {
           else
             echo "❌ gtd-vector-db-status command not found"
           fi
-          echo ""
-          echo "Press Enter to continue..."
-          read
+      echo ""
+      gtd_quick_pause
           ;;
         3)
           echo ""
@@ -659,9 +701,8 @@ status_wizard() {
               echo "❌ gtd-vector-db-status command not found"
             fi
           fi
-          echo ""
-          echo "Press Enter to continue..."
-          read
+      echo ""
+      gtd_quick_pause
           ;;
         4)
           echo ""
@@ -689,9 +730,8 @@ status_wizard() {
           else
             echo "❌ gtd-vector-db-status command not found"
           fi
-          echo ""
-          echo "Press Enter to continue..."
-          read
+      echo ""
+      gtd_quick_pause
           ;;
         5)
           echo ""
@@ -724,18 +764,16 @@ status_wizard() {
             echo ""
             echo "💡 To watch logs in real-time: tail -f $VECTOR_FILEWATCHER_LOG"
           fi
-          echo ""
-          echo "Press Enter to continue..."
-          read
+      echo ""
+      gtd_quick_pause
           ;;
         0)
           return 0
           ;;
         *)
           echo "Invalid choice"
-          echo ""
-          echo "Press Enter to continue..."
-          read
+      echo ""
+      gtd_quick_pause
           ;;
       esac
       ;;
@@ -745,14 +783,130 @@ status_wizard() {
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
+}
+
+manage_task_org_worker() {
+  local pid
+  local worker_action
+  
+  if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+    pid=$(pgrep -f "gtd_task_organize_worker.py" | head -1)
+    echo ""
+    echo -e "${BOLD}Task Organization Worker${NC}"
+    echo -e "  Status: ${GREEN}✅ Running (PID: $pid)${NC}"
+    echo ""
+    echo "Options:"
+    echo "  1) Stop worker"
+    echo "  2) Restart worker"
+    echo "  3) View worker logs"
+    echo "  0) Back"
+    echo ""
+    echo -n "Choose: "
+    read worker_action
+    
+    case "$worker_action" in
+      1)
+        echo ""
+        echo "Stopping Task Organization worker..."
+        make -C "$HOME/code/dotfiles" worker-task-org-stop 2>/dev/null || kill "$pid" 2>/dev/null
+        sleep 1
+        if ! pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+          echo -e "${GREEN}✅ Worker stopped${NC}"
+        else
+          echo -e "${YELLOW}⚠️  Worker still running, trying force kill...${NC}"
+          kill -9 "$pid" 2>/dev/null
+          sleep 1
+          if ! pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+            echo -e "${GREEN}✅ Worker stopped${NC}"
+          else
+            echo -e "${RED}❌ Could not stop worker${NC}"
+          fi
+        fi
+        echo ""
+        gtd_quick_pause
+        ;;
+      2)
+        echo ""
+        echo "Restarting Task Organization worker..."
+        make -C "$HOME/code/dotfiles" worker-task-org-stop 2>/dev/null || kill "$pid" 2>/dev/null
+        sleep 2
+        if ! pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+          echo -e "${GREEN}✓ Worker stopped, restarting...${NC}"
+          make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null
+          sleep 1
+          if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+            echo -e "${GREEN}✅ Worker restarted${NC}"
+          else
+            echo -e "${RED}❌ Worker failed to start${NC}"
+          fi
+        else
+          echo -e "${RED}❌ Could not stop worker for restart${NC}"
+        fi
+        echo ""
+        gtd_quick_pause
+        ;;
+      3)
+        echo ""
+        echo -e "${BOLD}Task Organization Worker Logs${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        if [[ -f /tmp/task-org-worker.log ]]; then
+          tail -50 /tmp/task-org-worker.log
+        else
+          echo "No logs found at /tmp/task-org-worker.log"
+        fi
+        echo ""
+        gtd_quick_pause
+        ;;
+      0)
+        return
+        ;;
+      *)
+        echo "Invalid option"
+        sleep 1
+        ;;
+    esac
+  else
+    echo ""
+    echo -e "${BOLD}Task Organization Worker${NC}"
+    echo -e "  Status: ${CYAN}ℹ️  Not running${NC}"
+    echo ""
+    echo "Options:"
+    echo "  1) Start worker"
+    echo "  0) Back"
+    echo ""
+    echo -n "Choose: "
+    read worker_action
+    
+    case "$worker_action" in
+      1)
+        echo ""
+        echo "Starting Task Organization worker..."
+        make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null
+        sleep 1
+        if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+          echo -e "${GREEN}✅ Worker started${NC}"
+        else
+          echo -e "${RED}❌ Worker failed to start${NC}"
+        fi
+        echo ""
+        gtd_quick_pause
+        ;;
+      0)
+        return
+        ;;
+      *)
+        echo "Invalid option"
+        sleep 1
+        ;;
+    esac
+  fi
 }
 
 manage_advice_worker() {
@@ -798,8 +952,7 @@ manage_advice_worker() {
           fi
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       2)
         echo ""
@@ -818,8 +971,7 @@ manage_advice_worker() {
           echo -e "${YELLOW}⚠️  Worker still running${NC}"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       3)
         # View worker logs
@@ -854,9 +1006,8 @@ manage_advice_worker() {
               1)
                 echo ""
                 tail -50 "$LOG_FILE"
-                echo ""
-                echo "Press Enter to continue..."
-                read
+      echo ""
+      gtd_quick_pause
                 ;;
               2)
                 echo ""
@@ -866,24 +1017,21 @@ manage_advice_worker() {
               3)
                 echo ""
                 cat "$LOG_FILE"
-                echo ""
-                echo "Press Enter to continue..."
-                read
+      echo ""
+      gtd_quick_pause
                 ;;
             esac
           else
             echo -e "${YELLOW}⚠️  Log file is empty${NC}"
             echo "The worker may have just started or logs are being written elsewhere."
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
           fi
         else
           echo -e "${YELLOW}⚠️  Log file not found: $LOG_FILE${NC}"
           echo "The worker may have been started in a different terminal or log location."
-          echo ""
-          echo "Press Enter to continue..."
-          read
+      echo ""
+      gtd_quick_pause
         fi
         ;;
       0)
@@ -912,8 +1060,7 @@ manage_advice_worker() {
         echo "   Logs: tail -f /tmp/advice-worker.log"
       }
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
     elif [[ "$worker_action" == "2" ]]; then
       echo "Starting advice worker in foreground (Ctrl+C to stop)..."
       gtd-advice-worker daemon
@@ -937,6 +1084,11 @@ start_worker() {
     WORKER_CMD="gtd-vector-worker"
     QUEUE_FILE="$HOME/Documents/gtd/vectorization_queue.jsonl"
     RESULTS_DIR=""  # Vector worker doesn't have results dir
+  elif [[ "$worker_script" == "gtd_second_brain_sync_worker.py" ]]; then
+    WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_second_brain_sync_worker.py"
+    WORKER_CMD="gtd-second-brain-sync-worker"
+    QUEUE_FILE="$HOME/Documents/gtd/second_brain_sync_queue.jsonl"
+    RESULTS_DIR="$HOME/Documents/gtd/second_brain_sync_results"
   else
     echo -e "${RED}❌ Unknown worker script: $worker_script${NC}"
     return 1
@@ -1122,8 +1274,7 @@ goal_tracking_wizard() {
       if [[ -z "$goal_name" ]]; then
         echo "❌ Goal name required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         goal_tracking_wizard
         return 0
       fi
@@ -1264,8 +1415,7 @@ goal_tracking_wizard() {
         echo "❌ gtd-goal command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       goal_tracking_wizard
       ;;
     2)
@@ -1275,8 +1425,7 @@ goal_tracking_wizard() {
       if [[ -z "$goal_name" ]]; then
         echo "❌ Goal name required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -1285,8 +1434,7 @@ goal_tracking_wizard() {
       if [[ -z "$progress" ]]; then
         echo "❌ Progress required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -1332,8 +1480,7 @@ goal_tracking_wizard() {
       if [[ -z "$goal_name" ]]; then
         echo "❌ Goal name required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         goal_tracking_wizard
         return 0
       fi
@@ -1408,8 +1555,7 @@ except:
         echo "❌ Goal not found: $goal_name"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       goal_tracking_wizard
       ;;
     6)
@@ -1423,8 +1569,7 @@ except:
       if [[ -z "$goal_name" ]]; then
         echo "❌ Goal name required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         goal_tracking_wizard
         return 0
       fi
@@ -1507,8 +1652,7 @@ except:
       fi
       
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       goal_tracking_wizard
       ;;
     7)
@@ -1518,8 +1662,7 @@ except:
       if [[ -z "$goal_name" ]]; then
         echo "❌ Goal name required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -1577,8 +1720,7 @@ except:
           
           if [[ -z "$nl_command" ]]; then
             echo "❌ No command provided"
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
             return 0
           fi
           
@@ -1597,8 +1739,7 @@ except:
         echo "No goals found."
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       return 0
@@ -1609,8 +1750,7 @@ except:
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 energy_audit_wizard() {
@@ -1641,8 +1781,7 @@ energy_audit_wizard() {
       if [[ -z "$activity" ]]; then
         echo "❌ Activity required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -1668,8 +1807,7 @@ energy_audit_wizard() {
       if [[ -z "$activity" ]]; then
         echo "❌ Activity required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -1721,8 +1859,7 @@ energy_audit_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 log_stats_wizard() {
@@ -1742,8 +1879,7 @@ log_stats_wizard() {
     echo "❌ gtd-log-stats command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 metric_correlations_wizard() {
@@ -1764,8 +1900,7 @@ metric_correlations_wizard() {
     echo "❌ gtd-metric-correlations command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 pattern_recognition_wizard() {
@@ -1786,8 +1921,7 @@ pattern_recognition_wizard() {
     echo "❌ gtd-pattern-recognition command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 weekly_progress_wizard() {
@@ -1807,8 +1941,7 @@ weekly_progress_wizard() {
     echo "❌ gtd-weekly-progress command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 success_metrics_wizard() {
@@ -1832,8 +1965,7 @@ success_metrics_wizard() {
   fi
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 brain_metrics_wizard() {
@@ -1853,8 +1985,7 @@ brain_metrics_wizard() {
     echo "❌ gtd-brain-metrics command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 energy_schedule_wizard() {
@@ -1875,8 +2006,7 @@ energy_schedule_wizard() {
     echo "❌ gtd-energy-schedule command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 now_wizard() {
@@ -1896,8 +2026,7 @@ now_wizard() {
     echo "❌ gtd-now command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 find_wizard() {
@@ -1911,9 +2040,8 @@ find_wizard() {
   read search_term
   if [[ -z "$search_term" ]]; then
     echo "❌ No search term provided"
-    echo ""
-    echo "Press Enter to continue..."
-    read
+      echo ""
+      gtd_quick_pause
     return 1
   fi
   
@@ -1927,8 +2055,7 @@ find_wizard() {
     echo "❌ gtd-find command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 milestone_wizard() {
@@ -2012,8 +2139,7 @@ milestone_wizard() {
   fi
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 manage_worker() {
@@ -2056,8 +2182,7 @@ manage_worker() {
           fi
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       2)
         echo ""
@@ -2076,8 +2201,7 @@ manage_worker() {
           echo -e "${YELLOW}⚠️  Worker still running${NC}"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       3)
         # View worker logs
@@ -2119,9 +2243,8 @@ manage_worker() {
               1)
                 echo ""
                 tail -50 "$LOG_FILE"
-                echo ""
-                echo "Press Enter to continue..."
-                read
+      echo ""
+      gtd_quick_pause
                 ;;
               2)
                 echo ""
@@ -2139,14 +2262,12 @@ manage_worker() {
           else
             echo "Log file is empty"
             echo ""
-            echo "Press Enter to continue..."
-            read
+            gtd_quick_pause
           fi
         else
           echo "Log file not found: $LOG_FILE"
-          echo ""
-          echo "Press Enter to continue..."
-          read
+      echo ""
+      gtd_quick_pause
         fi
         ;;
       0|"")
@@ -2155,8 +2276,7 @@ manage_worker() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
     esac
   else
@@ -2188,8 +2308,7 @@ manage_worker() {
           echo -e "${YELLOW}⚠️  Worker may not have started. Check logs.${NC}"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       0|"")
         return 0
@@ -2197,8 +2316,7 @@ manage_worker() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
     esac
   fi

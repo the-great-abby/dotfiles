@@ -188,6 +188,236 @@ gtd_print_warning() {
 }
 
 # ============================================================================
+# Polished UX Helpers
+# ============================================================================
+
+# Smart "press enter" with optional timeout and auto-continue
+# Usage: gtd_pause [timeout_seconds] [message]
+#   - If timeout_seconds is 0 or not provided, waits for user input
+#   - If timeout_seconds > 0, auto-continues after that time
+#   - User can press Enter early to continue immediately
+gtd_pause() {
+  local timeout="${1:-0}"
+  local message="${2:-Press Enter to continue...}"
+  
+  if [[ "$timeout" == "0" ]]; then
+    # Traditional pause - wait for user
+    echo -e "${GRAY}${message}${NC}"
+    read -r
+  else
+    # Auto-continue after timeout, but allow early exit
+    echo -e "${GRAY}${message} (auto-continue in ${timeout}s)${NC}"
+    read -r -t "$timeout" || true
+  fi
+}
+
+# Quick pause for non-critical operations (2 second auto-continue)
+gtd_quick_pause() {
+  gtd_pause 2 "Press Enter to continue..."
+}
+
+# Silent pause - no message, just wait briefly for visual processing
+gtd_silent_pause() {
+  local timeout="${1:-1}"
+  read -r -t "$timeout" 2>/dev/null || true
+}
+
+# Print a clean section divider
+gtd_section_divider() {
+  local color="${1:-$CYAN}"
+  echo -e "${color}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# Print a compact status line
+gtd_status_line() {
+  local icon="$1"
+  local label="$2"
+  local value="$3"
+  local color="${4:-$CYAN}"
+  echo -e "  ${color}${icon}${NC} ${BOLD}${label}:${NC} ${value}"
+}
+
+# Print a compact menu item
+gtd_menu_item() {
+  local number="$1"
+  local icon="$2"
+  local description="$3"
+  echo -e "${GREEN}${number})${NC} ${icon} ${description}"
+}
+
+# Clear screen and show header (polished version)
+gtd_clear_and_header() {
+  clear
+  local title="$1"
+  local icon="${2:-}"
+  gtd_print_header "$title" "$icon"
+}
+
+# Print compact success/error/info with consistent formatting
+gtd_feedback() {
+  local type="$1"  # success, error, info, warning
+  local message="$2"
+  
+  case "$type" in
+    success)
+      echo -e "${GREEN}✓${NC} ${message}"
+      ;;
+    error)
+      echo -e "${RED}✗${NC} ${message}" >&2
+      ;;
+    info)
+      echo -e "${CYAN}ℹ${NC} ${message}"
+      ;;
+    warning)
+      echo -e "${YELLOW}⚠${NC} ${message}"
+      ;;
+    *)
+      echo "$message"
+      ;;
+  esac
+}
+
+# ============================================================================
+# Performance Optimization - Caching
+# ============================================================================
+
+# Get cache file path for dashboard counts
+gtd_get_cache_file() {
+  local cache_dir="${GTD_CACHE_DIR:-/tmp/gtd_cache}"
+  mkdir -p "$cache_dir" 2>/dev/null
+  echo "${cache_dir}/dashboard_counts"
+}
+
+# Get cached count or compute and cache it
+# Usage: gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md"
+gtd_get_cached_count() {
+  local cache_key="$1"
+  local path="$2"
+  local pattern="${3:-*.md}"
+  local cache_age="${4:-5}"  # Cache for 5 seconds by default
+  
+  local cache_file=$(gtd_get_cache_file)
+  local cache_time=$(stat -f "%m" "$cache_file" 2>/dev/null || echo "0")
+  local current_time=$(date +%s)
+  local age=$((current_time - cache_time))
+  
+  # If cache is fresh, use it
+  if [[ -f "$cache_file" ]] && [[ $age -lt $cache_age ]]; then
+    # Try to get cached value
+    local cached_value=$(grep "^${cache_key}=" "$cache_file" 2>/dev/null | cut -d'=' -f2)
+    if [[ -n "$cached_value" ]]; then
+      echo "$cached_value"
+      return 0
+    fi
+  fi
+  
+  # Compute count
+  local count=0
+  if [[ -d "$path" ]]; then
+    if [[ "$pattern" == "*.md" ]]; then
+      # Simple file count
+      count=$(ls -1 "${path}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+    elif [[ "$pattern" == "projects" ]]; then
+      # Project count (README.md in subdirectories) - special case
+      count=$(ls -1 "${path}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+    else
+      # Use find for complex patterns
+      count=$(find "$path" -name "$pattern" -type f 2>/dev/null | wc -l | tr -d ' ')
+    fi
+  fi
+  
+  # Update cache
+  if [[ -f "$cache_file" ]]; then
+    # Update existing entry or add new one
+    if grep -q "^${cache_key}=" "$cache_file" 2>/dev/null; then
+      if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "s/^${cache_key}=.*/${cache_key}=${count}/" "$cache_file"
+      else
+        sed -i "s/^${cache_key}=.*/${cache_key}=${count}/" "$cache_file"
+      fi
+    else
+      echo "${cache_key}=${count}" >> "$cache_file"
+    fi
+  else
+    echo "${cache_key}=${count}" > "$cache_file"
+  fi
+  
+  echo "$count"
+}
+
+# Invalidate dashboard cache (call after operations that change counts)
+gtd_invalidate_cache() {
+  local cache_file=$(gtd_get_cache_file)
+  rm -f "$cache_file" 2>/dev/null
+}
+
+# ============================================================================
+# Additional Polish Helpers
+# ============================================================================
+
+# Show success confirmation after actions
+# Usage: gtd_action_success "created" "task" "Review Greek Vocabulary"
+gtd_action_success() {
+  local action="$1"  # "created", "updated", "deleted", "completed"
+  local item_type="$2"  # "task", "project", "area", "note"
+  local item_name="$3"
+  
+  # Capitalize first letter of item type (bash 3.2 compatible)
+  local item_type_cap=$(echo "$item_type" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+  
+  gtd_feedback success "${item_type_cap} '$item_name' ${action}"
+  gtd_invalidate_cache  # Refresh dashboard counts
+  gtd_silent_pause 0.3  # Brief pause for visual feedback
+}
+
+# Format list items for better readability
+# Usage: gtd_format_list_item number "Item name" [max_width] [truncate]
+gtd_format_list_item() {
+  local number="$1"
+  local item="$2"
+  local max_width="${3:-60}"
+  local truncate="${4:-true}"
+  
+  # Truncate if too long
+  if [[ "$truncate" == "true" ]] && [[ ${#item} -gt $max_width ]]; then
+    item="${item:0:$((max_width-3))}..."
+  fi
+  
+  echo -e "  ${GREEN}${number})${NC} ${item}"
+}
+
+# Show empty state with helpful guidance
+# Usage: gtd_empty_state "tasks" "Press 1 to add your first task"
+gtd_empty_state() {
+  local item_type="$1"  # "tasks", "projects", "areas"
+  local action_hint="$2"  # "Press 1 to add"
+  
+  echo ""
+  gtd_feedback info "No ${item_type} found"
+  if [[ -n "$action_hint" ]]; then
+    echo -e "  ${CYAN}💡${NC} ${action_hint}"
+  fi
+  echo ""
+}
+
+# Show progress indicator for batch operations
+# Usage: gtd_show_progress current total "Processing tasks"
+gtd_show_progress() {
+  local current="$1"
+  local total="$2"
+  local label="${3:-Processing}"
+  local percentage=$((current * 100 / total))
+  
+  # Use \r to overwrite same line
+  echo -ne "\r${CYAN}${label}: ${current}/${total} (${percentage}%)${NC}"
+  
+  # If complete, add newline
+  if [[ $current -eq $total ]]; then
+    echo ""
+  fi
+}
+
+# ============================================================================
 # Python/MCP Helpers
 # ============================================================================
 

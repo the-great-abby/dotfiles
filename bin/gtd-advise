@@ -1504,7 +1504,7 @@ main() {
     --daily-log|--log)
       shift
       local date_range="${1:-today}"
-      # Get daily log(s) and review with default persona (single response)
+      # Get daily log(s) and review with random persona (single response)
       local log_content=$(get_daily_log_content "$date_range")
       if [[ $? -eq 0 ]]; then
         # Filter log content for advice (remove EMOM sections, keep first 5 and last 10 lines)
@@ -1517,7 +1517,8 @@ main() {
           *) range_desc="$date_range's" ;;
         esac
         local content=$(printf "Review my %s daily log(s) and provide advice:\n\n%s" "$range_desc" "$log_content")
-        advise_single "$GTD_DEFAULT_PERSONA" "$content"
+        # Use random persona selection (intelligently selects based on content)
+        advise_random "$content"
       else
         echo "❌ Could not load daily log"
         exit 1

@@ -6,17 +6,23 @@ sync_wizard() {
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}🧠 Second Brain Sync Wizard${NC}"
+  gtd_print_header "Second Brain Sync Wizard" "🧠"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   show_sync_guide
   echo "What would you like to sync?"
   echo ""
-  echo "  1) Full sync (projects, areas, references, daily logs)"
-  echo "  2) Projects only"
-  echo "  3) Areas only"
-  echo "  4) References only"
-  echo "  5) Daily logs only"
+  echo "  1) Full sync (projects, areas, references, daily logs) - Manual"
+  echo "  2) Projects only - Manual"
+  echo "  3) Areas only - Manual"
+  echo "  4) References only - Manual"
+  echo "  5) Daily logs only - Manual"
+  echo ""
+  echo "  6) Full sync (background)"
+  echo "  7) Projects only (background)"
+  echo "  8) Areas only (background)"
+  echo "  9) References only (background)"
+  echo " 10) Daily logs only (background)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -39,6 +45,101 @@ sync_wizard() {
     5)
       gtd-brain-sync daily-logs
       ;;
+    6)
+      python3 <<EOF
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import queue_second_brain_sync
+status = queue_second_brain_sync('full')
+if 'queued' in status:
+    print("✅ Full sync queued for background processing")
+    if 'rabbitmq' in status:
+        print("Queue: RabbitMQ")
+    else:
+        print("Queue file: ~/Documents/gtd/second_brain_sync_queue.jsonl")
+    print("")
+    print("Note: Make sure the background worker is running to process this job.")
+    print("  • gtd-wizard → System status → Background Worker Status")
+else:
+    print(f"❌ Failed to queue sync: {status}")
+EOF
+      ;;
+    7)
+      python3 <<EOF
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import queue_second_brain_sync
+status = queue_second_brain_sync('projects')
+if 'queued' in status:
+    print("✅ Projects sync queued for background processing")
+    if 'rabbitmq' in status:
+        print("Queue: RabbitMQ")
+    else:
+        print("Queue file: ~/Documents/gtd/second_brain_sync_queue.jsonl")
+    print("")
+    print("Note: Make sure the background worker is running to process this job.")
+    print("  • gtd-wizard → System status → Background Worker Status")
+else:
+    print(f"❌ Failed to queue sync: {status}")
+EOF
+      ;;
+    8)
+      python3 <<EOF
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import queue_second_brain_sync
+status = queue_second_brain_sync('areas')
+if 'queued' in status:
+    print("✅ Areas sync queued for background processing")
+    if 'rabbitmq' in status:
+        print("Queue: RabbitMQ")
+    else:
+        print("Queue file: ~/Documents/gtd/second_brain_sync_queue.jsonl")
+    print("")
+    print("Note: Make sure the background worker is running to process this job.")
+    print("  • gtd-wizard → System status → Background Worker Status")
+else:
+    print(f"❌ Failed to queue sync: {status}")
+EOF
+      ;;
+    9)
+      python3 <<EOF
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import queue_second_brain_sync
+status = queue_second_brain_sync('references')
+if 'queued' in status:
+    print("✅ References sync queued for background processing")
+    if 'rabbitmq' in status:
+        print("Queue: RabbitMQ")
+    else:
+        print("Queue file: ~/Documents/gtd/second_brain_sync_queue.jsonl")
+    print("")
+    print("Note: Make sure the background worker is running to process this job.")
+    print("  • gtd-wizard → System status → Background Worker Status")
+else:
+    print(f"❌ Failed to queue sync: {status}")
+EOF
+      ;;
+    10)
+      python3 <<EOF
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import queue_second_brain_sync
+status = queue_second_brain_sync('daily-logs')
+if 'queued' in status:
+    print("✅ Daily logs sync queued for background processing")
+    if 'rabbitmq' in status:
+        print("Queue: RabbitMQ")
+    else:
+        print("Queue file: ~/Documents/gtd/second_brain_sync_queue.jsonl")
+    print("")
+    print("Note: Make sure the background worker is running to process this job.")
+    print("  • gtd-wizard → System status → Background Worker Status")
+else:
+    print(f"❌ Failed to queue sync: {status}")
+EOF
+      ;;
     0|"")
       return 0
       ;;
@@ -48,8 +149,7 @@ sync_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 bidirectional_sync_wizard() {
@@ -134,8 +234,7 @@ bidirectional_sync_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+      gtd_quick_pause
 }
 
 brain_connect_wizard() {
@@ -171,8 +270,7 @@ brain_connect_wizard() {
         if [[ -z "$note1" || -z "$note2" ]]; then
           echo "❌ Both notes are required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -198,8 +296,7 @@ brain_connect_wizard() {
           echo "❌ gtd-brain-connect command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       2)
         echo ""
@@ -209,8 +306,7 @@ brain_connect_wizard() {
         if [[ -z "$note_path" ]]; then
           echo "❌ Note path is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -224,8 +320,7 @@ brain_connect_wizard() {
           echo "❌ gtd-brain-connect command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       3)
         echo ""
@@ -239,8 +334,7 @@ brain_connect_wizard() {
           echo "❌ gtd-brain-connect command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       0|"")
         pop_menu
@@ -249,8 +343,7 @@ brain_connect_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
     esac
   done
@@ -284,8 +377,7 @@ brain_converge_wizard() {
         if [[ -z "$divergence_file" ]]; then
           echo "❌ Divergence file is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -299,8 +391,7 @@ brain_converge_wizard() {
           echo "❌ gtd-brain-converge command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       2)
         echo ""
@@ -314,8 +405,7 @@ brain_converge_wizard() {
           echo "❌ gtd-brain-converge command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       0|"")
         pop_menu
@@ -324,8 +414,7 @@ brain_converge_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
     esac
   done
@@ -363,8 +452,7 @@ brain_discover_wizard() {
         if [[ -z "$tag" ]]; then
           echo "❌ Tag is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -378,8 +466,7 @@ brain_discover_wizard() {
           echo "❌ gtd-brain-discover command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       2)
         echo ""
@@ -393,8 +480,7 @@ brain_discover_wizard() {
           echo "❌ gtd-brain-discover command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       3)
         echo ""
@@ -406,8 +492,7 @@ brain_discover_wizard() {
         if [[ -z "$note_path" ]]; then
           echo "❌ Note path is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -433,8 +518,7 @@ brain_discover_wizard() {
           echo "❌ gtd-brain-discover command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       4)
         echo ""
@@ -446,8 +530,7 @@ brain_discover_wizard() {
         if [[ -z "$start_date" ]]; then
           echo "❌ Start date is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -473,8 +556,7 @@ brain_discover_wizard() {
           echo "❌ gtd-brain-discover command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       5)
         echo ""
@@ -484,8 +566,7 @@ brain_discover_wizard() {
         if [[ -z "$note_path" ]]; then
           echo "❌ Note path is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -499,8 +580,7 @@ brain_discover_wizard() {
           echo "❌ gtd-brain-discover command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       6)
         echo ""
@@ -514,8 +594,7 @@ brain_discover_wizard() {
           echo "❌ gtd-brain-discover command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       0|"")
         pop_menu
@@ -524,8 +603,7 @@ brain_discover_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
     esac
   done
@@ -558,8 +636,7 @@ brain_distill_wizard() {
         if [[ -z "$note_path" ]]; then
           echo "❌ Note path is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -573,8 +650,7 @@ brain_distill_wizard() {
           echo "❌ gtd-brain-distill command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       0|"")
         pop_menu
@@ -583,8 +659,7 @@ brain_distill_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
     esac
   done
@@ -618,8 +693,7 @@ brain_diverge_wizard() {
         if [[ -z "$topic" ]]; then
           echo "❌ Topic is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -633,8 +707,7 @@ brain_diverge_wizard() {
           echo "❌ gtd-brain-diverge command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       2)
         echo ""
@@ -648,8 +721,7 @@ brain_diverge_wizard() {
           echo "❌ gtd-brain-diverge command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       0|"")
         pop_menu
@@ -658,8 +730,7 @@ brain_diverge_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
     esac
   done
@@ -695,8 +766,7 @@ brain_evergreen_wizard() {
         if [[ -z "$note_path" ]]; then
           echo "❌ Note path is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -710,8 +780,7 @@ brain_evergreen_wizard() {
           echo "❌ gtd-brain-evergreen command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       2)
         echo ""
@@ -725,8 +794,7 @@ brain_evergreen_wizard() {
           echo "❌ gtd-brain-evergreen command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       3)
         echo ""
@@ -736,8 +804,7 @@ brain_evergreen_wizard() {
         if [[ -z "$note_path" ]]; then
           echo "❌ Note path is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -751,8 +818,7 @@ brain_evergreen_wizard() {
           echo "❌ gtd-brain-evergreen command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       4)
         echo ""
@@ -762,8 +828,7 @@ brain_evergreen_wizard() {
         if [[ -z "$note_path" ]]; then
           echo "❌ Note path is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -777,8 +842,7 @@ brain_evergreen_wizard() {
           echo "❌ gtd-brain-evergreen command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       0|"")
         pop_menu
@@ -787,8 +851,7 @@ brain_evergreen_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
     esac
   done
@@ -831,8 +894,7 @@ brain_packet_wizard() {
         if [[ -z "$note_path" || -z "$packet_name" ]]; then
           echo "❌ Note path and packet name are required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -858,8 +920,7 @@ brain_packet_wizard() {
           echo "❌ gtd-brain-packet command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       2)
         echo ""
@@ -891,8 +952,7 @@ brain_packet_wizard() {
           echo "❌ gtd-brain-packet command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       3)
         echo ""
@@ -902,8 +962,7 @@ brain_packet_wizard() {
         if [[ -z "$packet_name" ]]; then
           echo "❌ Packet name is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -917,8 +976,7 @@ brain_packet_wizard() {
           echo "❌ gtd-brain-packet command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       4)
         echo ""
@@ -930,8 +988,7 @@ brain_packet_wizard() {
         if [[ -z "$packet_name" ]]; then
           echo "❌ Packet name is required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -957,8 +1014,7 @@ brain_packet_wizard() {
           echo "❌ gtd-brain-packet command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       5)
         echo ""
@@ -970,8 +1026,7 @@ brain_packet_wizard() {
         if [[ -z "$assembled_name" || -z "$packet_names" ]]; then
           echo "❌ Assembled name and packet names are required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+      gtd_quick_pause
           continue
         fi
         
@@ -985,8 +1040,7 @@ brain_packet_wizard() {
           echo "❌ gtd-brain-packet command not found"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
       0|"")
         pop_menu
@@ -995,8 +1049,7 @@ brain_packet_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+      gtd_quick_pause
         ;;
     esac
   done

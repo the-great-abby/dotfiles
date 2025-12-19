@@ -217,5 +217,112 @@ Current test coverage includes:
 - ✅ Smart defaults generation (get_smart_defaults, show_smart_defaults)
 - ✅ Dashboard and menu functions (show_dashboard, show_main_menu, etc.)
 
-**Total: 400+ tests across 13 test suites (8 bash, 5 Python)**
+### gtd-common.sh Advanced Tests (Bash - 50+ tests)
+- ✅ Caching functions (gtd_get_cache_file, gtd_get_cached_count, gtd_invalidate_cache)
+- ✅ Cache freshness and expiration logic
+- ✅ Cache with different patterns (markdown files, projects, custom patterns)
+- ✅ Feedback functions (gtd_feedback with success, error, info, warning types)
+- ✅ Formatting helpers (gtd_format_list_item with truncation)
+- ✅ Empty state handlers (gtd_empty_state)
+- ✅ Progress indicators (gtd_show_progress)
+- ✅ Action success confirmations (gtd_action_success)
+- ✅ Pause functions (gtd_pause, gtd_quick_pause, gtd_silent_pause)
+- ✅ Section dividers and status lines
+- ✅ Edge cases: empty inputs, invalid paths, error handling
+
+### gtd-select-helper.sh Tests (Bash - 40+ tests)
+- ✅ select_from_list function with various scenarios
+- ✅ Empty directory handling
+- ✅ Markdown file discovery and parsing
+- ✅ Project directory handling (with and without README.md)
+- ✅ Display name extraction (frontmatter, headings, filenames)
+- ✅ select_from_numbered_list logic
+- ✅ select_persona function availability
+- ✅ Special characters in filenames
+- ✅ Long filenames handling
+- ✅ Empty and malformed frontmatter
+- ✅ Format parameter variations (name, file, project)
+- ✅ Invalid path handling
+
+### gtd-wizard-inputs.sh Tests (Bash - 30+ tests)
+- ✅ capture_wizard function existence and logic
+- ✅ Process wizard inbox handling
+- ✅ checkin_wizard and time of day detection
+- ✅ log_wizard daily log access
+- ✅ oncall_capture_wizard types validation
+- ✅ get_log_inspiration function
+- ✅ mood_log_wizard, calendar_log_wizard, collect_all_wizard
+- ✅ Capture type validation (1-10, 0 for exit)
+- ✅ Empty input handling
+- ✅ Invalid path handling
+- ✅ Cancellation handling (choice 0)
+
+### gtd-wizard-outputs.sh Tests (Bash - 35+ tests)
+- ✅ review_wizard function and review types
+- ✅ view_analysis_results with various analysis patterns
+- ✅ discuss_analysis_with_ai conversation flow
+- ✅ Web search detection in queries
+- ✅ generate_suggestions_from_analysis
+- ✅ template_wizard template access
+- ✅ review_drafts_wizard drafts directory handling
+- ✅ express_wizard, diagram_wizard
+- ✅ Routine wizards (morning, afternoon, evening, summary)
+- ✅ Empty analysis handling
+- ✅ Invalid file path handling
+- ✅ Conversation exit patterns (done, exit, quit, q)
+
+### gtd-wizard-analysis.sh Tests (Bash - 40+ tests)
+- ✅ search_wizard with various query types
+- ✅ Enhanced search integration
+- ✅ status_wizard dashboard data collection
+- ✅ goal_tracking_wizard goal access
+- ✅ energy_audit_wizard daily log processing
+- ✅ log_stats_wizard date range calculations
+- ✅ metric_correlations_wizard, pattern_recognition_wizard
+- ✅ weekly_progress_wizard, success_metrics_wizard
+- ✅ brain_metrics_wizard, energy_schedule_wizard
+- ✅ now_wizard, find_wizard, milestone_wizard
+- ✅ Worker management functions (manage_worker, start_worker, etc.)
+- ✅ Empty query handling
+- ✅ Invalid date handling and validation
+- ✅ Date range validation
+- ✅ Worker status checking
+
+### GTD Auto Suggest Tests (Python - 20+ tests)
+- ✅ analyze_entry function with various entry types
+- ✅ generate_banter for different tones (positive, neutral, negative)
+- ✅ extract_tasks from text
+- ✅ process_single_entry with valid and empty entries
+- ✅ batch_analyze_logs with multiple entries
+- ✅ Confidence scoring validation
+- ✅ Contextual banter matching entry tone
+- ✅ Error handling for invalid entries
+- ✅ Suggestion format validation
+- ✅ End-to-end flow testing
+
+### GTD Progress Analyzer Tests (Python - 20+ tests)
+- ✅ get_existing_tasks from empty and populated directories
+- ✅ analyze_progress with sample data
+- ✅ calculate_completion_rate (basic, zero total, all completed)
+- ✅ get_task_statistics function
+- ✅ Error handling for invalid paths
+- ✅ Malformed file handling
+- ✅ Progress tracking over time
+- ✅ Statistics format validation
+- ✅ Edge cases: empty lists, large lists, special characters
+
+### GTD Smart Suggestions Tests (Python - 25+ tests)
+- ✅ load_acceptance_tracking (new and existing files)
+- ✅ save_acceptance_tracking persistence
+- ✅ filter_suggestions by confidence and acceptance rate
+- ✅ get_smart_suggestions generation
+- ✅ track_suggestion_acceptance (accepted and rejected)
+- ✅ Error handling for invalid JSON
+- ✅ Missing file handling
+- ✅ Suggestion ranking by acceptance rate
+- ✅ Empty suggestions list handling
+- ✅ Suggestion persistence across calls
+- ✅ Edge cases: very high/low confidence, special characters
+
+**Total: 600+ tests across 20 test suites (13 bash, 7 Python)**
 

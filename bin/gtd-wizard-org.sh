@@ -70,10 +70,7 @@ show_matrix_dashboard() {
   done
   
   clear
-  echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}📊 Eisenhower Matrix Dashboard${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  gtd_print_header "Eisenhower Matrix Dashboard" "📊"
   echo ""
   echo -e "${BOLD}The Eisenhower Matrix helps you prioritize by urgency and importance:${NC}"
   echo ""
@@ -95,7 +92,7 @@ show_matrix_dashboard() {
   echo -e "${RED}(${#urgent_important[@]} tasks)${NC}"
   echo ""
   if [[ ${#urgent_important[@]} -eq 0 ]]; then
-    echo "  (No tasks)"
+    gtd_empty_state "tasks" ""  # Empty state without hint
   else
     for task_entry in "${urgent_important[@]}"; do
       IFS='|' read -r task_file task_name task_id project context <<< "$task_entry"
@@ -119,7 +116,7 @@ show_matrix_dashboard() {
   echo -e "${BLUE}(${#not_urgent_important[@]} tasks)${NC}"
   echo ""
   if [[ ${#not_urgent_important[@]} -eq 0 ]]; then
-    echo "  (No tasks)"
+    gtd_empty_state "tasks" ""  # Empty state without hint
   else
     for task_entry in "${not_urgent_important[@]}"; do
       IFS='|' read -r task_file task_name task_id project context <<< "$task_entry"
@@ -143,7 +140,7 @@ show_matrix_dashboard() {
   echo -e "${YELLOW}IMPORTANT  (${#urgent_not_important[@]} tasks)${NC}"
   echo ""
   if [[ ${#urgent_not_important[@]} -eq 0 ]]; then
-    echo "  (No tasks)"
+    gtd_empty_state "tasks" ""  # Empty state without hint
   else
     for task_entry in "${urgent_not_important[@]}"; do
       IFS='|' read -r task_file task_name task_id project context <<< "$task_entry"
@@ -167,7 +164,7 @@ show_matrix_dashboard() {
   echo -e "${GRAY}(${#not_urgent_not_important[@]} tasks)${NC}"
   echo ""
   if [[ ${#not_urgent_not_important[@]} -eq 0 ]]; then
-    echo "  (No tasks)"
+    gtd_empty_state "tasks" ""  # Empty state without hint
   else
     for task_entry in "${not_urgent_not_important[@]}"; do
       IFS='|' read -r task_file task_name task_id project context <<< "$task_entry"
@@ -208,8 +205,7 @@ show_matrix_dashboard() {
   echo "  ❌ Eliminate: ${#not_urgent_not_important[@]}"
   echo "  ⚠️  No Priority: ${#no_priority[@]}"
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
 }
 
 # Prioritization wizard - review and manage priorities across the system
@@ -254,8 +250,7 @@ prioritization_wizard() {
         echo "Not Urgent but Important Tasks:"
         gtd-task list --priority=not_urgent_important --status=active 2>/dev/null | head -10 || echo "  (none found)"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       2)
         echo ""
@@ -293,8 +288,7 @@ prioritization_wizard() {
           echo "  No areas directory found."
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       3)
         echo ""
@@ -326,8 +320,7 @@ prioritization_wizard() {
           echo "  No projects directory found."
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       4)
         echo ""
@@ -361,8 +354,7 @@ prioritization_wizard() {
           fi
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       5)
         echo ""
@@ -426,8 +418,7 @@ prioritization_wizard() {
             ;;
         esac
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       6)
         show_matrix_dashboard
@@ -438,8 +429,7 @@ prioritization_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
     esac
   done
@@ -451,11 +441,7 @@ task_wizard() {
   while true; do
     clear
     show_breadcrumb
-    echo ""
-    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}${CYAN}✅ Task Management Wizard${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+    gtd_print_header "Task Management Wizard" "✅"
     show_tasks_guide
     echo "What would you like to do?"
     echo ""
@@ -468,6 +454,7 @@ task_wizard() {
     echo "  7) Move task to area"
     echo "  8) Add note to task"
     echo "  9) 💬 Restructure with natural language"
+    echo "  10) 🧹 Organize tasks (clean up backlog)"
     echo ""
     echo -e "${YELLOW}0)${NC} Back to Main Menu"
     echo ""
@@ -481,7 +468,7 @@ task_wizard() {
       read task_desc
       
       if [[ -z "$task_desc" ]]; then
-        echo "❌ No task description provided"
+        gtd_feedback error "No task description provided"
         return 1
       fi
       
@@ -522,8 +509,8 @@ task_wizard() {
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_action_success "created" "task" "$task_desc"
+      gtd_quick_pause
       ;;
     2)
       echo ""
@@ -555,8 +542,7 @@ task_wizard() {
           ;;
       esac
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     3)
       echo ""
@@ -567,24 +553,21 @@ task_wizard() {
       read task_input
       
       if [[ -z "$task_input" ]]; then
-        echo "❌ No task provided"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "No task provided"
+        gtd_quick_pause
         return 0
       fi
       
       task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
       if [[ -z "$task_id" ]]; then
-        echo "❌ Task not found: $task_input"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "Task not found: $task_input"
+        gtd_quick_pause
         return 0
       fi
       
       gtd-task view "$task_id"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     4)
       echo ""
@@ -595,24 +578,21 @@ task_wizard() {
       read task_input
       
       if [[ -z "$task_input" ]]; then
-        echo "❌ No task provided"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "No task provided"
+        gtd_quick_pause
         return 0
       fi
       
       task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
       if [[ -z "$task_id" ]]; then
-        echo "❌ Task not found: $task_input"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "Task not found: $task_input"
+        gtd_quick_pause
         return 0
       fi
       
       gtd-task complete "$task_id"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     5)
       echo ""
@@ -623,17 +603,15 @@ task_wizard() {
       read task_input
       
       if [[ -z "$task_input" ]]; then
-        echo "❌ No task provided"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "No task provided"
+        gtd_quick_pause
         return 0
       fi
       
       task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
       if [[ -z "$task_id" ]]; then
-        echo "❌ Task not found: $task_input"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "Task not found: $task_input"
+        gtd_quick_pause
         return 0
       fi
       
@@ -641,8 +619,7 @@ task_wizard() {
       read new_desc
       gtd-task update "$task_id" "$new_desc"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     6)
       echo ""
@@ -655,17 +632,15 @@ task_wizard() {
       read task_input
       
       if [[ -z "$task_input" ]]; then
-        echo "❌ No task provided"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "No task provided"
+        gtd_quick_pause
         return 0
       fi
       
       task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
       if [[ -z "$task_id" ]]; then
-        echo "❌ Task not found: $task_input"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "Task not found: $task_input"
+        gtd_quick_pause
         return 0
       fi
       
@@ -677,17 +652,18 @@ task_wizard() {
           # Convert to slug format
           project_slug=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
           gtd-task move "$task_id" "$project_slug"
+          gtd_action_success "moved" "task" "to project"
         fi
       else
         echo -n "Project name (or press Enter to skip): "
         read project_input
         if [[ -n "$project_input" ]]; then
           gtd-task move "$task_id" "$project_input"
+          gtd_action_success "moved" "task" "to project"
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     7)
       echo ""
@@ -700,17 +676,15 @@ task_wizard() {
       read task_input
       
       if [[ -z "$task_input" ]]; then
-        echo "❌ No task provided"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "No task provided"
+        gtd_quick_pause
         return 0
       fi
       
       task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
       if [[ -z "$task_id" ]]; then
-        echo "❌ Task not found: $task_input"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "Task not found: $task_input"
+        gtd_quick_pause
         return 0
       fi
       
@@ -719,9 +693,8 @@ task_wizard() {
       local task_file=$(find_task_file "$task_id")
       
       if [[ -z "$task_file" || ! -f "$task_file" ]]; then
-        echo "❌ Task file not found: $task_id"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "Task file not found: $task_id"
+        gtd_quick_pause
         return 0
       fi
       
@@ -752,9 +725,7 @@ area: ${area_slug}
             fi
           fi
           
-          echo "✓ Moved task to area: $area_name"
-          echo "  Task ID: $task_id"
-          echo "  Area: $area_name"
+          gtd_action_success "moved" "task" "to area '$area_name'"
         fi
       else
         echo -n "Area name: "
@@ -779,13 +750,11 @@ area: ${area_slug}
             fi
           fi
           
-          echo "✓ Moved task to area: $area_input"
-          echo "  Task ID: $task_id"
+          gtd_action_success "moved" "task" "to area '$area_input'"
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     8)
       echo ""
@@ -895,8 +864,7 @@ area: ${area_slug}
         fi
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     9)
       echo ""
@@ -915,17 +883,15 @@ area: ${area_slug}
       read task_input
       
       if [[ -z "$task_input" ]]; then
-        echo "❌ No task provided"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "No task provided"
+        gtd_quick_pause
         return 0
       fi
       
       task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
       if [[ -z "$task_id" ]]; then
-        echo "❌ Task not found: $task_input"
-        echo "Press Enter to continue..."
-        read
+        gtd_feedback error "Task not found: $task_input"
+        gtd_quick_pause
         return 0
       fi
       
@@ -935,8 +901,7 @@ area: ${area_slug}
       
       if [[ -z "$nl_command" ]]; then
         echo "❌ No command provided"
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -949,8 +914,46 @@ area: ${area_slug}
         echo "❌ gtd-restructure command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
+      ;;
+    10)
+      echo ""
+      gtd_print_header "Organize Tasks - Clean Up Backlog" "🧹"
+      echo "This will help you:"
+      echo "  • Review tasks without projects"
+      echo "  • Clean up completed tasks"
+      echo "  • Bulk organize with AI suggestions"
+      echo ""
+      gtd_quick_pause
+      
+      # Find and launch task organizer
+      local organizer_script=""
+      if command -v gtd-task-organize &>/dev/null; then
+        organizer_script="gtd-task-organize"
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-task-organize" ]]; then
+        organizer_script="$HOME/code/dotfiles/bin/gtd-task-organize"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-task-organize" ]]; then
+        organizer_script="$HOME/code/personal/dotfiles/bin/gtd-task-organize"
+      fi
+      
+      if [[ -n "$organizer_script" ]]; then
+        # Launch the organizer
+        if [[ -x "$organizer_script" ]] || command -v "$organizer_script" &>/dev/null; then
+          "$organizer_script"
+        else
+          gtd_feedback error "Task organizer script found but is not executable: $organizer_script"
+          gtd_quick_pause
+        fi
+      else
+        gtd_feedback error "gtd-task-organize command not found"
+        echo ""
+        echo "Please ensure the script exists at:"
+        echo "  $HOME/code/dotfiles/bin/gtd-task-organize"
+        echo "  or"
+        echo "  $HOME/code/personal/dotfiles/bin/gtd-task-organize"
+        echo ""
+        gtd_quick_pause
+      fi
       ;;
     0|"")
       pop_menu
@@ -959,8 +962,7 @@ area: ${area_slug}
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
   done
@@ -972,11 +974,7 @@ area_wizard() {
   while true; do
   clear
     show_breadcrumb
-  echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}🎯 Areas of Responsibility Wizard${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
+    gtd_print_header "Areas of Responsibility Wizard" "🎯"
     show_areas_guide
   echo "What would you like to do?"
   echo ""
@@ -1002,7 +1000,7 @@ area_wizard() {
       read area_name
       
       if [[ -z "$area_name" ]]; then
-        echo "❌ No area name provided"
+        gtd_feedback error "No area name provided"
         return 1
       fi
       
@@ -1015,6 +1013,7 @@ area_wizard() {
       else
         gtd-area create "$area_name"
       fi
+      gtd_action_success "created" "area" "$area_name"
       ;;
     2)
       gtd-area-starter
@@ -1032,7 +1031,7 @@ area_wizard() {
           gtd-area view "$area_name"
         fi
       else
-        echo "No areas found."
+        gtd_empty_state "areas" "Press 1 to create your first area"
       fi
       ;;
     5)
@@ -1045,10 +1044,11 @@ area_wizard() {
           read new_desc
           if [[ -n "$new_desc" ]]; then
             gtd-area update "$area_name" "$new_desc"
+            gtd_action_success "updated" "area" "$area_name"
           fi
         fi
       else
-        echo "No areas found."
+        gtd_empty_state "areas" "Press 1 to create your first area"
       fi
       ;;
     6)
@@ -1061,12 +1061,13 @@ area_wizard() {
           read note_title
           if [[ -n "$note_title" ]]; then
             gtd-area add-note "$area_name" "$note_title"
+            gtd_action_success "added" "note" "'$note_title' to area"
           else
-            echo "❌ No note title provided"
+            gtd_feedback error "No note title provided"
           fi
         fi
       else
-        echo "No areas found."
+        gtd_empty_state "areas" "Press 1 to create your first area"
       fi
       ;;
     7)
@@ -1108,8 +1109,7 @@ area_wizard() {
           
           if [[ -z "$nl_command" ]]; then
             echo "❌ No command provided"
-            echo "Press Enter to continue..."
-            read
+    gtd_quick_pause
             return 0
           fi
           
@@ -1126,8 +1126,7 @@ area_wizard() {
         echo "No areas found."
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       pop_menu
@@ -1140,8 +1139,7 @@ area_wizard() {
   
   if [[ "$area_choice" != "0" ]] && [[ -n "$area_choice" ]]; then
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
   fi
   done
 }
@@ -1155,11 +1153,7 @@ project_wizard() {
   while true; do
   clear
     show_breadcrumb
-  echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}📁 Project Management Wizard${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
+    gtd_print_header "Project Management Wizard" "📁"
     show_projects_guide
   echo "What would you like to do?"
   echo ""
@@ -1192,7 +1186,7 @@ project_wizard() {
       read project_name
       
       if [[ -z "$project_name" ]]; then
-        echo "❌ No project name provided"
+        gtd_feedback error "No project name provided"
         return 1
       fi
       
@@ -1209,6 +1203,11 @@ project_wizard() {
         if gtd-project create "$project_name"; then
           project_created=true
         fi
+      fi
+      
+      # Show success confirmation
+      if [[ "$project_created" == "true" ]]; then
+        gtd_action_success "created" "project" "$project_name"
       fi
       
       # Vectorize the project if created successfully
@@ -1244,42 +1243,49 @@ project_wizard() {
       if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
         project_name=$(select_from_list "project" "$PROJECTS_PATH" "project")
         if [[ -n "$project_name" ]]; then
-          # Convert to slug format
-          project_slug=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+          # select_from_list already returns the exact directory name, use it directly
+          # Don't modify it - it's already the correct directory name
+          project_slug="$project_name"
           project_dir="${PROJECTS_PATH}/${project_slug}"
           project_readme="${project_dir}/README.md"
           
-          # View the project
-          gtd-project view "$project_slug"
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "What would you like to do?"
-          echo ""
-          echo "  1) ✏️  Edit project file contents"
-          echo "  2) 📝 Rename project"
-          echo "  0) Back to project menu"
-          echo ""
-          echo -n "Choose: "
-          read edit_choice
-          
-          case "$edit_choice" in
-            1)
-              # Edit project file contents
-              if [[ ! -f "$project_readme" ]]; then
-                echo "❌ Project README not found: $project_readme"
-                echo ""
-                echo "Press Enter to continue..."
-                read
-              else
+          # Check if README exists before trying to view
+          if [[ -f "$project_readme" ]]; then
+            # View the project (gtd-project view requires README)
+            gtd-project view "$project_slug" 2>/dev/null || true
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "What would you like to do?"
+            echo ""
+            gtd_format_list_item "1" "Review and complete tasks"
+            gtd_format_list_item "2" "Edit project file contents"
+            gtd_format_list_item "3" "Rename project"
+            echo ""
+            echo -e "${YELLOW}0)${NC} Back to project menu"
+            echo ""
+            echo -n "Choose: "
+            read edit_choice
+            
+            case "$edit_choice" in
+              1)
+                # Review and complete tasks in this project
+                review_project_tasks "$project_slug" "$project_name"
+                ;;
+              2)
+                # Edit project file contents
+                if [[ ! -f "$project_readme" ]]; then
+                  echo "❌ Project README not found: $project_readme"
+                  echo ""
+    gtd_quick_pause
+                else
                 # Check if editor is available
                 local editor="${EDITOR:-vim}"
                 if ! command -v "$editor" &>/dev/null && [[ "$editor" == "vim" ]]; then
                   if ! command -v vim &>/dev/null; then
                     echo "❌ vim not found. Please install vim or set EDITOR environment variable."
                     echo ""
-                    echo "Press Enter to continue..."
-                    read
+    gtd_quick_pause
                   else
                     editor="vim"
                   fi
@@ -1290,8 +1296,7 @@ project_wizard() {
                   echo -e "${CYAN}Opening ${BOLD}${project_readme}${NC}${CYAN} in ${editor}...${NC}"
                   echo -e "${YELLOW}Tip:${NC} When done editing, save with ${BOLD}:wq${NC} or exit without saving with ${BOLD}:q!${NC}"
                   echo ""
-                  echo "Press Enter to continue..."
-                  read
+    gtd_quick_pause
                   
                   # Edit file
                   if "$editor" "$project_readme"; then
@@ -1301,19 +1306,22 @@ project_wizard() {
                     echo ""
                     echo -e "${YELLOW}⚠️  File editing cancelled or failed${NC}"
                   fi
+                else
+                  echo "❌ Editor not found: $editor"
+                  echo ""
+    gtd_quick_pause
                 fi
               fi
-              ;;
-            2)
-              # Rename project
-              if [[ ! -d "$project_dir" ]]; then
-                echo "❌ Project directory not found: $project_dir"
-                echo ""
-                echo "Press Enter to continue..."
-                read
-              else
-                echo ""
-                echo "Current project name: $project_name"
+                ;;
+              3)
+                # Rename project
+                if [[ ! -d "$project_dir" ]]; then
+                  echo "❌ Project directory not found: $project_dir"
+                  echo ""
+    gtd_quick_pause
+                else
+                  echo ""
+                  echo "Current project name: $project_name"
                 echo ""
                 echo -n "New project name: "
                 read new_project_name
@@ -1321,8 +1329,7 @@ project_wizard() {
                 if [[ -z "$new_project_name" ]]; then
                   echo "❌ No new name provided. Cancelling rename."
                   echo ""
-                  echo "Press Enter to continue..."
-                  read
+    gtd_quick_pause
                 else
                   # Convert new name to slug format
                   new_project_slug=$(echo "$new_project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
@@ -1332,8 +1339,7 @@ project_wizard() {
                   if [[ -d "$new_project_dir" ]]; then
                     echo "❌ Project with name '$new_project_name' already exists!"
                     echo ""
-                    echo "Press Enter to continue..."
-                    read
+    gtd_quick_pause
                   else
                     # Rename the directory
                     if mv "$project_dir" "$new_project_dir" 2>/dev/null; then
@@ -1364,8 +1370,7 @@ project_wizard() {
                       echo "❌ Failed to rename project directory"
                     fi
                     echo ""
-                    echo "Press Enter to continue..."
-                    read
+    gtd_quick_pause
                   fi
                 fi
               fi
@@ -1377,6 +1382,33 @@ project_wizard() {
               echo "Invalid choice"
               ;;
           esac
+          else
+            # No README - offer to create one
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📁 Project: $project_slug"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "This project doesn't have a README.md file yet."
+            echo ""
+            read -p "Would you like to create one? (Y/n): " create_readme
+            if [[ -z "$create_readme" || "$create_readme" =~ ^[Yy]$ ]]; then
+              if command -v gtd-project &>/dev/null; then
+                # Use the exact project_slug (directory name) returned from select_from_list
+                # Don't convert it again - it's already the correct directory name
+                gtd-project init-readme "$project_slug"
+                echo ""
+    gtd_quick_pause
+              else
+                echo "❌ gtd-project command not found"
+                echo ""
+    gtd_quick_pause
+              fi
+            else
+              echo ""
+    gtd_quick_pause
+            fi
+          fi
         fi
       else
         echo "No projects found."
@@ -1408,16 +1440,17 @@ project_wizard() {
                 task_id=$(select_from_tasks "task")
                 if [[ -n "$task_id" ]]; then
                   gtd-task move "$task_id" "$project_slug"
+          gtd_action_success "moved" "task" "to project"
                 fi
               else
-                echo ""
-                echo "No standalone tasks found. Would you like to create a new task instead?"
+                gtd_empty_state "standalone tasks" "Would you like to create a new task instead?"
                 read -p "(y/N): " create_new
                 if [[ "$create_new" =~ ^[Yy]$ ]]; then
                   echo -n "Task description: "
                   read task_desc
                   if [[ -n "$task_desc" ]]; then
                     gtd-project add-task "$project_slug" "$task_desc"
+                    gtd_action_success "added" "task" "'$task_desc' to project"
                   fi
                 fi
               fi
@@ -1428,6 +1461,7 @@ project_wizard() {
               read task_desc
               if [[ -n "$task_desc" ]]; then
                 gtd-project add-task "$project_slug" "$task_desc"
+                gtd_action_success "added" "task" "'$task_desc' to project"
               fi
               ;;
             *)
@@ -1535,8 +1569,7 @@ project_wizard() {
           else
             echo "❌ Project directory not found: $project_slug"
             echo "   Searched in: ${PROJECTS_PATH}/${project_slug}"
-            echo "Press Enter to continue..."
-            read
+    gtd_quick_pause
           fi
         fi
       else
@@ -1636,8 +1669,7 @@ project_wizard() {
             echo "   Searched in: ${PROJECTS_PATH}"
             echo "   Tried slug: ${project_slug:-<empty>}"
             echo ""
-            echo "Press Enter to continue..."
-            read
+    gtd_quick_pause
             return 1
           fi
           
@@ -1724,8 +1756,7 @@ project_wizard() {
           
           if [[ -z "$nl_command" ]]; then
             echo "❌ No command provided"
-            echo "Press Enter to continue..."
-            read
+    gtd_quick_pause
             return 0
           fi
           
@@ -1743,8 +1774,7 @@ project_wizard() {
         echo "No projects found."
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     14)
       echo ""
@@ -1760,8 +1790,7 @@ project_wizard() {
         echo "❌ gtd-plan command not found"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       pop_menu
@@ -1774,8 +1803,7 @@ project_wizard() {
   
   if [[ "$project_choice" != "0" ]] && [[ -n "$project_choice" ]]; then
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
   fi
   done
 }
@@ -1816,8 +1844,7 @@ moc_wizard() {
         if [[ -z "$topic" ]]; then
           echo "❌ Topic required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         echo -n "Description (optional): "
@@ -1828,8 +1855,7 @@ moc_wizard() {
           "$HOME/code/dotfiles/bin/gtd-brain-moc" create "$topic" "$desc"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       2)
         echo ""
@@ -1839,8 +1865,7 @@ moc_wizard() {
           "$HOME/code/dotfiles/bin/gtd-brain-moc" list
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       3)
         echo ""
@@ -1853,8 +1878,7 @@ moc_wizard() {
         if [[ ${#moc_names[@]} -eq 0 ]]; then
           echo "No MOCs found."
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -1866,8 +1890,7 @@ moc_wizard() {
           else
             echo "❌ No MOC selected"
             echo ""
-            echo "Press Enter to continue..."
-            read
+    gtd_quick_pause
             continue
         fi
         
@@ -1879,8 +1902,7 @@ moc_wizard() {
           fi
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       4)
         echo ""
@@ -1893,8 +1915,7 @@ moc_wizard() {
         if [[ ${#moc_names[@]} -eq 0 ]]; then
           echo "No MOCs found."
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -1906,8 +1927,7 @@ moc_wizard() {
           else
             echo "❌ No MOC selected"
             echo ""
-            echo "Press Enter to continue..."
-            read
+    gtd_quick_pause
             continue
           fi
         
@@ -1922,8 +1942,7 @@ moc_wizard() {
         if [[ ${#notes_data[@]} -eq 0 ]]; then
           echo "❌ No notes found in Second Brain"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -1946,8 +1965,7 @@ moc_wizard() {
         if [[ ${#selectable_notes[@]} -eq 0 ]]; then
           echo "❌ No notes found"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -1983,8 +2001,7 @@ moc_wizard() {
         if [[ -z "$note_choice" || ! "$note_choice" =~ ^[0-9]+$ ]]; then
           echo "❌ Invalid selection"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2002,13 +2019,11 @@ moc_wizard() {
         else
           echo "❌ Invalid number. Please select 1-${#selectable_notes[@]}"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       5)
         echo ""
@@ -2023,8 +2038,7 @@ moc_wizard() {
         if [[ ${#moc_names[@]} -eq 0 ]]; then
           echo "No MOCs found."
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2035,8 +2049,7 @@ moc_wizard() {
         else
           echo "❌ No MOC selected"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2053,8 +2066,7 @@ moc_wizard() {
         if [[ -z "$task_id" ]]; then
           echo "❌ No task ID provided"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2068,8 +2080,7 @@ moc_wizard() {
         if [[ -z "$task_file" || ! -f "$task_file" ]]; then
           echo "❌ Task not found: $task_id"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2080,8 +2091,7 @@ moc_wizard() {
           "$HOME/code/dotfiles/bin/gtd-brain-moc" add "$topic" "$task_file" "Projects"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       6)
         echo ""
@@ -2096,8 +2106,7 @@ moc_wizard() {
         if [[ ${#moc_names[@]} -eq 0 ]]; then
           echo "No MOCs found."
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2108,8 +2117,7 @@ moc_wizard() {
         else
           echo "❌ No MOC selected"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2136,8 +2144,7 @@ moc_wizard() {
           echo "No projects found."
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       7)
         echo ""
@@ -2152,8 +2159,7 @@ moc_wizard() {
         if [[ ${#moc_names[@]} -eq 0 ]]; then
           echo "No MOCs found."
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2165,8 +2171,7 @@ moc_wizard() {
         else
           echo "❌ No MOC selected"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2180,16 +2185,14 @@ moc_wizard() {
         else
           echo "❌ No MOC selected"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
         if [[ "$target_topic" == "$source_topic" ]]; then
           echo "⚠️  Cannot link MOC to itself"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2201,16 +2204,14 @@ moc_wizard() {
         if [[ ! -f "$target_moc_file" ]]; then
           echo "❌ Target MOC not found: $target_moc_file"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
         if [[ ! -f "$source_moc_file" ]]; then
           echo "❌ Source MOC not found: $source_moc_file"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2219,8 +2220,7 @@ moc_wizard() {
         if grep -q "$moc_link" "$target_moc_file" 2>/dev/null; then
           echo "⚠️  MOC already linked in Related MOCs section"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2296,8 +2296,7 @@ moc_wizard() {
         
         echo "✓ Linked MOC '${source_topic}' to '${target_topic}' in Related MOCs section"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       8)
         echo ""
@@ -2310,8 +2309,7 @@ moc_wizard() {
         if [[ ${#moc_names[@]} -eq 0 ]]; then
           echo "No MOCs found."
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -2323,8 +2321,7 @@ moc_wizard() {
           else
             echo "❌ No MOC selected"
             echo ""
-            echo "Press Enter to continue..."
-            read
+    gtd_quick_pause
             continue
         fi
         
@@ -2336,8 +2333,7 @@ moc_wizard() {
           "$HOME/code/dotfiles/bin/gtd-brain-moc" auto "$topic" "$tag"
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       0|"")
         pop_menu
@@ -2346,8 +2342,7 @@ moc_wizard() {
       *)
         echo "Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
     esac
   done
@@ -2589,8 +2584,7 @@ habit_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
 }
 
 zettelkasten_wizard() {
@@ -2765,8 +2759,7 @@ zettelkasten_wizard() {
       if [[ -z "$zet_note" ]]; then
         echo "❌ No note selected"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         continue
       fi
       
@@ -2928,8 +2921,7 @@ zettelkasten_wizard() {
         *)
           echo "❌ Invalid choice"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
           ;;
       esac
@@ -2937,8 +2929,7 @@ zettelkasten_wizard() {
       if [[ -z "$gtd_item" ]]; then
         echo "❌ No GTD item selected or item not found"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         continue
       fi
       
@@ -2946,8 +2937,7 @@ zettelkasten_wizard() {
       if [[ ! -f "$gtd_item" ]]; then
         echo "❌ GTD item file not found: $gtd_item"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         continue
       fi
       
@@ -2955,13 +2945,11 @@ zettelkasten_wizard() {
       if [[ -n "$zet_note" && -n "$gtd_item" ]]; then
         zet-link gtd "$zet_note" "$gtd_item"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       else
         echo "❌ Both note and GTD item required"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       fi
       ;;
     8)
@@ -3048,8 +3036,7 @@ zettelkasten_wizard() {
       if [[ ! -d "$inbox_dir" ]]; then
         echo "❌ Inbox directory not found"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 1
       fi
       
@@ -3064,8 +3051,7 @@ zettelkasten_wizard() {
       if [[ $count -eq 0 ]]; then
         echo "✅ Zettelkasten inbox is empty!"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -3220,7 +3206,248 @@ zettelkasten_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
+}
+
+# Review and complete tasks in a specific project
+review_project_tasks() {
+  local project_slug="$1"
+  local project_name="${2:-$project_slug}"
+  
+  local project_dir="${PROJECTS_PATH}/${project_slug}"
+  if [[ ! -d "$project_dir" ]]; then
+    gtd_feedback error "Project directory not found: $project_slug"
+    gtd_quick_pause
+    return 1
+  fi
+  
+  # Get all tasks in this project
+  local tasks=()
+  while IFS= read -r task_file; do
+    [[ ! -f "$task_file" ]] && continue
+    [[ "$task_file" == */README.md ]] && continue
+    local status=$(gtd_get_frontmatter_value "$task_file" "status")
+    if [[ "$status" == "active" ]]; then
+      tasks+=("$task_file")
+    fi
+  done < <(find "$project_dir" -name "*.md" -type f 2>/dev/null)
+  
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    gtd_empty_state "active tasks" "No active tasks found in this project"
+    gtd_quick_pause
+    return 0
+  fi
+  
+  # Filter out invalid tasks
+  local valid_tasks=()
+  for t in "${tasks[@]}"; do
+    if [[ -f "$t" ]] && [[ -r "$t" ]]; then
+      valid_tasks+=("$t")
+    fi
+  done
+  tasks=("${valid_tasks[@]}")
+  
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    gtd_empty_state "active tasks" "No valid tasks found in this project"
+    gtd_quick_pause
+    return 0
+  fi
+  
+  local current_idx=0
+  local total_tasks=${#tasks[@]}
+  
+  while [[ $current_idx -lt $total_tasks ]]; do
+    local task_file="${tasks[$current_idx]}"
+    
+    # Validate task still exists
+    if [[ ! -f "$task_file" ]] || [[ ! -r "$task_file" ]]; then
+      local new_tasks=()
+      for t in "${tasks[@]}"; do
+        if [[ "$t" != "$task_file" ]] && [[ -f "$t" ]] && [[ -r "$t" ]]; then
+          new_tasks+=("$t")
+        fi
+      done
+      tasks=("${new_tasks[@]}")
+      total_tasks=${#tasks[@]}
+      
+      if [[ $total_tasks -eq 0 ]]; then
+        clear
+        gtd_feedback success "All tasks have been processed!"
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      continue
+    fi
+    
+    clear
+    local display_name=$(echo "$project_name" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+    gtd_print_header "Review Tasks: $display_name ($((current_idx + 1))/${total_tasks})" "📋"
+    echo ""
+    
+    local task_id=$(basename "$task_file" .md)
+    local task_name=""
+    if [[ -f "$task_file" ]]; then
+      task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+      task_name=$(echo "$task_name" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)(=[^[:space:]]*)?[[:space:]]*/ /g' | sed 's/[[:space:]]\{2,\}/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    else
+      task_name="$task_id"
+    fi
+    
+    local context=$(gtd_get_frontmatter_value "$task_file" "context")
+    local energy=$(gtd_get_frontmatter_value "$task_file" "energy")
+    local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
+    
+    echo -e "${BOLD}Task:${NC} ${task_name}"
+    echo -e "${BOLD}ID:${NC} ${task_id}"
+    if [[ -n "$context" ]]; then
+      echo -e "${BOLD}Context:${NC} ${context}"
+    fi
+    if [[ -n "$energy" ]]; then
+      echo -e "${BOLD}Energy:${NC} ${energy}"
+    fi
+    if [[ -n "$priority" ]]; then
+      echo -e "${BOLD}Priority:${NC} ${priority}"
+    fi
+    echo ""
+    echo -e "${BOLD}Content:${NC}"
+    if [[ -f "$task_file" ]]; then
+      head -10 "$task_file" 2>/dev/null | tail -5 | sed 's/^/  /'
+    else
+      echo "  (Task file not found)"
+    fi
+    echo ""
+    gtd_section_divider "$CYAN"
+    echo ""
+    echo "What would you like to do?"
+    echo ""
+    gtd_format_list_item "1" "Mark as completed"
+    gtd_format_list_item "2" "View full task"
+    gtd_format_list_item "3" "Edit task details"
+    gtd_format_list_item "4" "Add note to task"
+    gtd_format_list_item "5" "Skip (next task)"
+    gtd_format_list_item "6" "Back to project menu"
+    echo ""
+    echo -n "Choose (1-6): "
+    read action
+    
+    case "$action" in
+      1)
+        if command -v gtd-task &>/dev/null; then
+          gtd-task complete "$task_id" >/dev/null 2>&1
+          if [[ -n "$task_name" ]]; then
+            gtd_action_success "completed" "task" "$task_name"
+          else
+            gtd_feedback success "Task completed"
+          fi
+          
+          # Remove from array
+          local new_tasks=()
+          for t in "${tasks[@]}"; do
+            if [[ "$t" != "$task_file" ]]; then
+              new_tasks+=("$t")
+            fi
+          done
+          tasks=("${new_tasks[@]}")
+          total_tasks=${#tasks[@]}
+          
+          if [[ $total_tasks -eq 0 ]]; then
+            clear
+            gtd_feedback success "All tasks in this project have been processed!"
+            echo ""
+            gtd_quick_pause
+            return 0
+          fi
+          gtd_quick_pause
+        else
+          gtd_feedback error "gtd-task command not found"
+          gtd_quick_pause
+        fi
+        ;;
+      2)
+        if command -v gtd-task &>/dev/null; then
+          clear
+          gtd-task view "$task_id"
+          echo ""
+          gtd_quick_pause
+        else
+          gtd_feedback error "gtd-task command not found"
+          gtd_quick_pause
+        fi
+        ;;
+      3)
+        # Edit task details
+        if command -v gtd-task &>/dev/null; then
+          clear
+          gtd-task update "$task_id"
+          echo ""
+          gtd_feedback success "Task updated"
+          gtd_quick_pause
+        else
+          gtd_feedback error "gtd-task command not found"
+          gtd_quick_pause
+        fi
+        ;;
+      4)
+        # Add note to task
+        add_note_to_task_from_review "$task_id"
+        ;;
+      5)
+        ((current_idx++))
+        continue
+        ;;
+      6)
+        return 0
+        ;;
+      *)
+        gtd_feedback error "Invalid choice"
+        gtd_quick_pause
+        ;;
+    esac
+  done
+  
+  # Final check
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    clear
+    gtd_feedback success "All tasks in this project have been processed!"
+  else
+    echo ""
+    gtd_feedback success "Finished reviewing tasks in this project!"
+  fi
+  echo ""
+  gtd_quick_pause
+}
+
+# Helper function to add note to task (reusable across review interfaces)
+add_note_to_task_from_review() {
+  local task_id="$1"
+  
+  if [[ -z "$task_id" ]]; then
+    gtd_feedback error "Task ID required"
+    return 1
+  fi
+  
+  if ! command -v gtd-task &>/dev/null; then
+    gtd_feedback error "gtd-task command not found"
+    return 1
+  fi
+  
+  echo ""
+  echo -n "Note title: "
+  read note_title
+  
+  if [[ -z "$note_title" ]]; then
+    gtd_feedback error "Note title required"
+    gtd_quick_pause
+    return 1
+  fi
+  
+  if gtd-task add-note "$task_id" "$note_title" >/dev/null 2>&1; then
+    gtd_action_success "added" "note" "'$note_title' to task"
+  else
+    gtd_feedback error "Failed to add note"
+    gtd_quick_pause
+    return 1
+  fi
 }
 

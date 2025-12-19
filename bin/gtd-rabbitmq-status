@@ -128,6 +128,7 @@ else:
 deep_queue = "gtd_deep_analysis"
 vector_queue = "gtd_vectorization"
 advice_queue = "gtd_advice"
+task_org_queue = "gtd_task_organization"
 
 try:
     # Connect to RabbitMQ with timeout
@@ -245,6 +246,28 @@ try:
         print(f"   {YELLOW}⚠️  Queue '{advice_queue}' not found{NC}")
     print("")
     
+    # Check Task Organization queue
+    print(f"{BOLD}Task Organization Queue:{NC}")
+    task_org_info = get_queue_info(task_org_queue)
+    if task_org_info['exists']:
+        print(f"   Queue: {CYAN}{task_org_info['name']}{NC}")
+        print(f"   Messages waiting: {YELLOW}{task_org_info['messages']}{NC}")
+        print(f"   Active consumers: {GREEN}{task_org_info['consumers']}{NC}")
+        
+        if task_org_info['messages'] > 0 and task_org_info['consumers'] == 0:
+            print(f"   {YELLOW}⚠️  Warning: Messages queued but no consumers!{NC}")
+            print("      Start worker: cd ~/code/dotfiles/mcp && python3 gtd_task_organize_worker.py rabbitmq")
+            print("      Check status: gtd-wizard → System status → Background Worker Status")
+        elif task_org_info['messages'] == 0 and task_org_info['consumers'] > 0:
+            print(f"   {GREEN}✅ Queue empty, worker waiting for jobs{NC}")
+        elif task_org_info['messages'] > 0 and task_org_info['consumers'] > 0:
+            print(f"   {GREEN}🔄 Jobs being processed{NC}")
+        else:
+            print(f"   {CYAN}ℹ️  Queue empty, no workers connected{NC}")
+    else:
+        print(f"   {YELLOW}⚠️  Queue '{task_org_queue}' not found{NC}")
+    print("")
+    
     connection.close()
     
 except ImportError:
@@ -316,6 +339,20 @@ if [[ -f "$ADVICE_QUEUE_FILE" ]]; then
     fi
 else
     echo -e "   Advice: ${CYAN}No queue file${NC}"
+fi
+
+# Task Organization file queue
+TASK_ORG_QUEUE_FILE="${HOME}/Documents/gtd/task_organization_queue.jsonl"
+if [[ -f "$TASK_ORG_QUEUE_FILE" ]]; then
+    task_org_count=$(wc -l < "$TASK_ORG_QUEUE_FILE" 2>/dev/null || echo "0")
+    if [[ "$task_org_count" -gt 0 ]]; then
+        echo -e "   Task Organization: ${YELLOW}$task_org_count message(s)${NC}"
+        echo -e "   File: ${CYAN}$TASK_ORG_QUEUE_FILE${NC}"
+    else
+        echo -e "   Task Organization: ${GREEN}Empty${NC}"
+    fi
+else
+    echo -e "   Task Organization: ${CYAN}No queue file${NC}"
 fi
 
 echo ""

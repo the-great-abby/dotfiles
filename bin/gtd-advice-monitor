@@ -1,0 +1,51 @@
+#!/bin/bash
+# Monitor the advice worker and queue status
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔍 Advice Worker Monitor"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if worker is running
+echo "📊 Worker Status:"
+if ps aux | grep -v grep | grep "gtd_advice_worker.py" > /dev/null; then
+    WORKER_PID=$(ps aux | grep -v grep | grep "gtd_advice_worker.py" | awk '{print $2}')
+    echo "  ✅ Running (PID: $WORKER_PID)"
+else
+    echo "  ❌ Not running"
+fi
+
+echo ""
+echo "📬 Queue Status:"
+kubectl exec -n rabbitmq-system rabbitmq-cf4d6ffd5-tjf92 -- rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers 2>/dev/null | grep gtd_advice | while read name ready unacked consumers; do
+    echo "  Queue: $name"
+    echo "  Messages ready: $ready"
+    echo "  Messages being processed: $unacked"
+    echo "  Consumers: $consumers"
+    
+    if [[ $unacked -gt 0 ]]; then
+        echo "  🔄 Worker is processing a message..."
+    elif [[ $ready -gt 0 ]]; then
+        echo "  ⏳ Messages waiting to be processed"
+    else
+        echo "  ✅ Queue empty"
+    fi
+done
+
+echo ""
+echo "📝 Recent Worker Activity:"
+if [[ -f /private/tmp/advice-worker.log ]]; then
+    tail -10 /private/tmp/advice-worker.log | grep -E "(Processing|acknowledged|Connection|Advice request completed)" || {
+        echo "  (Worker is connected and waiting)"
+        tail -3 /private/tmp/advice-worker.log
+    }
+else
+    echo "  (No log file found)"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "To watch live: tail -f /private/tmp/advice-worker.log"
+echo "To check queue: gtd-advice-monitor"
+

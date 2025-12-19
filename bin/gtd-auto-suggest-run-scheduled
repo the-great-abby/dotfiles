@@ -1,0 +1,50 @@
+#!/bin/bash
+# gtd-auto-suggest-run-scheduled - Wrapper for scheduled auto-suggest runs
+#
+# This script is called by launchd and performs:
+# 1. Regular auto-suggest run
+# 2. Optional threshold adjustment (weekly)
+
+set -euo pipefail
+
+# Get the directory where this script lives
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AUTO_SUGGEST="$SCRIPT_DIR/gtd-auto-suggest"
+
+# Paths
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+LAST_ADJUSTMENT_FILE="$GTD_BASE_DIR/.last_threshold_adjustment"
+
+# Run auto-suggest
+echo "=== Running auto-suggest at $(date) ==="
+"$AUTO_SUGGEST" run
+
+# Check if we should run threshold adjustment (weekly)
+run_adjustment=false
+
+if [[ -f "$LAST_ADJUSTMENT_FILE" ]]; then
+    last_adjustment=$(cat "$LAST_ADJUSTMENT_FILE")
+    last_timestamp=$(date -j -f "%Y-%m-%d" "$last_adjustment" "+%s" 2>/dev/null || echo "0")
+    now_timestamp=$(date "+%s")
+    days_since=$((($now_timestamp - $last_timestamp) / 86400))
+    
+    if [[ $days_since -ge 7 ]]; then
+        run_adjustment=true
+    fi
+else
+    # Never run, do it now
+    run_adjustment=true
+fi
+
+if [[ "$run_adjustment" == "true" ]]; then
+    echo ""
+    echo "=== Running threshold adjustment (weekly) ==="
+    "$AUTO_SUGGEST" adjust-thresholds
+    
+    # Update last adjustment date
+    date "+%Y-%m-%d" > "$LAST_ADJUSTMENT_FILE"
+fi
+
+echo ""
+echo "=== Completed at $(date) ==="
+

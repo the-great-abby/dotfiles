@@ -44,11 +44,7 @@ get_log_inspiration() {
 oncall_capture_wizard() {
   while true; do
     clear
-    echo ""
-    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}${CYAN}📞 Oncall Capture Wizard${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+    gtd_print_header "Oncall Capture Wizard" "📞"
     # Show oncall guide if function exists
     if command -v show_oncall_guide &>/dev/null || type show_oncall_guide &>/dev/null 2>/dev/null; then
       show_oncall_guide
@@ -70,6 +66,7 @@ oncall_capture_wizard() {
     echo "  7) Oncall task (general oncall action item)"
     echo "  8) Oncall note (general oncall observation)"
     echo "  9) Handoff notes (shift handoff information)"
+    echo " 10) On deck task (on deck responsibilities)"
     echo ""
     echo -e "${YELLOW}  0) Back to capture menu${NC}"
     echo ""
@@ -182,8 +179,7 @@ oncall_capture_wizard() {
         if [[ -z "$incident_title" ]]; then
           echo "❌ Incident title required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -271,8 +267,7 @@ oncall_capture_wizard() {
         if [[ -z "$pm_title" ]]; then
           echo "❌ Post-mortem title required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -324,8 +319,7 @@ oncall_capture_wizard() {
         if [[ -z "$runbook_name" ]]; then
           echo "❌ Runbook name required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -361,8 +355,7 @@ oncall_capture_wizard() {
         if [[ -z "$alert_name" ]]; then
           echo "❌ Alert name required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -420,8 +413,7 @@ oncall_capture_wizard() {
         if [[ -z "$task_content" ]]; then
           echo "❌ Task description required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -447,8 +439,7 @@ oncall_capture_wizard() {
         if [[ -z "$note_content" ]]; then
           echo "❌ Note content required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -477,8 +468,7 @@ oncall_capture_wizard() {
         if [[ -z "$handoff_content" ]]; then
           echo "❌ Handoff notes required"
           echo ""
-          echo "Press Enter to continue..."
-          read
+    gtd_quick_pause
           continue
         fi
         
@@ -487,11 +477,42 @@ oncall_capture_wizard() {
         echo ""
         echo -e "${GREEN}✓ Handoff notes captured!${NC}"
         ;;
+      10)
+        # On deck task
+        clear
+        echo ""
+        echo -e "${BOLD}${CYAN}🎯 On Deck Task${NC}"
+        echo ""
+        echo "On deck responsibilities include:"
+        echo "  • Post daily infra changes before 3pm MST"
+        echo "  • Attend Infrastructure Pre-Release meeting"
+        echo "  • Handle permission requests in #rebel-alliance-reliability"
+        echo "  • Watch reliability channels for inquiries"
+        echo ""
+        echo -n "What on deck task needs to be done? "
+        read ondeck_task_content
+        if [[ -z "$ondeck_task_content" ]]; then
+          echo "❌ Task description required"
+          echo ""
+    gtd_quick_pause
+          continue
+        fi
+        
+        # Create task with oncall and on-deck tags
+        if command -v gtd-task &>/dev/null; then
+          gtd-task add "$ondeck_task_content #oncall #on-deck" --non-interactive --context=computer --energy=medium --priority=not_urgent_important 2>/dev/null || true
+          echo ""
+          echo -e "${GREEN}✓ On deck task created${NC}"
+        else
+          gtd-capture --type=task "$ondeck_task_content #oncall #on-deck"
+          echo ""
+          echo -e "${GREEN}✓ On deck task captured${NC}"
+        fi
+        ;;
       *)
         echo "❌ Invalid choice"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         continue
         ;;
     esac
@@ -516,11 +537,7 @@ capture_wizard() {
   # Loop to stay in capture mode
   while true; do
     clear
-    echo ""
-    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}${CYAN}📥 Capture Wizard${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+    gtd_print_header "Capture Wizard" "📥"
     show_capture_guide
     echo "What type of item are you capturing?"
     echo ""
@@ -554,8 +571,7 @@ capture_wizard() {
     if [[ -z "$capture_content" ]]; then
       echo "❌ No content provided"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       continue  # Loop back to capture menu
     fi
     
@@ -829,11 +845,7 @@ capture_wizard() {
 process_wizard() {
   while true; do
     clear
-    echo ""
-    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}${CYAN}📋 Process Inbox Wizard${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+    gtd_print_header "Process Inbox Wizard" "📋"
     show_process_guide
     
     # Check inbox count
@@ -867,8 +879,7 @@ process_wizard() {
         echo ""
         echo "📥 $remaining item(s) remaining in inbox"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
       else
         echo ""
         echo "✅ All items processed! Inbox is now empty."
@@ -895,8 +906,7 @@ process_wizard() {
     *)
       echo "Invalid choice. Please choose 1, 2, or 0."
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
   done
@@ -955,8 +965,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       return 0
       ;;
     3)
@@ -980,8 +989,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       return 0
       ;;
     4)
@@ -999,8 +1007,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       return 0
       ;;
     5)
@@ -1024,8 +1031,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       return 0
       ;;
     6)
@@ -1043,8 +1049,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       return 0
       ;;
     *)
@@ -1195,8 +1200,7 @@ log_wizard() {
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
 }
 
 # Check-in wizard
@@ -1264,8 +1268,7 @@ checkin_wizard() {
       if [[ ! -d "$RESULTS_DIR" ]]; then
         echo "No analysis results directory found."
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -1288,8 +1291,7 @@ checkin_wizard() {
         echo ""
         echo "💡 Tip: Analysis is automatically queued when you complete a check-in!"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -1332,8 +1334,7 @@ checkin_wizard() {
       if ! [[ "$selection" =~ ^[0-9]+$ ]] || [[ "$selection" -lt 1 ]] || [[ "$selection" -gt ${#all_results[@]} ]]; then
         echo "Invalid selection"
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         return 0
       fi
       
@@ -1408,8 +1409,7 @@ PYTHON_EOF
       
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       return 0
@@ -1420,8 +1420,7 @@ PYTHON_EOF
   esac
   
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
 }
 
 # Mood logging wizard
@@ -1443,8 +1442,7 @@ mood_log_wizard() {
     echo "❌ gtd-log-mood command not found"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
 }
 # Calendar log wizard
 calendar_log_wizard() {
@@ -1473,8 +1471,7 @@ calendar_log_wizard() {
     echo "   Make sure the command is installed and in your PATH."
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
 }
 
 # Collect all metrics wizard
@@ -1509,7 +1506,6 @@ collect_all_wizard() {
     echo "$output"
   fi
   echo ""
-  echo "Press Enter to continue..."
-  read
+    gtd_quick_pause
 }
 

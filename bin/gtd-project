@@ -79,6 +79,145 @@ normalize_repo_url() {
   echo "$url"
 }
 
+# Initialize README for existing project
+init_readme() {
+  local project_name="$1"
+  
+  if [[ -z "$project_name" ]]; then
+    echo "Usage: gtd-project init-readme <project-name>"
+    exit 1
+  fi
+  
+  # Use the project name as-is (it should already be the exact directory name)
+  # Only normalize if it contains spaces (user typed a display name from command line)
+  local project_dir=""
+  local actual_project_name="$project_name"
+  
+  if [[ "$project_name" == *" "* ]]; then
+    # User provided a display name from command line, convert to slug
+    actual_project_name=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[- ]*$//')
+    project_dir="${PROJECTS_PATH}/${actual_project_name}"
+  else
+    # User provided the directory name/slug directly (from wizard), use as-is
+    # This preserves any special characters, trailing hyphens, etc.
+    project_dir="${PROJECTS_PATH}/${project_name}"
+    actual_project_name="$project_name"
+  fi
+  
+  # If directory doesn't exist, offer to create it
+  if [[ ! -d "$project_dir" ]]; then
+    echo "📁 Project directory not found: $project_name"
+    echo "   Location: $project_dir"
+    read -p "Create the directory? (Y/n): " create_dir
+    if [[ -z "$create_dir" || "$create_dir" =~ ^[Yy]$ ]]; then
+      mkdir -p "$project_dir"
+      echo "✓ Created project directory: $project_dir"
+    else
+      echo "Cancelled."
+      exit 1
+    fi
+  fi
+  
+  # Use the actual project name for the README content
+  project_name="$actual_project_name"
+  
+  local readme="${project_dir}/README.md"
+  
+  if [[ -f "$readme" ]]; then
+    echo "⚠️  Project already has a README.md file: $readme"
+    read -p "Overwrite? (y/N): " overwrite
+    if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
+      echo "Cancelled."
+      exit 0
+    fi
+  fi
+  
+  # Get project info interactively
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 Initialize README for project: $project_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Get outcome
+  echo "📋 What does 'done' look like for this project?"
+  echo "   (Example: 'A fully redesigned website launched with new branding')"
+  read -p "Project outcome: " outcome
+  
+  # Get optional fields
+  echo ""
+  read -p "Repository URL (optional, press Enter to skip): " repository
+  if [[ -n "$repository" ]]; then
+    repository=$(normalize_repo_url "$repository")
+  fi
+  
+  # Check for goals
+  local goal=""
+  if [[ -d "$GOALS_DIR" ]] && [[ -n "$(find "$GOALS_DIR" -name "*.md" 2>/dev/null)" ]]; then
+    echo ""
+    read -p "Link to goal (optional, press Enter to skip): " goal
+  fi
+  
+  # Check if project already has tasks to determine created date
+  local created_date="${TODAY}T${NOW}"
+  local tasks=($(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null))
+  if [[ ${#tasks[@]} -gt 0 ]]; then
+    # Use the oldest task's date if available
+    local oldest_task=$(printf '%s\n' "${tasks[@]}" | head -1)
+    local task_created=$(get_frontmatter_value "$oldest_task" "created" 2>/dev/null)
+    if [[ -n "$task_created" ]]; then
+      created_date="$task_created"
+    fi
+  fi
+  
+  # Create README
+  {
+    echo "---"
+    echo "type: project"
+    echo "status: active"
+    echo "created: ${created_date}"
+    echo "project: ${project_name}"
+    if [[ -n "$outcome" ]]; then
+      echo "outcome: ${outcome}"
+    fi
+    if [[ -n "$goal" ]]; then
+      echo "goal: ${goal}"
+    fi
+    if [[ -n "$repository" ]]; then
+      echo "repository: ${repository}"
+    fi
+    echo "tags: []"
+    echo "---"
+    echo ""
+    echo "# ${project_name}"
+    echo ""
+    if [[ -n "$outcome" ]]; then
+      echo "## Outcome"
+      echo ""
+      echo "$outcome"
+      echo ""
+    fi
+    echo "## Description"
+    echo ""
+    echo ""
+    echo "## Goals"
+    echo ""
+    echo ""
+    echo "## Next Actions"
+    echo ""
+    echo ""
+    echo "## Tasks"
+    echo ""
+  } > "${readme}"
+  
+  echo ""
+  echo "✓ Created README.md for project: $project_name"
+  echo "  Location: $readme"
+  if [[ -n "$outcome" ]]; then
+    echo "  Outcome: $outcome"
+  fi
+}
+
 # Create project
 create_project() {
   local project_name=""
@@ -253,14 +392,52 @@ list_projects() {
     
     ((count++))
     local created=$(get_frontmatter_value "$readme" "created")
-    local task_count=$(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
+    
+    # Count tasks - total and active
+    local all_tasks=($(find "$project_dir" -name "*.md" ! -name "README.md" 2>/dev/null))
+    local task_count=${#all_tasks[@]}
+    local active_task_count=0
+    
+    for task_file in "${all_tasks[@]}"; do
+      if [[ -f "$task_file" ]]; then
+        local task_status=$(get_frontmatter_value "$task_file" "status")
+        if [[ "$task_status" == "active" ]]; then
+          ((active_task_count++))
+        fi
+      fi
+    done
+    
+    # Get area if defined
+    local area=$(get_frontmatter_value "$readme" "area")
     
     local repository=$(get_frontmatter_value "$readme" "repository")
     local outcome=$(get_frontmatter_value "$readme" "outcome")
     local goal=$(get_frontmatter_value "$readme" "goal")
     
     echo "[$count] $project_name"
-    echo "     Status: $status | Created: $created | Tasks: $task_count"
+    
+    # Build status line with task count and area
+    local status_line="     Status: $status | Created: $created"
+    
+    # Add task count
+    if [[ $task_count -gt 0 ]]; then
+      if [[ $active_task_count -eq $task_count ]]; then
+        status_line="${status_line} | Tasks: $task_count"
+      else
+        status_line="${status_line} | Tasks: $active_task_count/$task_count active"
+      fi
+    else
+      status_line="${status_line} | Tasks: 0"
+    fi
+    
+    # Add area if defined
+    if [[ -n "$area" ]]; then
+      local area_display=$(echo "$area" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      status_line="${status_line} | Area: $area_display"
+    fi
+    
+    echo "$status_line"
+    
     if [[ -n "$outcome" ]]; then
       echo "     Outcome: $outcome"
     fi
@@ -334,12 +511,33 @@ view_project() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     for task in "${tasks[@]}"; do
-      local task_name=$(basename "$task" .md)
+      local task_id=$(basename "$task" .md)
       local status=$(get_frontmatter_value "$task" "status")
       local next_action=$(get_frontmatter_value "$task" "next_action")
       
-      echo "  • $task_name"
-      echo "    Status: $status"
+      # Get task title/description from first heading or frontmatter
+      local task_title=""
+      if [[ -f "$task" ]]; then
+        # Try to get from first heading
+        task_title=$(head -20 "$task" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        # Remove any flags that might be embedded in the title
+        task_title=$(echo "$task_title" | sed -E 's/[[:space:]]*--(context|priority|energy|project|repository|repo|recurring|frequency)(=[^[:space:]]*)?[[:space:]]*/ /g' | sed 's/[[:space:]]\{2,\}/ /g')
+        
+        # If no title found, try frontmatter
+        if [[ -z "$task_title" ]]; then
+          task_title=$(get_frontmatter_value "$task" "title" 2>/dev/null)
+        fi
+        
+        # Fallback to task ID if still no title
+        if [[ -z "$task_title" ]]; then
+          task_title="$task_id"
+        fi
+      else
+        task_title="$task_id"
+      fi
+      
+      echo "  • $task_title"
+      echo "    ID: $task_id | Status: $status"
       if [[ -n "$next_action" ]]; then
         echo "    Next action: $next_action"
       fi
@@ -950,11 +1148,16 @@ main() {
       shift
       archive_project "$1"
       ;;
+    init-readme|init)
+      shift
+      init_readme "$1"
+      ;;
     --help|-h|"")
       echo "Usage: gtd-project <command> [options]"
       echo ""
       echo "Commands:"
       echo "  create <name>                    Create a new project"
+      echo "  init-readme <name>               Initialize README for existing project"
       echo "  list [status]                    List projects (default: active)"
       echo "  view <name>                      View project details"
       echo "  add-task <name> <description>    Add task to project"
@@ -967,6 +1170,7 @@ main() {
       echo ""
       echo "Examples:"
       echo "  gtd-project create \"Website Redesign\""
+      echo "  gtd-project init-readme trading-bot    # Create README for existing project"
       echo "  gtd-project kickoff website-redesign"
       echo "  gtd-project list"
       echo "  gtd-project view website-redesign"

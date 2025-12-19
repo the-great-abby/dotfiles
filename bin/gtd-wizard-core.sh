@@ -32,7 +32,7 @@ set_computer_mode() {
   fi
   
   if [[ "$mode" != "work" && "$mode" != "home" ]]; then
-    echo "Error: Mode must be 'work' or 'home'" >&2
+    gtd_feedback error "Mode must be 'work' or 'home'"
     return 1
   fi
   
@@ -284,7 +284,7 @@ RABBITMQ_ENABLED=true
     
     return 0
   else
-    echo "Error: Config file not found: $gtd_config" >&2
+    gtd_feedback error "Config file not found: $gtd_config"
     return 1
   fi
 }
@@ -602,6 +602,20 @@ get_smart_defaults() {
     done | wc -l | tr -d ' ')
   fi
   
+  # Check for project suggestion results (from option 8 - Task Organization)
+  local project_suggestions_count=0
+  local task_org_results_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/task_organization_results"
+  if [[ -d "$task_org_results_dir" ]]; then
+    project_suggestions_count=$(find "$task_org_results_dir" -name "project_suggestions_*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  # Check for knowledge organization results (MoC/Area suggestions)
+  local knowledge_org_count=0
+  local knowledge_org_results_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/knowledge_organization_results"
+  if [[ -d "$knowledge_org_results_dir" ]]; then
+    knowledge_org_count=$(find "$knowledge_org_results_dir" -name "knowledge_org_*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
   # Add suggestions for background jobs ready for review (as priorities since they're actionable)
   if [[ $pending_suggestions_count -gt 0 ]]; then
     priorities+=("24|Review AI Suggestions|${pending_suggestions_count} pending suggestion(s) ready for review")
@@ -609,6 +623,16 @@ get_smart_defaults() {
   
   if [[ $completed_advice_count -gt 0 ]]; then
     priorities+=("11|Review Advice Results|${completed_advice_count} advice response(s) ready for review")
+  fi
+  
+  if [[ $project_suggestions_count -gt 0 ]]; then
+    # Task organizer is accessed via option 3 (tasks) → option 10 (organize)
+    # But we'll add a direct shortcut message in the priorities
+    priorities+=("3|Review Project Suggestions|${project_suggestions_count} project suggestion result(s) ready (Tasks → Organize)")
+  fi
+  
+  if [[ $knowledge_org_count -gt 0 ]]; then
+    priorities+=("24|Review MoC/Area Suggestions|${knowledge_org_count} knowledge organization result(s) ready (AI Tools → Option 17)")
   fi
   
   # ============================================================================
@@ -863,8 +887,7 @@ computer_mode_wizard() {
         set_computer_mode "work"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       return 0
@@ -872,8 +895,7 @@ computer_mode_wizard() {
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
 }
@@ -931,8 +953,7 @@ test_execution_wizard() {
         echo -e "${RED}Test runner not found: $tests_dir/run_tests.sh${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     2)
       echo ""
@@ -944,8 +965,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_gtd_common.sh${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     3)
       echo ""
@@ -957,8 +977,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_gtd_guides.sh${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     4)
       echo ""
@@ -970,8 +989,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_wizard_functions.sh${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     5)
       echo ""
@@ -983,8 +1001,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_wizard_core_functions.sh${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     6)
       echo ""
@@ -996,8 +1013,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_zettelkasten_wizard.sh${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     7)
       echo ""
@@ -1010,8 +1026,7 @@ test_execution_wizard() {
           echo ""
         fi
       done
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     8)
       echo ""
@@ -1023,8 +1038,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_enhanced_search.py${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     9)
       echo ""
@@ -1036,8 +1050,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_gtd_persona_helper.py${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     10)
       echo ""
@@ -1049,8 +1062,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_gtd_tool_registry.py${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     11)
       echo ""
@@ -1062,8 +1074,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_lmstudio_helper.py${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     12)
       echo ""
@@ -1075,8 +1086,7 @@ test_execution_wizard() {
         echo -e "${RED}Test runner not found: $tests_dir/run_tests.sh${NC}"
       fi
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       return 0
@@ -1084,8 +1094,7 @@ test_execution_wizard() {
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
 }
@@ -1173,7 +1182,7 @@ show_process_reminders() {
   echo ""
 }
 
-# Dashboard - Show system status and quick stats
+# Dashboard - Show system status and quick stats (polished version)
 show_dashboard() {
   # Get current date/time
   local current_date=$(gtd_get_today)
@@ -1181,54 +1190,84 @@ show_dashboard() {
   local day_name=$(date +"%A" 2>/dev/null || echo "")
   
   echo ""
-  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  gtd_section_divider "$CYAN"
   echo -e "${BOLD}${CYAN}🎯 GTD Command Center${NC}"
   if [[ -n "$day_name" ]]; then
     echo -e "${CYAN}   ${day_name}, ${current_date} ${current_time}${NC}"
   else
     echo -e "${CYAN}   ${current_date} ${current_time}${NC}"
   fi
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  gtd_section_divider "$CYAN"
   echo ""
   
-  # System Status Section
+  # System Status Section - Compact format
   echo -e "${BOLD}📊 System Status${NC}"
-  echo ""
   
-  # Inbox count
-  local inbox_count=$(ls -1 "${INBOX_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  # Inbox count (cached for 5 seconds)
+  local inbox_count=$(gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md" 5)
   if [[ $inbox_count -gt 0 ]]; then
-    echo -e "  ${RED}📥 Inbox: ${inbox_count} item(s)${NC} ${YELLOW}→ Process first! (option 2)${NC}"
+    echo -e "  ${RED}📥${NC} ${BOLD}Inbox:${NC} ${inbox_count} ${YELLOW}→ Process first! (2)${NC}"
   else
-    echo -e "  ${GREEN}✓ Inbox: Empty${NC}"
+    echo -e "  ${GREEN}✓${NC} ${BOLD}Inbox:${NC} Empty"
   fi
   
-  # Active tasks count
-  local tasks_count=0
-  if [[ -d "${TASKS_PATH}" ]]; then
-    tasks_count=$(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
-  fi
-  echo -e "  ${CYAN}✅ Active Tasks: ${tasks_count}${NC}"
+  # Active tasks count (cached)
+  local tasks_count=$(gtd_get_cached_count "tasks" "${TASKS_PATH}" "*.md" 5)
+  echo -e "  ${CYAN}✅${NC} ${BOLD}Tasks:${NC} ${tasks_count}"
   
-  # Active projects count
-  local projects_count=0
-  if [[ -d "${PROJECTS_PATH}" ]]; then
-    projects_count=$(ls -1 "${PROJECTS_PATH}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
-  fi
-  echo -e "  ${CYAN}📁 Active Projects: ${projects_count}${NC}"
+  # Active projects count (cached) - special pattern for projects
+  local projects_count=$(gtd_get_cached_count "projects" "${PROJECTS_PATH}" "projects" 5)
+  echo -e "  ${CYAN}📁${NC} ${BOLD}Projects:${NC} ${projects_count}"
   
-  # Areas count
-  local areas_count=0
-  if [[ -d "${AREAS_PATH}" ]]; then
-    areas_count=$(ls -1 "${AREAS_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  # Areas count (cached)
+  local areas_count=$(gtd_get_cached_count "areas" "${AREAS_PATH}" "*.md" 5)
+  echo -e "  ${CYAN}🎯${NC} ${BOLD}Areas:${NC} ${areas_count}"
+  
+  # Smart Suggestions count
+  local suggestions_dir="$HOME/Documents/gtd/suggestions"
+  local total_suggestions=0
+  local high_conf_suggestions=0
+  local medium_conf_suggestions=0
+  local low_conf_suggestions=0
+  
+  if [[ -d "$suggestions_dir" ]]; then
+    # Use find to get JSON files instead of glob
+    while IFS= read -r suggestion_file; do
+      # Check if status is pending
+      local status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$suggestion_file" 2>/dev/null | sed 's/.*"\([^"]*\)"/\1/')
+      if [[ "$status" == "pending" ]]; then
+        ((total_suggestions++))
+        
+        # Get confidence level
+        local confidence=$(grep -o '"confidence"[[:space:]]*:[[:space:]]*[0-9.]*' "$suggestion_file" 2>/dev/null | sed 's/.*:[[:space:]]*//')
+        
+        if [[ -n "$confidence" ]]; then
+          # Categorize by confidence (>= 0.85 high, >= 0.70 medium, < 0.70 low)
+          if awk "BEGIN {exit !($confidence >= 0.85)}" 2>/dev/null; then
+            ((high_conf_suggestions++))
+          elif awk "BEGIN {exit !($confidence >= 0.70)}" 2>/dev/null; then
+            ((medium_conf_suggestions++))
+          else
+            ((low_conf_suggestions++))
+          fi
+        fi
+      fi
+    done < <(find "$suggestions_dir" -maxdepth 1 -name "*.json" -type f 2>/dev/null)
   fi
-  echo -e "  ${CYAN}🎯 Areas: ${areas_count}${NC}"
+  
+  # Display suggestions with confidence breakdown
+  if [[ $total_suggestions -gt 0 ]]; then
+    local suggestion_details=""
+    [[ $high_conf_suggestions -gt 0 ]] && suggestion_details+="${GREEN}⭐${high_conf_suggestions}${NC} "
+    [[ $medium_conf_suggestions -gt 0 ]] && suggestion_details+="${YELLOW}●${medium_conf_suggestions}${NC} "
+    [[ $low_conf_suggestions -gt 0 ]] && suggestion_details+="${CYAN}○${low_conf_suggestions}${NC}"
+    echo -e "  ${CYAN}💡${NC} ${BOLD}Suggestions:${NC} ${total_suggestions} ${suggestion_details} ${YELLOW}→ (9)${NC}"
+  fi
   
   echo ""
   
-  # Quick Stats Section
+  # Quick Stats Section - Compact format
   echo -e "${BOLD}📈 Quick Stats${NC}"
-  echo ""
   
   # Logging streak
   local streak_script=""
@@ -1247,9 +1286,9 @@ show_dashboard() {
       current_streak=0
     fi
     if [[ $current_streak -gt 0 ]]; then
-      echo -e "  ${GREEN}🔥 Logging Streak: ${current_streak} day(s)${NC}"
+      echo -e "  ${GREEN}🔥${NC} ${BOLD}Streak:${NC} ${current_streak} day(s)"
     else
-      echo -e "  ${YELLOW}📝 Logging Streak: Start logging!${NC}"
+      echo -e "  ${YELLOW}📝${NC} ${BOLD}Streak:${NC} Start logging!"
     fi
   fi
   
@@ -1260,24 +1299,18 @@ show_dashboard() {
   if [[ -f "$today_log" ]]; then
     today_entries=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
   fi
-  echo -e "  ${CYAN}📝 Today's Entries: ${today_entries}${NC}"
+  echo -e "  ${CYAN}📝${NC} ${BOLD}Today:${NC} ${today_entries} entries"
   
-  # Waiting for items
-  local waiting_count=0
-  if [[ -d "${WAITING_PATH}" ]]; then
-    waiting_count=$(ls -1 "${WAITING_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
-  fi
+  # Waiting for items (cached)
+  local waiting_count=$(gtd_get_cached_count "waiting" "${WAITING_PATH}" "*.md" 5)
   if [[ $waiting_count -gt 0 ]]; then
-    echo -e "  ${YELLOW}⏳ Waiting For: ${waiting_count} item(s)${NC}"
+    echo -e "  ${YELLOW}⏳${NC} ${BOLD}Waiting:${NC} ${waiting_count}"
   fi
   
-  # Someday/Maybe items
-  local someday_count=0
-  if [[ -d "${SOMEDAY_PATH}" ]]; then
-    someday_count=$(ls -1 "${SOMEDAY_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
-  fi
+  # Someday/Maybe items (cached)
+  local someday_count=$(gtd_get_cached_count "someday" "${SOMEDAY_PATH}" "*.md" 5)
   if [[ $someday_count -gt 0 ]]; then
-    echo -e "  ${MAGENTA}💭 Someday/Maybe: ${someday_count} item(s)${NC}"
+    echo -e "  ${MAGENTA}💭${NC} ${BOLD}Someday:${NC} ${someday_count}"
   fi
   
   echo ""
@@ -1285,22 +1318,93 @@ show_dashboard() {
   # Smart Defaults Section
   show_smart_defaults
   
-  # Quick Actions Section
+  # Quick Actions Section - Compact format
   echo -e "${BOLD}⚡ Quick Actions${NC}"
-  echo ""
   if [[ $inbox_count -gt 0 ]]; then
-    echo -e "  ${YELLOW}⚠️  ${BOLD}${inbox_count}${NC}${YELLOW} inbox item(s) need processing → Press ${BOLD}2${NC}${YELLOW}${NC}"
+    echo -e "  ${YELLOW}⚠️${NC} ${BOLD}${inbox_count}${NC} inbox → Press ${BOLD}2${NC}"
   fi
   if [[ $waiting_count -gt 0 ]]; then
-    echo -e "  ${YELLOW}⏳ ${waiting_count} item(s) waiting → Review with option 6 (Review)${NC}"
+    echo -e "  ${YELLOW}⏳${NC} ${waiting_count} waiting → Review (6)"
   fi
-  echo -e "  ${CYAN}💡 Press ${BOLD}40${NC}${CYAN} for 'What should I do now?'${NC}"
-  echo -e "  ${CYAN}📝 Press ${BOLD}15${NC}${CYAN} to log to daily log${NC}"
-  echo -e "  ${CYAN}📊 Press ${BOLD}17${NC}${CYAN} for full system status${NC}"
+  echo -e "  ${CYAN}💡${NC} 'What now?' → ${BOLD}40${NC}"
+  echo -e "  ${CYAN}📝${NC} Daily log → ${BOLD}15${NC}"
+  echo -e "  ${CYAN}📊${NC} Full status → ${BOLD}17${NC}"
   echo ""
   
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  gtd_section_divider "$CYAN"
   echo ""
+}
+
+# Compact dashboard - one-line status display
+show_compact_dashboard() {
+  local current_date=$(gtd_get_today)
+  local current_time=$(gtd_get_current_time)
+  
+  # Get counts
+  local inbox_count=$(ls -1 "${INBOX_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  local tasks_count=0
+  if [[ -d "${TASKS_PATH}" ]]; then
+    tasks_count=$(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  local projects_count=0
+  if [[ -d "${PROJECTS_PATH}" ]]; then
+    projects_count=$(ls -1 "${PROJECTS_PATH}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  local areas_count=0
+  if [[ -d "${AREAS_PATH}" ]]; then
+    areas_count=$(ls -1 "${AREAS_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  # Smart Suggestions count
+  local suggestions_count=0
+  local suggestions_dir="$HOME/Documents/gtd/suggestions"
+  if [[ -d "$suggestions_dir" ]]; then
+    while IFS= read -r suggestion_file; do
+      local status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$suggestion_file" 2>/dev/null | sed 's/.*"\([^"]*\)"/\1/')
+      if [[ "$status" == "pending" ]]; then
+        ((suggestions_count++))
+      fi
+    done < <(find "$suggestions_dir" -maxdepth 1 -name "*.json" -type f 2>/dev/null)
+  fi
+  
+  # One-line display
+  echo -e "${BOLD}${CYAN}🎯 GTD${NC} ${current_date} ${current_time} | ${RED}📥${NC} ${inbox_count} | ${CYAN}✅${NC} ${tasks_count} | ${CYAN}📁${NC} ${projects_count} | ${CYAN}🎯${NC} ${areas_count} | ${BOLD}💡${NC} ${suggestions_count}"
+}
+
+# Plain compact dashboard - no colors (for tmux status bar)
+show_plain_dashboard() {
+  local current_date=$(gtd_get_today)
+  local current_time=$(gtd_get_current_time)
+  
+  # Get counts
+  local inbox_count=$(ls -1 "${INBOX_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  local tasks_count=0
+  if [[ -d "${TASKS_PATH}" ]]; then
+    tasks_count=$(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  local projects_count=0
+  if [[ -d "${PROJECTS_PATH}" ]]; then
+    projects_count=$(ls -1 "${PROJECTS_PATH}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  local areas_count=0
+  if [[ -d "${AREAS_PATH}" ]]; then
+    areas_count=$(ls -1 "${AREAS_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  
+  # Smart Suggestions count
+  local suggestions_count=0
+  local suggestions_dir="$HOME/Documents/gtd/suggestions"
+  if [[ -d "$suggestions_dir" ]]; then
+    while IFS= read -r suggestion_file; do
+      local status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$suggestion_file" 2>/dev/null | sed 's/.*"\([^"]*\)"/\1/')
+      if [[ "$status" == "pending" ]]; then
+        ((suggestions_count++))
+      fi
+    done < <(find "$suggestions_dir" -maxdepth 1 -name "*.json" -type f 2>/dev/null)
+  fi
+  
+  # One-line display WITHOUT colors
+  echo "🎯 GTD ${current_date} ${current_time} | 📥 ${inbox_count} | ✅ ${tasks_count} | 📁 ${projects_count} | 🎯 ${areas_count} | 💡 ${suggestions_count}"
 }
 
 # Show earned badges
@@ -1493,7 +1597,7 @@ external_database_wizard() {
       local db_wizard_dir="$HOME/code/external_services/database"
       
       if [[ ! -d "$db_wizard_dir" ]]; then
-        echo "❌ Database wizard directory not found: $db_wizard_dir"
+        gtd_feedback error "Database wizard directory not found: $db_wizard_dir"
         echo ""
         echo "Press Enter to return to main menu..."
         read
@@ -1503,8 +1607,7 @@ external_database_wizard() {
       echo "Entering Database Infrastructure Wizard..."
       echo "  (You can exit this wizard to return to the GTD wizard)"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       
       # Change to the database wizard directory and run make wizard
       # This will run in a subshell, so when it exits, we return here
@@ -1513,17 +1616,15 @@ external_database_wizard() {
         if [[ -f "Makefile" ]]; then
           make wizard
         else
-          echo "❌ Makefile not found in $db_wizard_dir"
-          echo "Press Enter to continue..."
-          read
+          gtd_feedback error "Makefile not found in $db_wizard_dir"
+          gtd_quick_pause
         fi
       )
       
       # When the external wizard exits, we return to the main wizard
       echo ""
       echo "Returning to GTD Wizard..."
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     2)
       # Call vector database wizard from tools
@@ -1539,10 +1640,9 @@ external_database_wizard() {
           source "$GTD_WIZARD_TOOLS" 2>/dev/null
           vector_database_wizard
         else
-          echo "❌ Vector database wizard not available"
+          gtd_feedback error "Vector database wizard not available"
           echo ""
-          echo "Press Enter to continue..."
-          read
+          gtd_quick_pause
         fi
       fi
       ;;
@@ -1554,8 +1654,7 @@ external_database_wizard() {
       echo ""
       cd "$HOME/code/dotfiles" && make verify-nodeport
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
     0|"")
       return 0
@@ -1563,8 +1662,7 @@ external_database_wizard() {
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       ;;
   esac
 }
@@ -1581,7 +1679,7 @@ external_rabbitmq_wizard() {
   local rabbitmq_wizard_dir="$HOME/code/external_services/rabbitmq"
   
   if [[ ! -d "$rabbitmq_wizard_dir" ]]; then
-    echo "❌ RabbitMQ wizard directory not found: $rabbitmq_wizard_dir"
+    gtd_feedback error "RabbitMQ wizard directory not found: $rabbitmq_wizard_dir"
     echo ""
     echo "Press Enter to return to main menu..."
     read
@@ -1591,8 +1689,7 @@ external_rabbitmq_wizard() {
   echo "Entering RabbitMQ Management Wizard..."
   echo "  (You can exit this wizard to return to the GTD wizard)"
   echo ""
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
   
   # Change to the RabbitMQ wizard directory and run make wizard
   # This will run in a subshell, so when it exits, we return here
@@ -1601,17 +1698,15 @@ external_rabbitmq_wizard() {
     if [[ -f "Makefile" ]]; then
       make wizard
     else
-      echo "❌ Makefile not found in $rabbitmq_wizard_dir"
-      echo "Press Enter to continue..."
-      read
+      gtd_feedback error "Makefile not found in $rabbitmq_wizard_dir"
+      gtd_quick_pause
     fi
   )
   
   # When the external wizard exits, we return to the main wizard
   echo ""
   echo "Returning to GTD Wizard..."
-  echo "Press Enter to continue..."
-  read
+  gtd_quick_pause
 }
 
 # Main menu display
@@ -1835,14 +1930,12 @@ main() {
         elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-log" ]]; then
           "$HOME/code/personal/dotfiles/bin/gtd-log" today
         else
-          echo "❌ gtd-log command not found"
-          echo "Press Enter to continue..."
-          read
+          gtd_feedback error "gtd-log command not found. Install it or check your PATH."
+          gtd_quick_pause
           continue
         fi
         echo ""
-        echo "Press Enter to continue..."
-        read
+        gtd_quick_pause
         ;;
       20)
         award_wizard_xp "wizard_action" "Used wizard: Learn Kubernetes"

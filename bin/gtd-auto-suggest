@@ -1,0 +1,274 @@
+#!/bin/bash
+# gtd-auto-suggest - CLI for the GTD Auto-Suggest system
+#
+# Provides easy command-line access to autonomous suggestion implementation
+
+set -euo pipefail
+
+# Get the directory where this script lives
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES_DIR="$(dirname "$SCRIPT_DIR")"
+AUTO_SUGGEST_PY="$DOTFILES_DIR/mcp/gtd_auto_suggest.py"
+
+# Source common functions for thinking timer
+source "$DOTFILES_DIR/bin/gtd-common.sh"
+
+# Color output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+usage() {
+    cat << EOF
+Usage: gtd-auto-suggest <command> [options]
+
+Commands:
+    run             Run auto-suggest (default: dry-run mode)
+    status          Show current status and configuration
+    enable          Enable auto-suggest
+    disable         Disable auto-suggest
+    config          View or update configuration
+    history         Show action history
+    list-undo       List recent actions that can be undone
+    undo            Undo a recent action
+    stats           Show aggregated statistics
+    rotate-logs     Rotate log file if too large
+    adjust-thresholds   Auto-adjust confidence thresholds (Phase 3)
+    help            Show this help message
+
+Options:
+    --dry-run       Run in dry-run mode (preview only)
+    --live          Run in live mode (actually implement suggestions)
+    --type TYPE     Specify suggestion type for config command
+    --value VALUE   Set configuration value
+    --force         Skip confirmations
+
+Examples:
+    # Check status
+    gtd-auto-suggest status
+
+    # Run in dry-run mode (safe preview)
+    gtd-auto-suggest run --dry-run
+
+    # Enable auto-suggest in dry-run mode
+    gtd-auto-suggest enable
+
+    # Enable auto-suggest in live mode (⚠️ suggestions will be auto-implemented)
+    gtd-auto-suggest enable --live
+
+    # Run in live mode (must be enabled first)
+    gtd-auto-suggest run --live
+
+    # Configure a specific type
+    gtd-auto-suggest config --type task_suggestion --value 0.90
+
+    # View action history
+    gtd-auto-suggest history
+
+    # List actions that can be undone
+    gtd-auto-suggest list-undo
+
+    # Undo most recent action
+    gtd-auto-suggest undo
+
+    # Undo specific action by index
+    gtd-auto-suggest undo --index 2
+
+EOF
+    exit 0
+}
+
+confirm() {
+    local prompt="$1"
+    local force="${2:-false}"
+    
+    if [[ "$force" == "true" ]]; then
+        return 0
+    fi
+    
+    echo -en "${YELLOW}${prompt} (y/N): ${NC}"
+    read -r response
+    [[ "$response" =~ ^[Yy]$ ]]
+}
+
+cmd_run() {
+    local dry_run="--dry-run"
+    local force="false"
+    
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run)
+                dry_run="--dry-run"
+                shift
+                ;;
+            --live)
+                dry_run="--live"
+                shift
+                ;;
+            --force)
+                force="true"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Warn if running in live mode
+    if [[ "$dry_run" == "--live" ]]; then
+        if ! confirm "⚠️  Run in LIVE mode? Suggestions will be automatically implemented!" "$force"; then
+            echo "Cancelled"
+            exit 0
+        fi
+    fi
+    
+    echo -e "${BLUE}Running auto-suggest...${NC}"
+    echo
+    
+    run_with_thinking_timer "Auto-suggesting" python3 "$AUTO_SUGGEST_PY" run $dry_run
+}
+
+cmd_status() {
+    python3 "$AUTO_SUGGEST_PY" status
+}
+
+cmd_enable() {
+    local live_mode=""
+    local force="false"
+    
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --live)
+                live_mode="--live"
+                shift
+                ;;
+            --force)
+                force="true"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+    
+    if [[ -n "$live_mode" ]]; then
+        if ! confirm "⚠️  Enable LIVE mode? Suggestions will be automatically implemented!" "$force"; then
+            echo "Cancelled"
+            exit 0
+        fi
+        
+        python3 "$AUTO_SUGGEST_PY" enable --live
+        echo
+        echo -e "${YELLOW}⚠️  Auto-suggest is now in LIVE mode${NC}"
+        echo "   High-confidence suggestions will be automatically implemented"
+        echo "   Action log: ~/Documents/gtd/auto_suggest_actions.jsonl"
+        echo
+        echo "   To disable: gtd-auto-suggest disable"
+        echo "   To switch to dry-run: gtd-auto-suggest config --type dry_run --value true"
+    else
+        python3 "$AUTO_SUGGEST_PY" enable
+        echo
+        echo -e "${GREEN}✓ Auto-suggest enabled in DRY-RUN mode${NC}"
+        echo "  No actual changes will be made - safe for testing"
+        echo
+        echo "  To enable live mode: gtd-auto-suggest enable --live"
+    fi
+}
+
+cmd_disable() {
+    python3 "$AUTO_SUGGEST_PY" disable
+    echo -e "${GREEN}✓ Auto-suggest disabled${NC}"
+}
+
+cmd_config() {
+    python3 "$AUTO_SUGGEST_PY" config "$@"
+}
+
+cmd_history() {
+    python3 "$AUTO_SUGGEST_PY" history
+}
+
+cmd_list_undo() {
+    python3 "$AUTO_SUGGEST_PY" list-undo
+}
+
+cmd_undo() {
+    python3 "$AUTO_SUGGEST_PY" undo "$@"
+}
+
+cmd_stats() {
+    python3 "$AUTO_SUGGEST_PY" stats "$@"
+}
+
+cmd_rotate_logs() {
+    python3 "$AUTO_SUGGEST_PY" rotate-logs "$@"
+}
+
+cmd_adjust_thresholds() {
+    python3 "$AUTO_SUGGEST_PY" adjust-thresholds
+}
+
+# Main command dispatcher
+main() {
+    if [[ $# -eq 0 ]]; then
+        usage
+    fi
+    
+    local command="$1"
+    shift
+    
+    case "$command" in
+        run)
+            cmd_run "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        enable)
+            cmd_enable "$@"
+            ;;
+        disable)
+            cmd_disable "$@"
+            ;;
+        config)
+            cmd_config "$@"
+            ;;
+        history)
+            cmd_history "$@"
+            ;;
+        list-undo)
+            cmd_list_undo "$@"
+            ;;
+        undo)
+            cmd_undo "$@"
+            ;;
+        stats)
+            cmd_stats "$@"
+            ;;
+        rotate-logs)
+            cmd_rotate_logs "$@"
+            ;;
+        adjust-thresholds)
+            cmd_adjust_thresholds "$@"
+            ;;
+        help|--help|-h)
+            usage
+            ;;
+        *)
+            echo "Unknown command: $command"
+            echo "Run 'gtd-auto-suggest help' for usage"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
+

@@ -108,6 +108,33 @@
 - Learn your patterns
 - Reduce manual work
 
+## 🚀 Autonomous Auto-Suggest System
+**What it is:** Automatically implements high-confidence AI suggestions without manual review (with safety controls).
+
+**Why it's powerful:**
+- **Eliminates Review Overhead**: High-confidence suggestions are implemented automatically
+- **Safety First**: Multiple layers of protection (dry-run mode, confidence thresholds, rate limits, backups)
+- **Learning Integration**: Uses learned confidence thresholds from your decision patterns
+- **Complete Audit Trail**: Full logging of all actions for transparency
+- **Configurable**: Per-type settings, whitelist/blacklist, enable/disable any suggestion type
+- **Gradual Adoption**: Start with dry-run mode, enable one type at a time
+
+**Use cases:**
+- `gtd-auto-suggest run --dry-run` to preview what would be implemented
+- `gtd-auto-suggest enable --live` to enable autonomous implementation (after testing)
+- Perfect for routine task organization, project suggestions, knowledge organization
+- Reduces manual review time by 50-80% for obvious suggestions
+
+**Safety features:**
+- Dry-run mode by default
+- Confidence thresholds (e.g., only implement if >90% confidence)
+- Rate limits (max 5 per run, 20 per day by default)
+- Automatic backups before file modifications
+- Whitelist/blacklist patterns
+- File size limits
+
+**Documentation:** See `docs/AUTO_SUGGEST_SYSTEM.md` and `docs/AUTO_SUGGEST_QUICKSTART.md`
+
 ## 🔁 Recurring Tasks
 **What it is:** Tasks that automatically recreate (daily, weekly, monthly, custom).
 

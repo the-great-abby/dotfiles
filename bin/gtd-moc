@@ -1,0 +1,323 @@
+#!/bin/bash
+# GTD MoC Command - Maps of Content management
+
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# MoC path
+MOCS_PATH="${GTD_BASE_DIR:-$HOME/Documents/gtd}/MOCs"
+mkdir -p "$MOCS_PATH"
+
+NOTES_PATH="${GTD_BASE_DIR:-$HOME/Documents/gtd}/Zettelkasten"
+mkdir -p "$NOTES_PATH"
+
+TODAY=$(gtd_get_today)
+NOW=$(gtd_get_current_time)
+
+# Create MoC
+create_moc() {
+  local moc_name="$*"
+  if [[ -z "$moc_name" ]]; then
+    read -p "MoC name: " moc_name
+  fi
+  
+  if [[ -z "$moc_name" ]]; then
+    echo "❌ MoC name required"
+    exit 1
+  fi
+  
+  moc_slug=$(echo "$moc_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local moc_file="${MOCS_PATH}/${moc_slug}.md"
+  
+  if [[ -f "$moc_file" ]]; then
+    echo "⚠️  MoC already exists: $moc_slug"
+    exit 1
+  fi
+  
+  # Get description
+  read -p "Description: " description
+  
+  # Get tags
+  read -p "Tags (comma-separated): " tags
+  
+  # Create MoC file
+  cat > "$moc_file" <<EOF
+---
+type: moc
+created: ${TODAY}T${NOW}
+tags: [${tags}]
+---
+
+# ${moc_name}
+
+## Overview
+${description}
+
+## Key Concepts
+
+
+## Related Notes
+
+
+## Resources
+
+
+## Links
+- 
+
+## See Also
+- 
+
+EOF
+  
+  echo "✓ Created MoC: $moc_name"
+  echo "  File: $moc_file"
+}
+
+# List MoCs
+list_mocs() {
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🗺️  Maps of Content"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local mocs=($(find "$MOCS_PATH" -type f -name "*.md" 2>/dev/null))
+  local count=${#mocs[@]}
+  
+  if [[ $count -eq 0 ]]; then
+    echo "No MoCs created yet."
+    echo ""
+    echo "Create one with: gtd-moc create <name>"
+    return
+  fi
+  
+  for moc_file in "${mocs[@]}"; do
+    local moc_name=$(basename "$moc_file" .md)
+    local created=$(grep "^created:" "$moc_file" 2>/dev/null | cut -d':' -f2- | xargs)
+    local tags=$(grep "^tags:" "$moc_file" 2>/dev/null | cut -d':' -f2- | xargs)
+    
+    # Count linked notes (look for markdown links)
+    local note_count=$(grep -c "\[\[" "$moc_file" 2>/dev/null || echo "0")
+    
+    echo "[$moc_name]"
+    echo "  Created: $created"
+    if [[ -n "$tags" ]]; then
+      echo "  Tags: $tags"
+    fi
+    echo "  Linked notes: $note_count"
+    echo ""
+  done
+  
+  echo "Total: $count MoC(s)"
+}
+
+# View MoC
+view_moc() {
+  local moc_name="$1"
+  if [[ -z "$moc_name" ]]; then
+    echo "Usage: gtd-moc view <moc-name>"
+    exit 1
+  fi
+  
+  moc_slug=$(echo "$moc_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local moc_file="${MOCS_PATH}/${moc_slug}.md"
+  
+  if [[ ! -f "$moc_file" ]]; then
+    echo "❌ MoC not found: $moc_slug"
+    exit 1
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🗺️  MoC: $moc_name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  cat "$moc_file"
+  echo ""
+}
+
+# Add note link to MoC
+add_note() {
+  local moc_name="$1"
+  shift
+  local note_id="$*"
+  
+  if [[ -z "$moc_name" || -z "$note_id" ]]; then
+    echo "Usage: gtd-moc add-note <moc-name> <note-id>"
+    exit 1
+  fi
+  
+  moc_slug=$(echo "$moc_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local moc_file="${MOCS_PATH}/${moc_slug}.md"
+  
+  if [[ ! -f "$moc_file" ]]; then
+    echo "❌ MoC not found: $moc_slug"
+    exit 1
+  fi
+  
+  # Find note
+  local note_file="${NOTES_PATH}/${note_id}.md"
+  if [[ ! -f "$note_file" ]]; then
+    # Try fuzzy search
+    note_file=$(find "$NOTES_PATH" -type f -name "*${note_id}*.md" 2>/dev/null | head -1)
+    if [[ -z "$note_file" ]]; then
+      echo "❌ Note not found: $note_id"
+      exit 1
+    fi
+  fi
+  
+  # Extract note title
+  local note_title=$(grep "^# " "$note_file" 2>/dev/null | head -1 | sed 's/^# //' || echo "$note_id")
+  
+  # Add link to "Related Notes" section
+  local temp_file=$(mktemp)
+  local in_related_notes=false
+  local added=false
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    echo "$line" >> "$temp_file"
+    
+    if [[ "$line" == "## Related Notes" ]]; then
+      in_related_notes=true
+    elif [[ "$in_related_notes" == "true" && "$line" =~ ^## ]]; then
+      # Hit next section, add link before it
+      if [[ "$added" == "false" ]]; then
+        echo "- [[$note_title]]" >> "$temp_file"
+        added=true
+      fi
+      in_related_notes=false
+    fi
+  done < "$moc_file"
+  
+  # If still in related notes section at end of file
+  if [[ "$in_related_notes" == "true" && "$added" == "false" ]]; then
+    echo "" >> "$temp_file"
+    echo "- [[$note_title]]" >> "$temp_file"
+    added=true
+  fi
+  
+  mv "$temp_file" "$moc_file"
+  
+  echo "✓ Added note to MoC: $moc_slug"
+  echo "  Note: $note_title"
+}
+
+# Link MoC to project
+link_project() {
+  local moc_name="$1"
+  shift
+  local project_name="$*"
+  
+  if [[ -z "$moc_name" || -z "$project_name" ]]; then
+    echo "Usage: gtd-moc link-project <moc-name> <project-name>"
+    exit 1
+  fi
+  
+  moc_slug=$(echo "$moc_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local moc_file="${MOCS_PATH}/${moc_slug}.md"
+  
+  if [[ ! -f "$moc_file" ]]; then
+    echo "❌ MoC not found: $moc_slug"
+    exit 1
+  fi
+  
+  project_slug=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  local project_dir="${PROJECTS_PATH}/${project_slug}"
+  local project_readme="${project_dir}/README.md"
+  
+  if [[ ! -f "$project_readme" ]]; then
+    echo "❌ Project not found: $project_slug"
+    exit 1
+  fi
+  
+  # Add link to Resources section of MoC
+  local temp_file=$(mktemp)
+  local in_resources=false
+  local added=false
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    echo "$line" >> "$temp_file"
+    
+    if [[ "$line" == "## Resources" ]]; then
+      in_resources=true
+    elif [[ "$in_resources" == "true" && "$line" =~ ^## ]]; then
+      if [[ "$added" == "false" ]]; then
+        echo "- Project: [[${project_name}]]" >> "$temp_file"
+        added=true
+      fi
+      in_resources=false
+    fi
+  done < "$moc_file"
+  
+  if [[ "$in_resources" == "true" && "$added" == "false" ]]; then
+    echo "" >> "$temp_file"
+    echo "- Project: [[${project_name}]]" >> "$temp_file"
+    added=true
+  fi
+  
+  mv "$temp_file" "$moc_file"
+  
+  echo "✓ Linked project to MoC: $moc_slug"
+  echo "  Project: $project_name"
+}
+
+# Main
+main() {
+  case "$1" in
+    create)
+      shift
+      create_moc "$@"
+      ;;
+    list|ls)
+      list_mocs
+      ;;
+    view)
+      shift
+      view_moc "$1"
+      ;;
+    add-note)
+      shift
+      add_note "$@"
+      ;;
+    link-project)
+      shift
+      link_project "$@"
+      ;;
+    --help|-h|"")
+      echo "Usage: gtd-moc <command> [options]"
+      echo ""
+      echo "Commands:"
+      echo "  create <name>                    Create a new MoC"
+      echo "  list|ls                          List all MoCs"
+      echo "  view <name>                      View MoC details"
+      echo "  add-note <moc> <note-id>         Add note link to MoC"
+      echo "  link-project <moc> <project>     Link project to MoC"
+      echo ""
+      echo "Examples:"
+      echo "  gtd-moc create \"Kubernetes Operations\""
+      echo "  gtd-moc list"
+      echo "  gtd-moc view kubernetes-operations"
+      echo "  gtd-moc add-note kubernetes-operations 20240101-k8s-deployment"
+      echo "  gtd-moc link-project kubernetes-operations k8s-monitoring"
+      exit 0
+      ;;
+    *)
+      echo "Unknown command: $1"
+      echo "Run 'gtd-moc --help' for usage"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
+

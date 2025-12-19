@@ -2,7 +2,7 @@ GLIBC_VER=2.31-r0
 
 # GTD System Commands
 .PHONY: gtd-wizard gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status gtd-diagram
-.PHONY: worker-deep-start worker-deep-stop worker-vector-start worker-vector-stop worker-status worker-deep-status worker-vector-status rabbitmq-status filewatcher-start filewatcher-stop filewatcher-status filewatcher-scan scheduler-start scheduler-stop scheduler-status scheduler-run verify-nodeport diagnose-nodeport vector-db-init-extension vector-db-init-schema
+.PHONY: worker-deep-start worker-deep-stop worker-vector-start worker-vector-stop worker-task-org-start worker-task-org-stop worker-brain-sync-start worker-brain-sync-stop worker-status worker-deep-status worker-vector-status worker-task-org-status rabbitmq-status filewatcher-start filewatcher-stop filewatcher-status filewatcher-scan scheduler-start scheduler-stop scheduler-status scheduler-run verify-nodeport diagnose-nodeport vector-db-init-extension vector-db-init-schema
 
 # GTD Interactive Wizard
 gtd-wizard:
@@ -746,6 +746,58 @@ worker-vector-stop:
 		echo "ℹ️  Worker not running"; \
 	fi
 
+worker-task-org-start:
+	@echo "Starting Task Organization Worker..."
+	@if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then \
+		echo "⚠️  Worker already running (PID: $$(pgrep -f 'gtd_task_organize_worker.py'))"; \
+	else \
+		nohup $(HOME)/code/dotfiles/bin/gtd-task-org-worker >/tmp/task-org-worker.log 2>&1 & \
+		echo "✅ Worker started in background"; \
+		echo "   Logs: /tmp/task-org-worker.log"; \
+		echo "   Check status: make worker-status"; \
+	fi
+
+worker-task-org-stop:
+	@echo "Stopping Task Organization Worker..."
+	@if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then \
+		pkill -f "gtd_task_organize_worker.py"; \
+		sleep 1; \
+		if ! pgrep -f "gtd_task_organize_worker.py" >/dev/null; then \
+			echo "✅ Worker stopped"; \
+		else \
+			pkill -9 -f "gtd_task_organize_worker.py"; \
+			echo "✅ Worker force stopped"; \
+		fi; \
+	else \
+		echo "ℹ️  Worker not running"; \
+	fi
+
+worker-brain-sync-start:
+	@echo "Starting Second Brain Sync Worker..."
+	@if pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then \
+		echo "⚠️  Worker already running (PID: $$(pgrep -f 'gtd_second_brain_sync_worker.py'))"; \
+	else \
+		nohup $(HOME)/code/dotfiles/bin/gtd-second-brain-sync-worker >/tmp/second-brain-sync-worker.log 2>&1 & \
+		echo "✅ Worker started in background"; \
+		echo "   Logs: /tmp/second-brain-sync-worker.log"; \
+		echo "   Check status: make worker-status"; \
+	fi
+
+worker-brain-sync-stop:
+	@echo "Stopping Second Brain Sync Worker..."
+	@if pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then \
+		pkill -f "gtd_second_brain_sync_worker.py"; \
+		sleep 1; \
+		if ! pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then \
+			echo "✅ Worker stopped"; \
+		else \
+			pkill -9 -f "gtd_second_brain_sync_worker.py"; \
+			echo "✅ Worker force stopped"; \
+		fi; \
+	else \
+		echo "ℹ️  Worker not running"; \
+	fi
+
 worker-status:
 	@echo "📊 Background Worker Status"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -761,6 +813,17 @@ worker-status:
 		echo "  Start: make worker-deep-start"; \
 	fi
 	@echo ""
+	@echo "Second Brain Sync Worker:"
+	@if pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_second_brain_sync_worker.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Start: make worker-brain-sync-start"; \
+		echo "  Stop:  make worker-brain-sync-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make worker-brain-sync-start"; \
+	fi
+	@echo ""
 	@echo "Vectorization Worker:"
 	@if pgrep -f "gtd_vector_worker.py" >/dev/null; then \
 		pid=$$(pgrep -f "gtd_vector_worker.py"); \
@@ -770,6 +833,17 @@ worker-status:
 	else \
 		echo "  ❌ Not running"; \
 		echo "  Start: make worker-vector-start"; \
+	fi
+	@echo ""
+	@echo "Task Organization Worker:"
+	@if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_task_organize_worker.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Start: make worker-task-org-start"; \
+		echo "  Stop:  make worker-task-org-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make worker-task-org-start"; \
 	fi
 	@echo ""
 	@echo ""
@@ -907,6 +981,22 @@ worker-vector-status:
 	else \
 		echo "  ❌ Not running"; \
 		echo "  Start: make worker-vector-start"; \
+	fi
+	@echo ""
+	@echo "For full worker status: make worker-status"
+
+worker-task-org-status:
+	@echo "📊 Task Organization Worker Status"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then \
+		pid=$$(pgrep -f "gtd_task_organize_worker.py"); \
+		echo "  ✅ Running (PID: $$pid)"; \
+		echo "  Logs: tail -f /tmp/task-org-worker.log"; \
+		echo "  Stop:  make worker-task-org-stop"; \
+	else \
+		echo "  ❌ Not running"; \
+		echo "  Start: make worker-task-org-start"; \
 	fi
 	@echo ""
 	@echo "For full worker status: make worker-status"

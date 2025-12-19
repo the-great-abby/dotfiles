@@ -1,0 +1,258 @@
+#!/bin/bash
+# GTD Learning System Controls
+# Manual controls for fine-tuning the unified learning system
+
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null || which python3 2>/dev/null || echo "python3")
+
+show_menu() {
+  clear
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🎛️  GTD Learning System Controls"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) View current thresholds"
+  echo "  2) Show more of a suggestion type (lower threshold)"
+  echo "  3) Show less of a suggestion type (raise threshold)"
+  echo "  4) Set custom threshold"
+  echo "  5) View explanation for a suggestion type"
+  echo "  6) Reset all thresholds to defaults"
+  echo "  7) View stats"
+  echo ""
+  echo "  0) Exit"
+  echo ""
+  echo -n "Choose: "
+}
+
+view_thresholds() {
+  echo ""
+  echo "Current Thresholds:"
+  echo ""
+  "$PYTHON_CMD" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import load_learning_data, SUGGESTION_TYPES
+
+data = load_learning_data()
+thresholds = data.get('thresholds', {})
+
+for stype, info in SUGGESTION_TYPES.items():
+    threshold = thresholds.get(stype, info['default_threshold'])
+    default = info['default_threshold']
+    name = info['name']
+    
+    status = ''
+    if threshold < default:
+        status = '(↓ showing more)'
+    elif threshold > default:
+        status = '(↑ showing less)'
+    
+    print(f\"  {name:40} {threshold:.0%} {status}\")
+"
+  echo ""
+}
+
+adjust_more() {
+  echo ""
+  echo "Show MORE of which suggestion type?"
+  echo ""
+  echo "  1) Task from Log"
+  echo "  2) Area Assignment"
+  echo "  3) MoC Creation"
+  echo "  4) Area Creation"
+  echo "  5) Project Suggestion"
+  echo "  6) Insight"
+  echo ""
+  echo -n "Choose (1-6): "
+  read choice
+  
+  types=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+  
+  if [[ "$choice" =~ ^[1-6]$ ]]; then
+    selected="${types[$((choice - 1))]}"
+    "$PYTHON_CMD" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import adjust_threshold
+adjust_threshold('$selected', 'more')
+"
+    echo ""
+    echo "✓ Threshold lowered - you'll see more suggestions of this type"
+  fi
+}
+
+adjust_less() {
+  echo ""
+  echo "Show LESS of which suggestion type?"
+  echo ""
+  echo "  1) Task from Log"
+  echo "  2) Area Assignment"
+  echo "  3) MoC Creation"
+  echo "  4) Area Creation"
+  echo "  5) Project Suggestion"
+  echo "  6) Insight"
+  echo ""
+  echo -n "Choose (1-6): "
+  read choice
+  
+  types=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+  
+  if [[ "$choice" =~ ^[1-6]$ ]]; then
+    selected="${types[$((choice - 1))]}"
+    "$PYTHON_CMD" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import adjust_threshold
+adjust_threshold('$selected', 'less')
+"
+    echo ""
+    echo "✓ Threshold raised - you'll see fewer, higher-quality suggestions"
+  fi
+}
+
+set_custom() {
+  echo ""
+  echo "Set custom threshold for which type?"
+  echo ""
+  echo "  1) Task from Log"
+  echo "  2) Area Assignment"
+  echo "  3) MoC Creation"
+  echo "  4) Area Creation"
+  echo "  5) Project Suggestion"
+  echo "  6) Insight"
+  echo ""
+  echo -n "Choose (1-6): "
+  read choice
+  
+  types=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+  
+  if [[ "$choice" =~ ^[1-6]$ ]]; then
+    selected="${types[$((choice - 1))]}"
+    
+    echo ""
+    echo -n "Enter new threshold (0-100%): "
+    read threshold_percent
+    
+    # Convert to decimal
+    threshold=$(echo "scale=2; $threshold_percent / 100" | bc)
+    
+    "$PYTHON_CMD" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import set_threshold
+set_threshold('$selected', $threshold)
+print('✓ Threshold set to ${threshold_percent}%')
+"
+  fi
+}
+
+explain_type() {
+  echo ""
+  echo "Explain which suggestion type?"
+  echo ""
+  echo "  1) Task from Log"
+  echo "  2) Area Assignment"
+  echo "  3) MoC Creation"
+  echo "  4) Area Creation"
+  echo "  5) Project Suggestion"
+  echo "  6) Insight"
+  echo ""
+  echo -n "Choose (1-6): "
+  read choice
+  
+  types=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+  
+  if [[ "$choice" =~ ^[1-6]$ ]]; then
+    selected="${types[$((choice - 1))]}"
+    echo ""
+    "$PYTHON_CMD" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_explain_suggestions import explain_threshold
+print(explain_threshold('$selected'))
+"
+  fi
+}
+
+reset_thresholds() {
+  echo ""
+  echo -n "Reset ALL thresholds to defaults? (y/N): "
+  read confirm
+  
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    "$PYTHON_CMD" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import load_learning_data, save_learning_data, SUGGESTION_TYPES
+
+data = load_learning_data()
+for stype, info in SUGGESTION_TYPES.items():
+    data['thresholds'][stype] = info['default_threshold']
+save_learning_data(data)
+print('✓ All thresholds reset to defaults')
+"
+    echo ""
+  fi
+}
+
+view_stats() {
+  echo ""
+  "$PYTHON_CMD" "$HOME/code/dotfiles/mcp/gtd_unified_learning.py" stats
+}
+
+# Main loop
+while true; do
+  show_menu
+  read choice
+  
+  case "$choice" in
+    1)
+      view_thresholds
+  gtd_quick_pause
+      ;;
+    2)
+      adjust_more
+  gtd_quick_pause
+      ;;
+    3)
+      adjust_less
+  gtd_quick_pause
+      ;;
+    4)
+      set_custom
+      echo ""
+  gtd_quick_pause
+      ;;
+    5)
+      explain_type
+      echo ""
+  gtd_quick_pause
+      ;;
+    6)
+      reset_thresholds
+  gtd_quick_pause
+      ;;
+    7)
+      view_stats
+      echo ""
+  gtd_quick_pause
+      ;;
+    0|"")
+      echo ""
+      echo "Goodbye!"
+      exit 0
+      ;;
+    *)
+      echo "Invalid choice"
+      sleep 1
+      ;;
+  esac
+done
+

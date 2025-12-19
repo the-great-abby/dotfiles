@@ -922,19 +922,16 @@ show_specific_review_guide() {
     elif command -v cat &>/dev/null; then
       cat "$guide_file"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
     else
       echo "Guide: $guide_file"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
     fi
   else
     echo "⚠️  Guide not found: $guide_file"
     echo ""
-    echo "Press Enter to continue..."
-    read
+    gtd_quick_pause
   fi
 }
 
@@ -999,8 +996,7 @@ show_detailed_review_guide() {
     *)
       echo "Invalid choice"
       echo ""
-      echo "Press Enter to continue..."
-      read
+      gtd_quick_pause
       review_wizard
       return
       ;;

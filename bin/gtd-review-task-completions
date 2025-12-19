@@ -1,0 +1,15 @@
+#!/bin/bash
+# Review and close tasks mentioned as completed in daily logs
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REVIEW_SCRIPT="$SCRIPT_DIR/../mcp/gtd_task_completion_review.py"
+
+# Check if Python script exists
+if [[ ! -f "$REVIEW_SCRIPT" ]]; then
+  echo "❌ Review script not found: $REVIEW_SCRIPT" >&2
+  exit 1
+fi
+
+# Run the review script
+python3 "$REVIEW_SCRIPT" "$@"
+

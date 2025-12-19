@@ -1363,10 +1363,10 @@ def process_rabbitmq_queue():
             params.retry_delay = 2
             params.socket_timeout = 10  # Increased from 5 to 10 seconds
             # Add heartbeat to keep connection alive during long operations
-            # Use 0 to disable heartbeat (some RabbitMQ configs don't support it)
-            # Or use a reasonable value like 60 seconds
+            # Deep analysis can take 5-10 minutes, so use longer heartbeat
             try:
-                params.heartbeat = 60  # 60 seconds - keep connection alive
+                params.heartbeat = 900  # 15 minutes - long enough for deep analysis
+                params.blocked_connection_timeout = 900  # 15 minutes
             except:
                 # If heartbeat setting fails, continue without it
                 pass

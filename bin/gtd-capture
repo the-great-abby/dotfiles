@@ -89,6 +89,13 @@ else
   CONTENT="$*"
 fi
 
+# Auto-detect link type if content is primarily a URL
+# If type wasn't explicitly set and content looks like a URL, treat it as a link
+if [[ "$CAPTURE_TYPE" == "note" ]] && echo "$CONTENT" | grep -qE '^https?://[^[:space:]]+$'; then
+  CAPTURE_TYPE="link"
+  echo "ℹ️  Auto-detected link type from URL"
+fi
+
 # Create filename
 FILENAME="${TIMESTAMP}-${CAPTURE_TYPE}.md"
 FILEPATH="${INBOX_PATH}/${FILENAME}"
@@ -119,8 +126,9 @@ echo "✓ Captured to inbox: ${FILEPATH}"
 echo "  Type: ${CAPTURE_TYPE}"
 echo "  Content: ${CONTENT}"
 
-# If this is a link capture, try to generate a summary
-if [[ "$CAPTURE_TYPE" == "link" ]]; then
+# If this is a link capture OR if content contains a URL, try to generate a summary
+# This allows summaries even if user forgot to use --type=link
+if [[ "$CAPTURE_TYPE" == "link" ]] || echo "$CONTENT" | grep -qE 'https?://[^[:space:]]+'; then
   # Extract URLs from content (simple regex match for http/https URLs)
   # This regex matches URLs starting with http:// or https://
   # Handle URLs that might be in parentheses, quotes, or at end of line

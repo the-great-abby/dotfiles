@@ -1,0 +1,57 @@
+#!/bin/bash
+# Weekly Knowledge Organization Scan
+# Runs automatically to scan for MoC/Area opportunities
+
+# Source common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Get Python command
+PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null || which python3 2>/dev/null || echo "python3")
+
+# MCP server script
+MCP_SERVER="$HOME/code/dotfiles/mcp/gtd_mcp_server.py"
+
+if [[ ! -f "$MCP_SERVER" ]]; then
+  echo "❌ MCP server not found: $MCP_SERVER" >&2
+  exit 1
+fi
+
+# Log file
+LOG_DIR="$HOME/Documents/gtd/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/knowledge-scan-$(date +%Y%m%d).log"
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$LOG_FILE"
+echo "Weekly Knowledge Organization Scan - $(date)" >> "$LOG_FILE"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$LOG_FILE"
+echo "" >> "$LOG_FILE"
+
+# Queue full scan
+echo "Queuing knowledge organization scan..." >> "$LOG_FILE"
+
+QUEUE_RESULT=$("$PYTHON_CMD" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_mcp_server import queue_knowledge_organization
+
+status = queue_knowledge_organization('full')
+print(status)
+" 2>&1)
+
+if [[ "$QUEUE_RESULT" =~ "queued" ]]; then
+  echo "✓ Scan queued successfully: $QUEUE_RESULT" >> "$LOG_FILE"
+  
+  # Send notification if available
+  if command -v osascript &>/dev/null; then
+    osascript -e 'display notification "Knowledge organization scan queued" with title "GTD Weekly Scan"' 2>/dev/null
+  fi
+  
+  exit 0
+else
+  echo "❌ Failed to queue scan: $QUEUE_RESULT" >> "$LOG_FILE"
+  exit 1
+fi
+
