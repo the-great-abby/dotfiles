@@ -40,3 +40,4 @@ LM_STUDIO_TIMEOUT="120"  # Increased to 120 seconds for planning operations
 # git: Use git repository (set DAILY_LOG_GIT_PATH)
 DAILY_LOG_SYNC_METHOD="second-brain"
 
+DAILY_LOG_DIR_WORK="/Users/abbymalson/Documents/daily_logs"

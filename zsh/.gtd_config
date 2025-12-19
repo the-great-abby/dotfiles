@@ -9,10 +9,14 @@ GTD_USER_NAME="${GTD_USER_NAME:-Abby}"
 
 # Computer mode: "work" or "home" (default: "home")
 # Used to customize behavior based on which computer you're using
-GTD_COMPUTER_MODE="${GTD_COMPUTER_MODE:-home}"
+GTD_COMPUTER_MODE="work"
 
 # ============================================================================
 # Directory Structure
+# Mode-specific directories (work mode)
+SECOND_BRAIN_WORK="/Users/abbymalson/Documents/obsidian/Second Brain"
+# Mode-specific directories (work mode)
+GTD_BASE_DIR_WORK="/Users/abbymalson/Documents/gtd"
 # ============================================================================
 # Base directory for GTD system (default: ~/Documents/gtd)
 GTD_BASE_DIR="$HOME/Documents/gtd"

@@ -11,7 +11,7 @@ VECTOR_DB_USER="${VECTOR_DB_USER:-gtd_organization_system}"
 VECTOR_DB_PASSWORD="${VECTOR_DB_PASSWORD:-gtd_organization_system}"
 
 # Enable vectorization (true/false)
-GTD_VECTORIZATION_ENABLED="${GTD_VECTORIZATION_ENABLED:-true}"
+GTD_VECTORIZATION_ENABLED=false
 
 # Vectorization batch size (number of items to process at once)
 VECTOR_BATCH_SIZE="${VECTOR_BATCH_SIZE:-10}"
@@ -26,7 +26,7 @@ VECTOR_DIMENSION="${VECTOR_DIMENSION:-768}"
 # RabbitMQ connection settings (optional, for async vectorization)
 # For Kubernetes: Use NodePort (192.168.64.2:30672) - no port-forward needed!
 # Old port-forward: localhost:5672 (deprecated)
-RABBITMQ_ENABLED="${RABBITMQ_ENABLED:-true}"
+RABBITMQ_ENABLED=false
 RABBITMQ_URL="${RABBITMQ_URL:-amqp://192.168.64.2:30672}"
 # Username and password (optional - can also be in URL as amqp://user:pass@host:port)
 RABBITMQ_USER="${RABBITMQ_USER:-guest}"
@@ -45,10 +45,10 @@ RABBITMQ_RETRY_DELAY="${RABBITMQ_RETRY_DELAY:-5}"
 VECTORIZE_CONTENT="${VECTORIZE_CONTENT:-daily_logs,tasks,projects}"
 
 # Auto-vectorize on creation (true/false)
-VECTORIZE_ON_CREATE="${VECTORIZE_ON_CREATE:-true}"
+VECTORIZE_ON_CREATE=false
 
 # Auto-vectorize on update (true/false)
-VECTORIZE_ON_UPDATE="${VECTORIZE_ON_UPDATE:-true}"
+VECTORIZE_ON_UPDATE=false
 
 # Chunk size for large documents (characters per chunk)
 VECTOR_CHUNK_SIZE="${VECTOR_CHUNK_SIZE:-1000}"
@@ -82,7 +82,7 @@ VECTOR_WATCH_DIRS="/Users/abby/Documents/gtd/watched"
 VECTOR_WATCH_DIR="${VECTOR_WATCH_DIR:-$HOME/Documents/gtd/watched}"
 
 # Enable filewatcher (true/false)
-VECTOR_FILEWATCHER_ENABLED="${VECTOR_FILEWATCHER_ENABLED:-true}"
+VECTOR_FILEWATCHER_ENABLED=false
 
 # ============================================================================
 # Deep Analysis Automatic Scheduler Configuration
@@ -90,12 +90,12 @@ VECTOR_FILEWATCHER_ENABLED="${VECTOR_FILEWATCHER_ENABLED:-true}"
 # Automatically submit deep analysis jobs to the queue
 
 # Weekly review scheduling
-DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=true
+DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=false
 DEEP_ANALYSIS_WEEKLY_REVIEW_DAY="sunday"
 DEEP_ANALYSIS_WEEKLY_REVIEW_TIME="04:00"
 
 # Energy analysis scheduling
-DEEP_ANALYSIS_AUTO_ENERGY=true
+DEEP_ANALYSIS_AUTO_ENERGY=false
 DEEP_ANALYSIS_ENERGY_INTERVAL=3
 DEEP_ANALYSIS_ENERGY_DAYS=7
 
@@ -108,9 +108,9 @@ DEEP_ANALYSIS_AUTO_CONNECTIONS="${DEEP_ANALYSIS_AUTO_CONNECTIONS:-false}"
 DEEP_ANALYSIS_CONNECTIONS_INTERVAL="${DEEP_ANALYSIS_CONNECTIONS_INTERVAL:-7}"  # Every N days
 
 # Event-driven triggers (automatic on content creation)
-DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG="true"
-DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT="true"
-DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK="true"
+DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=false
+DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=false
+DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=false
 
 # Automatic suggestion creation from analysis results
 # When true, automatically scans analysis results and creates suggestions
