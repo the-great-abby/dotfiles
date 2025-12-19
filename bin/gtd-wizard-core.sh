@@ -134,7 +134,15 @@ SECOND_BRAIN=\"${!mode_second_brain}\"
   # We no longer write them to .gtd_config_database to avoid sync conflicts.
   # The read_database_config() function in Python and bash scripts check for mode-specific
   # variables first, then fall back to .gtd_config_database values.
-    
+  
+  # Apply mode-specific Vector Database and RabbitMQ connection settings to .gtd_config_database
+  # if the file exists (these are connection settings, not feature flags)
+  local db_config="$HOME/code/dotfiles/zsh/.gtd_config_database"
+  if [[ ! -f "$db_config" ]]; then
+    db_config="$HOME/code/personal/dotfiles/zsh/.gtd_config_database"
+  fi
+  
+  if [[ -f "$db_config" ]]; then
     # Apply mode-specific Vector Database connection settings
     local vector_db_settings=(
       "VECTOR_DB_HOST"
