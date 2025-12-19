@@ -71,14 +71,24 @@ init_gtd_paths() {
       gtd_config="$HOME/code/personal/dotfiles/zsh/.gtd_config"
     fi
     if [[ -f "$gtd_config" ]]; then
+      # Source config with error handling to prevent bad substitution errors
+      # Redirect stderr to prevent error messages from breaking the script
+      # Use set +e to prevent script from exiting on errors in sourced file
+      set +e
       source "$gtd_config" 2>/dev/null || true
-      current_mode="${GTD_COMPUTER_MODE:-home}"
+      set -e
+      # Re-read GTD_COMPUTER_MODE after sourcing (may have been set)
+      if [[ -f "$gtd_config" ]]; then
+        current_mode=$(grep "^GTD_COMPUTER_MODE=" "$gtd_config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]')
+        current_mode="${current_mode:-home}"
+      fi
     fi
   fi
   
-  local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]')
+  # Normalize and validate mode
+  local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
   
-  # Safety check: ensure mode_upper is valid
+  # Safety check: ensure mode_upper is valid and not empty
   if [[ -z "$mode_upper" ]] || [[ ! "$mode_upper" =~ ^(HOME|WORK)$ ]]; then
     mode_upper="HOME"
   fi
