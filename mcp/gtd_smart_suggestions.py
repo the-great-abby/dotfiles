@@ -326,7 +326,7 @@ def resolve_project_for_task(suggestion: Dict[str, Any]) -> Optional[str]:
         
         # Use AI to suggest project (existing or new)
         try:
-            from zsh.functions.gtd_persona_helper import call_persona
+            from zsh.functions.gtd_persona_helper import call_persona, read_config
             
             projects_list = ", ".join(projects[:15]) if projects else "none"
             title = suggestion.get("title", "")
@@ -355,33 +355,56 @@ Examples:
 - "new:home-automation-setup" (suggest new project)
 - "none" (standalone task)"""
             
-            response = call_persona("david", prompt)
-            suggested = response.strip().lower().replace(" ", "-")
-            
-            # Check if it's a new project suggestion
-            if suggested.startswith("new:"):
-                new_project_name = suggested.replace("new:", "").strip()
-                if new_project_name and len(new_project_name) > 2:
-                    # Generate outcome from task context
-                    outcome = f"Complete {title}" if title else f"Complete {new_project_name.replace('-', ' ').title()}"
-                    # Create the new project
-                    return create_or_get_project(new_project_name, outcome)
-            
-            # Check if it matches an existing project
-            for project in projects:
-                if project.lower() == suggested or project.lower().startswith(suggested):
-                    return project
-                # Also check if suggested is contained in project name
-                if suggested in project.lower() or project.lower() in suggested:
-                    return project
-            
-            # If "none" or no match, return None
-            if "none" in suggested or not suggested or len(suggested) < 2:
+            # call_persona returns (response, exit_code) tuple
+            # Wrap in try-except to handle any errors gracefully
+            try:
+                config = read_config()
+                response_tuple = call_persona(config, "david", prompt)
+                
+                # Handle tuple return value (response, exit_code)
+                if isinstance(response_tuple, tuple):
+                    response, exit_code = response_tuple
+                    if exit_code != 0:
+                        # LLM not available or error occurred - gracefully return None
+                        return None
+                else:
+                    # Legacy behavior (shouldn't happen, but handle it)
+                    response = response_tuple
+                
+                # Process response - handle potential errors
+                if not response or not isinstance(response, str):
+                    return None
+                
+                suggested = response.strip().lower().replace(" ", "-")
+                
+                # Check if it's a new project suggestion
+                if suggested.startswith("new:"):
+                    new_project_name = suggested.replace("new:", "").strip()
+                    if new_project_name and len(new_project_name) > 2:
+                        # Generate outcome from task context
+                        outcome = f"Complete {title}" if title else f"Complete {new_project_name.replace('-', ' ').title()}"
+                        # Create the new project
+                        return create_or_get_project(new_project_name, outcome)
+                
+                # Check if it matches an existing project
+                for project in projects:
+                    if project.lower() == suggested or project.lower().startswith(suggested):
+                        return project
+                    # Also check if suggested is contained in project name
+                    if suggested in project.lower() or project.lower() in suggested:
+                        return project
+                
+                # If "none" or no match, return None
+                if "none" in suggested or not suggested or len(suggested) < 2:
+                    return None
+                
+                # If we got a project-like name but it doesn't match, try creating it
+                if "-" in suggested or len(suggested.split()) == 1:
+                    return create_or_get_project(suggested)
+            except Exception:
+                # Any error (config read, LLM call, response processing) - gracefully return None
+                # This ensures the wizard continues to work even if LLM is unavailable
                 return None
-            
-            # If we got a project-like name but it doesn't match, try creating it
-            if "-" in suggested or len(suggested.split()) == 1:
-                return create_or_get_project(suggested)
                 
         except ImportError:
             # Fallback if persona helper not available
