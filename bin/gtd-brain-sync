@@ -63,12 +63,22 @@ sync_projects() {
   
   mkdir -p "$brain_projects"
   
-  find "$gtd_projects" -type f -name "*.md" 2>/dev/null | while read -r project_file; do
+  local total=0
+  local created=0
+  local skipped=0
+  local linked=0
+  
+  while IFS= read -r project_file; do
+    ((total++))
     local project_name=$(basename "$project_file" .md)
     local brain_note="$brain_projects/${project_name}.md"
     
+    echo "  📄 Processing: $project_name"
+    
     # Check if already linked
     if grep -q "## Second Brain" "$project_file" 2>/dev/null; then
+      echo "    ⏭️  Already linked, skipping"
+      ((skipped++))
       continue
     fi
     
@@ -92,7 +102,10 @@ Created: $(date +"%Y-%m-%d %H:%M")
 ## Summary
 
 EOF
-      echo "✓ Created brain note: $brain_note"
+      echo "    ✓ Created brain note: ${brain_note#$SECOND_BRAIN/}"
+      ((created++))
+    else
+      echo "    ℹ️  Brain note already exists: ${brain_note#$SECOND_BRAIN/}"
     fi
     
     # Add link in GTD project
@@ -101,12 +114,13 @@ EOF
         echo "" >> "$project_file"
         echo "## Second Brain" >> "$project_file"
         echo "- [[$project_name]] → $brain_note" >> "$project_file"
-        echo "✓ Linked GTD project to brain note"
+        echo "    ✓ Linked GTD project to brain note"
+        ((linked++))
       fi
     fi
-  done
+  done < <(find "$gtd_projects" -type f -name "*.md" 2>/dev/null)
   
-  echo "✓ Project sync complete"
+  echo "✓ Project sync complete (Total: $total, Created: $created, Skipped: $skipped, Linked: $linked)"
 }
 
 # Sync GTD areas to Second Brain Areas
@@ -118,12 +132,22 @@ sync_areas() {
   
   mkdir -p "$brain_areas"
   
-  find "$gtd_areas" -type f -name "*.md" 2>/dev/null | while read -r area_file; do
+  local total=0
+  local created=0
+  local skipped=0
+  local linked=0
+  
+  while IFS= read -r area_file; do
+    ((total++))
     local area_name=$(basename "$area_file" .md)
     local brain_note="$brain_areas/${area_name}.md"
     
+    echo "  📄 Processing: $area_name"
+    
     # Check if already linked
     if grep -q "## Second Brain" "$area_file" 2>/dev/null; then
+      echo "    ⏭️  Already linked, skipping"
+      ((skipped++))
       continue
     fi
     
@@ -147,7 +171,10 @@ Created: $(date +"%Y-%m-%d %H:%M")
 ## Summary
 
 EOF
-      echo "✓ Created brain note: $brain_note"
+      echo "    ✓ Created brain note: ${brain_note#$SECOND_BRAIN/}"
+      ((created++))
+    else
+      echo "    ℹ️  Brain note already exists: ${brain_note#$SECOND_BRAIN/}"
     fi
     
     # Add link in GTD area
@@ -156,12 +183,13 @@ EOF
         echo "" >> "$area_file"
         echo "## Second Brain" >> "$area_file"
         echo "- [[$area_name]] → $brain_note" >> "$area_file"
-        echo "✓ Linked GTD area to brain note"
+        echo "    ✓ Linked GTD area to brain note"
+        ((linked++))
       fi
     fi
-  done
+  done < <(find "$gtd_areas" -type f -name "*.md" 2>/dev/null)
   
-  echo "✓ Area sync complete"
+  echo "✓ Area sync complete (Total: $total, Created: $created, Skipped: $skipped, Linked: $linked)"
 }
 
 # Auto-link reference items to Resources
@@ -173,12 +201,22 @@ sync_references() {
   
   mkdir -p "$brain_resources"
   
-  find "$gtd_refs" -type f -name "*.md" 2>/dev/null | while read -r ref_file; do
+  local total=0
+  local copied=0
+  local skipped=0
+  local linked=0
+  
+  while IFS= read -r ref_file; do
+    ((total++))
     local ref_name=$(basename "$ref_file" .md)
     local brain_note="$brain_resources/${ref_name}.md"
     
+    echo "  📄 Processing: $ref_name"
+    
     # Only sync if not already linked
     if grep -q "## Second Brain" "$ref_file" 2>/dev/null; then
+      echo "    ⏭️  Already linked, skipping"
+      ((skipped++))
       continue
     fi
     
@@ -187,8 +225,11 @@ sync_references() {
       # Copy content or create link
       if [[ -f "$ref_file" ]]; then
         cp "$ref_file" "$brain_note"
-        echo "✓ Copied reference to Resources: $brain_note"
+        echo "    ✓ Copied reference to Resources: ${brain_note#$SECOND_BRAIN/}"
+        ((copied++))
       fi
+    else
+      echo "    ℹ️  Resource note already exists: ${brain_note#$SECOND_BRAIN/}"
     fi
     
     # Add link in GTD reference
@@ -197,12 +238,13 @@ sync_references() {
         echo "" >> "$ref_file"
         echo "## Second Brain" >> "$ref_file"
         echo "- [[$ref_name]] → $brain_note" >> "$ref_file"
-        echo "✓ Linked GTD reference to brain note"
+        echo "    ✓ Linked GTD reference to brain note"
+        ((linked++))
       fi
     fi
-  done
+  done < <(find "$gtd_refs" -type f -name "*.md" 2>/dev/null)
   
-  echo "✓ Reference sync complete"
+  echo "✓ Reference sync complete (Total: $total, Copied: $copied, Skipped: $skipped, Linked: $linked)"
 }
 
 # Initialize git repo in GTD directory if it doesn't exist
@@ -247,6 +289,7 @@ git_sync_to_second_brain() {
   local sync_type="${3:-files}"  # files, daily-logs, etc.
   
   if [[ ! -d "$source_dir" ]]; then
+    echo "  ⚠️  Source directory not found: $source_dir"
     return 1
   fi
   
@@ -261,8 +304,20 @@ git_sync_to_second_brain() {
   # Check if there are changes to commit
   if git diff --staged --quiet 2>/dev/null && git diff --quiet 2>/dev/null; then
     # No changes, but still sync files
-    echo "  (No changes to commit)"
+    echo "  ℹ️  No git changes to commit"
   else
+    # Show what's being committed
+    local changed_files=$(git diff --staged --name-only 2>/dev/null | wc -l | tr -d ' ')
+    if [[ -n "$changed_files" && "$changed_files" -gt 0 ]]; then
+      echo "  📝 Staging ${changed_files} file(s) for commit"
+      git diff --staged --name-only 2>/dev/null | head -5 | while read -r file; do
+        echo "    • ${file#$GTD_BASE_DIR/}"
+      done
+      if [[ "$changed_files" -gt 5 ]]; then
+        echo "    ... and $((changed_files - 5)) more"
+      fi
+    fi
+    
     # Commit with timestamp
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     local commit_msg="Sync ${sync_type} to Second Brain - ${timestamp}"
@@ -270,7 +325,7 @@ git_sync_to_second_brain() {
     git commit -m "$commit_msg" --quiet 2>/dev/null && {
       echo "  ✓ Committed changes: ${commit_msg}"
     } || {
-      echo "  ⚠️  No changes to commit"
+      echo "  ⚠️  Commit failed or no changes to commit"
     }
   fi
   
@@ -280,8 +335,12 @@ git_sync_to_second_brain() {
   # Copy files to Second Brain (excluding ignored files)
   # Include both .md and .txt files for daily logs
   local files_copied=0
+  local files_skipped=0
+  local total_files=0
+  
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
+      ((total_files++))
       local rel_path="${file#$source_dir/}"
       local dest_file="$dest_dir/$rel_path"
       local dest_dir_path=$(dirname "$dest_file")
@@ -290,14 +349,19 @@ git_sync_to_second_brain() {
       
       # Only copy if source is newer or doesn't exist in dest
       if [[ ! -f "$dest_file" ]] || [[ "$file" -nt "$dest_file" ]]; then
-        cp "$file" "$dest_file" 2>/dev/null && ((files_copied++))
+        if cp "$file" "$dest_file" 2>/dev/null; then
+          ((files_copied++))
+          echo "    ✓ Copied: ${rel_path}"
+        else
+          echo "    ⚠️  Failed to copy: ${rel_path}"
+        fi
+      else
+        ((files_skipped++))
       fi
     fi
   done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
   
-  if [[ $files_copied -gt 0 ]]; then
-    echo "  ✓ Copied ${files_copied} file(s) to Second Brain"
-  fi
+  echo "  📊 Sync summary: ${files_copied} copied, ${files_skipped} skipped (up to date), ${total_files} total"
 }
 
 # Git-based sync: pull from Second Brain
@@ -306,6 +370,7 @@ git_sync_from_second_brain() {
   local dest_dir="$2"
   
   if [[ ! -d "$source_dir" ]]; then
+    echo "  ⚠️  Source directory not found: $source_dir"
     return 1
   fi
   
@@ -314,8 +379,12 @@ git_sync_from_second_brain() {
   # Copy files from Second Brain to local (only if newer)
   # Include both .md and .txt files for daily logs
   local files_copied=0
+  local files_skipped=0
+  local total_files=0
+  
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
+      ((total_files++))
       local rel_path="${file#$source_dir/}"
       local dest_file="$dest_dir/$rel_path"
       local dest_dir_path=$(dirname "$dest_file")
@@ -324,13 +393,20 @@ git_sync_from_second_brain() {
       
       # Only copy if source is newer or doesn't exist in dest
       if [[ ! -f "$dest_file" ]] || [[ "$file" -nt "$dest_file" ]]; then
-        cp "$file" "$dest_file" 2>/dev/null && ((files_copied++))
+        if cp "$file" "$dest_file" 2>/dev/null; then
+          ((files_copied++))
+          echo "    ✓ Pulled: ${rel_path}"
+        else
+          echo "    ⚠️  Failed to pull: ${rel_path}"
+        fi
+      else
+        ((files_skipped++))
       fi
     fi
   done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
   
   if [[ $files_copied -gt 0 ]]; then
-    echo "  ✓ Pulled ${files_copied} file(s) from Second Brain"
+    echo "  📊 Pull summary: ${files_copied} pulled, ${files_skipped} skipped (up to date), ${total_files} total"
     
     # Commit the pulled changes
     init_gtd_git_repo
@@ -343,6 +419,8 @@ git_sync_from_second_brain() {
         echo "  ✓ Committed pulled changes"
       }
     fi
+  else
+    echo "  ℹ️  No files to pull (all up to date)"
   fi
 }
 
