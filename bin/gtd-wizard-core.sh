@@ -1741,7 +1741,7 @@ show_dashboard() {
   fi
   echo -e "  ${CYAN}🎯${NC} ${BOLD}Areas:${NC} ${areas_count}"
   
-  # Smart Suggestions count
+  # Smart Suggestions count (with timeout protection and efficiency)
   local suggestions_dir="$HOME/Documents/gtd/suggestions"
   local total_suggestions=0
   local high_conf_suggestions=0
@@ -1749,18 +1749,34 @@ show_dashboard() {
   local low_conf_suggestions=0
   
   if [[ -d "$suggestions_dir" ]]; then
-    # Use find to get JSON files instead of glob
-    while IFS= read -r suggestion_file; do
-      # Check if status is pending
-      local status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$suggestion_file" 2>/dev/null | sed 's/.*"\([^"]*\)"/\1/')
-      if [[ "$status" == "pending" ]]; then
-        ((total_suggestions++))
+    # Use a simple, fast approach: count pending files with single grep
+    # This is much faster than reading each file individually
+    set +e  # Allow errors in case of permission issues
+    total_suggestions=$(grep -l '"status"[[:space:]]*:[[:space:]]*"pending"' "$suggestions_dir"/*.json 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    set -e
+    [[ "$total_suggestions" =~ ^[0-9]+$ ]] || total_suggestions=0
+    
+    # Only do detailed confidence breakdown if reasonable number of files (< 50)
+    # This prevents timeout on systems with many suggestion files
+    if [[ $total_suggestions -gt 0 && $total_suggestions -lt 50 ]]; then
+      local processed=0
+      while IFS= read -r suggestion_file && [[ $processed -lt 50 ]]; do
+        # Quick check - only read if file exists and is readable
+        if [[ ! -r "$suggestion_file" ]]; then
+          continue
+        fi
         
-        # Get confidence level
-        local confidence=$(grep -o '"confidence"[[:space:]]*:[[:space:]]*[0-9.]*' "$suggestion_file" 2>/dev/null | sed 's/.*:[[:space:]]*//')
+        # Single read of file content
+        local file_content=$(head -20 "$suggestion_file" 2>/dev/null || echo "")
+        if [[ -z "$file_content" ]]; then
+          continue
+        fi
+        
+        # Get confidence level (single grep)
+        local confidence=$(echo "$file_content" | grep -o '"confidence"[[:space:]]*:[[:space:]]*[0-9.]*' 2>/dev/null | sed 's/.*:[[:space:]]*//' | head -1)
         
         if [[ -n "$confidence" ]]; then
-          # Categorize by confidence (>= 0.85 high, >= 0.70 medium, < 0.70 low)
+          # Use awk for numeric comparison (more reliable than bc)
           if awk "BEGIN {exit !($confidence >= 0.85)}" 2>/dev/null; then
             ((high_conf_suggestions++))
           elif awk "BEGIN {exit !($confidence >= 0.70)}" 2>/dev/null; then
@@ -1769,8 +1785,9 @@ show_dashboard() {
             ((low_conf_suggestions++))
           fi
         fi
-      fi
-    done < <(find "$suggestions_dir" -maxdepth 1 -name "*.json" -type f 2>/dev/null)
+        ((processed++))
+      done < <(grep -l '"status"[[:space:]]*:[[:space:]]*"pending"' "$suggestions_dir"/*.json 2>/dev/null | head -50)
+    fi
   fi
   
   # Display suggestions with confidence breakdown
@@ -1787,7 +1804,7 @@ show_dashboard() {
   # Quick Stats Section - Compact format
   echo -e "${BOLD}📈 Quick Stats${NC}"
   
-  # Logging streak
+  # Logging streak (with timeout protection)
   local streak_script=""
   if command -v gtd-log-stats &>/dev/null; then
     streak_script="gtd-log-stats"
@@ -1798,7 +1815,13 @@ show_dashboard() {
   fi
   
   if [[ -n "$streak_script" ]]; then
-    local current_streak=$("$streak_script" streak 2>/dev/null || echo "0")
+    local current_streak=0
+    # Use timeout if available to prevent hanging
+    if command -v timeout &>/dev/null; then
+      current_streak=$(timeout 2 "$streak_script" streak 2>/dev/null || echo "0")
+    else
+      current_streak=$("$streak_script" streak 2>/dev/null || echo "0")
+    fi
     current_streak=$(echo "$current_streak" | tr -d '[:space:]')
     if [[ ! "$current_streak" =~ ^[0-9]+$ ]]; then
       current_streak=0
@@ -2341,7 +2364,18 @@ show_main_menu() {
   echo ""
   
   # Show dashboard (command center) at the bottom
-  show_dashboard
+  # Wrap in error handling to prevent wizard from crashing if dashboard fails
+  if ! show_dashboard 2>/dev/null; then
+    # Fallback: show minimal status if dashboard fails
+    echo ""
+    echo "🎯 GTD Command Center"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "⚠️  Status display unavailable"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+  fi
   
   echo -n "Choose: "
 }
