@@ -36,9 +36,73 @@ load_gtd_config() {
   fi
 }
 
+# Load daily log config with mode-specific directory support
+load_daily_log_config() {
+  local DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+  if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+    DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+  elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+    DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+  fi
+  
+  if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+    source "$DAILY_LOG_CONFIG"
+  fi
+  
+  # Apply mode-specific DAILY_LOG_DIR if it exists
+  local current_mode="${GTD_COMPUTER_MODE:-home}"
+  local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]')
+  local mode_daily_log="DAILY_LOG_DIR_${mode_upper}"
+  
+  if [[ -n "${!mode_daily_log:-}" ]]; then
+    DAILY_LOG_DIR="${!mode_daily_log}"
+    export DAILY_LOG_DIR
+  fi
+}
+
 # Initialize GTD directories and paths
 init_gtd_paths() {
-  GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  # Get current computer mode
+  local current_mode="${GTD_COMPUTER_MODE:-home}"
+  if [[ -z "${GTD_COMPUTER_MODE:-}" ]]; then
+    # Try to load from config
+    local gtd_config="$HOME/code/dotfiles/zsh/.gtd_config"
+    if [[ ! -f "$gtd_config" ]]; then
+      gtd_config="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+    fi
+    if [[ -f "$gtd_config" ]]; then
+      source "$gtd_config" 2>/dev/null || true
+      current_mode="${GTD_COMPUTER_MODE:-home}"
+    fi
+  fi
+  
+  local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]')
+  
+  # Check for mode-specific directories first, then fall back to general
+  if [[ -n "${GTD_BASE_DIR_${mode_upper}:-}" ]]; then
+    GTD_BASE_DIR="${GTD_BASE_DIR_${mode_upper}}"
+  else
+    GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  fi
+  
+  if [[ -n "${SECOND_BRAIN_${mode_upper}:-}" ]]; then
+    SECOND_BRAIN="${SECOND_BRAIN_${mode_upper}}"
+  else
+    SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+  fi
+  
+  # Load daily log config to check for mode-specific DAILY_LOG_DIR
+  local daily_log_config="$HOME/code/dotfiles/zsh/.daily_log_config"
+  if [[ ! -f "$daily_log_config" ]]; then
+    daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+  fi
+  if [[ -f "$daily_log_config" ]]; then
+    source "$daily_log_config" 2>/dev/null || true
+    if [[ -n "${DAILY_LOG_DIR_${mode_upper}:-}" ]]; then
+      DAILY_LOG_DIR="${DAILY_LOG_DIR_${mode_upper}}"
+    fi
+  fi
+  
   PROJECTS_PATH="${GTD_BASE_DIR}/${GTD_PROJECTS_DIR:-1-projects}"
   AREAS_PATH="${GTD_BASE_DIR}/${GTD_AREAS_DIR:-2-areas}"
   TASKS_PATH="${GTD_BASE_DIR}/tasks"
@@ -49,13 +113,12 @@ init_gtd_paths() {
   ARCHIVE_PATH="${GTD_BASE_DIR}/${GTD_ARCHIVE_DIR:-6-archive}"
   DAILY_LOGS_PATH="${GTD_BASE_DIR}/${GTD_DAILY_LOGS_DIR:-daily-logs}"
   WEEKLY_REVIEWS_PATH="${GTD_BASE_DIR}/${GTD_WEEKLY_REVIEWS_DIR:-weekly-reviews}"
-  
-  SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
 }
 
 # Auto-load everything on source
 load_common_env
 load_gtd_config
+load_daily_log_config
 init_gtd_paths
 
 # ============================================================================

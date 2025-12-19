@@ -1200,7 +1200,8 @@ log_wizard() {
   esac
   
   echo ""
-    gtd_quick_pause
+  # Use regular pause (not quick_pause) so user has time to read AI response
+  gtd_pause 0 "Press Enter to continue..."
 }
 
 # Check-in wizard

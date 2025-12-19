@@ -22,6 +22,106 @@ get_computer_mode() {
   echo "${GTD_COMPUTER_MODE:-home}"
 }
 
+# Apply mode-specific directory paths
+apply_mode_directories() {
+  local mode="$1"
+  local mode_upper=$(echo "$mode" | tr '[:lower:]' '[:upper:]')
+  
+  # Load configs
+  local gtd_config="$HOME/code/dotfiles/zsh/.gtd_config"
+  if [[ ! -f "$gtd_config" ]]; then
+    gtd_config="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+  fi
+  
+  local daily_log_config="$HOME/code/dotfiles/zsh/.daily_log_config"
+  if [[ ! -f "$daily_log_config" ]]; then
+    daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+  fi
+  
+  if [[ -f "$gtd_config" ]]; then
+    source "$gtd_config" 2>/dev/null || true
+  fi
+  if [[ -f "$daily_log_config" ]]; then
+    source "$daily_log_config" 2>/dev/null || true
+  fi
+  
+  local is_macos=""
+  if [[ "$(uname)" == "Darwin" ]]; then
+    is_macos="true"
+  fi
+  
+  # Apply mode-specific DAILY_LOG_DIR if it exists
+  local mode_daily_log="DAILY_LOG_DIR_${mode_upper}"
+  if [[ -n "${!mode_daily_log:-}" ]]; then
+    # Update active DAILY_LOG_DIR in daily_log_config
+    if grep -q "^DAILY_LOG_DIR=" "$daily_log_config" 2>/dev/null; then
+      if [[ -n "$is_macos" ]]; then
+        sed -i '' "s|^DAILY_LOG_DIR=.*|DAILY_LOG_DIR=\"${!mode_daily_log}\"|" "$daily_log_config"
+      else
+        sed -i "s|^DAILY_LOG_DIR=.*|DAILY_LOG_DIR=\"${!mode_daily_log}\"|" "$daily_log_config"
+      fi
+    else
+      # Add it
+      echo "DAILY_LOG_DIR=\"${!mode_daily_log}\"" >> "$daily_log_config"
+    fi
+    export DAILY_LOG_DIR="${!mode_daily_log}"
+  fi
+  
+  # Apply mode-specific GTD_BASE_DIR if it exists
+  local mode_gtd_base="GTD_BASE_DIR_${mode_upper}"
+  if [[ -n "${!mode_gtd_base:-}" ]]; then
+    # Update active GTD_BASE_DIR in gtd_config
+    if grep -q "^GTD_BASE_DIR=" "$gtd_config" 2>/dev/null; then
+      if [[ -n "$is_macos" ]]; then
+        sed -i '' "s|^GTD_BASE_DIR=.*|GTD_BASE_DIR=\"${!mode_gtd_base}\"|" "$gtd_config"
+      else
+        sed -i "s|^GTD_BASE_DIR=.*|GTD_BASE_DIR=\"${!mode_gtd_base}\"|" "$gtd_config"
+      fi
+    else
+      # Add it after Directory Structure comment
+      if grep -q "^# Directory Structure" "$gtd_config" 2>/dev/null; then
+        if [[ -n "$is_macos" ]]; then
+          sed -i '' "/^# Directory Structure/a\\
+GTD_BASE_DIR=\"${!mode_gtd_base}\"
+" "$gtd_config"
+        else
+          sed -i "/^# Directory Structure/a GTD_BASE_DIR=\"${!mode_gtd_base}\"" "$gtd_config"
+        fi
+      else
+        echo "GTD_BASE_DIR=\"${!mode_gtd_base}\"" >> "$gtd_config"
+      fi
+    fi
+    export GTD_BASE_DIR="${!mode_gtd_base}"
+  fi
+  
+  # Apply mode-specific SECOND_BRAIN if it exists
+  local mode_second_brain="SECOND_BRAIN_${mode_upper}"
+  if [[ -n "${!mode_second_brain:-}" ]]; then
+    # Update active SECOND_BRAIN in gtd_config
+    if grep -q "^SECOND_BRAIN=" "$gtd_config" 2>/dev/null; then
+      if [[ -n "$is_macos" ]]; then
+        sed -i '' "s|^SECOND_BRAIN=.*|SECOND_BRAIN=\"${!mode_second_brain}\"|" "$gtd_config"
+      else
+        sed -i "s|^SECOND_BRAIN=.*|SECOND_BRAIN=\"${!mode_second_brain}\"|" "$gtd_config"
+      fi
+    else
+      # Add it after Second Brain Integration comment
+      if grep -q "^# Second Brain Integration" "$gtd_config" 2>/dev/null; then
+        if [[ -n "$is_macos" ]]; then
+          sed -i '' "/^# Second Brain Integration/a\\
+SECOND_BRAIN=\"${!mode_second_brain}\"
+" "$gtd_config"
+        else
+          sed -i "/^# Second Brain Integration/a SECOND_BRAIN=\"${!mode_second_brain}\"" "$gtd_config"
+        fi
+      else
+        echo "SECOND_BRAIN=\"${!mode_second_brain}\"" >> "$gtd_config"
+      fi
+    fi
+    export SECOND_BRAIN="${!mode_second_brain}"
+  fi
+}
+
 # Set computer mode (work/home)
 set_computer_mode() {
   local mode="${1:-}"
@@ -70,6 +170,9 @@ GTD_COMPUTER_MODE=\"$mode\"
     # Update current session
     export GTD_COMPUTER_MODE="$mode"
     echo "Computer mode set to: $mode"
+    
+    # Apply mode-specific directory paths
+    apply_mode_directories "$mode"
     
     # Update RabbitMQ and background processing settings in .gtd_config_database
     local db_config="$HOME/code/dotfiles/zsh/.gtd_config_database"
@@ -834,6 +937,78 @@ show_smart_defaults() {
   fi
 }
 
+# Get mode-specific directory config
+get_mode_directory() {
+  local mode="$1"
+  local dir_type="$2"  # daily_log, gtd_base, second_brain
+  local config_file="$3"
+  
+  # Look for mode-specific config (e.g., DAILY_LOG_DIR_WORK, DAILY_LOG_DIR_HOME)
+  local mode_upper=$(echo "$mode" | tr '[:lower:]' '[:upper:]')
+  local key="${dir_type}_${mode_upper}"
+  
+  # Try to find the key in config
+  if grep -q "^${key}=" "$config_file" 2>/dev/null; then
+    grep "^${key}=" "$config_file" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'"
+  else
+    echo ""
+  fi
+}
+
+# Update mode-specific directory config
+update_mode_directory() {
+  local mode="$1"
+  local dir_type="$2"  # daily_log, gtd_base, second_brain
+  local new_path="$3"
+  local config_file="$4"
+  
+  local mode_upper=$(echo "$mode" | tr '[:lower:]' '[:upper:]')
+  local key="${dir_type}_${mode_upper}"
+  
+  # Map dir_type to actual config key
+  case "$dir_type" in
+    daily_log)
+      key="DAILY_LOG_DIR_${mode_upper}"
+      ;;
+    gtd_base)
+      key="GTD_BASE_DIR_${mode_upper}"
+      ;;
+    second_brain)
+      key="SECOND_BRAIN_${mode_upper}"
+      ;;
+  esac
+  
+  local is_macos=""
+  if [[ "$(uname)" == "Darwin" ]]; then
+    is_macos="true"
+  fi
+  
+  if grep -q "^${key}=" "$config_file" 2>/dev/null; then
+    # Update existing
+    if [[ -n "$is_macos" ]]; then
+      sed -i '' "s|^${key}=.*|${key}=\"${new_path}\"|" "$config_file"
+    else
+      sed -i "s|^${key}=.*|${key}=\"${new_path}\"|" "$config_file"
+    fi
+  else
+    # Add new - find a good place to insert
+    if grep -q "^# Directory Structure" "$config_file" 2>/dev/null; then
+      # Insert after Directory Structure section
+      if [[ -n "$is_macos" ]]; then
+        sed -i '' "/^# Directory Structure/a\\
+# Mode-specific directories (${mode} mode)\\
+${key}=\"${new_path}\"
+" "$config_file"
+      else
+        sed -i "/^# Directory Structure/a # Mode-specific directories (${mode} mode)\n${key}=\"${new_path}\"" "$config_file"
+      fi
+    else
+      # Just append
+      echo "${key}=\"${new_path}\"" >> "$config_file"
+    fi
+  fi
+}
+
 # Computer Mode Wizard
 computer_mode_wizard() {
   clear
@@ -864,6 +1039,48 @@ computer_mode_wizard() {
   echo -e "Current mode: ${BOLD}${mode_emoji} ${mode_capitalized}${NC}"
   echo -e "  ${GRAY}${mode_desc}${NC}"
   echo ""
+  
+  # Show current directory paths
+  local gtd_config="$HOME/code/dotfiles/zsh/.gtd_config"
+  if [[ ! -f "$gtd_config" ]]; then
+    gtd_config="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+  fi
+  
+  local daily_log_config="$HOME/code/dotfiles/zsh/.daily_log_config"
+  if [[ ! -f "$daily_log_config" ]]; then
+    daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+  fi
+  
+  # Load current configs
+  if [[ -f "$gtd_config" ]]; then
+    source "$gtd_config" 2>/dev/null || true
+  fi
+  if [[ -f "$daily_log_config" ]]; then
+    source "$daily_log_config" 2>/dev/null || true
+  fi
+  
+  # Get current directories (check for mode-specific first, then fallback to general)
+  local current_daily_log="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+  local current_gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+  local current_second_brain="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+  
+  # Check for mode-specific overrides
+  local mode_upper=$(echo "$current_mode" | tr '[:lower:]' '[:upper:]')
+  if [[ -n "${DAILY_LOG_DIR_${mode_upper}:-}" ]]; then
+    current_daily_log="${DAILY_LOG_DIR_${mode_upper}}"
+  fi
+  if [[ -n "${GTD_BASE_DIR_${mode_upper}:-}" ]]; then
+    current_gtd_base="${GTD_BASE_DIR_${mode_upper}}"
+  fi
+  if [[ -n "${SECOND_BRAIN_${mode_upper}:-}" ]]; then
+    current_second_brain="${SECOND_BRAIN_${mode_upper}}"
+  fi
+  
+  echo -e "${BOLD}Current Directory Paths:${NC}"
+  echo -e "  📝 Daily Logs: ${CYAN}${current_daily_log}${NC}"
+  echo -e "  📁 GTD Base:   ${CYAN}${current_gtd_base}${NC}"
+  echo -e "  🧠 Second Brain: ${CYAN}${current_second_brain}${NC}"
+  echo ""
   echo "Switch to:"
   echo ""
   if [[ "$current_mode" == "work" ]]; then
@@ -874,6 +1091,9 @@ computer_mode_wizard() {
     echo -e "     Work tasks, projects, professional focus"
   fi
   echo ""
+  echo -e "  ${GREEN}2)${NC} ⚙️  Configure directories for current mode"
+  echo -e "     Set where daily logs, GTD files, and Second Brain are stored"
+  echo ""
   echo -e "  ${YELLOW}0)${NC} Back to Main Menu"
   echo ""
   echo -n "Choose: "
@@ -881,13 +1101,32 @@ computer_mode_wizard() {
   
   case "$choice" in
     1)
+      local new_mode="home"
       if [[ "$current_mode" == "work" ]]; then
-        set_computer_mode "home"
+        new_mode="home"
       else
-        set_computer_mode "work"
+        new_mode="work"
       fi
+      
+      set_computer_mode "$new_mode"
+      
+      # After switching, ask if they want to configure directories
+      echo ""
+      echo -e "${YELLOW}💡 Tip:${NC} Make sure your directory paths are configured correctly"
+      echo "   for ${new_mode} mode so sync systems can find your files."
+      echo ""
+      echo -n "Configure directories for ${new_mode} mode now? (y/n): "
+      read configure_now
+      
+      if [[ "$configure_now" =~ ^[Yy] ]]; then
+        configure_mode_directories "$new_mode"
+      fi
+      
       echo ""
       gtd_quick_pause
+      ;;
+    2)
+      configure_mode_directories "$current_mode"
       ;;
     0|"")
       return 0
@@ -898,6 +1137,199 @@ computer_mode_wizard() {
       gtd_quick_pause
       ;;
   esac
+}
+
+# Configure directories for a specific mode
+configure_mode_directories() {
+  local mode="$1"
+  local mode_upper=$(echo "$mode" | tr '[:lower:]' '[:upper:]')
+  local mode_display="$(echo "${mode:0:1}" | tr '[:lower:]' '[:upper:]')${mode:1}"
+  
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}⚙️  Configure Directories for ${mode_display} Mode${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Set where files are stored for ${mode} mode."
+  echo "These paths should point to locations that sync between computers."
+  echo ""
+  
+  # Load configs
+  local gtd_config="$HOME/code/dotfiles/zsh/.gtd_config"
+  if [[ ! -f "$gtd_config" ]]; then
+    gtd_config="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+  fi
+  
+  local daily_log_config="$HOME/code/dotfiles/zsh/.daily_log_config"
+  if [[ ! -f "$daily_log_config" ]]; then
+    daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+  fi
+  
+  if [[ -f "$gtd_config" ]]; then
+    source "$gtd_config" 2>/dev/null || true
+  fi
+  if [[ -f "$daily_log_config" ]]; then
+    source "$daily_log_config" 2>/dev/null || true
+  fi
+  
+  # Get current values (mode-specific or fallback to general)
+  local current_daily_log="${DAILY_LOG_DIR_${mode_upper}:-${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}}"
+  local current_gtd_base="${GTD_BASE_DIR_${mode_upper}:-${GTD_BASE_DIR:-$HOME/Documents/gtd}}"
+  local current_second_brain="${SECOND_BRAIN_${mode_upper}:-${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}}"
+  
+  echo -e "${BOLD}Current paths:${NC}"
+  echo -e "  1) Daily Logs:    ${CYAN}${current_daily_log}${NC}"
+  echo -e "  2) GTD Base:      ${CYAN}${current_gtd_base}${NC}"
+  echo -e "  3) Second Brain:  ${CYAN}${current_second_brain}${NC}"
+  echo ""
+  echo "Options:"
+  echo ""
+  echo -e "  ${GREEN}1)${NC} Set Daily Log directory"
+  echo -e "  ${GREEN}2)${NC} Set GTD Base directory"
+  echo -e "  ${GREEN}3)${NC} Set Second Brain directory"
+  echo -e "  ${GREEN}4)${NC} Use defaults (recommended for syncing)"
+  echo ""
+  echo -e "  ${YELLOW}0)${NC} Back"
+  echo ""
+  echo -n "Choose: "
+  read choice
+  
+  case "$choice" in
+    1)
+      echo ""
+      echo "Enter Daily Log directory path for ${mode} mode:"
+      echo "  (This is where daily log files are stored)"
+      echo "  Current: ${current_daily_log}"
+      echo ""
+      echo -n "Path (or press Enter to keep current): "
+      read new_path
+      
+      if [[ -n "$new_path" ]]; then
+        # Expand ~ and $HOME
+        new_path="${new_path/#\~/$HOME}"
+        new_path="${new_path//\$HOME/$HOME}"
+        
+        # Update in daily_log_config
+        update_mode_directory "$mode" "daily_log" "$new_path" "$daily_log_config"
+        
+        # Also update DAILY_LOG_DIR if it's the active mode
+        if [[ "$mode" == "$(get_computer_mode)" ]]; then
+          if grep -q "^DAILY_LOG_DIR=" "$daily_log_config" 2>/dev/null; then
+            local is_macos=""
+            if [[ "$(uname)" == "Darwin" ]]; then
+              is_macos="true"
+            fi
+            if [[ -n "$is_macos" ]]; then
+              sed -i '' "s|^DAILY_LOG_DIR=.*|DAILY_LOG_DIR=\"${new_path}\"|" "$daily_log_config"
+            else
+              sed -i "s|^DAILY_LOG_DIR=.*|DAILY_LOG_DIR=\"${new_path}\"|" "$daily_log_config"
+            fi
+          fi
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✓${NC} Daily Log directory set to: ${new_path}"
+      fi
+      ;;
+    2)
+      echo ""
+      echo "Enter GTD Base directory path for ${mode} mode:"
+      echo "  (This is where GTD projects, tasks, areas are stored)"
+      echo "  Current: ${current_gtd_base}"
+      echo ""
+      echo -n "Path (or press Enter to keep current): "
+      read new_path
+      
+      if [[ -n "$new_path" ]]; then
+        # Expand ~ and $HOME
+        new_path="${new_path/#\~/$HOME}"
+        new_path="${new_path//\$HOME/$HOME}"
+        
+        # Update in gtd_config
+        update_mode_directory "$mode" "gtd_base" "$new_path" "$gtd_config"
+        
+        # Also update GTD_BASE_DIR if it's the active mode
+        if [[ "$mode" == "$(get_computer_mode)" ]]; then
+          if grep -q "^GTD_BASE_DIR=" "$gtd_config" 2>/dev/null; then
+            local is_macos=""
+            if [[ "$(uname)" == "Darwin" ]]; then
+              is_macos="true"
+            fi
+            if [[ -n "$is_macos" ]]; then
+              sed -i '' "s|^GTD_BASE_DIR=.*|GTD_BASE_DIR=\"${new_path}\"|" "$gtd_config"
+            else
+              sed -i "s|^GTD_BASE_DIR=.*|GTD_BASE_DIR=\"${new_path}\"|" "$gtd_config"
+            fi
+          fi
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✓${NC} GTD Base directory set to: ${new_path}"
+      fi
+      ;;
+    3)
+      echo ""
+      echo "Enter Second Brain directory path for ${mode} mode:"
+      echo "  (This is your Obsidian vault location)"
+      echo "  Current: ${current_second_brain}"
+      echo ""
+      echo -n "Path (or press Enter to keep current): "
+      read new_path
+      
+      if [[ -n "$new_path" ]]; then
+        # Expand ~ and $HOME
+        new_path="${new_path/#\~/$HOME}"
+        new_path="${new_path//\$HOME/$HOME}"
+        
+        # Update in gtd_config
+        update_mode_directory "$mode" "second_brain" "$new_path" "$gtd_config"
+        
+        # Also update SECOND_BRAIN if it's the active mode
+        if [[ "$mode" == "$(get_computer_mode)" ]]; then
+          if grep -q "^SECOND_BRAIN=" "$gtd_config" 2>/dev/null; then
+            local is_macos=""
+            if [[ "$(uname)" == "Darwin" ]]; then
+              is_macos="true"
+            fi
+            if [[ -n "$is_macos" ]]; then
+              sed -i '' "s|^SECOND_BRAIN=.*|SECOND_BRAIN=\"${new_path}\"|" "$gtd_config"
+            else
+              sed -i "s|^SECOND_BRAIN=.*|SECOND_BRAIN=\"${new_path}\"|" "$gtd_config"
+            fi
+          fi
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✓${NC} Second Brain directory set to: ${new_path}"
+      fi
+      ;;
+    4)
+      # Use defaults - these should be in synced locations
+      local default_daily_log="$HOME/Documents/daily_logs"
+      local default_gtd_base="$HOME/Documents/gtd"
+      local default_second_brain="$HOME/Documents/obsidian/Second Brain"
+      
+      update_mode_directory "$mode" "daily_log" "$default_daily_log" "$daily_log_config"
+      update_mode_directory "$mode" "gtd_base" "$default_gtd_base" "$gtd_config"
+      update_mode_directory "$mode" "second_brain" "$default_second_brain" "$gtd_config"
+      
+      echo ""
+      echo -e "${GREEN}✓${NC} Set to default paths (recommended for syncing)"
+      echo "  Daily Logs: ${default_daily_log}"
+      echo "  GTD Base: ${default_gtd_base}"
+      echo "  Second Brain: ${default_second_brain}"
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      ;;
+  esac
+  
+  echo ""
+  gtd_quick_pause
 }
 
 # Test execution wizard
