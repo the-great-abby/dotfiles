@@ -872,12 +872,45 @@ advice_wizard() {
       echo ""
       
       # Show answer
+      local saved_answer=""
       if [[ -f "$answer_file" ]]; then
         echo -e "${BOLD}Answer:${NC}"
         echo ""
-        cat "$answer_file"
+        saved_answer=$(cat "$answer_file")
+        echo "$saved_answer"
       else
         echo "Answer file not found: $answer_file"
+      fi
+      
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      
+      # Ask if user wants to discuss this advice (conversation feature)
+      if [[ -n "$saved_answer" ]]; then
+        echo -e "${BOLD}Do you have any follow-up questions about this advice?${NC}"
+        echo -e "${GREEN}y${NC} - Ask more questions"
+        echo -e "${GREEN}n${NC} - Continue to options"
+        echo ""
+        read -p "Choice: " discuss_choice
+        echo ""
+        
+        if [[ "$discuss_choice" == "y" || "$discuss_choice" == "Y" ]]; then
+          # Use conversation feature
+          handle_followup_questions "$persona" "$question" "$saved_answer" "false" "false"
+          
+          # Save conversation if there were follow-ups
+          if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
+            echo ""
+            echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+            read save_conv
+            if [[ "$save_conv" == "y" || "$save_conv" == "Y" ]]; then
+              save_advice_conversation "$question" "$persona" "$FOLLOWUP_CONVERSATION"
+              echo ""
+              echo "✓ Conversation saved!"
+            fi
+          fi
+        fi
       fi
       
       echo ""
@@ -893,17 +926,24 @@ advice_wizard() {
       
       case "$action" in
         1)
-          local saved_question="$question"
-          local saved_persona="$persona"
-          local saved_answer=""
-          [[ -f "$answer_file" ]] && saved_answer=$(cat "$answer_file")
-          if [[ -n "$saved_answer" ]]; then
-            save_advice_conversation "$saved_question" "$saved_persona" "$saved_answer"
-            echo ""
-            echo "✓ Advice saved!"
+        local saved_question="$question"
+        local saved_persona="$persona"
+        local answer_to_save="$saved_answer"
+        if [[ -z "$answer_to_save" ]]; then
+          [[ -f "$answer_file" ]] && answer_to_save=$(cat "$answer_file")
+        fi
+        if [[ -n "$answer_to_save" ]]; then
+          # If we have a conversation, save that; otherwise save the original answer
+          if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]] && [[ -n "$FOLLOWUP_CONVERSATION" ]]; then
+            save_advice_conversation "$saved_question" "$saved_persona" "$FOLLOWUP_CONVERSATION"
           else
-            echo "Error: No answer to save"
+            save_advice_conversation "$saved_question" "$saved_persona" "$answer_to_save"
           fi
+          echo ""
+          echo "✓ Advice saved!"
+        else
+          echo "Error: No answer to save"
+        fi
           ;;
         2)
           echo -n "Delete this result? (y/n): "
@@ -916,7 +956,8 @@ advice_wizard() {
       esac
       
       echo ""
-      gtd_quick_pause
+      # No auto-continue - user can read and press Enter when ready
+      read -p "Press Enter to continue..."
       ;;
     0|"")
       return 0

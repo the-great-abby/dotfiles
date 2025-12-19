@@ -280,7 +280,8 @@ PYTHON_EXTRACT
   echo "Opening analysis in vim..."
   echo "Tip: Press :q to exit when done reading"
   echo ""
-      gtd_quick_pause
+  # No auto-continue - user controls vim/less and can read at their own pace
+  read -p "Press Enter to open analysis..."
   
   echo "$analysis_text" | vim -R - "+set filetype=markdown" - 2>/dev/null || echo "$analysis_text" | less -R
   
@@ -516,7 +517,24 @@ discuss_analysis_with_ai() {
     echo ""
     echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     
-    # Check if user wants to export this response
+    # Ask if user wants to continue the conversation (like in advice section)
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${BOLD}Do you have any follow-up questions about this response?${NC}"
+    echo -e "${GREEN}y${NC} - Ask more questions"
+    echo -e "${GREEN}n${NC} - Continue (will ask about export options)"
+    echo ""
+    read -p "Choice: " continue_conv
+    echo ""
+    
+    if [[ "$continue_conv" == "y" || "$continue_conv" == "Y" ]]; then
+      # User wants to continue conversation - loop will continue naturally
+      # The conversation will continue in the main while loop
+      continue
+    fi
+    
+    # User is done with conversation for this response - ask about export
     echo ""
     echo -e "${BOLD}💾 Export Options:${NC}"
     echo "  1) Export as diagram"
@@ -841,7 +859,8 @@ ${ai_response_text}
   done
   
   echo ""
-      gtd_quick_pause
+  # No auto-continue - user can read the final message and press Enter when ready
+  read -p "Press Enter to continue..."
 }
 
 # Generate Suggestions from Analysis
