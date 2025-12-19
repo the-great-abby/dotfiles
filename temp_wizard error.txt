@@ -1,8 +1,17 @@
 
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 GTD Command Center
-   Friday, 2025-12-19 16:00
+   Friday, 2025-12-19 16:10
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 System Status
+  ✓ Inbox: Empty
+  ✅ Tasks: 1
+  📁 Projects: 1
+make: *** [gtd-wizard] Killed: 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 GTD Command Center
+   Friday, 2025-12-19 16:10
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📊 System Status
@@ -12,4 +21,22 @@
   🎯 Areas: 0
 
 📈 Quick Stats
-make: *** [gtd-wizard] Killed: 9
+  🔥 Streak: 17 day(s)
+  📝 Today: 4 entries
+
+🎯 Smart Suggestions
+
+  Context: ☀️ Afternoon | 💼 Work
+
+  💡 Suggested Actions:
+    → Press 1 to Capture to inbox
+      Capture thoughts and ideas
+
+⚡ Quick Actions
+  💡 'What now?' → 40
+  📝 Daily log → 15
+  📊 Full status → 17
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Choose: make: *** [gtd-wizard] Killed: 9
