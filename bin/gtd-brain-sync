@@ -387,30 +387,92 @@ git_sync_to_second_brain() {
         # Use checksum comparison to be more accurate than timestamp
         local source_checksum=""
         local dest_checksum=""
+        local checksum_tool=""
         
+        # Determine which checksum tool is available
         if command -v md5sum &>/dev/null; then
+          checksum_tool="md5sum"
           source_checksum=$(md5sum "$file" 2>/dev/null | cut -d' ' -f1)
           dest_checksum=$(md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1)
         elif command -v md5 &>/dev/null; then
+          checksum_tool="md5"
           source_checksum=$(md5 -q "$file" 2>/dev/null)
           dest_checksum=$(md5 -q "$dest_file" 2>/dev/null)
         elif command -v shasum &>/dev/null; then
+          checksum_tool="shasum"
           source_checksum=$(shasum -a 256 "$file" 2>/dev/null | cut -d' ' -f1)
           dest_checksum=$(shasum -a 256 "$dest_file" 2>/dev/null | cut -d' ' -f1)
         fi
         
-        if [[ -n "$source_checksum" && -n "$dest_checksum" && "$source_checksum" != "$dest_checksum" ]]; then
-          # Files are different - copy even if timestamp says otherwise
+        # If checksum comparison failed or tools aren't available, use file size and diff as fallback
+        if [[ -z "$source_checksum" || -z "$dest_checksum" ]]; then
+          # Fallback: compare file sizes and do a quick diff
+          local source_size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "0")
+          local dest_size=$(stat -f%z "$dest_file" 2>/dev/null || stat -c%s "$dest_file" 2>/dev/null || echo "0")
+          
+          if [[ "$source_size" != "$dest_size" ]]; then
+            # Different sizes - definitely different
+            if cp "$file" "$dest_file" 2>/dev/null; then
+              ((files_copied++))
+              echo "    ✓ Copied (size differs: ${source_size} vs ${dest_size}): ${rel_path}"
+            else
+              echo "    ⚠️  Failed to copy: ${rel_path}"
+            fi
+          elif command -v diff &>/dev/null; then
+            # Same size - do a quick diff check
+            if ! diff -q "$file" "$dest_file" &>/dev/null; then
+              # Files differ
+              if cp "$file" "$dest_file" 2>/dev/null; then
+                ((files_copied++))
+                echo "    ✓ Copied (content differs per diff): ${rel_path}"
+              else
+                echo "    ⚠️  Failed to copy: ${rel_path}"
+              fi
+            else
+              # Files are the same
+              ((files_skipped++))
+              echo "    ⏭️  Skipped (identical): ${rel_path}"
+            fi
+          else
+            # No diff tool either - be conservative and copy if sizes match but we can't verify
+            # Actually, if we can't verify, let's copy to be safe
+            if cp "$file" "$dest_file" 2>/dev/null; then
+              ((files_copied++))
+              echo "    ✓ Copied (cannot verify, syncing to be safe): ${rel_path}"
+            else
+              echo "    ⚠️  Failed to copy: ${rel_path}"
+            fi
+          fi
+        elif [[ "$source_checksum" != "$dest_checksum" ]]; then
+          # Checksums differ - files are different
           if cp "$file" "$dest_file" 2>/dev/null; then
             ((files_copied++))
-            echo "    ✓ Copied (content differs): ${rel_path}"
+            echo "    ✓ Copied (content differs per ${checksum_tool}): ${rel_path}"
           else
             echo "    ⚠️  Failed to copy: ${rel_path}"
           fi
         else
-          # Files are the same - skip
-          ((files_skipped++))
-          echo "    ⏭️  Skipped (identical): ${rel_path}"
+          # Checksums match - but verify with diff to catch silent checksum failures
+          if command -v diff &>/dev/null; then
+            if diff -q "$file" "$dest_file" &>/dev/null; then
+              # Files are truly identical
+              ((files_skipped++))
+              echo "    ⏭️  Skipped (identical per ${checksum_tool} and diff): ${rel_path}"
+            else
+              # Checksum said identical but diff shows difference - checksum may have failed
+              # Copy to be safe
+              if cp "$file" "$dest_file" 2>/dev/null; then
+                ((files_copied++))
+                echo "    ✓ Copied (checksum matched but diff shows difference): ${rel_path}"
+              else
+                echo "    ⚠️  Failed to copy: ${rel_path}"
+              fi
+            fi
+          else
+            # No diff tool - trust checksum (but this is less reliable)
+            ((files_skipped++))
+            echo "    ⏭️  Skipped (identical per ${checksum_tool}): ${rel_path}"
+          fi
         fi
       fi
     fi
@@ -468,30 +530,91 @@ git_sync_from_second_brain() {
         # Use checksum comparison to be more accurate than timestamp
         local source_checksum=""
         local dest_checksum=""
+        local checksum_tool=""
         
+        # Determine which checksum tool is available
         if command -v md5sum &>/dev/null; then
+          checksum_tool="md5sum"
           source_checksum=$(md5sum "$file" 2>/dev/null | cut -d' ' -f1)
           dest_checksum=$(md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1)
         elif command -v md5 &>/dev/null; then
+          checksum_tool="md5"
           source_checksum=$(md5 -q "$file" 2>/dev/null)
           dest_checksum=$(md5 -q "$dest_file" 2>/dev/null)
         elif command -v shasum &>/dev/null; then
+          checksum_tool="shasum"
           source_checksum=$(shasum -a 256 "$file" 2>/dev/null | cut -d' ' -f1)
           dest_checksum=$(shasum -a 256 "$dest_file" 2>/dev/null | cut -d' ' -f1)
         fi
         
-        if [[ -n "$source_checksum" && -n "$dest_checksum" && "$source_checksum" != "$dest_checksum" ]]; then
-          # Files are different - pull even if timestamp says otherwise
+        # If checksum comparison failed or tools aren't available, use file size and diff as fallback
+        if [[ -z "$source_checksum" || -z "$dest_checksum" ]]; then
+          # Fallback: compare file sizes and do a quick diff
+          local source_size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "0")
+          local dest_size=$(stat -f%z "$dest_file" 2>/dev/null || stat -c%s "$dest_file" 2>/dev/null || echo "0")
+          
+          if [[ "$source_size" != "$dest_size" ]]; then
+            # Different sizes - definitely different
+            if cp "$file" "$dest_file" 2>/dev/null; then
+              ((files_copied++))
+              echo "    ✓ Pulled (size differs: ${source_size} vs ${dest_size}): ${rel_path}"
+            else
+              echo "    ⚠️  Failed to pull: ${rel_path}"
+            fi
+          elif command -v diff &>/dev/null; then
+            # Same size - do a quick diff check
+            if ! diff -q "$file" "$dest_file" &>/dev/null; then
+              # Files differ
+              if cp "$file" "$dest_file" 2>/dev/null; then
+                ((files_copied++))
+                echo "    ✓ Pulled (content differs per diff): ${rel_path}"
+              else
+                echo "    ⚠️  Failed to pull: ${rel_path}"
+              fi
+            else
+              # Files are the same
+              ((files_skipped++))
+              echo "    ⏭️  Skipped (identical): ${rel_path}"
+            fi
+          else
+            # No diff tool either - be conservative and pull to be safe
+            if cp "$file" "$dest_file" 2>/dev/null; then
+              ((files_copied++))
+              echo "    ✓ Pulled (cannot verify, syncing to be safe): ${rel_path}"
+            else
+              echo "    ⚠️  Failed to pull: ${rel_path}"
+            fi
+          fi
+        elif [[ "$source_checksum" != "$dest_checksum" ]]; then
+          # Checksums differ - files are different
           if cp "$file" "$dest_file" 2>/dev/null; then
             ((files_copied++))
-            echo "    ✓ Pulled (content differs): ${rel_path}"
+            echo "    ✓ Pulled (content differs per ${checksum_tool}): ${rel_path}"
           else
             echo "    ⚠️  Failed to pull: ${rel_path}"
           fi
         else
-          # Files are the same - skip
-          ((files_skipped++))
-          echo "    ⏭️  Skipped (identical): ${rel_path}"
+          # Checksums match - but verify with diff to catch silent checksum failures
+          if command -v diff &>/dev/null; then
+            if diff -q "$file" "$dest_file" &>/dev/null; then
+              # Files are truly identical
+              ((files_skipped++))
+              echo "    ⏭️  Skipped (identical per ${checksum_tool} and diff): ${rel_path}"
+            else
+              # Checksum said identical but diff shows difference - checksum may have failed
+              # Pull to be safe
+              if cp "$file" "$dest_file" 2>/dev/null; then
+                ((files_copied++))
+                echo "    ✓ Pulled (checksum matched but diff shows difference): ${rel_path}"
+              else
+                echo "    ⚠️  Failed to pull: ${rel_path}"
+              fi
+            fi
+          else
+            # No diff tool - trust checksum (but this is less reliable)
+            ((files_skipped++))
+            echo "    ⏭️  Skipped (identical per ${checksum_tool}): ${rel_path}"
+          fi
         fi
       fi
     fi
