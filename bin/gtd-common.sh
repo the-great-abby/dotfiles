@@ -1115,3 +1115,148 @@ gtd_extract_entry_count() {
   echo "$stats" | grep -oE "Entries: [0-9]+" | grep -oE "[0-9]+" || echo "0"
 }
 
+# ============================================================================
+# Computer Mode Preservation (for sync operations)
+# ============================================================================
+
+# Get local computer mode preference file path (gitignored, per-computer)
+gtd_get_computer_mode_file() {
+  local mode_file="$HOME/.gtd_computer_mode"
+  # Try dotfiles location first
+  if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+    mode_file="$HOME/code/dotfiles/.gtd_computer_mode"
+  elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+    mode_file="$HOME/code/personal/dotfiles/.gtd_computer_mode"
+  fi
+  echo "$mode_file"
+}
+
+# Detect which computer this is (work or home) based on hostname or user
+# Returns: "work" or "home"
+gtd_detect_computer_type() {
+  local hostname=$(hostname 2>/dev/null || echo "")
+  local username=$(whoami 2>/dev/null || echo "")
+  
+  # Check hostname for work-related keywords
+  if echo "$hostname" | grep -qiE "(work|office|corp|company|business|workstation|desktop.*work)"; then
+    echo "work"
+    return 0
+  fi
+  
+  # Check username for work-related patterns
+  if echo "$username" | grep -qiE "(work|office|corp|company|business)"; then
+    echo "work"
+    return 0
+  fi
+  
+  # Default to home if we can't detect
+  echo "home"
+}
+
+# Save current computer mode preference (for this specific computer)
+# This creates a local file that won't be synced via git
+gtd_save_computer_mode_preference() {
+  local mode="${1:-}"
+  if [[ -z "$mode" ]]; then
+    # Try to detect
+    mode=$(gtd_detect_computer_type)
+  fi
+  
+  local mode_file=$(gtd_get_computer_mode_file)
+  echo "$mode" > "$mode_file" 2>/dev/null
+  if [[ $? -eq 0 ]]; then
+    gtd_print_info "Saved computer mode preference: $mode (stored locally, won't sync)"
+  fi
+}
+
+# Get saved computer mode preference for this computer
+gtd_get_computer_mode_preference() {
+  local mode_file=$(gtd_get_computer_mode_file)
+  
+  if [[ -f "$mode_file" ]]; then
+    local saved_mode=$(cat "$mode_file" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    if [[ "$saved_mode" == "work" || "$saved_mode" == "home" ]]; then
+      echo "$saved_mode"
+      return 0
+    fi
+  fi
+  
+  # No saved preference - try to detect
+  gtd_detect_computer_type
+}
+
+# Preserve and restore computer mode during sync operations
+# Call this before sync to save current mode, and after sync to restore if needed
+# Usage: gtd_preserve_computer_mode [before|after]
+gtd_preserve_computer_mode() {
+  local phase="${1:-before}"
+  
+  # Find config file
+  local gtd_config="$HOME/code/dotfiles/zsh/.gtd_config"
+  if [[ ! -f "$gtd_config" ]]; then
+    gtd_config="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+  fi
+  
+  if [[ ! -f "$gtd_config" ]]; then
+    return 0  # No config file, nothing to do
+  fi
+  
+  if [[ "$phase" == "before" ]]; then
+    # Before sync: save current mode and this computer's preference
+    local current_mode=$(grep "^GTD_COMPUTER_MODE=" "$gtd_config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+    if [[ -n "$current_mode" ]]; then
+      # Save current mode to temp file
+      echo "$current_mode" > "/tmp/gtd_mode_before_sync" 2>/dev/null
+    fi
+    
+    # Ensure we have a saved preference for this computer
+    local mode_file=$(gtd_get_computer_mode_file)
+    if [[ ! -f "$mode_file" ]]; then
+      # No preference saved yet - detect and save it
+      local preferred_mode=$(gtd_detect_computer_type)
+      gtd_save_computer_mode_preference "$preferred_mode"
+    fi
+  elif [[ "$phase" == "after" ]]; then
+    # After sync: check if mode changed and restore if needed
+    local mode_before=""
+    if [[ -f "/tmp/gtd_mode_before_sync" ]]; then
+      mode_before=$(cat "/tmp/gtd_mode_before_sync" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+      rm -f "/tmp/gtd_mode_before_sync" 2>/dev/null
+    fi
+    
+    local mode_after=$(grep "^GTD_COMPUTER_MODE=" "$gtd_config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+    
+    # Get this computer's preferred mode
+    local preferred_mode=$(gtd_get_computer_mode_preference)
+    
+    # If mode changed and doesn't match this computer's preference, restore it
+    if [[ -n "$mode_after" && "$mode_after" != "$preferred_mode" ]]; then
+      # Mode was changed by sync - restore to this computer's preference
+      if [[ -f "$gtd_config" ]]; then
+        # Source wizard core to get set_computer_mode function
+        local wizard_core="$HOME/code/dotfiles/bin/gtd-wizard-core.sh"
+        if [[ ! -f "$wizard_core" ]]; then
+          wizard_core="$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh"
+        fi
+        
+        if [[ -f "$wizard_core" ]]; then
+          # Source wizard core to get the function
+          source "$wizard_core" 2>/dev/null || true
+          if declare -f set_computer_mode &>/dev/null; then
+            set_computer_mode "$preferred_mode" >/dev/null 2>&1
+            gtd_print_info "Restored computer mode to: $preferred_mode (after sync)"
+          fi
+        else
+          # Fallback: directly update the config file
+          if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' "s/^GTD_COMPUTER_MODE=.*/GTD_COMPUTER_MODE=\"$preferred_mode\"/" "$gtd_config" 2>/dev/null
+          else
+            sed -i "s/^GTD_COMPUTER_MODE=.*/GTD_COMPUTER_MODE=\"$preferred_mode\"/" "$gtd_config" 2>/dev/null
+          fi
+          gtd_print_info "Restored computer mode to: $preferred_mode (after sync)"
+        fi
+      fi
+    fi
+  fi
+}
+

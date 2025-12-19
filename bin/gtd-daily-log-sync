@@ -222,6 +222,11 @@ git_sync_from_second_brain() {
 
 # Sync to Second Brain directory (so Obsidian sync handles it)
 sync_to_second_brain() {
+  # Preserve computer mode before sync
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "before"
+  fi
+  
   local sync_dir="${SECOND_BRAIN}/Daily Logs"
   
   echo ""
@@ -250,10 +255,20 @@ sync_to_second_brain() {
   echo ""
   echo "💡 Since this is in your Obsidian vault, it will sync automatically!"
   echo ""
+  
+  # Restore computer mode after sync if it was changed
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "after"
+  fi
 }
 
 # Sync from Second Brain (pull)
 sync_from_second_brain() {
+  # Preserve computer mode before sync
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "before"
+  fi
+  
   local sync_dir="${SECOND_BRAIN}/Daily Logs"
   
   echo ""
@@ -276,10 +291,20 @@ sync_from_second_brain() {
   echo ""
   echo "✓ Daily logs pulled from: ${sync_dir}"
   echo ""
+  
+  # Restore computer mode after sync if it was changed
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "after"
+  fi
 }
 
 # Two-way sync (merge)
 sync_both_ways() {
+  # Preserve computer mode before sync
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "before"
+  fi
+  
   local sync_dir="${SECOND_BRAIN}/Daily Logs"
   
   echo ""
@@ -297,6 +322,11 @@ sync_both_ways() {
   # Sync Second Brain → local
   echo "Syncing Second Brain → local..."
   git_sync_from_second_brain "$sync_dir" "$DAILY_LOG_DIR"
+  
+  # Restore computer mode after sync if it was changed
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "after"
+  fi
   
   echo ""
   echo "✓ Two-way sync complete!"

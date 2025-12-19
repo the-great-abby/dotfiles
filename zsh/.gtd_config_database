@@ -45,10 +45,10 @@ RABBITMQ_RETRY_DELAY="${RABBITMQ_RETRY_DELAY:-5}"
 VECTORIZE_CONTENT="${VECTORIZE_CONTENT:-daily_logs,tasks,projects}"
 
 # Auto-vectorize on creation (true/false)
-VECTORIZE_ON_CREATE=false
+VECTORIZE_ON_CREATE=true
 
 # Auto-vectorize on update (true/false)
-VECTORIZE_ON_UPDATE=false
+VECTORIZE_ON_UPDATE=true
 
 # Chunk size for large documents (characters per chunk)
 VECTOR_CHUNK_SIZE="${VECTOR_CHUNK_SIZE:-1000}"
@@ -90,12 +90,12 @@ VECTOR_FILEWATCHER_ENABLED=false
 # Automatically submit deep analysis jobs to the queue
 
 # Weekly review scheduling
-DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=false
+DEEP_ANALYSIS_AUTO_WEEKLY_REVIEW=true
 DEEP_ANALYSIS_WEEKLY_REVIEW_DAY="sunday"
 DEEP_ANALYSIS_WEEKLY_REVIEW_TIME="04:00"
 
 # Energy analysis scheduling
-DEEP_ANALYSIS_AUTO_ENERGY=false
+DEEP_ANALYSIS_AUTO_ENERGY=true
 DEEP_ANALYSIS_ENERGY_INTERVAL=3
 DEEP_ANALYSIS_ENERGY_DAYS=7
 
@@ -108,9 +108,9 @@ DEEP_ANALYSIS_AUTO_CONNECTIONS="${DEEP_ANALYSIS_AUTO_CONNECTIONS:-false}"
 DEEP_ANALYSIS_CONNECTIONS_INTERVAL="${DEEP_ANALYSIS_CONNECTIONS_INTERVAL:-7}"  # Every N days
 
 # Event-driven triggers (automatic on content creation)
-DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=false
-DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=false
-DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=false
+DEEP_ANALYSIS_TRIGGER_ENERGY_ON_LOG=true
+DEEP_ANALYSIS_TRIGGER_INSIGHTS_ON_CONTENT=true
+DEEP_ANALYSIS_TRIGGER_CONNECTIONS_ON_TASK=true
 
 # Automatic suggestion creation from analysis results
 # When true, automatically scans analysis results and creates suggestions

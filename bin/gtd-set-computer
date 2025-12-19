@@ -1,0 +1,69 @@
+#!/bin/bash
+# GTD Set Computer Mode
+# Sets the computer mode (work/home) for the GTD system
+#
+# Usage:
+#   gtd-set-computer work
+#   gtd-set-computer home
+
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
+# Source GTD common functions
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Source wizard core to get set_computer_mode function
+WIZARD_CORE="$HOME/code/dotfiles/bin/gtd-wizard-core.sh"
+if [[ ! -f "$WIZARD_CORE" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh" ]]; then
+  WIZARD_CORE="$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh"
+fi
+if [[ -f "$WIZARD_CORE" ]]; then
+  source "$WIZARD_CORE"
+fi
+
+# Check if function exists
+if ! declare -f set_computer_mode &>/dev/null; then
+  gtd_print_error "set_computer_mode function not found. Please check your GTD installation."
+  exit 1
+fi
+
+# Get mode from argument
+mode="${1:-}"
+
+if [[ -z "$mode" ]]; then
+  echo ""
+  gtd_print_header "GTD Computer Mode" "💻"
+  echo ""
+  echo "Usage: gtd-set-computer <work|home>"
+  echo ""
+  echo "Examples:"
+  echo "  gtd-set-computer work    # Set to work mode"
+  echo "  gtd-set-computer home    # Set to home mode"
+  echo ""
+  echo "Or use convenience commands:"
+  echo "  gtd-set-work-computer    # Set to work mode"
+  echo "  gtd-set-home-computer    # Set to home mode"
+  echo ""
+  exit 1
+fi
+
+# Set the mode
+set_computer_mode "$mode"
+
+# Save this as the preferred mode for this computer
+if declare -f gtd_save_computer_mode_preference &>/dev/null; then
+  gtd_save_computer_mode_preference "$mode"
+fi
+

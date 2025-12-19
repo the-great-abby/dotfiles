@@ -1201,6 +1201,11 @@ git_sync_from_second_brain() {
 
 # Sync daily logs to Second Brain directory (for syncing between computers)
 sync_daily_logs() {
+  # Preserve computer mode before sync
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "before"
+  fi
+  
   echo "🔄 Syncing Daily Logs to Second Brain (Git-based)..."
   
   local sync_dir="${SECOND_BRAIN}/Daily Logs"
@@ -1224,10 +1229,20 @@ sync_daily_logs() {
   
   echo "  ✓ Daily logs synced to: ${sync_dir}"
   echo "    (Will sync automatically via Obsidian to other computers)"
+  
+  # Restore computer mode after sync if it was changed
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "after"
+  fi
 }
 
 # Main sync function
 main_sync() {
+  # Preserve computer mode before sync
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "before"
+  fi
+  
   echo "🧠 GTD ↔ Second Brain Sync"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
@@ -1242,6 +1257,11 @@ main_sync() {
   
   echo ""
   echo "✓ Sync complete!"
+  
+  # Restore computer mode after sync if it was changed
+  if declare -f gtd_preserve_computer_mode &>/dev/null; then
+    gtd_preserve_computer_mode "after"
+  fi
 }
 
 # Show usage

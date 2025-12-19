@@ -1,0 +1,48 @@
+#!/bin/bash
+# GTD Set Home Computer Mode
+# Convenience command to set computer mode to "home"
+#
+# Usage:
+#   gtd-set-home-computer
+
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
+# Source GTD common functions
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Source wizard core to get set_computer_mode function
+WIZARD_CORE="$HOME/code/dotfiles/bin/gtd-wizard-core.sh"
+if [[ ! -f "$WIZARD_CORE" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh" ]]; then
+  WIZARD_CORE="$HOME/code/personal/dotfiles/bin/gtd-wizard-core.sh"
+fi
+if [[ -f "$WIZARD_CORE" ]]; then
+  source "$WIZARD_CORE"
+fi
+
+# Check if function exists
+if ! declare -f set_computer_mode &>/dev/null; then
+  gtd_print_error "set_computer_mode function not found. Please check your GTD installation."
+  exit 1
+fi
+
+# Set to home mode
+set_computer_mode "home"
+
+# Save this as the preferred mode for this computer
+if declare -f gtd_save_computer_mode_preference &>/dev/null; then
+  gtd_save_computer_mode_preference "home"
+fi
+
