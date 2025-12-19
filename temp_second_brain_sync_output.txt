@@ -259,4 +259,239 @@ cat: Logs/2025-12-19.md: No such file or directory
 08:01 - Weather: Cloudy, 43°F
 12:12 - I feel like I need to look at the steam sale to see if there is any good games on sale that I'm interested in purchasing ...
 12:12 - Weather: Cloudy, 63°F
-                                                                                       
+
+
+Got the sync working but notice how it removed the existing contents of the file to update it with it's own version?                                                                      
+
+╰─⠠⠵ gtd-brain-sync                                                                
+🧠 GTD ↔ Second Brain Sync
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔄 Syncing GTD Projects to Second Brain...
+  📄 Processing: 20251208112552-task
+    ⏭️  Already linked, skipping
+  📄 Processing: README
+    ⏭️  Already linked, skipping
+  📄 Processing: 20251208104653-task
+    ⏭️  Already linked, skipping
+✓ Project sync complete (Total: 3, Created: 0, Skipped: 3, Linked: 0)
+
+🔄 Syncing GTD Areas to Second Brain...
+✓ Area sync complete (Total: 0, Created: 0, Skipped: 0, Linked: 0)
+
+🔄 Syncing GTD References to Second Brain Resources...
+✓ Reference sync complete (Total: 0, Copied: 0, Skipped: 0, Linked: 0)
+
+🔄 Syncing Daily Logs to Second Brain (Git-based)...
+  Syncing local → Second Brain...
+  📝 Staging 2 file(s) for commit
+    • temp_second_brain_sync_output.txt
+    • zsh/.gtd_config
+  ✓ Committed changes: Sync daily-logs to Second Brain - 2025-12-19 14:25:20
+  📂 Source directory: /Users/abbymalson/Documents/daily_logs
+  📂 Destination directory: /Users/abbymalson/Documents/Second Brain/Daily Logs
+
+  🔍 File: 2025-12-19.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-19.md
+    ✓ Copied (content differs per md5sum): 2025-12-19.md
+  🔍 File: 2025-12-09.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-09.md
+    ✓ Copied (updated): 2025-12-09.md
+  🔍 File: 2025-11-26.txt
+    Source: /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-26.txt
+    ✓ Copied (new): 2025-11-26.txt
+  🔍 File: 2025-12-08.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-08.md
+    ✓ Copied (updated): 2025-12-08.md
+  🔍 File: 2025-11-26.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-26.md
+    ✓ Copied (updated): 2025-11-26.md
+  🔍 File: 2025-12-03.txt
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-03.txt
+    ✓ Copied (new): 2025-12-03.txt
+  🔍 File: 2025-12-04.md
+    Source: /Users/abbymalson/Documents/daily_logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-04.md
+    ✓ Copied (updated): 2025-12-04.md
+  📊 Sync summary: 7 copied, 0 skipped (identical), 7 total
+  Syncing Second Brain → local...
+  📂 Source directory (Second Brain): /Users/abbymalson/Documents/Second Brain/Daily Logs
+  📂 Destination directory (local): /Users/abbymalson/Documents/daily_logs
+
+  🔍 File: 2025-12-19.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-19.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-19.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-19.md
+    ✓ Pulled (updated): 2025-12-19.md
+  🔍 File: 2025-12-09.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-09.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-09.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-09.md
+    ✓ Pulled (updated): 2025-12-09.md
+  🔍 File: 2025-11-27.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-27.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-27.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-27.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-27.md
+    ✓ Pulled (new): 2025-11-27.md
+  🔍 File: 2025-11-26.txt
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-26.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.txt
+    ✓ Pulled (updated): 2025-11-26.txt
+  🔍 File: 2025-12-18.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-18.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-18.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-18.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-18.md
+    ✓ Pulled (new): 2025-12-18.md
+  🔍 File: 2025-12-08.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-08.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-08.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-08.md
+    ✓ Pulled (updated): 2025-12-08.md
+  🔍 File: 2025-11-26.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-26.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-26.md
+    ✓ Pulled (updated): 2025-11-26.md
+  🔍 File: 2025-12-13.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-13.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-13.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-13.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-13.md
+    ✓ Pulled (new): 2025-12-13.md
+  🔍 File: 2025-12-03.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-03.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-03.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-03.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-03.md
+    ✓ Pulled (new): 2025-12-03.md
+  🔍 File: 2025-12-17.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-17.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-17.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-17.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-17.md
+    ✓ Pulled (new): 2025-12-17.md
+  🔍 File: 2025-12-07.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-07.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-07.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-07.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-07.md
+    ✓ Pulled (new): 2025-12-07.md
+  🔍 File: 2025-12-16.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-16.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-16.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-16.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-16.md
+    ✓ Pulled (new): 2025-12-16.md
+  🔍 File: 2025-12-06.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-06.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-06.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-06.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-06.md
+    ✓ Pulled (new): 2025-12-06.md
+  🔍 File: 2025-12-12.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-12.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-12.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-12.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-12.md
+    ✓ Pulled (new): 2025-12-12.md
+  🔍 File: 2025-12-03.txt
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-03.txt
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-03.txt
+    ✓ Pulled (updated): 2025-12-03.txt
+  🔍 File: 2025-12-02.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-02.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-02.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-02.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-02.md
+    ✓ Pulled (new): 2025-12-02.md
+  🔍 File: 2025-12-15.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-15.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-15.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-15.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-15.md
+    ✓ Pulled (new): 2025-12-15.md
+  🔍 File: 2025-12-05.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-05.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-05.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-05.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-05.md
+    ✓ Pulled (new): 2025-12-05.md
+  🔍 File: 2025-12-11.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-11.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-11.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-11.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-11.md
+    ✓ Pulled (new): 2025-12-11.md
+  🔍 File: 2025-12-01.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-01.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-01.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-01.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-01.md
+    ✓ Pulled (new): 2025-12-01.md
+  🔍 File: 2025-12-10.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-10.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-10.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-10.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-10.md
+    ✓ Pulled (new): 2025-12-10.md
+  🔍 File: 2025-12-14.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-14.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-14.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-14.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-14.md
+    ✓ Pulled (new): 2025-12-14.md
+  🔍 File: 2025-12-04.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-04.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-12-04.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-12-04.md
+    ✓ Pulled (updated): 2025-12-04.md
+  🔍 File: 2025-11-30.md
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-30.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-30.md
+  🔍 Comparing files:
+    Source: /Users/abbymalson/Documents/Second Brain/Daily Logs/2025-11-30.md
+    Dest:   /Users/abbymalson/Documents/daily_logs/2025-11-30.md
+    ✓ Pulled (new): 2025-11-30.md
+  📊 Pull summary: 24 pulled, 0 skipped (identical), 24 total
+  ✓ Daily logs synced to: /Users/abbymalson/Documents/Second Brain/Daily Logs
+    (Will sync automatically via Obsidian to other computers)
