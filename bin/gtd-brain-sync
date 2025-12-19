@@ -440,9 +440,13 @@ merge_daily_log() {
     while IFS='|' read -r timestamp entry || [[ -n "$timestamp" ]]; do
       if [[ -n "$timestamp" && -n "$entry" ]]; then
         # Convert HH:MM to sortable format (pad with zeros for numeric sort)
+        # Use 10# prefix to force decimal interpretation (prevents octal issues with 08, 09)
         local hours=$(echo "$timestamp" | cut -d: -f1)
         local minutes=$(echo "$timestamp" | cut -d: -f2)
-        local sort_key=$(printf "%02d%02d" "$hours" "$minutes")
+        # Remove leading zeros for arithmetic, then pad back
+        local hours_num=$((10#$hours))
+        local minutes_num=$((10#$minutes))
+        local sort_key=$(printf "%02d%02d" "$hours_num" "$minutes_num")
         echo "${sort_key}|${timestamp}|${entry}"
       fi
     done < "$all_entries" | sort -t'|' -k1,1n | cut -d'|' -f3-
@@ -929,7 +933,7 @@ git_sync_to_second_brain() {
         fi
       fi
     fi
-  done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
+  done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" ! -name ".*" ! -name ".txt" ! -name ".md" 2>/dev/null)
   
   echo "  📊 Sync summary: ${files_copied} copied, ${files_skipped} skipped (identical), ${total_files} total"
 }
@@ -1159,7 +1163,7 @@ git_sync_from_second_brain() {
         fi
       fi
     fi
-  done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" 2>/dev/null)
+  done < <(find "$source_dir" -type f \( -name "*.md" -o -name "*.txt" \) ! -name "*.banter.*" ! -name "*.backup.*" ! -name ".*" ! -name ".txt" ! -name ".md" 2>/dev/null)
   
   if [[ $files_copied -gt 0 ]]; then
     echo "  📊 Pull summary: ${files_copied} pulled, ${files_skipped} skipped (identical), ${total_files} total"

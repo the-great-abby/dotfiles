@@ -87,8 +87,8 @@ init_gtd_paths() {
       # Source config with error handling to prevent bad substitution errors
       # Completely suppress stderr to prevent bad substitution errors from showing
       # This prevents bad substitutions in the config file from killing the script
-      set +e
-      source "$gtd_config" 2>/dev/null || true
+      # Use a subshell to isolate errors
+      (set +e; source "$gtd_config" 2>/dev/null || true)
       set -e
       
       # Re-read GTD_COMPUTER_MODE from file (more reliable than sourced variable)
