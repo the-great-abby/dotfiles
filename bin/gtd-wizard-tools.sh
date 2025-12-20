@@ -2010,9 +2010,10 @@ config_wizard() {
   echo "  12) 🧠 Setup Deep Analysis Auto-Scheduler (Auto-submit jobs)"
   echo "  13) 🚀 Deploy External Services (RabbitMQ, Database)"
   echo "  14) 👷 Manage Background Workers (Start/Stop/Restart)"
+  echo "  15) ☸️  Switch Kubernetes Context (Docker Desktop ↔ Rancher Desktop)"
   echo ""
   echo -e "${BOLD}${GREEN}Guided Setup:${NC}"
-  echo "  15) 🚀 Complete Guided Setup (Walk through entire setup process)"
+  echo "  16) 🚀 Complete Guided Setup (Walk through entire setup process)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -2532,11 +2533,11 @@ EOF
       echo "   cd ~/code/external_services"
       echo ""
       echo -e "${GREEN}   Database (PostgreSQL):${NC}"
-      echo "   git clone https://github.com/the-great-abby/postgres_databases.git database"
+      echo "   git clone git@github.com:the-great-abby/postgres_databases.git database"
       echo "   cd database && make setup"
       echo ""
       echo -e "${GREEN}   RabbitMQ:${NC}"
-      echo "   git clone https://github.com/the-great-abby/message_queue.git rabbitmq"
+      echo "   git clone git@github.com:the-great-abby/message_queue.git rabbitmq"
       echo "   cd rabbitmq && make setup"
       echo ""
       echo -e "${GREEN}2. Get Connection Information:${NC}"
@@ -4718,6 +4719,127 @@ except:
       fi
       ;;
     15)
+      # Switch Kubernetes Context
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}☸️  Switch Kubernetes Context${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Check if kubectl is installed
+      if ! command -v kubectl &>/dev/null; then
+        echo -e "${RED}❌ kubectl not found${NC}"
+        echo ""
+        echo "kubectl is required to switch contexts."
+        echo "Install kubectl:"
+        echo "  macOS: brew install kubernetes-cli"
+        echo "  Linux: See https://kubernetes.io/docs/tasks/tools/"
+        echo ""
+        gtd_enter_to_continue
+        return 0
+      fi
+      
+      # Get current context
+      local current_context=$(kubectl config current-context 2>/dev/null || echo "none")
+      echo -e "${BOLD}Current Context:${NC} ${CYAN}${current_context}${NC}"
+      echo ""
+      
+      # Get available contexts
+      echo -e "${BOLD}Available Contexts:${NC}"
+      local contexts=$(kubectl config get-contexts -o name 2>/dev/null | sort)
+      if [[ -z "$contexts" ]]; then
+        echo -e "${YELLOW}⚠️  No contexts found${NC}"
+        echo ""
+        echo "You may need to:"
+        echo "  1. Start Docker Desktop or Rancher Desktop"
+        echo "  2. Ensure Kubernetes is enabled in your desktop environment"
+        echo ""
+        gtd_enter_to_continue
+        return 0
+      fi
+      
+      # Display contexts with indicators
+      local context_num=1
+      declare -a context_list
+      while IFS= read -r context; do
+        context_list+=("$context")
+        if [[ "$context" == "$current_context" ]]; then
+          echo -e "  ${GREEN}${context_num})${NC} ${BOLD}${context}${NC} ${GREEN}(current)${NC}"
+        else
+          echo -e "  ${context_num}) ${context}"
+        fi
+        ((context_num++))
+      done <<< "$contexts"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose context to switch to: "
+      read context_choice
+      
+      if [[ -z "$context_choice" || "$context_choice" == "0" ]]; then
+        return 0
+      fi
+      
+      # Validate choice
+      if ! [[ "$context_choice" =~ ^[0-9]+$ ]] || [[ $context_choice -lt 1 ]] || [[ $context_choice -gt ${#context_list[@]} ]]; then
+        echo -e "${RED}❌ Invalid choice${NC}"
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      
+      local selected_index=$((context_choice - 1))
+      local selected_context="${context_list[$selected_index]}"
+      
+      # Check if already on this context
+      if [[ "$selected_context" == "$current_context" ]]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  Already using context: ${selected_context}${NC}"
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      
+      # Switch context
+      echo ""
+      echo -n "Switching to context: ${selected_context}... "
+      if kubectl config use-context "$selected_context" &>/dev/null; then
+        echo -e "${GREEN}✅${NC}"
+        echo ""
+        
+        # Verify the switch
+        local new_context=$(kubectl config current-context 2>/dev/null)
+        if [[ "$new_context" == "$selected_context" ]]; then
+          echo -e "${GREEN}✓ Successfully switched to: ${new_context}${NC}"
+          echo ""
+          
+          # Test connection
+          echo -n "Testing cluster connection... "
+          if kubectl cluster-info &>/dev/null 2>&1; then
+            echo -e "${GREEN}✅ Connected${NC}"
+          else
+            echo -e "${YELLOW}⚠️  Cannot connect to cluster${NC}"
+            echo ""
+            echo "The context was switched, but the cluster may not be running."
+            echo "Make sure Docker Desktop or Rancher Desktop is running and Kubernetes is enabled."
+          fi
+        else
+          echo -e "${YELLOW}⚠️  Context switch may have failed${NC}"
+          echo "Expected: $selected_context"
+          echo "Current: $new_context"
+        fi
+      else
+        echo -e "${RED}❌ Failed${NC}"
+        echo ""
+        echo "Could not switch to context: $selected_context"
+        echo "Make sure the context exists and is accessible."
+      fi
+      
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    16)
       guided_setup_wizard
       ;;
     0|"")
@@ -4770,8 +4892,8 @@ guided_setup_wizard() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   echo "We'll download two repositories:"
-  echo "  • Database: https://github.com/the-great-abby/postgres_databases"
-  echo "  • RabbitMQ: https://github.com/the-great-abby/message_queue"
+  echo "  • Database: git@github.com:the-great-abby/postgres_databases.git"
+  echo "  • RabbitMQ: git@github.com:the-great-abby/message_queue.git"
   echo ""
   echo -n "Ready to download? (y/N): "
   read confirm
@@ -4783,12 +4905,12 @@ guided_setup_wizard() {
     if [[ ! -d "database" ]]; then
       echo ""
       echo "Downloading database repository..."
-      if git clone https://github.com/the-great-abby/postgres_databases.git database 2>&1; then
+      if git clone git@github.com:the-great-abby/postgres_databases.git database 2>&1; then
         echo -e "${GREEN}✓ Database repository downloaded${NC}"
       else
         echo -e "${RED}❌ Failed to download database repository${NC}"
         echo "You can manually clone it later:"
-        echo "  git clone https://github.com/the-great-abby/postgres_databases.git ~/code/external_services/database"
+        echo "  git clone git@github.com:the-great-abby/postgres_databases.git ~/code/external_services/database"
       fi
     else
       echo -e "${GREEN}✓ Database repository already exists${NC}"
@@ -4798,12 +4920,12 @@ guided_setup_wizard() {
     if [[ ! -d "rabbitmq" ]]; then
       echo ""
       echo "Downloading RabbitMQ repository..."
-      if git clone https://github.com/the-great-abby/message_queue.git rabbitmq 2>&1; then
+      if git clone git@github.com:the-great-abby/message_queue.git rabbitmq 2>&1; then
         echo -e "${GREEN}✓ RabbitMQ repository downloaded${NC}"
       else
         echo -e "${RED}❌ Failed to download RabbitMQ repository${NC}"
         echo "You can manually clone it later:"
-        echo "  git clone https://github.com/the-great-abby/message_queue.git ~/code/external_services/rabbitmq"
+        echo "  git clone git@github.com:the-great-abby/message_queue.git ~/code/external_services/rabbitmq"
       fi
     else
       echo -e "${GREEN}✓ RabbitMQ repository already exists${NC}"
@@ -4812,8 +4934,8 @@ guided_setup_wizard() {
     echo "Skipping repository download. You can do this manually:"
     echo "  mkdir -p ~/code/external_services"
     echo "  cd ~/code/external_services"
-    echo "  git clone https://github.com/the-great-abby/postgres_databases.git database"
-    echo "  git clone https://github.com/the-great-abby/message_queue.git rabbitmq"
+    echo "  git clone git@github.com:the-great-abby/postgres_databases.git database"
+    echo "  git clone git@github.com:the-great-abby/message_queue.git rabbitmq"
   fi
   echo ""
   gtd_enter_to_continue
