@@ -2247,19 +2247,33 @@ AI_BACKEND=\"$new_backend\"
         source "$GTD_CONFIG_AI" 2>/dev/null || true
       fi
       
-      # Determine current backend
-      current_backend="${AI_BACKEND:-lmstudio}"
+      # Get computer mode (work/home) to use correct model variables
+      local computer_mode="${GTD_COMPUTER_MODE:-home}"
+      computer_mode=$(echo "$computer_mode" | tr '[:upper:]' '[:lower:]')
+      
+      # Determine current backend (check mode-specific first, then default)
+      local current_backend=""
+      if [[ "$computer_mode" == "work" ]]; then
+        current_backend="${WORK_AI_BACKEND:-${AI_BACKEND:-lmstudio}}"
+      else
+        current_backend="${HOME_AI_BACKEND:-${AI_BACKEND:-lmstudio}}"
+      fi
       current_backend=$(echo "$current_backend" | tr '[:upper:]' '[:lower:]')
       
       echo -e "${BOLD}Current Configuration:${NC}"
+      echo "  Mode: $computer_mode"
       echo "  Backend: $current_backend"
       echo ""
       
       # Test based on backend
       if [[ "$current_backend" == "ollama" ]]; then
-        # Test Ollama
+        # Test Ollama - use mode-specific model if available
         ollama_url="${OLLAMA_URL:-http://localhost:11434/v1/chat/completions}"
-        ollama_model="${OLLAMA_CHAT_MODEL:-gemma2:1b}"
+        if [[ "$computer_mode" == "work" ]]; then
+          ollama_model="${WORK_OLLAMA_CHAT_MODEL:-${OLLAMA_CHAT_MODEL:-gemma2:1b}}"
+        else
+          ollama_model="${HOME_OLLAMA_CHAT_MODEL:-${OLLAMA_CHAT_MODEL:-gemma2:1b}}"
+        fi
         base_url=$(echo "$ollama_url" | sed 's|/v1/chat/completions||')
         
         echo -e "${BOLD}Testing Ollama Connection:${NC}"
@@ -2343,9 +2357,13 @@ EOF
         fi
         
       else
-        # Test LM Studio
+        # Test LM Studio - use mode-specific model if available
         lm_url="${LM_STUDIO_URL:-http://localhost:1234/v1/chat/completions}"
-        lm_model="${LM_STUDIO_CHAT_MODEL:-qwen/qwen3-1.7b}"
+        if [[ "$computer_mode" == "work" ]]; then
+          lm_model="${WORK_LM_STUDIO_CHAT_MODEL:-${LM_STUDIO_CHAT_MODEL:-google/gemma-3-1b}}"
+        else
+          lm_model="${HOME_LM_STUDIO_CHAT_MODEL:-${LM_STUDIO_CHAT_MODEL:-qwen/qwen3-1.7b}}"
+        fi
         base_url=$(echo "$lm_url" | sed 's|/v1/chat/completions||')
         
         echo -e "${BOLD}Testing LM Studio Connection:${NC}"
