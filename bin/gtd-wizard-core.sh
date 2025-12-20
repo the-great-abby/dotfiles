@@ -1993,6 +1993,32 @@ show_dashboard() {
   echo -e "${BOLD}📈 Quick Stats${NC}" 2>/dev/null || echo "📈 Quick Stats"
   
   # Logging streak (with aggressive timeout protection and error isolation)
+  # Ensure DAILY_LOG_DIR is set before calling streak script
+  if [[ -z "${DAILY_LOG_DIR:-}" ]]; then
+    # Try to load from config file
+    local daily_log_config="$HOME/code/dotfiles/zsh/.daily_log_config"
+    if [[ ! -f "$daily_log_config" ]]; then
+      daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+    fi
+    if [[ -f "$daily_log_config" ]]; then
+      # Read DAILY_LOG_DIR from config file (handle both quoted and unquoted values)
+      local log_dir=$(grep "^DAILY_LOG_DIR=" "$daily_log_config" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g" | xargs)
+      if [[ -n "$log_dir" ]]; then
+        DAILY_LOG_DIR="$log_dir"
+        export DAILY_LOG_DIR
+      fi
+    fi
+    # Validate that DAILY_LOG_DIR exists and is accessible, fallback to default if not
+    if [[ -n "${DAILY_LOG_DIR:-}" ]] && [[ ! -d "${DAILY_LOG_DIR:-}" ]]; then
+      # Config directory doesn't exist, use default
+      DAILY_LOG_DIR="$HOME/Documents/daily_logs"
+      export DAILY_LOG_DIR
+    fi
+    # Final fallback to default if still not set
+    DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+    export DAILY_LOG_DIR
+  fi
+  
   local streak_script=""
   if command -v gtd-log-stats &>/dev/null; then
     streak_script="gtd-log-stats"
@@ -2004,13 +2030,16 @@ show_dashboard() {
   
   if [[ -n "$streak_script" ]]; then
     local current_streak=0
-    # Use timeout with aggressive limits and run in subshell to isolate errors
+    # Use timeout with reasonable limits and run in subshell to isolate errors
+    # Export DAILY_LOG_DIR so the script can use it
     if command -v timeout &>/dev/null; then
-      # Run in subshell with timeout and error suppression
-      current_streak=$(timeout 1 bash -c "exec '$streak_script' streak 2>/dev/null" 2>/dev/null || echo "0")
+      # Run in subshell with timeout and error suppression, with DAILY_LOG_DIR exported
+      # Increase timeout to 5 seconds for streak calculation (may need to check many days)
+      current_streak=$(timeout 5 bash -c "export DAILY_LOG_DIR=\"$DAILY_LOG_DIR\"; '$streak_script' streak 2>/dev/null" 2>/dev/null || echo "0")
     else
-      # Without timeout, use background process with kill after delay
-      current_streak=$(bash -c "exec '$streak_script' streak 2>/dev/null & PID=\$!; sleep 1; kill \$PID 2>/dev/null; wait \$PID 2>/dev/null" 2>/dev/null || echo "0")
+      # Without timeout, just run directly (it's fast enough, ~0.2s)
+      # The script validates DAILY_LOG_DIR internally, so it should work
+      current_streak=$("$streak_script" streak 2>/dev/null || echo "0")
     fi
     # Clean and validate the result
     current_streak=$(echo "$current_streak" | tr -d '[:space:]' | head -c 10)
