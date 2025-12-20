@@ -1,0 +1,111 @@
+#!/bin/bash
+# Background worker for badge suggestion requests
+# Processes badge suggestion requests from queue and saves results to gamification.json
+
+# Source common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+QUEUE_FILE="${HOME}/Documents/gtd/badge_suggestion_queue.jsonl"
+
+# Create directories if they don't exist
+mkdir -p "$(dirname "$QUEUE_FILE")"
+
+# Python command - use MCP virtualenv if available
+PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+if ! command -v "$PYTHON_CMD" &>/dev/null && [[ ! -f "$PYTHON_CMD" ]]; then
+  # Fallback: check for venv manually if gtd_get_mcp_python didn't work
+  local mcp_dir="$HOME/code/dotfiles/mcp"
+  if [[ ! -d "$mcp_dir" ]]; then
+    mcp_dir="$HOME/code/personal/dotfiles/mcp"
+  fi
+  local venv_python="${mcp_dir}/venv/bin/python3"
+  if [[ -f "$venv_python" ]]; then
+    PYTHON_CMD="$venv_python"
+  else
+    PYTHON_CMD="python3"
+  fi
+fi
+
+# Worker script path
+WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_badge_suggestion_worker.py"
+if [[ ! -f "$WORKER_SCRIPT" && -f "$HOME/code/personal/dotfiles/mcp/gtd_badge_suggestion_worker.py" ]]; then
+  WORKER_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_badge_suggestion_worker.py"
+fi
+
+if [[ ! -f "$WORKER_SCRIPT" ]]; then
+  echo "Error: Worker script not found: $WORKER_SCRIPT" >&2
+  exit 1
+fi
+
+# Main function
+case "${1:-daemon}" in
+  daemon)
+    echo "Starting badge suggestion worker daemon..."
+    echo "Queue file: $QUEUE_FILE"
+    echo ""
+    echo "To stop: pkill -f gtd_badge_suggestion_worker"
+    echo "To view logs: tail -f /tmp/badge-suggestion-worker.log"
+    echo ""
+    
+    # Run worker in background
+    nohup "$PYTHON_CMD" "$WORKER_SCRIPT" --queue-type=file >> /tmp/badge-suggestion-worker.log 2>&1 &
+    echo "✓ Worker started (PID: $!)"
+    ;;
+  foreground|fg)
+    echo "Starting badge suggestion worker in foreground..."
+    echo "Queue file: $QUEUE_FILE"
+    echo "Press CTRL+C to stop"
+    echo ""
+    exec "$PYTHON_CMD" "$WORKER_SCRIPT" --queue-type=file
+    ;;
+  status)
+    if pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null; then
+      pid=$(pgrep -f "gtd_badge_suggestion_worker.py" | head -1)
+      echo "✓ Badge suggestion worker is running (PID: $pid)"
+      if [[ -f "$QUEUE_FILE" ]]; then
+        queue_size=$(wc -l < "$QUEUE_FILE" 2>/dev/null || echo "0")
+        echo "  Queue size: $queue_size job(s)"
+      else
+        echo "  Queue: empty"
+      fi
+    else
+      echo "✗ Badge suggestion worker is not running"
+    fi
+    ;;
+  stop)
+    if pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null; then
+      pkill -f "gtd_badge_suggestion_worker.py"
+      sleep 1
+      if ! pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null; then
+        echo "✓ Worker stopped"
+      else
+        echo "⚠️  Worker still running, trying force kill..."
+        pkill -9 -f "gtd_badge_suggestion_worker.py"
+        sleep 1
+        if ! pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null; then
+          echo "✓ Worker stopped"
+        else
+          echo "✗ Could not stop worker"
+        fi
+      fi
+    else
+      echo "Worker is not running"
+    fi
+    ;;
+  *)
+    echo "Usage: gtd-badge-suggestion-worker [command]"
+    echo ""
+    echo "Commands:"
+    echo "  daemon (default)  Start worker in background"
+    echo "  foreground|fg     Start worker in foreground (see logs)"
+    echo "  status            Check if worker is running"
+    echo "  stop              Stop the worker"
+    ;;
+esac
+

@@ -1151,26 +1151,62 @@ log_wizard() {
   
   echo ""
   echo "Would you like AI feedback on this log entry?"
-  echo "  1) Yes, get feedback from a random persona"
-  echo "  2) Yes, choose a specific persona"
+  echo "  1) Yes, get feedback from a random persona (background)"
+  echo "  2) Yes, choose a specific persona (background)"
   echo "  3) No, skip feedback"
   echo ""
   echo -n "Choose: "
   read feedback_choice
   
+  # Source wizard tools to get queue_advice_request function
+  WIZARD_TOOLS="$HOME/code/dotfiles/bin/gtd-wizard-tools.sh"
+  if [[ ! -f "$WIZARD_TOOLS" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh" ]]; then
+    WIZARD_TOOLS="$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh"
+  fi
+  if [[ -f "$WIZARD_TOOLS" ]]; then
+    source "$WIZARD_TOOLS"
+  fi
+  
+  # Source select helper to get select_persona function
+  SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+  if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
+    SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
+  fi
+  if [[ -f "$SELECT_HELPER" ]]; then
+    source "$SELECT_HELPER"
+  fi
+  
   case "$feedback_choice" in
     1)
       echo ""
-      echo "Getting feedback from a random persona..."
-      echo ""
-      if command -v gtd-advise &>/dev/null; then
-        gtd-advise --random "I just logged this: $log_entry. What are your thoughts?"
-      elif [[ -f "$HOME/code/dotfiles/bin/gtd-advise" ]]; then
-        "$HOME/code/dotfiles/bin/gtd-advise" --random "I just logged this: $log_entry. What are your thoughts?"
-      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-advise" ]]; then
-        "$HOME/code/personal/dotfiles/bin/gtd-advise" --random "I just logged this: $log_entry. What are your thoughts?"
+      echo -e "${CYAN}📤 Queuing feedback request for background processing...${NC}"
+      
+      # Queue request for background processing
+      if declare -f queue_advice_request &>/dev/null; then
+        local request_id=$(queue_advice_request "random" "I just logged this: $log_entry. What are your thoughts?" "random" "false")
+        echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+        echo ""
+        echo "💡 You'll receive a Discord notification when the feedback is ready."
+        echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice Results"
+        echo ""
+        
+        # Start worker if not running
+        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1 && ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1; then
+          echo "Starting advice worker..."
+          if command -v gtd-advice-worker &>/dev/null; then
+            nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+            echo "✓ Worker started (PID: $!)"
+            echo "   Logs: tail -f /tmp/advice-worker.log"
+            echo ""
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-advice-worker" ]]; then
+            nohup "$HOME/code/dotfiles/bin/gtd-advice-worker" daemon >/tmp/advice-worker.log 2>&1 &
+            echo "✓ Worker started (PID: $!)"
+            echo "   Logs: tail -f /tmp/advice-worker.log"
+            echo ""
+          fi
+        fi
       else
-        echo "⚠️  gtd-advise command not found. Skipping feedback."
+        echo "⚠️  queue_advice_request function not found. Skipping feedback."
       fi
       ;;
     2)
@@ -1178,16 +1214,34 @@ log_wizard() {
       persona=$(select_persona)
       if [[ -n "$persona" ]]; then
         echo ""
-        echo "Getting feedback from $persona..."
-        echo ""
-        if command -v gtd-advise &>/dev/null; then
-          gtd-advise "$persona" "I just logged this: $log_entry. What are your thoughts?"
-        elif [[ -f "$HOME/code/dotfiles/bin/gtd-advise" ]]; then
-          "$HOME/code/dotfiles/bin/gtd-advise" "$persona" "I just logged this: $log_entry. What are your thoughts?"
-        elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-advise" ]]; then
-          "$HOME/code/personal/dotfiles/bin/gtd-advise" "$persona" "I just logged this: $log_entry. What are your thoughts?"
+        echo -e "${CYAN}📤 Queuing feedback request for background processing...${NC}"
+        
+        # Queue request for background processing
+        if declare -f queue_advice_request &>/dev/null; then
+          local request_id=$(queue_advice_request "$persona" "I just logged this: $log_entry. What are your thoughts?" "normal" "false")
+          echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+          echo ""
+          echo "💡 You'll receive a Discord notification when the feedback is ready."
+          echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice Results"
+          echo ""
+          
+          # Start worker if not running
+          if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1 && ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1; then
+            echo "Starting advice worker..."
+            if command -v gtd-advice-worker &>/dev/null; then
+              nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+              echo "✓ Worker started (PID: $!)"
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+              echo ""
+            elif [[ -f "$HOME/code/dotfiles/bin/gtd-advice-worker" ]]; then
+              nohup "$HOME/code/dotfiles/bin/gtd-advice-worker" daemon >/tmp/advice-worker.log 2>&1 &
+              echo "✓ Worker started (PID: $!)"
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+              echo ""
+            fi
+          fi
         else
-          echo "⚠️  gtd-advise command not found. Skipping feedback."
+          echo "⚠️  queue_advice_request function not found. Skipping feedback."
         fi
       fi
       ;;
@@ -1200,8 +1254,7 @@ log_wizard() {
   esac
   
   echo ""
-  # Use regular pause (not quick_pause) so user has time to read AI response
-  gtd_pause 0 "Press Enter to continue..."
+  gtd_quick_pause
 }
 
 # Check-in wizard

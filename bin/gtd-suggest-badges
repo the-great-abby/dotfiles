@@ -97,6 +97,8 @@ DATE_CMD=$(get_date_cmd)
 # Analyze logs and suggest badges
 suggest_badges_from_logs() {
   local date_range="${1:-week}"  # week, month, all
+  local persona="${2:-hank}"
+  local background_mode="${3:-false}"  # Run in background
   
   # Get log content
   local log_content=""
@@ -149,6 +151,22 @@ suggest_badges_from_logs() {
   echo "🔍 Analyzing logs for badge patterns..."
   echo ""
   
+  # Show progress indicator while analyzing logs
+  local spinner_pid=""
+  show_spinner() {
+    local spinner_chars="/-\|"
+    local i=0
+    while true; do
+      printf "\r  ${spinner_chars:$i:1} Reading log files... "
+      i=$(( (i+1) % 4 ))
+      sleep 0.2
+    done
+  }
+  
+  # Start spinner in background
+  show_spinner &
+  spinner_pid=$!
+  
   # Use AI advisor to analyze and suggest badges
   local analysis_prompt="I've been analyzing your daily logs and I want to suggest some custom badges based on patterns I've noticed. 
 
@@ -194,13 +212,80 @@ Look for patterns like: specific activities they do regularly, themes in their e
 
 Respond with ONLY the JSON object, nothing else."
 
-  # Get suggestions from a persona (use hank for practical suggestions, or louiza for accountability)
-  local persona="${2:-hank}"
+  # Persona is already set as parameter
+  
+  # Stop spinner before showing persona message
+  kill $spinner_pid 2>/dev/null
+  wait $spinner_pid 2>/dev/null
+  printf "\r  ✓ Log files read\n"
   
   echo "Asking ${persona} to analyze patterns..."
   echo ""
   
-  local suggestions=$($PYTHON_CMD "$PERSONA_HELPER" "$persona" "$analysis_prompt" 2>/dev/null)
+  # Show progress while waiting for AI response (this can take 10-30 seconds)
+  if [[ "$background_mode" == "true" ]]; then
+    echo "⏳ Queuing badge suggestion request for background processing..."
+    echo ""
+    
+    # Queue job for background worker
+    local queue_file="${HOME}/Documents/gtd/badge_suggestion_queue.jsonl"
+    local request_id="badge_$(date +%s)_$$"
+    local job_json=$(python3 <<PYTHON_QUEUE
+import json
+import sys
+from datetime import datetime
+
+job = {
+    "id": "$request_id",
+    "date_range": "$date_range",
+    "persona": "$persona",
+    "created_at": datetime.now().isoformat()
+}
+
+print(json.dumps(job))
+PYTHON_QUEUE
+    )
+    
+    # Append to queue
+    mkdir -p "$(dirname "$queue_file")"
+    echo "$job_json" >> "$queue_file"
+    
+    echo "✓ Request queued (ID: $request_id)"
+    echo ""
+    echo "💡 The badge suggestion worker will process this request."
+    echo "   Check results with: gtd-gamify custom-badge review"
+    echo ""
+    
+    # Check if worker is running
+    if ! pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null 2>&1; then
+      echo "⚠️  Badge suggestion worker is not running."
+      echo "   Start it with: gtd-badge-suggestion-worker daemon"
+      echo ""
+    fi
+    
+    return 0
+  else
+    # Show animated progress indicator
+    show_ai_progress() {
+      local dots=""
+      while true; do
+        printf "\r  ⏳ Waiting for AI response${dots}   "
+        dots="${dots}."
+        if [[ ${#dots} -gt 3 ]]; then
+          dots=""
+        fi
+        sleep 0.5
+      done
+    }
+    
+    show_ai_progress &
+    local progress_pid=$!
+    local suggestions=$($PYTHON_CMD "$PERSONA_HELPER" "$persona" "$analysis_prompt" 2>/dev/null)
+    kill $progress_pid 2>/dev/null
+    wait $progress_pid 2>/dev/null
+    printf "\r  ✓ AI analysis complete\n"
+    echo ""
+  fi
   
   if [[ -z "$suggestions" ]]; then
     echo "❌ Could not get badge suggestions from advisor"
@@ -386,7 +471,7 @@ PYTHON_SCRIPT
 # Main
 case "${1:-suggest}" in
   suggest|analyze)
-    suggest_badges_from_logs "${2:-week}" "${3:-hank}"
+    suggest_badges_from_logs "${2:-week}" "${3:-hank}" "${4:-false}"
     ;;
   review)
     review_suggestions

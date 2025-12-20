@@ -75,13 +75,32 @@ create_note() {
   local filename=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
   local note_path="$SECOND_BRAIN/$para_category/${filename}.md"
   
+  # Read content from stdin if available (non-interactive/piped input)
+  local has_content=false
+  local content=""
+  if ! [[ -t 0 ]]; then
+    # Read piped content
+    content=$(cat)
+    if [[ -n "$content" ]]; then
+      has_content=true
+    fi
+  fi
+  
   # Create note with template
-  cat > "$note_path" <<EOF
+  {
+    cat <<EOF
 # $title
 
 Created: $timestamp
 
 ## Notes
+EOF
+    if [[ "$has_content" == "true" ]]; then
+      echo ""
+      echo "$content"
+      echo ""
+    fi
+    cat <<EOF
 
 ## Links
 - Related to: 
@@ -92,6 +111,7 @@ Created: $timestamp
 ## Summary
 
 EOF
+  } > "$note_path"
   
   echo "✓ Created note: $note_path"
   echo "$note_path"

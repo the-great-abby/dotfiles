@@ -202,19 +202,23 @@ PYTHON_SAVE
   rm -f "$temp_input" 2>/dev/null || true
 }
 
-# Calculate XP needed for level
+# Calculate XP needed for level (cumulative XP to reach that level)
 calculate_xp_for_level() {
   local level=$1
-  if [[ $level -le 10 ]]; then
-    echo $((level * 100))
+  if [[ $level -le 1 ]]; then
+    echo 0
+  elif [[ $level -le 10 ]]; then
+    echo $(((level - 1) * 100))
   else
-    # Exponential: level 10 = 1000, level 11 = 1200, level 12 = 1440, etc.
-    local base=1000
-    local multiplier=1
-    for ((i=10; i<$level; i++)); do
-      multiplier=$((multiplier * 12 / 10))
+    # Level 10 requires 900 XP cumulative
+    # After level 10, each level requires 20% more XP than the previous
+    local cumulative=900
+    local xp_per_level=1000
+    for ((i=11; i<=level; i++)); do
+      cumulative=$((cumulative + xp_per_level))
+      xp_per_level=$((xp_per_level * 12 / 10))  # 20% increase
     done
-    echo $((base * multiplier))
+    echo $cumulative
   fi
 }
 
@@ -232,14 +236,40 @@ award_xp() {
   local new_xp=$((current_xp + amount))
   local new_total_xp=$((total_xp + amount))
   
-  # Calculate level
-  local new_level=$current_level
-  local xp_for_current_level=$(calculate_xp_for_level $current_level)
-  local xp_for_next_level=$(calculate_xp_for_level $((current_level + 1)))
-  
-  if [[ $new_total_xp -ge $xp_for_next_level ]]; then
-    new_level=$((current_level + 1))
-  fi
+  # Calculate correct level based on total XP (not just increment by 1)
+  # Use Python to calculate the correct level
+  local new_level=$(python3 <<PYTHON_LEVEL
+def xp_for_level(lvl):
+    """Returns the total XP needed to reach level lvl"""
+    if lvl <= 1:
+        return 0
+    elif lvl <= 10:
+        return (lvl - 1) * 100
+    else:
+        cumulative = 900  # XP for level 10
+        xp_per_level = 1000
+        for i in range(11, min(lvl + 1, 200)):  # Cap at level 200
+            cumulative += xp_per_level
+            xp_per_level = int(xp_per_level * 1.2)
+            if xp_per_level > 1000000000:  # Safety check
+                break
+        return cumulative
+
+def level_from_xp(total_xp):
+    """Calculate what level you should be based on total XP"""
+    if total_xp < 0:
+        return 1
+    level = 1
+    while level < 200:  # Reasonable upper limit
+        xp_needed = xp_for_level(level + 1)
+        if total_xp < xp_needed:
+            break
+        level += 1
+    return level
+
+print(level_from_xp($new_total_xp))
+PYTHON_LEVEL
+)
   
   # Update data
   data=$(echo "$data" | sed "s/\"xp\": $current_xp/\"xp\": $new_xp/")
@@ -249,9 +279,13 @@ award_xp() {
   save_gamification_data "$data"
   
   # Track daily XP
-  local today=$($DATE_CMD +"%Y-%m-%d")
-  local stats_data=$(cat "$STATS_FILE")
+  local today=$($DATE_CMD +"%Y-%m-%d" 2>/dev/null | tr -d '\n' || date +"%Y-%m-%d")
+  local stats_data=$(cat "$STATS_FILE" 2>/dev/null || echo '{"daily_xp": {}}')
   local daily_xp=$(echo "$stats_data" | grep -o "\"$today\": [0-9]*" | grep -o '[0-9]*' || echo "0")
+  # Ensure daily_xp is numeric
+  if ! [[ "$daily_xp" =~ ^[0-9]+$ ]]; then
+    daily_xp=0
+  fi
   local new_daily_xp=$((daily_xp + amount))
   
   if echo "$stats_data" | grep -q "\"$today\""; then
@@ -434,21 +468,42 @@ if total_achievement_xp > 0:
 
 # Check for level up
 def xp_for_level(lvl):
-    if lvl <= 10:
-        return lvl * 100
+    """Returns the total XP needed to reach level lvl"""
+    if lvl <= 1:
+        return 0
+    elif lvl <= 10:
+        return (lvl - 1) * 100
     else:
-        base = 1000
-        multiplier = 1
-        for i in range(10, lvl):
-            multiplier = multiplier * 12 // 10
-        return base * multiplier
+        cumulative = 900  # XP for level 10
+        xp_per_level = 1000
+        for i in range(11, min(lvl + 1, 200)):  # Cap at level 200
+            cumulative += xp_per_level
+            xp_per_level = int(xp_per_level * 1.2)
+            if xp_per_level > 1000000000:  # Safety check
+                break
+        return cumulative
+
+def level_from_xp(total_xp):
+    """Calculate what level you should be based on total XP"""
+    if total_xp < 0:
+        return 1
+    level = 1
+    while level < 200:  # Reasonable upper limit
+        xp_needed = xp_for_level(level + 1)
+        if total_xp < xp_needed:
+            break
+        level += 1
+    return level
 
 current_level = data.get("level", 1)
-xp_for_next = xp_for_level(current_level + 1)
+correct_level = level_from_xp(data["total_xp"])
 leveled_up = False
-if data["total_xp"] >= xp_for_next:
-    data["level"] = current_level + 1
-    leveled_up = True
+
+# Update to correct level if needed (fixes stalled leveling)
+if correct_level != current_level:
+    data["level"] = correct_level
+    if correct_level > current_level:
+        leveled_up = True
 
 # Save updated data
 data["achievements_unlocked"] = unlocked
@@ -1172,27 +1227,100 @@ if not_started_badges:
 print("="*70)
 PYTHON_SCRIPT
   
-  read -p "Press Enter to continue..."
+  # Only prompt for input if stdin is a terminal (not when called from wizard)
+  if [[ -t 0 ]]; then
+    read -p "Press Enter to continue..." 2>/dev/null || true
+  fi
+}
+
+# Calculate exercise streak from log files
+calculate_exercise_streak() {
+  local DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+  local today=$($DATE_CMD +"%Y-%m-%d")
+  local streak=0
+  local check_date="$today"
+  local days_checked=0
+  local max_days_to_check=365
+  
+  # Exercise keywords to look for
+  local exercise_pattern="workout|exercise|kettlebell|walk|run|weight|lifting|gym|fitness|training|cardio|strength|squat|deadlift|press|swing|snatch|clean|row|bike|cycling|yoga|stretch|active|movement"
+  
+  while [[ $days_checked -lt $max_days_to_check ]]; do
+    local log_file="${DAILY_LOG_DIR}/${check_date}.md"
+    
+    if [[ -f "$log_file" ]]; then
+      # Check if file contains exercise keywords (case insensitive)
+      if grep -qiE "$exercise_pattern" "$log_file" 2>/dev/null; then
+        streak=$((streak + 1))
+      else
+        break
+      fi
+    else
+      break
+    fi
+    
+    days_checked=$((days_checked + 1))
+    
+    # Go back one day
+    local prev_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      prev_date=$($DATE_CMD -v-1d -j -f "%Y-%m-%d" "$check_date" +"%Y-%m-%d" 2>/dev/null || echo "")
+      if [[ -z "$prev_date" ]]; then
+        local timestamp=$($DATE_CMD -j -f "%Y-%m-%d" "$check_date" +%s 2>/dev/null || echo "0")
+        if [[ "$timestamp" =~ ^[0-9]+$ ]] && [[ $timestamp -gt 0 ]]; then
+          local prev_timestamp=$((timestamp - 86400))
+          prev_date=$($DATE_CMD -r $prev_timestamp +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+      fi
+    else
+      prev_date=$($DATE_CMD -d "$check_date -1 day" +"%Y-%m-%d" 2>/dev/null || echo "")
+      if [[ -z "$prev_date" ]]; then
+        local timestamp=$($DATE_CMD -d "$check_date" +%s 2>/dev/null || echo "0")
+        if [[ "$timestamp" =~ ^[0-9]+$ ]] && [[ $timestamp -gt 0 ]]; then
+          local prev_timestamp=$((timestamp - 86400))
+          prev_date=$($DATE_CMD -d "@$prev_timestamp" +"%Y-%m-%d" 2>/dev/null || echo "")
+        fi
+      fi
+    fi
+    
+    if [[ -z "$prev_date" ]] || [[ "$prev_date" == "$check_date" ]]; then
+      break
+    fi
+    
+    check_date="$prev_date"
+  done
+  
+  echo "$streak"
 }
 
 # Sync actual streaks from log files
 sync_streaks_from_logs() {
   # Sync daily logging streak from actual log files
+  local actual_streak=0
+  local actual_longest=0
+  local total_days=0
+  local exercise_streak=0
+  
   if command -v gtd-log-stats &>/dev/null; then
-    local actual_streak=$(gtd-log-stats streak 2>/dev/null || echo "0")
-    local actual_longest=$(gtd-log-stats longest 2>/dev/null || echo "0")
-    local total_days=$(gtd-log-stats total 2>/dev/null || echo "0")
-    
-    # Update gamification file with actual values
-    python3 <<EOF
+    actual_streak=$(gtd-log-stats streak 2>/dev/null || echo "0")
+    actual_longest=$(gtd-log-stats longest 2>/dev/null || echo "0")
+    total_days=$(gtd-log-stats total 2>/dev/null || echo "0")
+  fi
+  
+  # Calculate exercise streak from log files
+  exercise_streak=$(calculate_exercise_streak 2>/dev/null || echo "0")
+  
+  # Update gamification file with actual values
+  python3 <<EOF
 import json
 import sys
+from datetime import datetime
 
 try:
     with open("$GAMIFICATION_FILE", "r") as f:
         data = json.load(f)
     
-    # Update streaks with actual calculated values
+    # Initialize structures if missing
     if "streaks" not in data:
         data["streaks"] = {}
     if "longest_streaks" not in data:
@@ -1200,28 +1328,34 @@ try:
     if "stats" not in data:
         data["stats"] = {}
     
-    # Update daily logging streak from actual log files
+    # Always update daily logging streak from actual log files (more accurate)
     actual_streak = int("$actual_streak" or "0")
     actual_longest = int("$actual_longest" or "0")
     total_days = int("$total_days" or "0")
+    exercise_streak = int("$exercise_streak" or "0")
     
-    # Only update if actual streak is higher (more accurate)
-    if actual_streak > data["streaks"].get("daily_logging", 0):
-        data["streaks"]["daily_logging"] = actual_streak
+    # Always update with actual values (not just when higher)
+    data["streaks"]["daily_logging"] = actual_streak
+    data["longest_streaks"]["daily_logging"] = actual_longest
+    data["stats"]["daily_logs"] = total_days
     
-    if actual_longest > data["longest_streaks"].get("daily_logging", 0):
-        data["longest_streaks"]["daily_logging"] = actual_longest
-    
-    # Update total days logged stat
-    if total_days > data["stats"].get("daily_logs", 0):
-        data["stats"]["daily_logs"] = total_days
+    # Update exercise streak from log files
+    # Only update if calculated streak is different (to avoid overwriting if manually set)
+    # But if calculated streak is 0 and stored is > 0, update to reflect reality
+    current_exercise_streak = data["streaks"].get("exercise", 0)
+    if exercise_streak == 0 and current_exercise_streak > 0:
+        # If no exercise found in recent logs, reset streak
+        data["streaks"]["exercise"] = 0
+    elif exercise_streak > current_exercise_streak:
+        # If calculated streak is higher, update it
+        data["streaks"]["exercise"] = exercise_streak
     
     with open("$GAMIFICATION_FILE", "w") as f:
         json.dump(data, f, indent=2)
-except:
+except Exception as e:
+    # Silently fail - don't break the dashboard
     pass
 EOF
-  fi
 }
 
 # Show dashboard
@@ -1247,16 +1381,50 @@ stats = data.get("stats", {})
 streaks = data.get("streaks", {})
 unlocked = data.get("achievements_unlocked", [])
 
-# Calculate XP needed for next level
+# Calculate cumulative XP needed to reach a level
 def xp_for_level(lvl):
-    if lvl <= 10:
-        return lvl * 100
+    """Returns the total XP needed to reach level lvl"""
+    if lvl <= 1:
+        return 0
+    elif lvl <= 10:
+        # Levels 1-10: 100 XP per level (cumulative)
+        return (lvl - 1) * 100
     else:
-        base = 1000
-        multiplier = 1
-        for i in range(10, lvl):
-            multiplier = multiplier * 12 // 10
-        return base * multiplier
+        # Level 10 requires 900 XP (9 * 100)
+        # After level 10, each level requires 20% more XP than the previous
+        cumulative = 900  # XP for level 10
+        xp_per_level = 1000  # Base XP per level starting at level 11
+        for i in range(11, min(lvl + 1, 200)):  # Cap at level 200 to prevent overflow
+            cumulative += xp_per_level
+            xp_per_level = int(xp_per_level * 1.2)  # 20% increase
+            if xp_per_level > 1000000000:  # Safety check to prevent overflow
+                break
+        return cumulative
+
+def level_from_xp(total_xp):
+    """Calculate what level you should be based on total XP"""
+    if total_xp < 0:
+        return 1
+    
+    # Linear search is simpler and safer for reasonable XP amounts
+    level = 1
+    while level < 200:  # Reasonable upper limit
+        xp_needed = xp_for_level(level + 1)
+        if total_xp < xp_needed:
+            break
+        level += 1
+    
+    return level
+
+# Recalculate level to ensure it's correct (fixes stalled leveling)
+correct_level = level_from_xp(total_xp)
+# Always update if level is incorrect (handles both stalled and incorrectly high levels)
+if correct_level != level:
+    level = correct_level
+    # Update the file with correct level
+    data["level"] = level
+    with open("$GAMIFICATION_FILE", "w") as f:
+        json.dump(data, f, indent=2)
 
 xp_for_current = xp_for_level(level)
 xp_for_next = xp_for_level(level + 1)
@@ -1319,7 +1487,10 @@ print()
 
 PYTHON_SCRIPT
   
-  read -p "Press Enter to continue..."
+  # Only prompt for input if stdin is a terminal (not when called from wizard)
+  if [[ -t 0 ]]; then
+    read -p "Press Enter to continue..." 2>/dev/null || true
+  fi
 }
 
 # Main function

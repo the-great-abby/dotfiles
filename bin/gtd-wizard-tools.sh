@@ -9,23 +9,46 @@ handle_followup_questions() {
   local initial_answer="$3"
   local use_simple_mode="${4:-false}"
   local use_web_search="${5:-false}"
+  local thread_id="${6:-}"
+  local skip_prompt="${7:-false}"
   
   # Store conversation
   local conversation_questions=("$initial_question")
   local conversation_answers=("$initial_answer")
   
-  # Ask if they want to continue the conversation
-  echo ""
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-  echo -e "${BOLD}Do you have any follow-up questions?${NC}"
-  echo -e "${GREEN}y${NC} - Ask more questions"
-  echo -e "${GREEN}n${NC} - Done (save advice)"
-  echo ""
-  read -p "Choice: " continue_conv
-  echo ""
+  # Create thread for this conversation if not provided
+  if [[ -z "$thread_id" ]]; then
+    thread_id=$(create_conversation_thread "" "$initial_question" "$initial_answer" "$persona")
+  else
+    # Update existing thread with initial answer if needed
+    create_conversation_thread "$thread_id" "$initial_question" "$initial_answer" "$persona" >/dev/null
+  fi
   
-  if [[ "$continue_conv" == "y" || "$continue_conv" == "Y" ]]; then
+  # Ask if they want to continue the conversation (unless skip_prompt is true)
+  if [[ "$skip_prompt" != "true" ]]; then
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${BOLD}Do you have any follow-up questions?${NC}"
+    echo -e "${GREEN}y${NC} - Ask more questions"
+    echo -e "${GREEN}b${NC} - Ask in background (continue later)"
+    echo -e "${GREEN}n${NC} - Done (save advice)"
+    echo ""
+    echo -e "${CYAN}💡 Thread ID: ${thread_id}${NC}"
+    echo "   View thread: gtd-wizard → 11) Get Advice → 7) View Conversation Threads"
+    echo ""
+    read -p "Choice: " continue_conv
+    echo ""
+  else
+    # Skip prompt - user already said yes, proceed directly to asking questions
+    continue_conv="y"
+  fi
+  
+  if [[ "$continue_conv" == "y" || "$continue_conv" == "Y" || "$continue_conv" == "b" || "$continue_conv" == "B" ]]; then
+    local use_background=false
+    if [[ "$continue_conv" == "b" || "$continue_conv" == "B" ]]; then
+      use_background=true
+    fi
     # Conversation loop
     while true; do
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -56,6 +79,41 @@ handle_followup_questions() {
       # Add to conversation
       conversation_questions+=("$followup_question")
       
+      # Check if we should queue in background or process immediately
+      if [[ "$use_background" == "true" ]]; then
+        # Queue in background
+        echo ""
+        echo -e "${CYAN}📤 Queuing follow-up question for background processing...${NC}"
+        
+        # Add follow-up to thread and queue
+        local request_id=$(add_followup_to_thread "$thread_id" "$followup_question" "$persona" "${use_simple_mode:+simple}" "$use_web_search")
+        
+        echo -e "${GREEN}✓ Follow-up queued (Thread: $thread_id, Request: $request_id)${NC}"
+        echo ""
+        echo "💡 You'll receive a Discord notification when the answer is ready."
+        echo "   View thread: gtd-wizard → 11) Get Advice → 7) View Conversation Threads"
+        echo ""
+        
+        # Start worker if not running
+        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1 && ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1; then
+          echo "Starting advice worker..."
+          if command -v gtd-advice-worker &>/dev/null; then
+            nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+            echo "✓ Worker started (PID: $!)"
+            echo ""
+          fi
+        fi
+        
+        # Ask if they want to ask another question
+        echo "Ask another follow-up question? (y/n): "
+        read another_question
+        if [[ "$another_question" != "y" && "$another_question" != "Y" ]]; then
+          break
+        fi
+        continue
+      fi
+      
+      # Process immediately (existing code)
       echo ""
       if [[ "$persona" == "random" ]]; then
         echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -72,27 +130,121 @@ handle_followup_questions() {
       local followup_prompt="Context: We were discussing: ${initial_question}\n\nFollow-up question: ${followup_question}\n\nAnswer this follow-up question about the same topic. Be specific and accurate."
       
       local followup_answer=""
+      local advise_exit_code=0
+      local temp_output=$(mktemp)
+      
+      # Disable exit on error temporarily to handle gtd-advise failures gracefully
+      set +e
       if [[ "$use_simple_mode" == "true" ]]; then
         if [[ "$use_web_search" == "true" ]]; then
           # Build contextual search query
           local search_query="${initial_question} ${followup_question}"
           echo "🔍 Performing web search for follow-up question..."
           echo ""
-          followup_answer=$(gtd-advise --simple --web-search "$persona" "$search_query" 2>&1)
+          # Use timeout to prevent hanging (5 minutes max)
+          timeout 300 gtd-advise --simple --web-search "$persona" "$search_query" > "$temp_output" 2>&1
+          advise_exit_code=$?
         else
-          followup_answer=$(gtd-advise --simple "$persona" "$followup_prompt" 2>&1)
+          # Use timeout to prevent hanging (5 minutes max)
+          timeout 300 gtd-advise --simple "$persona" "$followup_prompt" > "$temp_output" 2>&1
+          advise_exit_code=$?
         fi
       else
         # Regular mode - include context from original question
         if [[ "$persona" == "random" ]]; then
-          followup_answer=$(gtd-advise --random "$followup_prompt" 2>&1)
+          # Use timeout to prevent hanging (5 minutes max)
+          timeout 300 gtd-advise --random "$followup_prompt" > "$temp_output" 2>&1
+          advise_exit_code=$?
         else
-          followup_answer=$(gtd-advise "$persona" "$followup_prompt" 2>&1)
+          # Use timeout to prevent hanging (5 minutes max)
+          timeout 300 gtd-advise "$persona" "$followup_prompt" > "$temp_output" 2>&1
+          advise_exit_code=$?
+        fi
+      fi
+      set -e
+      
+      # Read output from temp file
+      if [[ -f "$temp_output" ]]; then
+        followup_answer=$(cat "$temp_output")
+        rm -f "$temp_output"
+      fi
+      
+      # Check if gtd-advise failed or timed out
+      if [[ $advise_exit_code -ne 0 ]]; then
+        echo ""
+        if [[ $advise_exit_code -eq 124 ]]; then
+          echo -e "${RED}❌ Request timed out${NC}"
+          echo "The advice request took too long (>5 minutes). This might indicate a connection issue."
+        else
+          echo -e "${RED}❌ Error getting advice response${NC}"
+          echo "The advice command encountered an error (exit code: $advise_exit_code)."
+        fi
+        echo ""
+        if [[ -n "$followup_answer" ]]; then
+          echo "Error output:"
+          echo "$followup_answer"
+          echo ""
+        fi
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        # Ask if user wants to try again or continue
+        echo "Would you like to:"
+        echo "  1) Try asking the question again"
+        echo "  2) Skip this question and continue"
+        echo ""
+        read -p "Choice (1/2, default: 2): " retry_choice
+        retry_choice="${retry_choice:-2}"
+        if [[ "$retry_choice" == "1" ]]; then
+          continue  # Loop back to ask the question again
+        else
+          break  # Exit the follow-up loop
+        fi
+      fi
+      
+      # Check if we got an empty answer
+      if [[ -z "$followup_answer" ]]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  No response received${NC}"
+        echo "The advice command returned empty output. Would you like to try again?"
+        echo ""
+        read -p "Try again? (y/n, default: n): " retry_empty
+        retry_empty="${retry_empty:-n}"
+        if [[ "$retry_empty" == "y" || "$retry_empty" == "Y" ]]; then
+          continue  # Loop back to ask the question again
+        else
+          break  # Exit the follow-up loop
         fi
       fi
       
       echo "$followup_answer"
       conversation_answers+=("$followup_answer")
+      
+      # Update thread with completed answer
+      python3 <<PYTHON_EOF
+import json
+from pathlib import Path
+from datetime import datetime
+
+thread_file = Path("${HOME}/Documents/gtd/advice_threads/${thread_id}.json")
+if thread_file.exists():
+    with open(thread_file, 'r') as f:
+        thread = json.load(f)
+    
+    # Add this Q&A pair to thread
+    thread["questions"].append({
+        "question": """$followup_question""",
+        "timestamp": datetime.now().isoformat() + "Z"
+    })
+    thread["answers"].append({
+        "answer": """$followup_answer""",
+        "timestamp": datetime.now().isoformat() + "Z",
+        "status": "completed"
+    })
+    thread["updated_at"] = datetime.now().isoformat() + "Z"
+    
+    with open(thread_file, 'w') as f:
+        json.dump(thread, f, indent=2)
+PYTHON_EOF
       
       echo ""
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -119,12 +271,195 @@ ${conversation_answers[$i]}
   FOLLOWUP_HAS_FOLLOWUPS=$(( ${#conversation_questions[@]} > 1 ? 1 : 0 ))
 }
 
+# Helper function to create or get conversation thread
+create_conversation_thread() {
+  local thread_id="$1"
+  local initial_question="$2"
+  local initial_answer="$3"
+  local persona="$4"
+  
+  THREADS_DIR="${HOME}/Documents/gtd/advice_threads"
+  mkdir -p "$THREADS_DIR"
+  
+  # Generate thread ID if not provided
+  if [[ -z "$thread_id" ]]; then
+    thread_id="thread_$(date +%Y%m%d_%H%M%S)_$$"
+  fi
+  
+  local thread_file="${THREADS_DIR}/${thread_id}.json"
+  
+  # Create or update thread
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+thread_id = "$thread_id"
+thread_file = Path("$thread_file")
+initial_question = """$initial_question"""
+initial_answer = """$initial_answer"""
+persona = "$persona"
+
+# Load existing thread or create new
+if thread_file.exists():
+    with open(thread_file, 'r') as f:
+        thread = json.load(f)
+else:
+    thread = {
+        "id": thread_id,
+        "persona": persona,
+        "created_at": datetime.now().isoformat() + "Z",
+        "questions": [],
+        "answers": [],
+        "status": "active"
+    }
+
+# Add initial Q&A if provided
+if initial_question and initial_answer:
+    thread["questions"].append({
+        "question": initial_question,
+        "timestamp": datetime.now().isoformat() + "Z"
+    })
+    thread["answers"].append({
+        "answer": initial_answer,
+        "timestamp": datetime.now().isoformat() + "Z",
+        "status": "completed"
+    })
+    thread["updated_at"] = datetime.now().isoformat() + "Z"
+
+# Save thread
+with open(thread_file, 'w') as f:
+    json.dump(thread, f, indent=2)
+
+print(thread_id)
+PYTHON_EOF
+}
+
+# Helper function to add follow-up question to thread (queued)
+add_followup_to_thread() {
+  local thread_id="$1"
+  local followup_question="$2"
+  local persona="$3"
+  local mode="${4:-normal}"
+  local web_search="${5:-false}"
+  
+  THREADS_DIR="${HOME}/Documents/gtd/advice_threads"
+  local thread_file="${THREADS_DIR}/${thread_id}.json"
+  
+  if [[ ! -f "$thread_file" ]]; then
+    echo "Error: Thread not found: $thread_id" >&2
+    return 1
+  fi
+  
+  # Add question to thread (pending status)
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+thread_file = Path("$thread_file")
+followup_question = """$followup_question"""
+
+with open(thread_file, 'r') as f:
+    thread = json.load(f)
+
+# Add pending question
+thread["questions"].append({
+    "question": followup_question,
+    "timestamp": datetime.now().isoformat() + "Z"
+})
+thread["answers"].append({
+    "answer": "",
+    "timestamp": datetime.now().isoformat() + "Z",
+    "status": "pending"
+})
+thread["updated_at"] = datetime.now().isoformat() + "Z"
+
+with open(thread_file, 'w') as f:
+    json.dump(thread, f, indent=2)
+PYTHON_EOF
+  
+  # Queue the follow-up question with thread context
+  # Build context from previous Q&A pairs
+  local context=$(python3 <<PYTHON_EOF
+import json
+from pathlib import Path
+
+thread_file = Path("$thread_file")
+with open(thread_file, 'r') as f:
+    thread = json.load(f)
+
+# Build context from previous Q&A
+context_parts = []
+for i in range(len(thread["questions"]) - 1):  # Exclude the current pending question
+    if i < len(thread["answers"]) and thread["answers"][i].get("status") == "completed":
+        q = thread["questions"][i]["question"]
+        a = thread["answers"][i]["answer"]
+        context_parts.append(f"Q: {q}\nA: {a}")
+
+context = "\n\n".join(context_parts)
+print(context)
+PYTHON_EOF
+)
+  
+  # Build prompt with full conversation context
+  local full_prompt="Context: We were discussing:\n\n${context}\n\nFollow-up question: ${followup_question}\n\nAnswer this follow-up question about the same topic. Be specific and accurate."
+  
+  # Queue with thread_id
+  queue_advice_request "$persona" "$full_prompt" "$mode" "$web_search" "$thread_id"
+}
+
+# Helper function to update thread with completed answer
+update_thread_with_answer() {
+  local thread_id="$1"
+  local request_id="$2"
+  
+  THREADS_DIR="${HOME}/Documents/gtd/advice_threads"
+  RESULTS_DIR="${HOME}/Documents/gtd/advice_results"
+  local thread_file="${THREADS_DIR}/${thread_id}.json"
+  local result_file="${RESULTS_DIR}/${request_id}.json"
+  
+  if [[ ! -f "$thread_file" ]] || [[ ! -f "$result_file" ]]; then
+    return 1
+  fi
+  
+  python3 <<PYTHON_EOF
+import json
+from pathlib import Path
+from datetime import datetime
+
+thread_file = Path("$thread_file")
+result_file = Path("$result_file")
+
+with open(thread_file, 'r') as f:
+    thread = json.load(f)
+
+with open(result_file, 'r') as f:
+    result = json.load(f)
+
+# Find the last pending answer and update it
+for i in range(len(thread["answers"]) - 1, -1, -1):
+    if thread["answers"][i].get("status") == "pending":
+        thread["answers"][i]["answer"] = result.get("answer", "")
+        thread["answers"][i]["status"] = result.get("status", "completed")
+        thread["answers"][i]["completed_at"] = result.get("completed_at", datetime.now().isoformat() + "Z")
+        thread["updated_at"] = datetime.now().isoformat() + "Z"
+        break
+
+with open(thread_file, 'w') as f:
+    json.dump(thread, f, indent=2)
+PYTHON_EOF
+}
+
 # Helper function to queue advice request for background processing
 queue_advice_request() {
   local persona="$1"
   local question="$2"
   local mode="${3:-normal}"
   local web_search="${4:-false}"
+  local thread_id="${5:-}"
   
   QUEUE_FILE="${HOME}/Documents/gtd/advice_queue.jsonl"
   mkdir -p "$(dirname "$QUEUE_FILE")"
@@ -168,6 +503,11 @@ request = {
     "web_search": "$web_search",
     "created_at": datetime.now().isoformat() + "Z"
 }
+
+# Add thread_id if provided
+thread_id_val = "$thread_id"
+if thread_id_val:
+    request["thread_id"] = thread_id_val
 
 # Try RabbitMQ first if available
 try:
@@ -309,10 +649,17 @@ ${answer}"
         esac
         
         # Create note
-        if echo "$content" | gtd-brain create "$title" "$para_location" 2>/dev/null; then
+        local create_output
+        create_output=$(echo "$content" | gtd-brain create "$title" "$para_location" 2>&1)
+        local create_exit=$?
+        if [[ $create_exit -eq 0 ]]; then
           echo "✓ Saved as Second Brain note in ${para_location}"
+          echo "$create_output"
         else
-          echo "❌ Failed to create note. Saving to inbox instead..."
+          echo "❌ Failed to create note. Error:"
+          echo "$create_output" | head -3
+          echo ""
+          echo "Saving to inbox instead..."
           echo "$content" | gtd-capture "Advice: $title"
         fi
       else
@@ -896,8 +1243,8 @@ advice_wizard() {
         echo ""
         
         if [[ "$discuss_choice" == "y" || "$discuss_choice" == "Y" ]]; then
-          # Use conversation feature
-          handle_followup_questions "$persona" "$question" "$saved_answer" "false" "false"
+          # Use conversation feature - skip the prompt since user already said yes
+          handle_followup_questions "$persona" "$question" "$saved_answer" "false" "false" "" "true"
           
           # Save conversation if there were follow-ups
           if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
@@ -958,6 +1305,238 @@ advice_wizard() {
       echo ""
       # No auto-continue - user can read and press Enter when ready
       read -p "Press Enter to continue..."
+      ;;
+    7)
+      # View Conversation Threads
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}💬 Conversation Threads${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      THREADS_DIR="${HOME}/Documents/gtd/advice_threads"
+      if [[ ! -d "$THREADS_DIR" ]] || [[ -z "$(find "$THREADS_DIR" -name "*.json" -type f 2>/dev/null)" ]]; then
+        echo "No conversation threads found."
+        echo ""
+        echo "Threads are created when you ask follow-up questions."
+        echo "💡 Tip: When asking follow-up questions, choose 'b' for background mode"
+        echo "   to continue the conversation later!"
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      
+      # List all threads
+      echo "Available conversation threads:"
+      echo ""
+      
+      local threads=()
+      while IFS= read -r thread_file; do
+        [[ -f "$thread_file" ]] && threads+=("$thread_file")
+      done < <(find "$THREADS_DIR" -name "*.json" -type f -exec ls -t {} + 2>/dev/null | head -20)
+      
+      if [[ ${#threads[@]} -eq 0 ]]; then
+        echo "No threads found."
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      
+      # Display list
+      local i=1
+      for thread_file in "${threads[@]}"; do
+        local thread_id=$(basename "$thread_file" .json)
+        local persona=$(python3 -c "import sys, json; print(json.load(open('$thread_file')).get('persona', 'unknown'))" 2>/dev/null || echo "unknown")
+        local first_question=$(python3 -c "import sys, json; qs=json.load(open('$thread_file')).get('questions', []); print(qs[0]['question'][:60] + '...' if qs and len(qs[0]['question']) > 60 else (qs[0]['question'] if qs else 'No questions'))" 2>/dev/null || echo "")
+        local created_at=$(python3 -c "import sys, json; print(json.load(open('$thread_file')).get('created_at', '')[:10])" 2>/dev/null || echo "")
+        local q_count=$(python3 -c "import sys, json; print(len(json.load(open('$thread_file')).get('questions', [])))" 2>/dev/null || echo "0")
+        local pending_count=$(python3 -c "import sys, json; answers=json.load(open('$thread_file')).get('answers', []); print(sum(1 for a in answers if a.get('status') == 'pending'))" 2>/dev/null || echo "0")
+        
+        local status_indicator=""
+        if [[ "$pending_count" -gt 0 ]]; then
+          status_indicator="${YELLOW}⏳ $pending_count pending${NC}"
+        else
+          status_indicator="${GREEN}✓ Complete${NC}"
+        fi
+        
+        echo -e "  ${i}) [${status_indicator}] ${persona} - ${created_at} (${q_count} Q&A)"
+        echo "     ${first_question}"
+        echo "     Thread ID: ${CYAN}${thread_id}${NC}"
+        i=$((i + 1))
+      done
+      
+      echo ""
+      echo -n "Select thread to view (number) or 0 to go back: "
+      read selection
+      
+      if [[ "$selection" == "0" ]] || [[ -z "$selection" ]]; then
+        return 0
+      fi
+      
+      # Validate selection
+      if ! [[ "$selection" =~ ^[0-9]+$ ]] || [[ "$selection" -lt 1 ]] || [[ "$selection" -gt ${#threads[@]} ]]; then
+        echo "Invalid selection"
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      
+      # Get selected thread
+      local selected_file="${threads[$((selection - 1))]}"
+      local thread_id=$(basename "$selected_file" .json)
+      
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}💬 Conversation Thread${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Display full conversation
+      python3 <<PYTHON_EOF
+import json
+from pathlib import Path
+from datetime import datetime
+
+thread_file = Path("$selected_file")
+with open(thread_file, 'r') as f:
+    thread = json.load(f)
+
+persona = thread.get("persona", "unknown")
+created_at = thread.get("created_at", "")[:10]
+updated_at = thread.get("updated_at", "")[:10] if thread.get("updated_at") else created_at
+
+print(f"Persona: {persona}")
+print(f"Created: {created_at}")
+print(f"Updated: {updated_at}")
+print(f"Thread ID: {thread.get('id', 'unknown')}")
+print("")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("")
+
+questions = thread.get("questions", [])
+answers = thread.get("answers", [])
+
+for i in range(len(questions)):
+    q = questions[i]
+    a = answers[i] if i < len(answers) else None
+    
+    print(f"**Q{i+1}:** {q['question']}")
+    print("")
+    
+    if a:
+        if a.get("status") == "pending":
+            print(f"**A{i+1}:** ⏳ Pending... (check background results)")
+        else:
+            print(f"**A{i+1}:**")
+            print(a.get("answer", ""))
+    else:
+        print(f"**A{i+1}:** (No answer yet)")
+    
+    print("")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("")
+PYTHON_EOF
+      
+      echo ""
+      echo "Options:"
+      echo "  1) Ask a follow-up question (background)"
+      echo "  2) Ask a follow-up question (now)"
+      echo "  3) Save this conversation"
+      echo "  4) Delete this thread"
+      echo "  0) Back to list"
+      echo ""
+      echo -n "Choose: "
+      read thread_action
+      
+      case "$thread_action" in
+        1)
+          # Ask follow-up in background
+          echo ""
+          echo -n "Your follow-up question: "
+          read followup_q
+          if [[ -n "$followup_q" ]]; then
+            local persona=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('persona', 'random'))" 2>/dev/null || echo "random")
+            local request_id=$(add_followup_to_thread "$thread_id" "$followup_q" "$persona" "normal" "false")
+            echo ""
+            echo -e "${GREEN}✓ Follow-up queued (Request: $request_id)${NC}"
+            echo "💡 You'll receive a Discord notification when the answer is ready."
+            echo ""
+            
+            # Start worker if not running
+            if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1 && ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1; then
+              echo "Starting advice worker..."
+              if command -v gtd-advice-worker &>/dev/null; then
+                nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+                echo "✓ Worker started (PID: $!)"
+                echo ""
+              fi
+            fi
+          fi
+          ;;
+        2)
+          # Ask follow-up now
+          echo ""
+          echo -n "Your follow-up question: "
+          read followup_q
+          if [[ -n "$followup_q" ]]; then
+            local persona=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('persona', 'random'))" 2>/dev/null || echo "random")
+            local initial_q=$(python3 -c "import sys, json; qs=json.load(open('$selected_file')).get('questions', []); print(qs[0]['question'] if qs else '')" 2>/dev/null || echo "")
+            local initial_a=$(python3 -c "import sys, json; ans=json.load(open('$selected_file')).get('answers', []); print(ans[0]['answer'] if ans and ans[0].get('status') == 'completed' else '')" 2>/dev/null || echo "")
+            
+            # Use handle_followup_questions with existing thread
+            handle_followup_questions "$persona" "$initial_q" "$initial_a" "false" "false" "$thread_id" "false"
+          fi
+          ;;
+        3)
+          # Save conversation
+          local full_conversation=$(python3 <<PYTHON_EOF
+import json
+from pathlib import Path
+
+thread_file = Path("$selected_file")
+with open(thread_file, 'r') as f:
+    thread = json.load(f)
+
+questions = thread.get("questions", [])
+answers = thread.get("answers", [])
+
+conversation = ""
+for i in range(len(questions)):
+    q = questions[i]
+    a = answers[i] if i < len(answers) else None
+    conversation += f"**Q{i+1}:** {q['question']}\n\n"
+    if a and a.get("status") == "completed":
+        conversation += f"**A{i+1}:**\n{a.get('answer', '')}\n\n---\n\n"
+
+print(conversation)
+PYTHON_EOF
+)
+          local first_q=$(python3 -c "import sys, json; qs=json.load(open('$selected_file')).get('questions', []); print(qs[0]['question'] if qs else '')" 2>/dev/null || echo "")
+          local persona=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('persona', 'unknown'))" 2>/dev/null || echo "unknown")
+          save_advice_conversation "$first_q" "$persona" "$full_conversation"
+          echo ""
+          echo "✓ Conversation saved!"
+          ;;
+        4)
+          echo -n "Delete this thread? (y/n): "
+          read confirm
+          if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+            rm -f "$selected_file"
+            echo "✓ Thread deleted"
+          fi
+          ;;
+        0|"")
+          return 0
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      
+      echo ""
+      gtd_quick_pause
       ;;
     0|"")
       return 0

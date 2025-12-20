@@ -145,6 +145,7 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
     question = message.get("question", "")
     mode = message.get("mode", "normal")
     web_search = message.get("web_search", "false")
+    thread_id = message.get("thread_id")
     
     if not request_id or not question:
         print(f"Error: Invalid message format - missing required fields")
@@ -315,6 +316,32 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
     # Save result JSON
     with open(result_file, 'w') as f:
         json.dump(result_data, f, indent=2)
+    
+    # Update thread if this is part of a conversation thread
+    if thread_id and exit_code == 0:
+        threads_dir = Path.home() / "Documents" / "gtd" / "advice_threads"
+        thread_file = threads_dir / f"{thread_id}.json"
+        
+        if thread_file.exists():
+            try:
+                with open(thread_file, 'r') as f:
+                    thread = json.load(f)
+                
+                # Find the last pending answer and update it
+                for i in range(len(thread.get("answers", [])) - 1, -1, -1):
+                    if thread["answers"][i].get("status") == "pending":
+                        thread["answers"][i]["answer"] = advice_output
+                        thread["answers"][i]["status"] = "completed"
+                        thread["answers"][i]["completed_at"] = end_time.isoformat() + "Z"
+                        thread["updated_at"] = datetime.now(timezone.utc).isoformat() + "Z"
+                        break
+                
+                with open(thread_file, 'w') as f:
+                    json.dump(thread, f, indent=2)
+                
+                print(f"Updated thread: {thread_id}")
+            except Exception as e:
+                print(f"Warning: Failed to update thread {thread_id}: {e}")
     
     # Send Discord notification if webhook URL is configured
     webhook_url = os.getenv("GTD_DISCORD_WEBHOOK_URL", "")

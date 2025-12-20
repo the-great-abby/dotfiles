@@ -97,6 +97,7 @@ import os
 import sys
 import json
 import pika
+import subprocess
 from datetime import datetime
 
 rabbitmq_url = os.environ.get('RABBITMQ_URL_TO_CHECK')
@@ -190,7 +191,17 @@ try:
         
         if deep_info['messages'] > 0 and deep_info['consumers'] == 0:
             print(f"   {YELLOW}⚠️  Warning: Messages queued but no consumers!{NC}")
-            print("      Start worker: make worker-deep-start")
+            # Check if worker process is running (might be disconnected)
+            try:
+                result = subprocess.run(['pgrep', '-f', 'gtd_deep_analysis_worker.py'], 
+                                      capture_output=True, text=True, timeout=2)
+                if result.returncode == 0:
+                    print(f"   {YELLOW}⚠️  Worker process is running but not connected to RabbitMQ{NC}")
+                    print("      Auto-restart will be attempted when viewing status")
+                else:
+                    print("      Start worker: make worker-deep-start")
+            except:
+                pass
             print("      Check status: make worker-status")
         elif deep_info['messages'] == 0 and deep_info['consumers'] > 0:
             print(f"   {GREEN}✅ Queue empty, worker waiting for jobs{NC}")
@@ -212,7 +223,17 @@ try:
         
         if vector_info['messages'] > 0 and vector_info['consumers'] == 0:
             print(f"   {YELLOW}⚠️  Warning: Messages queued but no consumers!{NC}")
-            print("      Start worker: make worker-vector-start")
+            # Check if worker process is running (might be disconnected)
+            try:
+                result = subprocess.run(['pgrep', '-f', 'gtd_vector_worker.py'], 
+                                      capture_output=True, text=True, timeout=2)
+                if result.returncode == 0:
+                    print(f"   {YELLOW}⚠️  Worker process is running but not connected to RabbitMQ{NC}")
+                    print("      Auto-restart will be attempted when viewing status")
+                else:
+                    print("      Start worker: make worker-vector-start")
+            except:
+                pass
             print("      Check status: make worker-status")
         elif vector_info['messages'] == 0 and vector_info['consumers'] > 0:
             print(f"   {GREEN}✅ Queue empty, worker waiting for jobs{NC}")
@@ -234,7 +255,21 @@ try:
         
         if advice_info['messages'] > 0 and advice_info['consumers'] == 0:
             print(f"   {YELLOW}⚠️  Warning: Messages queued but no consumers!{NC}")
-            print("      Start worker: gtd-advice-worker daemon")
+            # Check if worker process is running (might be disconnected)
+            try:
+                result = subprocess.run(['pgrep', '-f', 'gtd-advice-worker.*daemon'], 
+                                      capture_output=True, text=True, timeout=2)
+                if result.returncode != 0:
+                    # Also check for Python script
+                    result = subprocess.run(['pgrep', '-f', 'gtd_advice_worker.py'], 
+                                          capture_output=True, text=True, timeout=2)
+                if result.returncode == 0:
+                    print(f"   {YELLOW}⚠️  Worker process is running but not connected to RabbitMQ{NC}")
+                    print("      Auto-restart will be attempted when viewing status")
+                else:
+                    print("      Start worker: gtd-advice-worker daemon")
+            except:
+                pass
             print("      Check status: make worker-status")
         elif advice_info['messages'] == 0 and advice_info['consumers'] > 0:
             print(f"   {GREEN}✅ Queue empty, worker waiting for jobs{NC}")
@@ -256,7 +291,17 @@ try:
         
         if task_org_info['messages'] > 0 and task_org_info['consumers'] == 0:
             print(f"   {YELLOW}⚠️  Warning: Messages queued but no consumers!{NC}")
-            print("      Start worker: cd ~/code/dotfiles/mcp && python3 gtd_task_organize_worker.py rabbitmq")
+            # Check if worker process is running (might be disconnected)
+            try:
+                result = subprocess.run(['pgrep', '-f', 'gtd_task_organize_worker.py'], 
+                                      capture_output=True, text=True, timeout=2)
+                if result.returncode == 0:
+                    print(f"   {YELLOW}⚠️  Worker process is running but not connected to RabbitMQ{NC}")
+                    print("      Auto-restart will be attempted when viewing status")
+                else:
+                    print("      Start worker: cd ~/code/dotfiles/mcp && python3 gtd_task_organize_worker.py rabbitmq")
+            except:
+                pass
             print("      Check status: gtd-wizard → System status → Background Worker Status")
         elif task_org_info['messages'] == 0 and task_org_info['consumers'] > 0:
             print(f"   {GREEN}✅ Queue empty, worker waiting for jobs{NC}")

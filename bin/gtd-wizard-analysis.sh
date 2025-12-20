@@ -242,6 +242,18 @@ status_wizard() {
         fi
         echo ""
         
+        # Badge Suggestion Worker
+        echo -e "${CYAN}Badge Suggestion Worker:${NC}"
+        if pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_badge_suggestion_worker.py" | head -1)
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+          BADGE_SUGGESTION_WORKER_RUNNING=true
+        else
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+          BADGE_SUGGESTION_WORKER_RUNNING=false
+        fi
+        echo ""
+        
         # Second Brain Sync Worker
         echo -e "${CYAN}Second Brain Sync Worker:${NC}"
         if pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then
@@ -271,11 +283,117 @@ status_wizard() {
             # Call status script and show key info
             QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
             if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
-              # Extract queue info
-              echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
-              echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
-              echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6
-              echo "$QUEUE_STATUS" | grep -A 5 "Task Organization Queue:" | head -6
+              # Helper function to restart a worker
+              restart_worker() {
+                local worker_name="$1"
+                local process_pattern="$2"
+                local log_file="$3"
+                shift 3
+                local start_cmd=("$@")
+                
+                if pgrep -f "$process_pattern" >/dev/null; then
+                  echo ""
+                  echo -e "${YELLOW}⚠️  ${worker_name} worker process running but not consuming from RabbitMQ${NC}"
+                  echo -e "${CYAN}🔄 Restarting ${worker_name} worker...${NC}"
+                  # Stop existing worker
+                  pkill -f "$process_pattern" 2>/dev/null
+                  sleep 2
+                  # Start worker
+                  "${start_cmd[@]}" >"$log_file" 2>&1 &
+                  sleep 2
+                  if pgrep -f "$process_pattern" >/dev/null; then
+                    echo -e "${GREEN}✓ ${worker_name} worker restarted${NC}"
+                  else
+                    echo -e "${RED}✗ Failed to restart ${worker_name} worker. Check logs: ${log_file}${NC}"
+                  fi
+                fi
+              }
+              
+              # Helper function to restart a worker
+              restart_worker() {
+                local worker_name="$1"
+                local process_pattern="$2"
+                local log_file="$3"
+                shift 3
+                local start_cmd=("$@")
+                
+                if pgrep -f "$process_pattern" >/dev/null; then
+                  echo ""
+                  echo -e "${YELLOW}⚠️  ${worker_name} worker process running but not consuming from RabbitMQ${NC}"
+                  echo -e "${CYAN}🔄 Restarting ${worker_name} worker...${NC}"
+                  # Stop existing worker
+                  pkill -f "$process_pattern" 2>/dev/null
+                  sleep 2
+                  # Start worker
+                  nohup "${start_cmd[@]}" >>"$log_file" 2>&1 &
+                  sleep 2
+                  if pgrep -f "$process_pattern" >/dev/null; then
+                    echo -e "${GREEN}✓ ${worker_name} worker restarted${NC}"
+                  else
+                    echo -e "${RED}✗ Failed to restart ${worker_name} worker. Check logs: ${log_file}${NC}"
+                  fi
+                fi
+              }
+              
+              # Check Deep Analysis Queue and auto-restart if needed
+              DEEP_INFO=$(echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6)
+              echo "$DEEP_INFO"
+              if echo "$DEEP_INFO" | grep -q "Messages waiting: [1-9]" && echo "$DEEP_INFO" | grep -q "Active consumers: 0"; then
+                if command -v gtd-deep-analysis-worker &>/dev/null; then
+                  restart_worker "Deep Analysis" "gtd_deep_analysis_worker.py" "/tmp/deep-worker.log" gtd-deep-analysis-worker
+                elif [[ -f "$HOME/code/dotfiles/bin/gtd-deep-analysis-worker" ]]; then
+                  restart_worker "Deep Analysis" "gtd_deep_analysis_worker.py" "/tmp/deep-worker.log" "$HOME/code/dotfiles/bin/gtd-deep-analysis-worker"
+                else
+                  MCP_PYTHON=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+                  WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_deep_analysis_worker.py"
+                  if [[ -f "$WORKER_SCRIPT" ]]; then
+                    restart_worker "Deep Analysis" "gtd_deep_analysis_worker.py" "/tmp/deep-worker.log" "$MCP_PYTHON" "$WORKER_SCRIPT" rabbitmq
+                  fi
+                fi
+              fi
+              
+              # Check Vectorization Queue and auto-restart if needed
+              VECTOR_INFO=$(echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6)
+              echo "$VECTOR_INFO"
+              if echo "$VECTOR_INFO" | grep -q "Messages waiting: [1-9]" && echo "$VECTOR_INFO" | grep -q "Active consumers: 0"; then
+                if command -v gtd-vector-worker &>/dev/null; then
+                  restart_worker "Vectorization" "gtd_vector_worker.py" "/tmp/vector-worker.log" gtd-vector-worker
+                elif [[ -f "$HOME/code/dotfiles/bin/gtd-vector-worker" ]]; then
+                  restart_worker "Vectorization" "gtd_vector_worker.py" "/tmp/vector-worker.log" "$HOME/code/dotfiles/bin/gtd-vector-worker"
+                else
+                  MCP_PYTHON=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+                  WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_vector_worker.py"
+                  if [[ -f "$WORKER_SCRIPT" ]]; then
+                    restart_worker "Vectorization" "gtd_vector_worker.py" "/tmp/vector-worker.log" "$MCP_PYTHON" "$WORKER_SCRIPT" rabbitmq
+                  fi
+                fi
+              fi
+              
+              # Check Advice Queue and auto-restart if needed
+              ADVICE_INFO=$(echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6)
+              echo "$ADVICE_INFO"
+              if echo "$ADVICE_INFO" | grep -q "Messages waiting: [1-9]" && echo "$ADVICE_INFO" | grep -q "Active consumers: 0"; then
+                if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
+                  if command -v gtd-advice-worker &>/dev/null; then
+                    restart_worker "Advice" "gtd-advice-worker.*daemon" "/tmp/advice-worker.log" gtd-advice-worker daemon
+                  elif [[ -f "$HOME/code/dotfiles/bin/gtd-advice-worker" ]]; then
+                    restart_worker "Advice" "gtd-advice-worker.*daemon" "/tmp/advice-worker.log" "$HOME/code/dotfiles/bin/gtd-advice-worker" daemon
+                  fi
+                fi
+              fi
+              
+              # Check Task Organization Queue and auto-restart if needed
+              TASK_ORG_INFO=$(echo "$QUEUE_STATUS" | grep -A 5 "Task Organization Queue:" | head -6)
+              echo "$TASK_ORG_INFO"
+              if echo "$TASK_ORG_INFO" | grep -q "Messages waiting: [1-9]" && echo "$TASK_ORG_INFO" | grep -q "Active consumers: 0"; then
+                if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+                  MCP_PYTHON=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+                  WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_task_organize_worker.py"
+                  if [[ -f "$WORKER_SCRIPT" ]]; then
+                    restart_worker "Task Organization" "gtd_task_organize_worker.py" "/tmp/task-org-worker.log" "$MCP_PYTHON" "$WORKER_SCRIPT" rabbitmq
+                  fi
+                fi
+              fi
             else
               echo "  ⚠️  Connection issue - check RabbitMQ connection"
             fi
@@ -344,11 +462,12 @@ status_wizard() {
         echo "  3) Manage Advice Worker"
         echo "  4) Manage Task Organization Worker"
         echo "  5) Manage Second Brain Sync Worker"
-        echo "  6) Start All Workers"
-        echo "  7) Stop All Workers"
-        echo "  8) View RabbitMQ Queue Status"
-        echo "  9) Restart All Workers (Reconnect to RabbitMQ)"
-        echo " 10) 📦 Migrate File Queue to RabbitMQ"
+        echo "  6) Manage Badge Suggestion Worker"
+        echo "  7) Start All Workers"
+        echo "  8) Stop All Workers"
+        echo "  9) View RabbitMQ Queue Status"
+        echo " 10) Restart All Workers (Reconnect to RabbitMQ)"
+        echo " 11) 📦 Migrate File Queue to RabbitMQ"
         echo "  0) Back"
         echo ""
         echo -n "Choose: "
@@ -375,6 +494,10 @@ status_wizard() {
             manage_worker "gtd_second_brain_sync_worker.py" "Second Brain Sync"
             ;;
           6)
+            # Manage Badge Suggestion Worker
+            manage_worker "gtd_badge_suggestion_worker.py" "Badge Suggestion"
+            ;;
+          7)
             # Start all workers
             echo ""
             echo "Starting all workers..."
@@ -383,10 +506,11 @@ status_wizard() {
             make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
+            gtd-badge-suggestion-worker daemon 2>/dev/null || true
             echo ""
             gtd_quick_pause
             ;;
-          7)
+          8)
             # Stop all workers
             echo ""
             echo "Stopping all workers..."
@@ -395,10 +519,12 @@ status_wizard() {
             make -C "$HOME/code/dotfiles" advice-worker-stop 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-task-org-stop 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-brain-sync-stop 2>/dev/null || true
+            gtd-badge-suggestion-worker stop 2>/dev/null || true
             echo ""
+            echo -e "${GREEN}✓ All workers stopped${NC}"
             gtd_quick_pause
             ;;
-          8)
+          9)
             # View RabbitMQ Queue Status
             echo ""
             # Check NodePort first (preferred), then fallback to port-forward
@@ -434,7 +560,7 @@ status_wizard() {
             echo ""
             gtd_quick_pause
             ;;
-          9)
+          10)
             # Restart all workers to reconnect to RabbitMQ
             echo ""
             echo -e "${CYAN}Restarting workers to connect to RabbitMQ...${NC}"
@@ -457,6 +583,10 @@ status_wizard() {
               echo "Stopping Second Brain Sync Worker..."
               make -C "$HOME/code/dotfiles" worker-brain-sync-stop 2>/dev/null || true
             fi
+            if pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null; then
+              echo "Stopping Badge Suggestion Worker..."
+              gtd-badge-suggestion-worker stop 2>/dev/null || true
+            fi
             
             sleep 2
             
@@ -467,6 +597,8 @@ status_wizard() {
             make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
+            gtd-badge-suggestion-worker daemon 2>/dev/null || true
+            gtd-badge-suggestion-worker daemon 2>/dev/null || true
             
             echo ""
             echo -e "${GREEN}✓ Workers restarted${NC}"
@@ -476,7 +608,7 @@ status_wizard() {
             echo ""
             gtd_quick_pause
             ;;
-          10)
+          11)
             # Migrate file queue to RabbitMQ
             echo ""
             if [[ -f "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
@@ -1089,6 +1221,14 @@ start_worker() {
     WORKER_CMD="gtd-second-brain-sync-worker"
     QUEUE_FILE="$HOME/Documents/gtd/second_brain_sync_queue.jsonl"
     RESULTS_DIR="$HOME/Documents/gtd/second_brain_sync_results"
+  elif [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
+    WORKER_SCRIPT="$HOME/code/dotfiles/mcp/gtd_badge_suggestion_worker.py"
+    if [[ ! -f "$WORKER_SCRIPT" && -f "$HOME/code/personal/dotfiles/mcp/gtd_badge_suggestion_worker.py" ]]; then
+      WORKER_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_badge_suggestion_worker.py"
+    fi
+    WORKER_CMD="gtd-badge-suggestion-worker"
+    QUEUE_FILE="$HOME/Documents/gtd/badge_suggestion_queue.jsonl"
+    RESULTS_DIR=""  # Badge suggestions save directly to gamification.json
   else
     echo -e "${RED}❌ Unknown worker script: $worker_script${NC}"
     return 1
@@ -1123,13 +1263,23 @@ start_worker() {
     
     # Use worker command if available, otherwise use Python directly
     if command -v "$WORKER_CMD" &>/dev/null; then
-      nohup "$WORKER_CMD" >/tmp/${worker_script%.py}.log 2>&1 &
+      # Badge suggestion worker needs "daemon" argument
+      if [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
+        nohup "$WORKER_CMD" daemon >/tmp/${worker_script%.py}.log 2>&1 &
+      else
+        nohup "$WORKER_CMD" >/tmp/${worker_script%.py}.log 2>&1 &
+      fi
     else
       MCP_PYTHON=$(gtd_get_mcp_python)
       if [[ -z "$MCP_PYTHON" ]]; then
         MCP_PYTHON="python3"
       fi
-      nohup "$MCP_PYTHON" "$WORKER_SCRIPT" >/tmp/${worker_script%.py}.log 2>&1 &
+      # Badge suggestion worker needs --queue-type=file argument
+      if [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
+        nohup "$MCP_PYTHON" "$WORKER_SCRIPT" --queue-type=file >/tmp/${worker_script%.py}.log 2>&1 &
+      else
+        nohup "$MCP_PYTHON" "$WORKER_SCRIPT" >/tmp/${worker_script%.py}.log 2>&1 &
+      fi
     fi
     
     sleep 2
@@ -1152,7 +1302,16 @@ start_worker() {
       echo ""
       echo "Troubleshooting:"
       echo "  1. Check log file: /tmp/${worker_script%.py}.log"
+      if [[ -f "/tmp/${worker_script%.py}.log" ]]; then
+        echo ""
+        echo "   Last few lines of log:"
+        tail -10 "/tmp/${worker_script%.py}.log" | sed 's/^/     /'
+      fi
+      echo ""
       echo "  2. Try starting manually: ${CYAN}$WORKER_CMD${NC}"
+      if [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
+        echo "     Or: ${CYAN}$WORKER_CMD daemon${NC}"
+      fi
     fi
   else
         echo ""
@@ -2216,8 +2375,10 @@ manage_worker() {
           LOG_FILE="/tmp/deep-worker.log"
         elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
           LOG_FILE="/tmp/vector-worker.log"
+        elif [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
+          LOG_FILE="/tmp/badge-suggestion-worker.log"
         else
-          LOG_FILE="/tmp/worker.log"
+          LOG_FILE="/tmp/${worker_script%.py}.log"
         fi
         
         echo "Worker PID: $pid"
@@ -2260,7 +2421,21 @@ manage_worker() {
                 ;;
             esac
           else
-            echo "Log file is empty"
+            # Log file exists but is empty - worker is waiting for jobs
+            echo -e "${CYAN}ℹ️  Log file is empty - worker is running and waiting for jobs${NC}"
+            echo ""
+            if [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
+              echo "The badge suggestion worker is running and waiting for badge suggestion"
+              echo "requests in the queue."
+              echo ""
+              echo "To queue a badge suggestion request:"
+              echo "  gtd-suggest-badges suggest week hank true"
+              echo ""
+              echo "Queue file: ${HOME}/Documents/gtd/badge_suggestion_queue.jsonl"
+            else
+              echo "The worker is running but hasn't processed any jobs yet."
+              echo "This is normal - it will process jobs as they arrive in the queue."
+            fi
             echo ""
             gtd_quick_pause
           fi
