@@ -2459,7 +2459,7 @@ EOF
       echo ""
       echo "Test complete!"
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     5)
       clear
