@@ -1999,16 +1999,20 @@ config_wizard() {
   echo "  1) 🤖 Switch AI Backend (LM Studio ↔ Ollama)"
   echo "  2) 🎯 Configure Mode-Specific AI (Work vs Home)"
   echo "  3) 🔍 Check AI Backend Status"
-  echo "  4) 📋 View Current Configuration"
-  echo "  5) 📖 Installation Instructions"
-  echo "  6) 🔧 Setup MCP Server & Virtualenv"
-  echo "  7) 🤖 Manage AI Models (Check & Load)"
-  echo "  8) ✏️  Edit Configuration Files (via vim)"
-  echo "  9) 🐰 Setup RabbitMQ Connection"
-  echo "  10) 📁 Setup Vector Filewatcher (Auto-queue files)"
-  echo "  11) 🧠 Setup Deep Analysis Auto-Scheduler (Auto-submit jobs)"
-  echo "  12) 🚀 Deploy External Services (RabbitMQ, Database)"
-  echo "  13) 👷 Manage Background Workers (Start/Stop/Restart)"
+  echo "  4) 🧪 Test LM Service Connection (LM Studio/Ollama)"
+  echo "  5) 📋 View Current Configuration"
+  echo "  6) 📖 Installation Instructions"
+  echo "  7) 🔧 Setup MCP Server & Virtualenv"
+  echo "  8) 🤖 Manage AI Models (Check & Load)"
+  echo "  9) ✏️  Edit Configuration Files (via vim)"
+  echo "  10) 🐰 Setup RabbitMQ Connection"
+  echo "  11) 📁 Setup Vector Filewatcher (Auto-queue files)"
+  echo "  12) 🧠 Setup Deep Analysis Auto-Scheduler (Auto-submit jobs)"
+  echo "  13) 🚀 Deploy External Services (RabbitMQ, Database)"
+  echo "  14) 👷 Manage Background Workers (Start/Stop/Restart)"
+  echo ""
+  echo -e "${BOLD}${GREEN}Guided Setup:${NC}"
+  echo "  15) 🚀 Complete Guided Setup (Walk through entire setup process)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -2213,6 +2217,233 @@ AI_BACKEND=\"$new_backend\"
       fi
       ;;
     4)
+      # Test LM Service Connection
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🧪 Test LM Service Connection${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Find config files
+      GTD_CONFIG="$HOME/.gtd_config"
+      GTD_CONFIG_AI="$HOME/.gtd_config_ai"
+      if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config" ]]; then
+        GTD_CONFIG="$HOME/code/personal/dotfiles/zsh/.gtd_config"
+      elif [[ -f "$HOME/code/dotfiles/zsh/.gtd_config" ]]; then
+        GTD_CONFIG="$HOME/code/dotfiles/zsh/.gtd_config"
+      fi
+      if [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config_ai" ]]; then
+        GTD_CONFIG_AI="$HOME/code/personal/dotfiles/zsh/.gtd_config_ai"
+      elif [[ -f "$HOME/code/dotfiles/zsh/.gtd_config_ai" ]]; then
+        GTD_CONFIG_AI="$HOME/code/dotfiles/zsh/.gtd_config_ai"
+      fi
+      
+      # Source config to get current settings
+      if [[ -f "$GTD_CONFIG" ]]; then
+        source "$GTD_CONFIG" 2>/dev/null || true
+      fi
+      if [[ -f "$GTD_CONFIG_AI" ]]; then
+        source "$GTD_CONFIG_AI" 2>/dev/null || true
+      fi
+      
+      # Determine current backend
+      current_backend="${AI_BACKEND:-lmstudio}"
+      current_backend=$(echo "$current_backend" | tr '[:upper:]' '[:lower:]')
+      
+      echo -e "${BOLD}Current Configuration:${NC}"
+      echo "  Backend: $current_backend"
+      echo ""
+      
+      # Test based on backend
+      if [[ "$current_backend" == "ollama" ]]; then
+        # Test Ollama
+        ollama_url="${OLLAMA_URL:-http://localhost:11434/v1/chat/completions}"
+        ollama_model="${OLLAMA_CHAT_MODEL:-gemma2:1b}"
+        base_url=$(echo "$ollama_url" | sed 's|/v1/chat/completions||')
+        
+        echo -e "${BOLD}Testing Ollama Connection:${NC}"
+        echo "  URL: $base_url"
+        echo "  Model: $ollama_model"
+        echo ""
+        
+        # Test 1: Check if server is running
+        echo -n "  1. Checking if server is running... "
+        if curl -s --max-time 5 "${base_url}/v1/models" >/dev/null 2>&1; then
+          echo -e "${GREEN}✅ Server is running${NC}"
+          
+          # Get available models
+          models_response=$(curl -s --max-time 5 "${base_url}/v1/models" 2>/dev/null)
+          if [[ -n "$models_response" ]]; then
+            available_models=$(echo "$models_response" | python3 -c "import sys, json; data=json.load(sys.stdin); models=[m.get('id', 'unknown') for m in data.get('data', [])]; print(', '.join(models[:5]))" 2>/dev/null || echo "unknown")
+            echo "     Available models: $available_models"
+          fi
+        else
+          echo -e "${RED}❌ Server is not running${NC}"
+          echo ""
+          echo -e "${YELLOW}💡 To fix:${NC}"
+          echo "   1. Start Ollama server: ollama serve"
+          echo "   2. Or check if Ollama is installed: ollama --version"
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        # Test 2: Check if model is available
+        echo -n "  2. Checking if model '$ollama_model' is available... "
+        models_response=$(curl -s --max-time 5 "${base_url}/v1/models" 2>/dev/null)
+        if echo "$models_response" | python3 -c "import sys, json; data=json.load(sys.stdin); models=[m.get('id', '') for m in data.get('data', [])]; sys.exit(0 if '$ollama_model' in models else 1)" 2>/dev/null; then
+          echo -e "${GREEN}✅ Model is available${NC}"
+        else
+          echo -e "${YELLOW}⚠️  Model not found in available models${NC}"
+          echo ""
+          echo -e "${YELLOW}💡 To fix:${NC}"
+          echo "   Pull the model: ollama pull $ollama_model"
+          echo "   Or check available models: ollama list"
+          echo ""
+        fi
+        
+        # Test 3: Test actual API call
+        echo -n "  3. Testing API call with model... "
+        test_payload=$(cat <<EOF
+{
+  "model": "$ollama_model",
+  "messages": [{"role": "user", "content": "Say hello"}],
+  "max_tokens": 10
+}
+EOF
+)
+        api_response=$(curl -s --max-time 30 -X POST "$ollama_url" \
+          -H "Content-Type: application/json" \
+          -d "$test_payload" 2>&1)
+        
+        if echo "$api_response" | grep -q '"choices"' 2>/dev/null; then
+          echo -e "${GREEN}✅ API call successful${NC}"
+          response_text=$(echo "$api_response" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('choices', [{}])[0].get('message', {}).get('content', '')[:50])" 2>/dev/null || echo "")
+          if [[ -n "$response_text" ]]; then
+            echo "     Response preview: ${response_text}..."
+          fi
+        elif echo "$api_response" | grep -qi "timeout\|connection refused\|connection reset" 2>/dev/null; then
+          echo -e "${RED}❌ Connection failed${NC}"
+          echo "     Error: Connection timeout or refused"
+          echo ""
+          echo -e "${YELLOW}💡 To fix:${NC}"
+          echo "   1. Make sure Ollama server is running: ollama serve"
+          echo "   2. Check if the model is loaded: ollama list"
+          echo "   3. Try pulling the model: ollama pull $ollama_model"
+        elif echo "$api_response" | grep -qi "model.*not found\|model.*not available" 2>/dev/null; then
+          echo -e "${RED}❌ Model not found${NC}"
+          echo ""
+          echo -e "${YELLOW}💡 To fix:${NC}"
+          echo "   Pull the model: ollama pull $ollama_model"
+        else
+          echo -e "${YELLOW}⚠️  Unexpected response${NC}"
+          error_msg=$(echo "$api_response" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('error', {}).get('message', 'Unknown error')[:100])" 2>/dev/null || echo "Unknown error")
+          echo "     Error: $error_msg"
+        fi
+        
+      else
+        # Test LM Studio
+        lm_url="${LM_STUDIO_URL:-http://localhost:1234/v1/chat/completions}"
+        lm_model="${LM_STUDIO_CHAT_MODEL:-qwen/qwen3-1.7b}"
+        base_url=$(echo "$lm_url" | sed 's|/v1/chat/completions||')
+        
+        echo -e "${BOLD}Testing LM Studio Connection:${NC}"
+        echo "  URL: $base_url"
+        echo "  Model: $lm_model"
+        echo ""
+        
+        # Test 1: Check if server is running
+        echo -n "  1. Checking if server is running... "
+        if curl -s --max-time 5 "${base_url}/v1/models" >/dev/null 2>&1; then
+          echo -e "${GREEN}✅ Server is running${NC}"
+          
+          # Get available models
+          models_response=$(curl -s --max-time 5 "${base_url}/v1/models" 2>/dev/null)
+          if [[ -n "$models_response" ]]; then
+            available_models=$(echo "$models_response" | python3 -c "import sys, json; data=json.load(sys.stdin); models=[m.get('id', 'unknown') for m in data.get('data', [])]; print(', '.join(models[:5]))" 2>/dev/null || echo "unknown")
+            echo "     Available models: $available_models"
+          fi
+        else
+          echo -e "${RED}❌ Server is not running${NC}"
+          echo ""
+          echo -e "${YELLOW}💡 To fix:${NC}"
+          echo "   1. Open LM Studio application"
+          echo "   2. Go to the 'Server' tab"
+          echo "   3. Click 'Start Server'"
+          echo "   4. Make sure it's running on port 1234 (or your configured port)"
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        # Test 2: Check if model is available
+        echo -n "  2. Checking if model '$lm_model' is available... "
+        models_response=$(curl -s --max-time 5 "${base_url}/v1/models" 2>/dev/null)
+        if echo "$models_response" | python3 -c "import sys, json; data=json.load(sys.stdin); models=[m.get('id', '') for m in data.get('data', [])]; sys.exit(0 if '$lm_model' in models else 1)" 2>/dev/null; then
+          echo -e "${GREEN}✅ Model is available${NC}"
+        else
+          echo -e "${YELLOW}⚠️  Model not found in available models${NC}"
+          echo ""
+          echo -e "${YELLOW}💡 To fix:${NC}"
+          echo "   1. Open LM Studio"
+          echo "   2. Go to the 'Chat' or 'Models' tab"
+          echo "   3. Find and load the model: $lm_model"
+          echo "   4. Wait for the model to finish loading"
+          echo ""
+        fi
+        
+        # Test 3: Test actual API call
+        echo -n "  3. Testing API call with model... "
+        test_payload=$(cat <<EOF
+{
+  "model": "$lm_model",
+  "messages": [{"role": "user", "content": "Say hello"}],
+  "max_tokens": 10
+}
+EOF
+)
+        api_response=$(curl -s --max-time 30 -X POST "$lm_url" \
+          -H "Content-Type: application/json" \
+          -d "$test_payload" 2>&1)
+        
+        if echo "$api_response" | grep -q '"choices"' 2>/dev/null; then
+          echo -e "${GREEN}✅ API call successful${NC}"
+          response_text=$(echo "$api_response" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('choices', [{}])[0].get('message', {}).get('content', '')[:50])" 2>/dev/null || echo "")
+          if [[ -n "$response_text" ]]; then
+            echo "     Response preview: ${response_text}..."
+          fi
+        elif echo "$api_response" | grep -qi "timeout\|connection refused\|connection reset" 2>/dev/null; then
+          echo -e "${RED}❌ Connection failed${NC}"
+          echo "     Error: Connection timeout or refused"
+          echo ""
+          echo -e "${YELLOW}💡 To fix:${NC}"
+          echo "   1. Make sure LM Studio server is running (Server tab → Start Server)"
+          echo "   2. Check if a model is loaded in LM Studio"
+          echo "   3. Wait for the model to finish loading if it's still loading"
+        elif echo "$api_response" | grep -qi "model.*not found\|model.*not available\|model.*not loaded" 2>/dev/null; then
+          echo -e "${RED}❌ Model not loaded${NC}"
+          echo ""
+          echo -e "${YELLOW}💡 To fix:${NC}"
+          echo "   1. Open LM Studio"
+          echo "   2. Go to the 'Chat' or 'Models' tab"
+          echo "   3. Find and load the model: $lm_model"
+          echo "   4. Wait for the model to finish loading"
+        else
+          echo -e "${YELLOW}⚠️  Unexpected response${NC}"
+          error_msg=$(echo "$api_response" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('error', {}).get('message', 'Unknown error')[:100])" 2>/dev/null || echo "Unknown error")
+          echo "     Error: $error_msg"
+        fi
+      fi
+      
+      echo ""
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Test complete!"
+      echo ""
+      gtd_quick_pause
+      ;;
+    5)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -2273,7 +2504,30 @@ AI_BACKEND=\"$new_backend\"
       echo -e "${BOLD}${CYAN}📖 Installation Instructions${NC}"
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       echo ""
-      echo -e "${BOLD}LM Studio:${NC}"
+      echo -e "${BOLD}Complete Setup Guide:${NC}"
+      echo "  📚 See: docs/COMPLETE_SETUP_GUIDE.md for full step-by-step instructions"
+      echo ""
+      echo -e "${BOLD}External Services:${NC}"
+      echo ""
+      echo -e "${GREEN}1. Download External Service Repositories:${NC}"
+      echo "   mkdir -p ~/code/external_services"
+      echo "   cd ~/code/external_services"
+      echo ""
+      echo -e "${GREEN}   Database (PostgreSQL):${NC}"
+      echo "   git clone https://github.com/the-great-abby/postgres_databases.git database"
+      echo "   cd database && make setup"
+      echo ""
+      echo -e "${GREEN}   RabbitMQ:${NC}"
+      echo "   git clone https://github.com/the-great-abby/message_queue.git rabbitmq"
+      echo "   cd rabbitmq && make setup"
+      echo ""
+      echo -e "${GREEN}2. Get Connection Information:${NC}"
+      echo "   Database: cd ~/code/external_services/database && make connection-info"
+      echo "   RabbitMQ: cd ~/code/external_services/rabbitmq && make connection-info"
+      echo ""
+      echo -e "${BOLD}AI Host Setup:${NC}"
+      echo ""
+      echo -e "${GREEN}LM Studio:${NC}"
       echo "  1. Download from: https://lmstudio.ai/"
       echo "  2. Install and open LM Studio"
       echo "  3. Download a model (Search tab → Download)"
@@ -2281,7 +2535,7 @@ AI_BACKEND=\"$new_backend\"
       echo "  5. Start local server (Server tab → Start Server)"
       echo "  6. Default port: 1234"
       echo ""
-      echo -e "${BOLD}Ollama:${NC}"
+      echo -e "${GREEN}Ollama:${NC}"
       echo "  1. Install:"
       echo "     macOS: brew install ollama"
       echo "     Linux: curl -fsSL https://ollama.com/install.sh | sh"
@@ -2290,12 +2544,19 @@ AI_BACKEND=\"$new_backend\"
       echo "  4. List models: ollama list"
       echo "  5. Default port: 11434"
       echo ""
-      echo -e "${BOLD}Switching Backends:${NC}"
-      echo "  Use option 1 in this menu to switch between backends"
-      echo "  Or edit config files directly:"
-      echo "    ~/.gtd_config"
-      echo "    ~/.daily_log_config"
-      echo "  Set: AI_BACKEND=\"lmstudio\" or AI_BACKEND=\"ollama\""
+      echo -e "${BOLD}Configuration:${NC}"
+      echo "  Use this wizard to configure services after installation:"
+      echo "  • Option 1: Configure AI Backend"
+      echo "  • Option 63 (Main Menu): Database Infrastructure Wizard"
+      echo "  • Option 64 (Main Menu): RabbitMQ Management Wizard"
+      echo ""
+      echo -e "${BOLD}Full Documentation:${NC}"
+      echo "  📚 Complete Setup Guide: docs/COMPLETE_SETUP_GUIDE.md"
+      echo "  📋 Setup Checklist: docs/SETUP_CHECKLIST.md"
+      echo "  🤖 MCP Setup: mcp/README.md"
+      echo "  💻 LM Studio Setup: mcp/LM_STUDIO_SETUP.md"
+      echo ""
+      gtd_enter_to_continue
       ;;
     6)
       clear
@@ -2810,7 +3071,7 @@ except Exception as e:
       echo "  cd $MCP_DIR && ./setup.sh"
       fi
       ;;
-    7)
+    8)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -2929,7 +3190,7 @@ except:
         fi
       fi
       ;;
-    8)
+    9)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -3058,7 +3319,7 @@ except:
         echo -e "${YELLOW}⚠️  File editing cancelled or failed${NC}"
       fi
       ;;
-    9)
+    10)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -3432,7 +3693,7 @@ except:
           ;;
       esac
           ;;
-    10)
+    11)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -3860,7 +4121,7 @@ except:
               ;;
       esac
       ;;
-    11)
+    12)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -4220,7 +4481,7 @@ except:
               ;;
           esac
       ;;
-    12)
+    13)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -4298,7 +4559,7 @@ except:
           ;;
       esac
       ;;
-    13)
+    14)
       # Manage Background Workers
       clear
       echo ""
@@ -4438,6 +4699,9 @@ except:
         gtd_quick_pause
       fi
       ;;
+    15)
+      guided_setup_wizard
+      ;;
     0|"")
       return 0
       ;;
@@ -4448,6 +4712,392 @@ except:
   
   echo ""
   gtd_quick_pause
+}
+
+# Guided setup wizard - walks through complete setup process
+guided_setup_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🚀 Complete Guided Setup${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "This wizard will guide you through the complete setup process:"
+  echo "  1. Download external service repositories"
+  echo "  2. Setup PostgreSQL database"
+  echo "  3. Setup RabbitMQ message queue"
+  echo "  4. Configure AI host (LM Studio or Ollama)"
+  echo "  5. Configure GTD system to use these services"
+  echo "  6. Setup MCP server"
+  echo ""
+  echo -e "${YELLOW}⚠️  This will take 10-15 minutes.${NC}"
+  echo ""
+  echo -n "Continue with guided setup? (y/N): "
+  read confirm
+  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    echo "Setup cancelled."
+    echo ""
+    gtd_quick_pause
+    return 0
+  fi
+  
+  local step=1
+  local total_steps=6
+  
+  # Step 1: Download External Service Repositories
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}Step $step/$total_steps: Download External Service Repositories${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "We'll download two repositories:"
+  echo "  • Database: https://github.com/the-great-abby/postgres_databases"
+  echo "  • RabbitMQ: https://github.com/the-great-abby/message_queue"
+  echo ""
+  echo -n "Ready to download? (y/N): "
+  read confirm
+  if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+    mkdir -p ~/code/external_services
+    cd ~/code/external_services
+    
+    # Download database repo
+    if [[ ! -d "database" ]]; then
+      echo ""
+      echo "Downloading database repository..."
+      if git clone https://github.com/the-great-abby/postgres_databases.git database 2>&1; then
+        echo -e "${GREEN}✓ Database repository downloaded${NC}"
+      else
+        echo -e "${RED}❌ Failed to download database repository${NC}"
+        echo "You can manually clone it later:"
+        echo "  git clone https://github.com/the-great-abby/postgres_databases.git ~/code/external_services/database"
+      fi
+    else
+      echo -e "${GREEN}✓ Database repository already exists${NC}"
+    fi
+    
+    # Download rabbitmq repo
+    if [[ ! -d "rabbitmq" ]]; then
+      echo ""
+      echo "Downloading RabbitMQ repository..."
+      if git clone https://github.com/the-great-abby/message_queue.git rabbitmq 2>&1; then
+        echo -e "${GREEN}✓ RabbitMQ repository downloaded${NC}"
+      else
+        echo -e "${RED}❌ Failed to download RabbitMQ repository${NC}"
+        echo "You can manually clone it later:"
+        echo "  git clone https://github.com/the-great-abby/message_queue.git ~/code/external_services/rabbitmq"
+      fi
+    else
+      echo -e "${GREEN}✓ RabbitMQ repository already exists${NC}"
+    fi
+  else
+    echo "Skipping repository download. You can do this manually:"
+    echo "  mkdir -p ~/code/external_services"
+    echo "  cd ~/code/external_services"
+    echo "  git clone https://github.com/the-great-abby/postgres_databases.git database"
+    echo "  git clone https://github.com/the-great-abby/message_queue.git rabbitmq"
+  fi
+  echo ""
+  gtd_enter_to_continue
+  ((step++))
+  
+  # Step 2: Setup PostgreSQL Database
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}Step $step/$total_steps: Setup PostgreSQL Database${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "We'll deploy PostgreSQL to your Kubernetes cluster."
+  echo ""
+  echo -e "${YELLOW}Prerequisites:${NC}"
+  echo "  • Kubernetes cluster running and accessible via kubectl"
+  echo "  • kubectl configured correctly"
+  echo ""
+  echo -n "Ready to setup database? (y/N): "
+  read confirm
+  if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+    if [[ -d ~/code/external_services/database ]]; then
+      cd ~/code/external_services/database
+      echo ""
+      echo "Deploying PostgreSQL..."
+      if make setup 2>&1; then
+        echo ""
+        echo -e "${GREEN}✓ PostgreSQL deployment initiated${NC}"
+        echo ""
+        echo "Waiting for database to be ready (this may take 30-60 seconds)..."
+        if kubectl wait --for=condition=ready pod -l app=postgres -n postgres-system --timeout=120s 2>/dev/null; then
+          echo -e "${GREEN}✓ Database is ready!${NC}"
+          echo ""
+          echo "Connection information:"
+          make connection-info
+        else
+          echo -e "${YELLOW}⚠️  Database is still starting up${NC}"
+          echo "You can check status with: cd ~/code/external_services/database && make status"
+        fi
+      else
+        echo -e "${RED}❌ Failed to deploy database${NC}"
+        echo "You can try manually: cd ~/code/external_services/database && make setup"
+      fi
+    else
+      echo -e "${RED}❌ Database repository not found${NC}"
+      echo "Please complete step 1 first, or manually clone the repository."
+    fi
+  else
+    echo "Skipping database setup. You can do this manually:"
+    echo "  cd ~/code/external_services/database && make setup"
+  fi
+  echo ""
+  gtd_enter_to_continue
+  ((step++))
+  
+  # Step 3: Setup RabbitMQ
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}Step $step/$total_steps: Setup RabbitMQ Message Queue${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "We'll deploy RabbitMQ to your Kubernetes cluster."
+  echo ""
+  echo -n "Ready to setup RabbitMQ? (y/N): "
+  read confirm
+  if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+    if [[ -d ~/code/external_services/rabbitmq ]]; then
+      cd ~/code/external_services/rabbitmq
+      echo ""
+      echo "Deploying RabbitMQ..."
+      if make setup 2>&1; then
+        echo ""
+        echo -e "${GREEN}✓ RabbitMQ deployment initiated${NC}"
+        echo ""
+        echo "Waiting for RabbitMQ to be ready (this may take 30-60 seconds)..."
+        if kubectl wait --for=condition=ready pod -l app=rabbitmq -n rabbitmq-system --timeout=120s 2>/dev/null; then
+          echo -e "${GREEN}✓ RabbitMQ is ready!${NC}"
+          echo ""
+          echo "Connection information:"
+          make connection-info
+        else
+          echo -e "${YELLOW}⚠️  RabbitMQ is still starting up${NC}"
+          echo "You can check status with: cd ~/code/external_services/rabbitmq && make status"
+        fi
+      else
+        echo -e "${RED}❌ Failed to deploy RabbitMQ${NC}"
+        echo "You can try manually: cd ~/code/external_services/rabbitmq && make setup"
+      fi
+    else
+      echo -e "${RED}❌ RabbitMQ repository not found${NC}"
+      echo "Please complete step 1 first, or manually clone the repository."
+    fi
+  else
+    echo "Skipping RabbitMQ setup. You can do this manually:"
+    echo "  cd ~/code/external_services/rabbitmq && make setup"
+  fi
+  echo ""
+  gtd_enter_to_continue
+  ((step++))
+  
+  # Step 4: Configure AI Host
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}Step $step/$total_steps: Configure AI Host${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Choose your AI backend:"
+  echo ""
+  echo "  1) LM Studio (Desktop app, recommended for macOS/Windows)"
+  echo "  2) Ollama (Command-line, recommended for Linux)"
+  echo "  3) Skip (configure later)"
+  echo ""
+  echo -n "Choose: "
+  read ai_choice
+  
+  case "$ai_choice" in
+    1)
+      echo ""
+      echo -e "${BOLD}LM Studio Setup:${NC}"
+      echo ""
+      echo "1. Download LM Studio from: https://lmstudio.ai/"
+      echo "2. Install and open LM Studio"
+      echo "3. Download a model (Search tab → Download)"
+      echo "   Recommended: qwen/qwen3-1.7b or google/gemma-3-1b"
+      echo "4. Load the model (Chat tab → Select model → Load)"
+      echo "5. Start local server (Server tab → Start Server)"
+      echo "   Default port: 1234"
+      echo ""
+      echo -n "Have you completed the LM Studio setup? (y/N): "
+      read done
+      if [[ "$done" == "y" || "$done" == "Y" ]]; then
+        echo ""
+        echo "Configuring LM Studio..."
+        echo "Please enter the exact model name as shown in LM Studio:"
+        echo -n "Model name: "
+        read model_name
+        if [[ -n "$model_name" ]]; then
+          # Use the existing AI backend configuration
+          echo ""
+          echo "Opening AI Backend configuration..."
+          # We'll let the user configure it via the existing wizard
+          echo "Please use: Configuration & Setup → Configure AI Backend"
+          echo "Or edit: ~/code/dotfiles/zsh/.gtd_config"
+          echo "  Set: AI_BACKEND=\"lmstudio\""
+          echo "  Set: LM_STUDIO_CHAT_MODEL=\"$model_name\""
+        fi
+      else
+        echo "You can configure LM Studio later via: Configuration & Setup → Configure AI Backend"
+      fi
+      ;;
+    2)
+      echo ""
+      echo -e "${BOLD}Ollama Setup:${NC}"
+      echo ""
+      echo "1. Install Ollama:"
+      echo "   macOS: brew install ollama"
+      echo "   Linux: curl -fsSL https://ollama.com/install.sh | sh"
+      echo "2. Start server: ollama serve"
+      echo "3. Pull a model: ollama pull qwen2.5:1.5b"
+      echo "4. List models: ollama list"
+      echo ""
+      echo -n "Have you completed the Ollama setup? (y/N): "
+      read done
+      if [[ "$done" == "y" || "$done" == "Y" ]]; then
+        echo ""
+        echo "Configuring Ollama..."
+        echo "Please enter the model name (from 'ollama list'):"
+        echo -n "Model name: "
+        read model_name
+        if [[ -n "$model_name" ]]; then
+          echo ""
+          echo "Opening AI Backend configuration..."
+          echo "Please use: Configuration & Setup → Configure AI Backend"
+          echo "Or edit: ~/code/dotfiles/zsh/.gtd_config"
+          echo "  Set: AI_BACKEND=\"ollama\""
+          echo "  Set: OLLAMA_CHAT_MODEL=\"$model_name\""
+        fi
+      else
+        echo "You can configure Ollama later via: Configuration & Setup → Configure AI Backend"
+      fi
+      ;;
+    3)
+      echo "Skipping AI host configuration. You can configure it later."
+      ;;
+    *)
+      echo "Invalid choice. Skipping AI host configuration."
+      ;;
+  esac
+  echo ""
+  gtd_enter_to_continue
+  ((step++))
+  
+  # Step 5: Configure GTD System
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}Step $step/$total_steps: Configure GTD System${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "Now we'll configure the GTD system to use the services we just set up."
+  echo ""
+  echo "You'll need connection information from the previous steps."
+  echo ""
+  echo -n "Ready to configure? (y/N): "
+  read confirm
+  if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+    echo ""
+    echo "Please configure services via the wizard:"
+    echo ""
+    echo -e "${BOLD}1. Database Configuration:${NC}"
+    echo "   Main Menu → 63) Database Infrastructure Wizard → Setup Database Connection"
+    echo ""
+    echo -e "${BOLD}2. RabbitMQ Configuration:${NC}"
+    echo "   Main Menu → 64) RabbitMQ Management Wizard → Setup RabbitMQ Connection"
+    echo ""
+    echo "   Or: Configuration & Setup → Setup RabbitMQ Connection"
+    echo ""
+    echo "Get connection info:"
+    echo "  Database: cd ~/code/external_services/database && make connection-info"
+    echo "  RabbitMQ: cd ~/code/external_services/rabbitmq && make connection-info"
+  else
+    echo "Skipping configuration. You can configure later via the wizard menus."
+  fi
+  echo ""
+  gtd_enter_to_continue
+  ((step++))
+  
+  # Step 6: Setup MCP Server
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}Step $step/$total_steps: Setup MCP Server & Virtualenv${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "The MCP server provides AI tools for your GTD system."
+  echo ""
+  echo "This will:"
+  echo "  • Create Python virtualenv"
+  echo "  • Install MCP SDK"
+  echo "  • Install RabbitMQ client (pika)"
+  echo "  • Install watchdog (for filewatcher)"
+  echo ""
+  echo -n "Ready to setup MCP server? (y/N): "
+  read confirm
+  if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+    MCP_DIR="$HOME/code/dotfiles/mcp"
+    if [[ ! -d "$MCP_DIR" ]]; then
+      MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+    fi
+    SETUP_SCRIPT="${MCP_DIR}/setup.sh"
+    
+    if [[ -f "$SETUP_SCRIPT" ]]; then
+      echo ""
+      echo "Running MCP server setup..."
+      cd "$MCP_DIR"
+      if bash "$SETUP_SCRIPT" 2>&1; then
+        echo ""
+        echo -e "${GREEN}✓ MCP server setup complete${NC}"
+      else
+        echo ""
+        echo -e "${YELLOW}⚠️  Setup completed with warnings${NC}"
+        echo "You can review the output above for any issues."
+      fi
+    else
+      echo -e "${RED}❌ Setup script not found${NC}"
+      echo "Expected: $SETUP_SCRIPT"
+    fi
+  else
+    echo "Skipping MCP server setup. You can do this later via:"
+    echo "  Configuration & Setup → Setup MCP Server & Virtualenv"
+  fi
+  echo ""
+  gtd_enter_to_continue
+  
+  # Final summary
+  clear
+  echo ""
+  echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${GREEN}🎉 Setup Complete!${NC}"
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "You've completed the guided setup process!"
+  echo ""
+  echo -e "${BOLD}Next Steps:${NC}"
+  echo ""
+  echo "1. Verify everything is working:"
+  echo "   gtd-wizard → 17) System status"
+  echo ""
+  echo "2. Start background workers (if not already running):"
+  echo "   gtd-wizard → 17) System status → 3) Background Worker Status → 3) Start All Workers"
+  echo ""
+  echo "3. Test the system:"
+  echo "   gtd-task add \"Test task\""
+  echo "   gtd-wizard → 24) AI Suggestions"
+  echo ""
+  echo -e "${BOLD}Documentation:${NC}"
+  echo "  • Complete Setup Guide: docs/COMPLETE_SETUP_GUIDE.md"
+  echo "  • Setup Checklist: docs/SETUP_CHECKLIST.md"
+  echo ""
+  gtd_enter_to_continue
 }
 
 learn_second_brain_wizard() {
@@ -7861,7 +8511,7 @@ calendar_wizard() {
           echo "❌ gtd-calendar command not found"
         fi
         echo ""
-        gtd_quick_pause
+        gtd_enter_to_continue
         ;;
       2)
         echo ""
@@ -7879,7 +8529,7 @@ calendar_wizard() {
           echo "❌ gtd-calendar command not found"
         fi
         echo ""
-        gtd_quick_pause
+        gtd_enter_to_continue
         ;;
       3)
         echo ""
@@ -7908,7 +8558,7 @@ calendar_wizard() {
           echo "❌ gtd-calendar command not found"
         fi
         echo ""
-        gtd_quick_pause
+        gtd_enter_to_continue
         ;;
       4)
         echo ""
@@ -8032,7 +8682,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     7)
       echo ""
@@ -8103,7 +8753,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     10)
       echo ""
@@ -8121,7 +8771,7 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     11)
       echo ""
@@ -8139,21 +8789,23 @@ calendar_wizard() {
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     12)
       echo ""
       if command -v gtd-calendar &>/dev/null; then
-        gtd-calendar auth
+        gtd-calendar auth 2>&1
       elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar" ]]; then
-        "$HOME/code/dotfiles/bin/gtd-calendar" auth
+        "$HOME/code/dotfiles/bin/gtd-calendar" auth 2>&1
       elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-calendar" ]]; then
-        "$HOME/code/personal/dotfiles/bin/gtd-calendar" auth
+        "$HOME/code/personal/dotfiles/bin/gtd-calendar" auth 2>&1
       else
         echo "❌ gtd-calendar command not found"
       fi
       echo ""
-      gtd_quick_pause
+      echo "💡 If a link was generated, open it in your browser to authenticate."
+      echo ""
+      gtd_enter_to_continue
       ;;
     0|"")
       pop_menu

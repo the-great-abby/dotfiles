@@ -331,6 +331,12 @@ gtd_quick_pause() {
   gtd_pause 2 "Press Enter to continue..."
 }
 
+# Enter to continue - waits for user to press Enter (no auto-continue)
+# Use this when displaying information that users need time to review
+gtd_enter_to_continue() {
+  gtd_pause 0 "Press Enter to continue..."
+}
+
 # Silent pause - no message, just wait briefly for visual processing
 gtd_silent_pause() {
   local timeout="${1:-1}"

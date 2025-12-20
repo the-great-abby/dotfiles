@@ -32,6 +32,15 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
+# Source wizard tools for queue_advice_request function
+WIZARD_TOOLS="$HOME/code/dotfiles/bin/gtd-wizard-tools.sh"
+if [[ ! -f "$WIZARD_TOOLS" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh" ]]; then
+  WIZARD_TOOLS="$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh"
+fi
+if [[ -f "$WIZARD_TOOLS" ]]; then
+  source "$WIZARD_TOOLS"
+fi
+
 # GTD_BASE_DIR and path variables are already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
 # Keep directory name variables for backward compatibility
 GTD_INBOX_DIR="${GTD_INBOX_DIR:-0-inbox}"
@@ -241,18 +250,38 @@ EOF
   echo "✓ Daily ${time_label} review saved: $review_file"
   echo ""
   
-  # Offer AI advice
+  # Offer AI advice (backgrounded)
   read -p "Get AI advice on your ${review_type} review? (y/n) " -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     local review_content=$(cat "$review_file")
-    if command -v python3 &>/dev/null; then
-      local persona_helper="$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-      if [[ ! -f "$persona_helper" ]]; then
-        persona_helper="$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+    if declare -f queue_advice_request &>/dev/null; then
+      echo ""
+      echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
+      local request_id=$(queue_advice_request "david" "Here's my ${time_label} daily review:\n\n${review_content}\n\nPlease provide feedback and suggestions." "normal" "false")
+      echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+      echo ""
+      echo "💡 You'll receive a Discord notification when the advice is ready."
+      echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice"
+      echo ""
+      # Start worker if not running
+      if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+        echo "Starting advice worker..."
+        nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+        echo "✓ Worker started (PID: $!)"
+        echo "   Logs: tail -f /tmp/advice-worker.log"
+        echo ""
       fi
-      if [[ -f "$persona_helper" ]]; then
-        python3 "$persona_helper" "david" "$review_content" "daily_review"
+    else
+      # Fallback to direct call if queue_advice_request not available
+      if command -v python3 &>/dev/null; then
+        local persona_helper="$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+        if [[ ! -f "$persona_helper" ]]; then
+          persona_helper="$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+        fi
+        if [[ -f "$persona_helper" ]]; then
+          python3 "$persona_helper" "david" "$review_content" "daily_review"
+        fi
       fi
     fi
   fi
@@ -526,22 +555,50 @@ EOF
   echo "✓ Weekly review saved: $review_file"
   echo ""
   
-  # Offer AI advice
+  # Offer AI advice (backgrounded)
   read -p "Get AI advice on your weekly review? (y/n) " -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     local review_content=$(cat "$review_file")
-    if command -v python3 &>/dev/null; then
-      local persona_helper="$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-      if [[ -f "$persona_helper" ]]; then
+    if declare -f queue_advice_request &>/dev/null; then
+      echo ""
+      echo -e "${CYAN}📤 Queuing advice requests for background processing...${NC}"
+      local request_id1=$(queue_advice_request "david" "Here's my weekly review:\n\n${review_content}\n\nPlease provide GTD feedback and suggestions." "normal" "false")
+      echo -e "${GREEN}✓ David Allen advice queued (ID: $request_id1)${NC}"
+      
+      read -p "Get strategic advice from Warren Buffett? (y/n) " -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        local request_id2=$(queue_advice_request "warren" "Here's my weekly review:\n\n${review_content}\n\nPlease provide strategic feedback and suggestions." "normal" "false")
+        echo -e "${GREEN}✓ Warren Buffett advice queued (ID: $request_id2)${NC}"
+      fi
+      
+      echo ""
+      echo "💡 You'll receive Discord notifications when the advice is ready."
+      echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice"
+      echo ""
+      # Start worker if not running
+      if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+        echo "Starting advice worker..."
+        nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+        echo "✓ Worker started (PID: $!)"
+        echo "   Logs: tail -f /tmp/advice-worker.log"
         echo ""
-        echo "Getting advice from David Allen (GTD expert)..."
-        python3 "$persona_helper" "david" "$review_content" "weekly_review"
-        echo ""
-        read -p "Get strategic advice from Warren Buffett? (y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-          python3 "$persona_helper" "warren" "$review_content" "weekly_review"
+      fi
+    else
+      # Fallback to direct call if queue_advice_request not available
+      if command -v python3 &>/dev/null; then
+        local persona_helper="$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+        if [[ -f "$persona_helper" ]]; then
+          echo ""
+          echo "Getting advice from David Allen (GTD expert)..."
+          python3 "$persona_helper" "david" "$review_content" "weekly_review"
+          echo ""
+          read -p "Get strategic advice from Warren Buffett? (y/n) " -n 1 -r
+          echo
+          if [[ $REPLY =~ ^[Yy]$ ]]; then
+            python3 "$persona_helper" "warren" "$review_content" "weekly_review"
+          fi
         fi
       fi
     fi
@@ -900,6 +957,31 @@ EOF
   echo "📚 For detailed monthly review tasks, see:"
   echo "   zsh/MONTHLY_REVIEW_TASKS_GUIDE.md"
   echo ""
+  
+  # Offer AI advice (backgrounded)
+  read -p "Get AI advice on your monthly review? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    local review_content=$(cat "$review_file")
+    if declare -f queue_advice_request &>/dev/null; then
+      echo ""
+      echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
+      local request_id=$(queue_advice_request "david" "Here's my monthly review:\n\n${review_content}\n\nPlease provide GTD feedback and strategic suggestions." "normal" "false")
+      echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+      echo ""
+      echo "💡 You'll receive a Discord notification when the advice is ready."
+      echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice"
+      echo ""
+      # Start worker if not running
+      if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+        echo "Starting advice worker..."
+        nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+        echo "✓ Worker started (PID: $!)"
+        echo "   Logs: tail -f /tmp/advice-worker.log"
+        echo ""
+      fi
+    fi
+  fi
 }
 
 # Quarterly review
@@ -1136,6 +1218,39 @@ EOF
   echo "📚 For detailed quarterly review tasks, see:"
   echo "   zsh/QUARTERLY_REVIEW_TASKS_GUIDE.md"
   echo ""
+  
+  # Offer AI advice (backgrounded)
+  read -p "Get AI advice on your quarterly review? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    local review_content=$(cat "$review_file")
+    if declare -f queue_advice_request &>/dev/null; then
+      echo ""
+      echo -e "${CYAN}📤 Queuing advice requests for background processing...${NC}"
+      local request_id1=$(queue_advice_request "david" "Here's my quarterly review:\n\n${review_content}\n\nPlease provide GTD feedback and strategic suggestions." "normal" "false")
+      echo -e "${GREEN}✓ David Allen advice queued (ID: $request_id1)${NC}"
+      
+      read -p "Get strategic advice from Warren Buffett? (y/n) " -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        local request_id2=$(queue_advice_request "warren" "Here's my quarterly review:\n\n${review_content}\n\nPlease provide strategic feedback and long-term planning suggestions." "normal" "false")
+        echo -e "${GREEN}✓ Warren Buffett advice queued (ID: $request_id2)${NC}"
+      fi
+      
+      echo ""
+      echo "💡 You'll receive Discord notifications when the advice is ready."
+      echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice"
+      echo ""
+      # Start worker if not running
+      if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+        echo "Starting advice worker..."
+        nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+        echo "✓ Worker started (PID: $!)"
+        echo "   Logs: tail -f /tmp/advice-worker.log"
+        echo ""
+      fi
+    fi
+  fi
 }
 
 # Yearly review
@@ -1383,6 +1498,39 @@ EOF
   echo "📚 For detailed yearly review tasks, see:"
   echo "   zsh/YEARLY_REVIEW_TASKS_GUIDE.md"
   echo ""
+  
+  # Offer AI advice (backgrounded)
+  read -p "Get AI advice on your yearly review? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    local review_content=$(cat "$review_file")
+    if declare -f queue_advice_request &>/dev/null; then
+      echo ""
+      echo -e "${CYAN}📤 Queuing advice requests for background processing...${NC}"
+      local request_id1=$(queue_advice_request "david" "Here's my yearly review:\n\n${review_content}\n\nPlease provide comprehensive GTD feedback and strategic suggestions." "normal" "false")
+      echo -e "${GREEN}✓ David Allen advice queued (ID: $request_id1)${NC}"
+      
+      read -p "Get strategic advice from Warren Buffett? (y/n) " -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        local request_id2=$(queue_advice_request "warren" "Here's my yearly review:\n\n${review_content}\n\nPlease provide strategic feedback and long-term planning suggestions." "normal" "false")
+        echo -e "${GREEN}✓ Warren Buffett advice queued (ID: $request_id2)${NC}"
+      fi
+      
+      echo ""
+      echo "💡 You'll receive Discord notifications when the advice is ready."
+      echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice"
+      echo ""
+      # Start worker if not running
+      if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+        echo "Starting advice worker..."
+        nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+        echo "✓ Worker started (PID: $!)"
+        echo "   Logs: tail -f /tmp/advice-worker.log"
+        echo ""
+      fi
+    fi
+  fi
 }
 
 # Main

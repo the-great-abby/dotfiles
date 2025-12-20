@@ -35,11 +35,12 @@ review_wizard() {
   echo "  2) Review waiting items"
   echo "  3) Review projects"
   echo "  4) Review areas"
-  echo "  5) Weekly review"
-  echo "  6) Review completed tasks"
-  echo "  7) Review archived items"
-  echo "  8) 📋 View analysis results"
-  echo "  9) 📊 Enhanced Review System"
+  echo "  5) Daily review"
+  echo "  6) Weekly review"
+  echo "  7) Review completed tasks"
+  echo "  8) Review archived items"
+  echo "  9) 📋 View analysis results"
+  echo "  10) 📊 Enhanced Review System"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -64,21 +65,27 @@ review_wizard() {
       gtd-area list
       ;;
     5)
-      echo "Starting weekly review..."
-      gtd-review weekly
+      echo "Starting daily review..."
+      gtd-review daily
       ;;
     6)
+      echo "Starting weekly review..."
+      gtd-review weekly
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    7)
       echo "Reviewing completed tasks..."
       gtd-task list --completed
       ;;
-    7)
+    8)
       echo "Reviewing archived items..."
       gtd-task list --archived
       ;;
-    8)
+    9)
       view_analysis_results
       ;;
-    9)
+    10)
       # Source enhanced review wizard if available
       local ENHANCED_REVIEW_FILE="$HOME/code/dotfiles/bin/gtd-wizard-enhanced-review.sh"
       if [[ ! -f "$ENHANCED_REVIEW_FILE" ]]; then

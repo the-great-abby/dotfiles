@@ -1585,8 +1585,12 @@ project_wizard() {
       if [[ -f "$ENHANCED_SCRIPT" ]]; then
         source "$ENHANCED_SCRIPT"
         project_health_dashboard
+        echo ""
+        gtd_enter_to_continue
       else
         echo "Enhanced project features not available"
+        echo ""
+        gtd_quick_pause
       fi
       ;;
     10)
@@ -3325,10 +3329,11 @@ review_project_tasks() {
     gtd_format_list_item "2" "View full task"
     gtd_format_list_item "3" "Edit task details"
     gtd_format_list_item "4" "Add note to task"
-    gtd_format_list_item "5" "Skip (next task)"
-    gtd_format_list_item "6" "Back to project menu"
+    gtd_format_list_item "5" "Schedule to calendar"
+    gtd_format_list_item "6" "Skip (next task)"
+    gtd_format_list_item "7" "Back to project menu"
     echo ""
-    echo -n "Choose (1-6): "
+    echo -n "Choose (1-7): "
     read action
     
     case "$action" in
@@ -3393,10 +3398,14 @@ review_project_tasks() {
         add_note_to_task_from_review "$task_id"
         ;;
       5)
+        # Schedule to calendar
+        schedule_task_to_calendar_from_review "$task_id"
+        ;;
+      6)
         ((current_idx++))
         continue
         ;;
-      6)
+      7)
         return 0
         ;;
       *)
@@ -3449,5 +3458,125 @@ add_note_to_task_from_review() {
     gtd_quick_pause
     return 1
   fi
+}
+
+# Helper function to schedule task to calendar (reusable across review interfaces)
+schedule_task_to_calendar_from_review() {
+  local task_id="$1"
+  
+  if [[ -z "$task_id" ]]; then
+    gtd_feedback error "Task ID required"
+    return 1
+  fi
+  
+  # Check if task has a due date
+  local task_file=""
+  if command -v gtd-task &>/dev/null; then
+    # Try to find task file
+    local gtd_base="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+    task_file=$(find "$gtd_base" -type f -name "*${task_id}*" 2>/dev/null | head -1)
+  fi
+  
+  local due_date=""
+  if [[ -f "$task_file" ]]; then
+    due_date=$(grep "^due:" "$task_file" 2>/dev/null | head -1 | cut -d':' -f2 | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+  fi
+  
+  echo ""
+  echo "Schedule task to calendar"
+  echo ""
+  
+  # Ask for calendar type
+  echo "Which calendar?"
+  echo "  1) Google Calendar (default)"
+  echo "  2) Office 365"
+  echo ""
+  echo -n "Choose (1 or 2, default 1): "
+  read cal_type
+  cal_type="${cal_type:-1}"
+  
+  local calendar_type="google"
+  case "$cal_type" in
+    1)
+      calendar_type="google"
+      ;;
+    2)
+      calendar_type="office365"
+      ;;
+    *)
+      gtd_feedback error "Invalid choice, defaulting to Google Calendar"
+      calendar_type="google"
+      ;;
+  esac
+  
+  # Ask for time if task doesn't have due date
+  local when=""
+  if [[ -z "$due_date" ]]; then
+    echo ""
+    echo "This task doesn't have a due date."
+    echo -n "When should this be scheduled? (e.g., '2024-12-05 10:00' or 'tomorrow 2pm'): "
+    read when
+    
+    if [[ -z "$when" ]]; then
+      gtd_feedback error "Time required to schedule task"
+      gtd_quick_pause
+      return 1
+    fi
+  else
+    echo ""
+    echo "Task has due date: $due_date"
+    echo -n "Use this time? (y/n, default y): "
+    read use_due
+    use_due="${use_due:-y}"
+    
+    if [[ "$use_due" =~ ^[Yy] ]]; then
+      when="$due_date"
+    else
+      echo -n "Enter new time (e.g., '2024-12-05 10:00' or 'tomorrow 2pm'): "
+      read when
+      
+      if [[ -z "$when" ]]; then
+        gtd_feedback error "Time required to schedule task"
+        gtd_quick_pause
+        return 1
+      fi
+    fi
+  fi
+  
+  echo ""
+  echo "Syncing task to calendar..."
+  
+  # Call gtd-calendar sync
+  if command -v gtd-calendar &>/dev/null; then
+    if gtd-calendar sync "$task_id" "$calendar_type" "$when" 2>&1; then
+      gtd_action_success "scheduled" "task" "to $calendar_type calendar"
+    else
+      gtd_feedback error "Failed to sync task to calendar"
+      gtd_quick_pause
+      return 1
+    fi
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar" ]]; then
+    if "$HOME/code/dotfiles/bin/gtd-calendar" sync "$task_id" "$calendar_type" "$when" 2>&1; then
+      gtd_action_success "scheduled" "task" "to $calendar_type calendar"
+    else
+      gtd_feedback error "Failed to sync task to calendar"
+      gtd_quick_pause
+      return 1
+    fi
+  elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-calendar" ]]; then
+    if "$HOME/code/personal/dotfiles/bin/gtd-calendar" sync "$task_id" "$calendar_type" "$when" 2>&1; then
+      gtd_action_success "scheduled" "task" "to $calendar_type calendar"
+    else
+      gtd_feedback error "Failed to sync task to calendar"
+      gtd_quick_pause
+      return 1
+    fi
+  else
+    gtd_feedback error "gtd-calendar command not found"
+    gtd_quick_pause
+    return 1
+  fi
+  
+  gtd_quick_pause
 }
 

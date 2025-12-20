@@ -1617,6 +1617,8 @@ goal_tracking_wizard() {
       else
         echo "❌ gtd-goal command not found"
       fi
+      echo ""
+      gtd_enter_to_continue
       ;;
     4)
       echo ""
@@ -1627,6 +1629,8 @@ goal_tracking_wizard() {
       else
         echo "❌ gtd-goal command not found"
       fi
+      echo ""
+      gtd_enter_to_continue
       ;;
     5)
       echo ""
@@ -1994,6 +1998,8 @@ energy_audit_wizard() {
       else
         echo "❌ gtd-energy-audit command not found"
       fi
+      echo ""
+      gtd_enter_to_continue
       ;;
     4)
       echo ""
@@ -2008,6 +2014,8 @@ energy_audit_wizard() {
       else
         echo "❌ gtd-energy-audit command not found"
       fi
+      echo ""
+      gtd_enter_to_continue
       ;;
     0|"")
       return 0
@@ -2059,7 +2067,7 @@ metric_correlations_wizard() {
     echo "❌ gtd-metric-correlations command not found"
   fi
   echo ""
-  gtd_quick_pause
+  gtd_enter_to_continue
 }
 
 pattern_recognition_wizard() {
@@ -2080,7 +2088,7 @@ pattern_recognition_wizard() {
     echo "❌ gtd-pattern-recognition command not found"
   fi
   echo ""
-  gtd_quick_pause
+  gtd_enter_to_continue
 }
 
 weekly_progress_wizard() {
@@ -2100,7 +2108,7 @@ weekly_progress_wizard() {
     echo "❌ gtd-weekly-progress command not found"
   fi
   echo ""
-  gtd_quick_pause
+  gtd_enter_to_continue
 }
 
 success_metrics_wizard() {
@@ -2124,7 +2132,7 @@ success_metrics_wizard() {
   fi
   
   echo ""
-  gtd_quick_pause
+  gtd_enter_to_continue
 }
 
 brain_metrics_wizard() {
@@ -2155,17 +2163,31 @@ energy_schedule_wizard() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   show_energy_schedule_guide
+  
+  # Run with error handling to prevent crashes
+  set +e  # Don't exit on errors
+  local exit_code=0
   if command -v gtd-energy-schedule &>/dev/null; then
-    gtd-energy-schedule
+    gtd-energy-schedule 2>&1 || exit_code=$?
   elif [[ -f "$HOME/code/dotfiles/bin/gtd-energy-schedule" ]]; then
-    "$HOME/code/dotfiles/bin/gtd-energy-schedule"
+    "$HOME/code/dotfiles/bin/gtd-energy-schedule" 2>&1 || exit_code=$?
   elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-energy-schedule" ]]; then
-    "$HOME/code/personal/dotfiles/bin/gtd-energy-schedule"
+    "$HOME/code/personal/dotfiles/bin/gtd-energy-schedule" 2>&1 || exit_code=$?
   else
     echo "❌ gtd-energy-schedule command not found"
+    exit_code=1
   fi
+  set -e  # Re-enable error handling
+  
+  # Only show error message if it's a real error (not just "no tasks found")
+  if [[ $exit_code -ne 0 ]] && [[ $exit_code -ne 1 ]]; then
+    echo ""
+    echo "⚠️  An error occurred while running energy scheduling."
+    echo "   Error code: $exit_code"
+  fi
+  
   echo ""
-  gtd_quick_pause
+  gtd_enter_to_continue
 }
 
 now_wizard() {

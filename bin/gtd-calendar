@@ -872,9 +872,20 @@ view_calendar() {
       local start_date_str="today"
       local end_date_str="$end_date"
       
-      # Try direct gcalcli call - this should work if dates are correct
-      events=$(gcalcli --calendar "$cal_name" agenda "$start_date_str" "$end_date_str" 2>"$error_output")
-      local exit_code=$?
+      # Try direct gcalcli call with timeout (10 seconds) to prevent hanging
+      if command -v timeout &>/dev/null; then
+        events=$(timeout 10 gcalcli --calendar "$cal_name" agenda "$start_date_str" "$end_date_str" 2>"$error_output")
+        local exit_code=$?
+        # timeout returns 124 if command timed out
+        if [[ $exit_code -eq 124 ]]; then
+          echo "timeout" > "$error_output"
+          exit_code=1
+        fi
+      else
+        # Fallback: use gcalcli directly (may hang on some systems)
+        events=$(gcalcli --calendar "$cal_name" agenda "$start_date_str" "$end_date_str" 2>"$error_output")
+        local exit_code=$?
+      fi
       
       # If that didn't work or returned nothing, try via get_google_events which has more error handling
       if [[ $exit_code -ne 0 ]] || [[ -z "$events" ]] || [[ "$events" == *"No Events Found"* ]]; then
@@ -885,18 +896,56 @@ view_calendar() {
       fi
       
       # Check for actual errors
-      if [[ -s "$error_output" ]]; then
+      if [[ -s "$error_output" ]] || [[ $exit_code -ne 0 ]]; then
         local error_content
-        error_content=$(cat "$error_output" 2>/dev/null | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        if [[ -n "$error_content" ]]; then
+        error_content=$(cat "$error_output" 2>/dev/null)
+        
+        # Check for timeout
+        if [[ "$error_content" == *"timeout"* ]] || echo "$error_content" | grep -q "^timeout$"; then
+          echo "  ⚠️  Calendar query timed out (calendar may not exist or authentication issue)."
+          echo ""
+          echo "   💡 Try: gtd-calendar authenticate (wizard menu option 12)"
+          echo "   💡 Check calendar name: '$cal_name'"
+          echo ""
+        # Check for Python tracebacks (indicates calendar doesn't exist or other error)
+        elif echo "$error_content" | grep -q "Traceback\|File \"/\|Error:" || [[ $exit_code -ne 0 ]]; then
+          local error_summary=$(echo "$error_content" | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          
           # Check for authentication errors first
-          if echo "$error_content" | grep -qiE "invalid_grant|Token has been expired|Token has been revoked|authentication|oauth|credentials|RefreshError"; then
-            echo "  ⚠️  Authentication expired. Run 'gcalcli init' to re-authenticate."
-          elif echo "$error_content" | grep -qi "calendar.*not found\|could not find calendar"; then
-            echo "  ⚠️  Calendar '$cal_name' not found. Run 'gtd-calendar discover' to list available calendars."
-          elif [[ "$error_content" != *"No Events Found"* ]] && [[ "$error_content" != *"No events"* ]]; then
-            # Show error if it's not just "no events"  
-            echo "  ⚠️  Error: ${error_content:0:70}"
+          if echo "$error_summary" | grep -qiE "invalid_grant|Token has been expired|Token has been revoked|authentication|oauth|credentials|RefreshError|401|403"; then
+            echo "  ⚠️  Authentication expired or invalid."
+            echo ""
+            echo "   💡 To fix: Run 'gtd-calendar authenticate'"
+            echo "   💡 Or use wizard menu option 12: 🔐 Re-authenticate Google Calendar"
+            echo ""
+          # Check for calendar not found errors
+          elif echo "$error_summary" | grep -qiE "calendar.*not found|could not find calendar|KeyError|AttributeError|does not exist|Traceback"; then
+            echo "  ⚠️  Calendar '$cal_name' not found or error accessing it."
+            echo ""
+            echo "   Available calendars:"
+            gcalcli list 2>/dev/null | grep -E "^[[:space:]]*(owner|reader|writer)" | sed 's/^[[:space:]]*//' | head -10 | sed 's/^/     /' || echo "     (Run 'gcalcli list' to see all calendars)"
+            echo ""
+            echo "   💡 Run 'gtd-calendar discover' to list available calendars."
+            echo "   💡 Update your calendar config to use an existing calendar name."
+            echo ""
+          else
+            # Generic error
+            local error_line=$(echo "$error_content" | grep -E "Error:|Exception:" | head -1 | sed 's/^[[:space:]]*//')
+            if [[ -n "$error_line" ]]; then
+              echo "  ⚠️  Error: ${error_line:0:100}"
+            else
+              echo "  ⚠️  Error accessing calendar (exit code: $exit_code)"
+            fi
+            echo ""
+            echo "   💡 Try: gtd-calendar authenticate (wizard menu option 12)"
+            echo "   💡 Check calendar name matches exactly (case-sensitive)"
+            echo ""
+          fi
+        elif [[ -n "$error_content" ]] && [[ "$error_content" != *"No Events Found"* ]] && [[ "$error_content" != *"No events"* ]]; then
+          # Non-critical error message
+          local error_summary=$(echo "$error_content" | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | cut -c1-100)
+          if [[ -n "$error_summary" ]]; then
+            echo "  ⚠️  ${error_summary}"
           fi
         fi
       fi
