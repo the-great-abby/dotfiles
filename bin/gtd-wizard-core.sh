@@ -59,74 +59,86 @@ apply_mode_settings() {
   fi
   
   # Apply mode-specific DAILY_LOG_DIR if it exists
-  local mode_daily_log="DAILY_LOG_DIR_${mode_upper}"
-  if [[ -n "${!mode_daily_log:-}" ]]; then
-    # Update active DAILY_LOG_DIR in daily_log_config
+  # Read directly from config file to preserve $HOME variable (don't use sourced value which expands it)
+  local mode_daily_log_var="DAILY_LOG_DIR_${mode_upper}"
+  local mode_daily_log_value=$(grep "^${mode_daily_log_var}=" "$daily_log_config" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | xargs)
+  if [[ -n "$mode_daily_log_value" ]]; then
+    # Update active DAILY_LOG_DIR in daily_log_config (preserve $HOME if present)
     if grep -q "^DAILY_LOG_DIR=" "$daily_log_config" 2>/dev/null; then
       if [[ -n "$is_macos" ]]; then
-        sed -i '' "s|^DAILY_LOG_DIR=.*|DAILY_LOG_DIR=\"${!mode_daily_log}\"|" "$daily_log_config"
+        sed -i '' "s|^DAILY_LOG_DIR=.*|DAILY_LOG_DIR=\"$mode_daily_log_value\"|" "$daily_log_config"
       else
-        sed -i "s|^DAILY_LOG_DIR=.*|DAILY_LOG_DIR=\"${!mode_daily_log}\"|" "$daily_log_config"
+        sed -i "s|^DAILY_LOG_DIR=.*|DAILY_LOG_DIR=\"$mode_daily_log_value\"|" "$daily_log_config"
       fi
     else
       # Add it
-      echo "DAILY_LOG_DIR=\"${!mode_daily_log}\"" >> "$daily_log_config"
+      echo "DAILY_LOG_DIR=\"$mode_daily_log_value\"" >> "$daily_log_config"
     fi
-    export DAILY_LOG_DIR="${!mode_daily_log}"
+    # Expand for export (bash will expand $HOME when exporting)
+    local expanded_value=$(echo "$mode_daily_log_value" | sed "s|\$HOME|$HOME|g")
+    export DAILY_LOG_DIR="$expanded_value"
   fi
   
   # Apply mode-specific GTD_BASE_DIR if it exists
-  local mode_gtd_base="GTD_BASE_DIR_${mode_upper}"
-  if [[ -n "${!mode_gtd_base:-}" ]]; then
-    # Update active GTD_BASE_DIR in gtd_config
+  # Read directly from config file to preserve $HOME variable (don't use sourced value which expands it)
+  local mode_gtd_base_var="GTD_BASE_DIR_${mode_upper}"
+  local mode_gtd_base_value=$(grep "^${mode_gtd_base_var}=" "$gtd_config" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | xargs)
+  if [[ -n "$mode_gtd_base_value" ]]; then
+    # Update active GTD_BASE_DIR in gtd_config (preserve $HOME if present)
     if grep -q "^GTD_BASE_DIR=" "$gtd_config" 2>/dev/null; then
       if [[ -n "$is_macos" ]]; then
-        sed -i '' "s|^GTD_BASE_DIR=.*|GTD_BASE_DIR=\"${!mode_gtd_base}\"|" "$gtd_config"
+        sed -i '' "s|^GTD_BASE_DIR=.*|GTD_BASE_DIR=\"$mode_gtd_base_value\"|" "$gtd_config"
       else
-        sed -i "s|^GTD_BASE_DIR=.*|GTD_BASE_DIR=\"${!mode_gtd_base}\"|" "$gtd_config"
+        sed -i "s|^GTD_BASE_DIR=.*|GTD_BASE_DIR=\"$mode_gtd_base_value\"|" "$gtd_config"
       fi
     else
       # Add it after Directory Structure comment
       if grep -q "^# Directory Structure" "$gtd_config" 2>/dev/null; then
         if [[ -n "$is_macos" ]]; then
           sed -i '' "/^# Directory Structure/a\\
-GTD_BASE_DIR=\"${!mode_gtd_base}\"
+GTD_BASE_DIR=\"$mode_gtd_base_value\"
 " "$gtd_config"
         else
-          sed -i "/^# Directory Structure/a GTD_BASE_DIR=\"${!mode_gtd_base}\"" "$gtd_config"
+          sed -i "/^# Directory Structure/a GTD_BASE_DIR=\"$mode_gtd_base_value\"" "$gtd_config"
         fi
       else
-        echo "GTD_BASE_DIR=\"${!mode_gtd_base}\"" >> "$gtd_config"
+        echo "GTD_BASE_DIR=\"$mode_gtd_base_value\"" >> "$gtd_config"
       fi
     fi
-    export GTD_BASE_DIR="${!mode_gtd_base}"
+    # Expand for export (bash will expand $HOME when exporting)
+    local expanded_value=$(echo "$mode_gtd_base_value" | sed "s|\$HOME|$HOME|g")
+    export GTD_BASE_DIR="$expanded_value"
   fi
   
   # Apply mode-specific SECOND_BRAIN if it exists
-  local mode_second_brain="SECOND_BRAIN_${mode_upper}"
-  if [[ -n "${!mode_second_brain:-}" ]]; then
-    # Update active SECOND_BRAIN in gtd_config
+  # Read directly from config file to preserve $HOME variable (don't use sourced value which expands it)
+  local mode_second_brain_var="SECOND_BRAIN_${mode_upper}"
+  local mode_second_brain_value=$(grep "^${mode_second_brain_var}=" "$gtd_config" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | xargs)
+  if [[ -n "$mode_second_brain_value" ]]; then
+    # Update active SECOND_BRAIN in gtd_config (preserve $HOME if present)
     if grep -q "^SECOND_BRAIN=" "$gtd_config" 2>/dev/null; then
       if [[ -n "$is_macos" ]]; then
-        sed -i '' "s|^SECOND_BRAIN=.*|SECOND_BRAIN=\"${!mode_second_brain}\"|" "$gtd_config"
+        sed -i '' "s|^SECOND_BRAIN=.*|SECOND_BRAIN=\"$mode_second_brain_value\"|" "$gtd_config"
       else
-        sed -i "s|^SECOND_BRAIN=.*|SECOND_BRAIN=\"${!mode_second_brain}\"|" "$gtd_config"
+        sed -i "s|^SECOND_BRAIN=.*|SECOND_BRAIN=\"$mode_second_brain_value\"|" "$gtd_config"
       fi
     else
       # Add it after Second Brain Integration comment
       if grep -q "^# Second Brain Integration" "$gtd_config" 2>/dev/null; then
         if [[ -n "$is_macos" ]]; then
           sed -i '' "/^# Second Brain Integration/a\\
-SECOND_BRAIN=\"${!mode_second_brain}\"
+SECOND_BRAIN=\"$mode_second_brain_value\"
 " "$gtd_config"
         else
-          sed -i "/^# Second Brain Integration/a SECOND_BRAIN=\"${!mode_second_brain}\"" "$gtd_config"
+          sed -i "/^# Second Brain Integration/a SECOND_BRAIN=\"$mode_second_brain_value\"" "$gtd_config"
         fi
       else
-        echo "SECOND_BRAIN=\"${!mode_second_brain}\"" >> "$gtd_config"
+        echo "SECOND_BRAIN=\"$mode_second_brain_value\"" >> "$gtd_config"
       fi
     fi
-    export SECOND_BRAIN="${!mode_second_brain}"
+    # Expand for export (bash will expand $HOME when exporting)
+    local expanded_value=$(echo "$mode_second_brain_value" | sed "s|\$HOME|$HOME|g")
+    export SECOND_BRAIN="$expanded_value"
   fi
   
   # Note: Mode-specific settings (GTD_VECTORIZATION_ENABLED_WORK, etc.) are now read
@@ -2017,6 +2029,35 @@ show_dashboard() {
   local today=""
   local today_log=""
   local today_entries=0
+  
+  # Ensure DAILY_LOG_DIR is set (fallback to default if not set)
+  if [[ -z "${DAILY_LOG_DIR:-}" ]]; then
+    # Try to load from config file
+    local daily_log_config="$HOME/code/dotfiles/zsh/.daily_log_config"
+    if [[ ! -f "$daily_log_config" ]]; then
+      daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+    fi
+    if [[ -f "$daily_log_config" ]]; then
+      # Read DAILY_LOG_DIR from config file (handle both quoted and unquoted values)
+      local log_dir=$(grep "^DAILY_LOG_DIR=" "$daily_log_config" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g" | xargs)
+      if [[ -n "$log_dir" ]]; then
+        DAILY_LOG_DIR="$log_dir"
+        export DAILY_LOG_DIR
+      fi
+    fi
+  fi
+  
+  # Validate that DAILY_LOG_DIR exists and is accessible, fallback to default if not
+  if [[ -n "${DAILY_LOG_DIR:-}" ]] && [[ ! -d "${DAILY_LOG_DIR:-}" ]]; then
+    # Config directory doesn't exist, use default
+    DAILY_LOG_DIR="$HOME/Documents/daily_logs"
+    export DAILY_LOG_DIR
+  fi
+  
+  # Final fallback to default if still not set
+  DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+  export DAILY_LOG_DIR
+  
   if command -v date &>/dev/null; then
     # Get today's date with timeout protection
     if command -v timeout &>/dev/null; then

@@ -23,6 +23,16 @@ if [[ -f "$DAILY_LOG_CONFIG" ]]; then
   source "$DAILY_LOG_CONFIG"
 fi
 
+# Set default if not set
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
+# Validate that DAILY_LOG_DIR exists and is accessible, fallback to default if not
+if [[ -n "${DAILY_LOG_DIR:-}" ]] && [[ ! -d "${DAILY_LOG_DIR:-}" ]]; then
+  # Config directory doesn't exist, use default
+  DAILY_LOG_DIR="$HOME/Documents/daily_logs"
+fi
+
+# Final fallback to default if still not set
 DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 
 # Get date command

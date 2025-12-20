@@ -9,7 +9,7 @@ GTD_USER_NAME="${GTD_USER_NAME:-Abby}"
 
 # Computer mode: "work" or "home" (default: "home")
 # Used to customize behavior based on which computer you're using
-GTD_COMPUTER_MODE="work"
+GTD_COMPUTER_MODE="home"
 
 # ============================================================================
 # Directory Structure
@@ -57,7 +57,7 @@ RABBITMQ_ENABLED_HOME="true"
 # RABBITMQ_PASS_HOME="guest"
 # ============================================================================
 # Base directory for GTD system (default: ~/Documents/gtd)
-GTD_BASE_DIR="/Users/abbymalson/Documents/gtd"
+GTD_BASE_DIR="$HOME/Documents/gtd"
 
 # Subdirectories (relative to GTD_BASE_DIR)
 GTD_INBOX_DIR="0-inbox"
@@ -314,7 +314,7 @@ GTD_EMAIL_INBOX=""
 # Second Brain Integration (Tiago Forte's Building a Second Brain)
 # ============================================================================
 # Second Brain base directory (Obsidian vault)
-SECOND_BRAIN="/Users/abbymalson/Documents/Second Brain"
+SECOND_BRAIN="$HOME/Documents/Second Brain"
 
 # Sync with Second Brain (true/false)
 GTD_SYNC_SECOND_BRAIN="true"

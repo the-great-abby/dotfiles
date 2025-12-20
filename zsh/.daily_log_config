@@ -11,7 +11,7 @@ OLLAMA_URL="http://localhost:11434/v1/chat/completions"
 OLLAMA_CHAT_MODEL="gemma2:1b"
 
 # Daily log directory (default: ~/Documents/daily_logs)
-DAILY_LOG_DIR="/Users/abbymalson/Documents/daily_logs"
+DAILY_LOG_DIR="$HOME/Documents/daily_logs"
 
 # LM Studio model for chat/completions (optional, can be left empty to use "local-model" which uses whatever is loaded)
 # Examples: "google/gemma-3-12b", "openai/gpt-oss-20b", or leave empty to use the currently loaded model
