@@ -36,9 +36,9 @@ OLLAMA_CHAT_MODEL="${OLLAMA_CHAT_MODEL:-gemma2:1b}"
 # Work Mode Configuration (when GTD_COMPUTER_MODE="work")
 # Example: Use Ollama with different models for work
 WORK_AI_BACKEND="${WORK_AI_BACKEND:-ollama}"
-WORK_LM_STUDIO_CHAT_MODEL="${WORK_LM_STUDIO_CHAT_MODEL:-google/gemma-3-1b}"
-WORK_OLLAMA_CHAT_MODEL="${WORK_OLLAMA_CHAT_MODEL:-google/gemma3:3b}"
-WORK_DEEP_MODEL_NAME="${WORK_DEEP_MODEL_NAME:-openai/gpt-oss-20b}"
+WORK_LM_STUDIO_CHAT_MODEL="${WORK_LM_STUDIO_CHAT_MODEL:-gemma3:1b}"
+WORK_OLLAMA_CHAT_MODEL="${WORK_OLLAMA_CHAT_MODEL:-gemma3:4b}"
+WORK_DEEP_MODEL_NAME="${WORK_DEEP_MODEL_NAME:-gpt-oss:20b}"
 
 # Home Mode Configuration (when GTD_COMPUTER_MODE="home")
 # Example: Use LM Studio with Qwen models for home
