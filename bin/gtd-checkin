@@ -116,18 +116,22 @@ get_ai_suggestions() {
   fi
   
   # Get AI suggestion (persona helper expects prompt as second argument)
-  # Use timeout if available to prevent hanging
+  # Use URGENT priority (40) for foreground/interactive requests like morning check-in
+  # This ensures immediate processing through the Ollama controller
+  export GTD_REQUEST_PRIORITY=40
+  # Use timeout if available to prevent hanging (increased to 30s for controller polling)
   local suggestion=""
   # Use printf %q to properly quote the prompt for command line
   local quoted_prompt=$(printf '%q' "$prompt")
   if command -v gtimeout &>/dev/null; then
-    suggestion=$(eval "gtimeout 15 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+    suggestion=$(eval "gtimeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
   elif command -v timeout &>/dev/null; then
-    suggestion=$(eval "timeout 15 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+    suggestion=$(eval "timeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
   else
     # No timeout available, just try to get suggestion (may take a while)
     suggestion=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
   fi
+  unset GTD_REQUEST_PRIORITY
   
   # Clean up the suggestion (persona helper adds header, we want just the advice)
   if [[ -n "$suggestion" ]]; then
@@ -298,6 +302,16 @@ morning_checkin() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   
+  # Load pre-generated AI suggestions (generated at 3am)
+  # Suggestions are pre-generated nightly so they're ready immediately
+  local suggestions_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/checkin_suggestions"
+  local morning_suggestions_file="${suggestions_dir}/morning_${TODAY}.txt"
+  local ai_suggestions=""
+  
+  if [[ -f "$morning_suggestions_file" ]]; then
+    ai_suggestions=$(cat "$morning_suggestions_file" 2>/dev/null)
+  fi
+  
   # System status
   echo -e "${BOLD}📊 Quick Status${NC}"
   echo ""
@@ -339,11 +353,10 @@ morning_checkin() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
-  # AI Suggestions based on recent logs
+  # AI Suggestions based on recent logs (already generated above)
   echo -e "${BOLD}🤖 AI Suggestions (Based on Recent Logs)${NC}"
   echo ""
   
-  local ai_suggestions=$(get_ai_suggestions "morning" 3)
   if [[ -n "$ai_suggestions" ]]; then
     echo -e "${CYAN}$ai_suggestions${NC}"
     echo ""
@@ -454,8 +467,8 @@ morning_checkin() {
     echo "" >> "$log_file"
   fi
   
-  # Get AI suggestions for log
-  local ai_suggestions_log=$(get_ai_suggestions "morning" 3)
+  # Use pre-generated AI suggestions for log (already generated at start)
+  local ai_suggestions_log="$ai_suggestions"
   
   cat >> "$log_file" <<EOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -696,6 +709,16 @@ evening_checkin() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   
+  # Load pre-generated AI suggestions (generated at 3am)
+  # Suggestions are pre-generated nightly so they're ready immediately
+  local suggestions_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/checkin_suggestions"
+  local evening_suggestions_file="${suggestions_dir}/evening_${TODAY}.txt"
+  local ai_suggestions=""
+  
+  if [[ -f "$evening_suggestions_file" ]]; then
+    ai_suggestions=$(cat "$evening_suggestions_file" 2>/dev/null)
+  fi
+  
   # Sync Apple Health data (if available)
   if command -v gtd-sync-health &>/dev/null || [[ -f "$HOME/code/dotfiles/bin/gtd-sync-health" ]] || [[ -f "$HOME/code/personal/dotfiles/bin/gtd-sync-health" ]]; then
     echo -e "${CYAN}📊 Syncing Apple Health data...${NC}"
@@ -709,11 +732,10 @@ evening_checkin() {
     echo ""
   fi
   
-  # AI Suggestions based on recent logs
+  # AI Suggestions based on recent logs (already generated above)
   echo -e "${BOLD}🤖 AI Suggestions (Based on Recent Logs)${NC}"
   echo ""
   
-  local ai_suggestions=$(get_ai_suggestions "evening" 3)
   if [[ -n "$ai_suggestions" ]]; then
     echo -e "${CYAN}$ai_suggestions${NC}"
     echo ""
@@ -898,8 +920,8 @@ evening_checkin() {
     echo "" >> "$log_file"
   fi
   
-  # Get AI suggestions for log
-  local ai_suggestions_log=$(get_ai_suggestions "evening" 3)
+  # Use pre-generated AI suggestions for log (already generated at start)
+  local ai_suggestions_log="$ai_suggestions"
   
   cat >> "$log_file" <<EOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1100,7 +1122,7 @@ case "${1:-}" in
     ;;
   "")
     # Auto-detect based on time
-    time_of_day=$(auto_detect_time)
+    time_of_day="$(auto_detect_time)"
     if [[ "$time_of_day" == "morning" ]]; then
       morning_checkin
     else

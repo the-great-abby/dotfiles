@@ -1,0 +1,259 @@
+#!/bin/bash
+# gtd-checkin-suggestions-schedule - Setup scheduler for check-in suggestions
+#
+# Manages launchd job for pre-generating morning/evening check-in suggestions at 3am
+
+set -euo pipefail
+
+# Get the directory where this script lives
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES_DIR="$(dirname "$SCRIPT_DIR")"
+TEMPLATE_PLIST="$DOTFILES_DIR/launchd/com.gtd.checkin-suggestions.plist"
+INSTALL_PLIST="$HOME/Library/LaunchAgents/com.gtd.checkin-suggestions.plist"
+
+# Color output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+usage() {
+    cat << EOF
+Usage: gtd-checkin-suggestions-schedule <command> [options]
+
+Commands:
+    install         Install scheduled check-in suggestions generator
+    uninstall       Remove scheduled generator
+    status          Show scheduler status
+    logs            Show recent scheduler logs
+    test            Test run (immediate execution)
+
+Options:
+    --hour H        Hour to run (0-23, default: 3)
+    --minute M      Minute to run (0-59, default: 0)
+
+Examples:
+    # Install with default schedule (daily at 3 AM)
+    gtd-checkin-suggestions-schedule install
+
+    # Install with custom time (daily at 2 AM)
+    gtd-checkin-suggestions-schedule install --hour 2 --minute 0
+
+    # Check status
+    gtd-checkin-suggestions-schedule status
+
+    # View logs
+    gtd-checkin-suggestions-schedule logs
+
+    # Uninstall
+    gtd-checkin-suggestions-schedule uninstall
+
+EOF
+    exit 0
+}
+
+install_schedule() {
+    local hour="${1:-3}"
+    local minute="${2:-0}"
+    
+    if [[ -f "$INSTALL_PLIST" ]]; then
+        echo -e "${YELLOW}Check-in suggestions scheduler is already installed${NC}"
+        echo -n "Reinstall? (y/N): "
+        read response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            echo "Cancelled"
+            exit 0
+        fi
+        
+        # Unload existing
+        launchctl unload "$INSTALL_PLIST" 2>/dev/null || true
+    fi
+    
+    echo "Installing check-in suggestions scheduler..."
+    
+    # Create plist from template
+    sed -e "s|__DOTFILES_DIR__|$DOTFILES_DIR|g" \
+        -e "s|__HOME_DIR__|$HOME|g" \
+        "$TEMPLATE_PLIST" > "$INSTALL_PLIST"
+    
+    # Update hour and minute
+    /usr/bin/plutil -replace StartCalendarInterval.Hour -integer "$hour" "$INSTALL_PLIST"
+    /usr/bin/plutil -replace StartCalendarInterval.Minute -integer "$minute" "$INSTALL_PLIST"
+    
+    # Load the plist
+    launchctl load "$INSTALL_PLIST"
+    
+    echo -e "${GREEN}✓ Check-in suggestions scheduler installed${NC}"
+    echo ""
+    echo "  Schedule: Daily at $(printf "%02d:%02d" "$hour" "$minute")"
+    if [[ "$hour" -ge 0 && "$hour" -le 5 ]]; then
+        echo "  🌙 Runs in the middle of the night while you sleep"
+    fi
+    echo "  Logs: ~/Documents/gtd/checkin_suggestions.log"
+    echo "  Errors: ~/Documents/gtd/checkin_suggestions_error.log"
+    echo ""
+    echo "  Suggestions stored in: ~/Documents/gtd/checkin_suggestions/"
+    echo "  Files: morning_YYYY-MM-DD.txt and evening_YYYY-MM-DD.txt"
+    echo ""
+    echo "  To uninstall: gtd-checkin-suggestions-schedule uninstall"
+    echo "  To view logs: gtd-checkin-suggestions-schedule logs"
+}
+
+uninstall_schedule() {
+    if [[ ! -f "$INSTALL_PLIST" ]]; then
+        echo "Check-in suggestions scheduler is not installed"
+        exit 0
+    fi
+    
+    echo "Uninstalling check-in suggestions scheduler..."
+    
+    # Unload the plist
+    launchctl unload "$INSTALL_PLIST" 2>/dev/null || true
+    
+    # Remove the plist
+    rm -f "$INSTALL_PLIST"
+    
+    echo -e "${GREEN}✓ Check-in suggestions scheduler uninstalled${NC}"
+}
+
+show_status() {
+    if [[ ! -f "$INSTALL_PLIST" ]]; then
+        echo "Check-in suggestions scheduler: NOT INSTALLED"
+        echo ""
+        echo "To install: gtd-checkin-suggestions-schedule install"
+        exit 0
+    fi
+    
+    echo "Check-in Suggestions Scheduler Status"
+    echo "======================================"
+    echo ""
+    echo "Installed: YES"
+    echo "Plist: $INSTALL_PLIST"
+    echo ""
+    
+    # Check if loaded
+    if launchctl list | grep -q "com.gtd.checkin-suggestions"; then
+        echo "Status: LOADED"
+    else
+        echo "Status: NOT LOADED"
+        echo ""
+        echo "To load: launchctl load $INSTALL_PLIST"
+    fi
+    
+    # Show schedule
+    echo ""
+    echo "Schedule:"
+    hour=$(/usr/bin/plutil -extract StartCalendarInterval.Hour xml1 "$INSTALL_PLIST" -o - | grep -oP '(?<=<integer>)\d+' || echo "3")
+    minute=$(/usr/bin/plutil -extract StartCalendarInterval.Minute xml1 "$INSTALL_PLIST" -o - | grep -oP '(?<=<integer>)\d+' || echo "0")
+    echo "  Daily at $(printf "%02d:%02d" "$hour" "$minute")"
+    
+    echo ""
+    echo "Logs:"
+    echo "  Output: ~/Documents/gtd/checkin_suggestions.log"
+    echo "  Errors: ~/Documents/gtd/checkin_suggestions_error.log"
+    
+    echo ""
+    echo "Suggestions Directory:"
+    echo "  ~/Documents/gtd/checkin_suggestions/"
+    if [[ -d "$HOME/Documents/gtd/checkin_suggestions" ]]; then
+        local count=$(find "$HOME/Documents/gtd/checkin_suggestions" -name "*.txt" 2>/dev/null | wc -l | tr -d ' ')
+        echo "  Files: $count suggestion file(s)"
+    else
+        echo "  (Directory not created yet - will be created on first run)"
+    fi
+}
+
+show_logs() {
+    local log_file="$HOME/Documents/gtd/checkin_suggestions.log"
+    local err_file="$HOME/Documents/gtd/checkin_suggestions_error.log"
+    
+    echo "Check-in Suggestions Scheduled Logs"
+    echo "===================================="
+    echo ""
+    
+    if [[ -f "$log_file" ]]; then
+        echo "Output log (last 50 lines):"
+        echo ""
+        tail -50 "$log_file"
+    else
+        echo "No output log found"
+    fi
+    
+    echo ""
+    echo "===================================="
+    echo ""
+    
+    if [[ -f "$err_file" ]]; then
+        echo "Error log (last 50 lines):"
+        echo ""
+        tail -50 "$err_file"
+    else
+        echo "No error log found"
+    fi
+}
+
+test_run() {
+    echo "Running check-in suggestions generator test (immediate execution)..."
+    echo ""
+    "$DOTFILES_DIR/bin/gtd-generate-checkin-suggestions"
+}
+
+# Main command dispatcher
+main() {
+    if [[ $# -eq 0 ]]; then
+        usage
+    fi
+    
+    local command="$1"
+    shift
+    
+    case "$command" in
+        install)
+            local hour=3
+            local minute=0
+            
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --hour)
+                        hour="$2"
+                        shift 2
+                        ;;
+                    --minute)
+                        minute="$2"
+                        shift 2
+                        ;;
+                    *)
+                        echo "Unknown option: $1"
+                        exit 1
+                        ;;
+                esac
+            done
+            
+            install_schedule "$hour" "$minute"
+            ;;
+        uninstall)
+            uninstall_schedule
+            ;;
+        status)
+            show_status
+            ;;
+        logs)
+            show_logs
+            ;;
+        test)
+            test_run
+            ;;
+        help|--help|-h)
+            usage
+            ;;
+        *)
+            echo "Unknown command: $command"
+            echo "Run 'gtd-checkin-suggestions-schedule help' for usage"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
+

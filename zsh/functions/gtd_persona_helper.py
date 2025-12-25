@@ -1137,7 +1137,17 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
     # Determine priority: 30+ for foreground/interactive, 20 or lower for background
     # Foreground = user-initiated interactive requests (persona helper, wizard, etc.)
     # Background = scheduled tasks, batch processing, async jobs
-    if is_background:
+    # Check for explicit priority override via environment variable
+    if os.getenv("GTD_REQUEST_PRIORITY"):
+        try:
+            request_priority = int(os.getenv("GTD_REQUEST_PRIORITY"))
+        except (ValueError, TypeError):
+            # Invalid priority, use default logic
+            if is_background:
+                request_priority = 20  # NORMAL priority for background tasks
+            else:
+                request_priority = 30  # HIGH priority for foreground/interactive requests
+    elif is_background:
         request_priority = 20  # NORMAL priority for background tasks
     else:
         request_priority = 30  # HIGH priority for foreground/interactive requests
@@ -1579,7 +1589,7 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
                     # Don't include tools in followup - model should respond with final answer
                     # (tools are already removed since we're creating a new payload)
                     
-                    # Send followup request
+                    # Send followup request (with same async handling as initial request)
                     try:
                         followup_data = json.dumps(followup_payload).encode('utf-8')
                         followup_req = urllib.request.Request(
@@ -1591,6 +1601,79 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
                         with urllib.request.urlopen(followup_req, timeout=timeout) as followup_response:
                             followup_data = followup_response.read()
                             followup_result = json.loads(followup_data.decode('utf-8'))
+                            
+                            # Check if this is an async/queued response from Ollama Controller
+                            if followup_result.get('status') == 'queued' and followup_result.get('request_id'):
+                                # This is an async response - poll for completion
+                                followup_request_id = followup_result['request_id']
+                                base_url = config["url"].replace("/v1/chat/completions", "")
+                                # Use OpenAI-compatible status endpoint
+                                followup_status_url = f"{base_url}/v1/chat/completions/{followup_request_id}"
+                                
+                                # Poll for completion (max 60 seconds, check every 0.5 seconds)
+                                import time
+                                max_poll_time = 60
+                                poll_interval = 0.5
+                                start_poll_time = time.time()
+                                
+                                try:
+                                    with open(log_file, "a", encoding="utf-8") as f:
+                                        f.write(f"  -> Followup request queued, polling for completion (request_id: {followup_request_id})\n")
+                                except Exception:
+                                    pass
+                                
+                                while time.time() - start_poll_time < max_poll_time:
+                                    time.sleep(poll_interval)
+                                    try:
+                                        followup_status_req = urllib.request.Request(followup_status_url)
+                                        with urllib.request.urlopen(followup_status_req, timeout=5) as followup_status_response:
+                                            followup_status_data = json.loads(followup_status_response.read().decode('utf-8'))
+                                            
+                                            # Check if request is completed (has choices)
+                                            if 'choices' in followup_status_data and len(followup_status_data.get('choices', [])) > 0:
+                                                # Request completed - use the OpenAI format response directly
+                                                followup_result = followup_status_data
+                                                break
+                                            elif 'error' in followup_status_data:
+                                                error_msg = followup_status_data['error'].get('message', 'Request failed')
+                                                return (f"⚠️  Followup request failed: {error_msg}", 1)
+                                            # If still queued/processing, continue polling
+                                    except urllib.error.HTTPError as e:
+                                        if e.code == 400:
+                                            # Request not completed yet (400 = "request_not_completed")
+                                            # Read the error to check status
+                                            try:
+                                                error_data = json.loads(e.read().decode('utf-8'))
+                                                error_detail = error_data.get('detail', {})
+                                                if isinstance(error_detail, dict):
+                                                    status = error_detail.get('status', 'unknown')
+                                                    if status in ['failed', 'error']:
+                                                        error_msg = error_detail.get('error', {}).get('message', 'Request failed')
+                                                        return (f"⚠️  Followup request failed: {error_msg}", 1)
+                                                    # Otherwise continue polling (queued/processing)
+                                            except Exception:
+                                                pass
+                                            continue
+                                        elif e.code == 404:
+                                            # Request not found yet, continue polling
+                                            continue
+                                        else:
+                                            # Other HTTP error - log but continue
+                                            continue
+                                    except urllib.error.URLError:
+                                        # Continue polling on connection errors
+                                        continue
+                                    except Exception as e:
+                                        # Log but continue polling
+                                        try:
+                                            with open(log_file, "a", encoding="utf-8") as f:
+                                                f.write(f"  -> Followup polling error: {e}\n")
+                                        except Exception:
+                                            pass
+                                        continue
+                                else:
+                                    # Timeout
+                                    return (f"⚠️  Followup request timed out after {max_poll_time} seconds", 1)
                             
                             if 'error' in followup_result:
                                 error_msg = followup_result['error'].get('message', 'Unknown error')

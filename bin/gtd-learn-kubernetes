@@ -238,8 +238,11 @@ ${study_data}
     return 1
   fi
   
-  # Check for errors
-  if echo "$full_output" | grep -qE "Error|⚠️|timed out|Could not connect|KeyError"; then
+  # Check for errors (including Ollama Controller errors)
+  # Be careful not to match "queued" or "failed" in actual lesson content
+  if echo "$full_output" | grep -qE "^Error|^⚠️|timed out|Could not connect|KeyError|Request timed out|Request failed|HTTP error|Not Found|status.*queued|status.*failed"; then
+    # Return error with full output for debugging (only first few lines to avoid spam)
+    echo "ERROR: $(echo "$full_output" | head -5)" >&2
     return 1
   fi
   
@@ -365,7 +368,7 @@ handle_qa_session() {
         echo ""
       fi
     else
-      echo "   ⚠️  Could not get answer. Check LM Studio connection."
+      echo "   ⚠️  Could not get answer. Check AI backend connection (LM Studio or Ollama Controller)."
       echo ""
     fi
     
@@ -743,9 +746,10 @@ main() {
       echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
       echo ""
       
-      local lesson=$(get_k8s_lesson "$topic" "" "$critique_mode")
+      local lesson=$(get_k8s_lesson "$topic" "" "$critique_mode" 2>&1)
+      local lesson_status=$?
       
-      if [[ -n "$lesson" ]]; then
+      if [[ $lesson_status -eq 0 && -n "$lesson" ]]; then
         if [[ "$critique_mode" == "true" ]]; then
           echo -e "${BOLD}${YELLOW}📊 Personalized Critique from Mistress Louiza:${NC}"
           echo ""
@@ -799,7 +803,18 @@ main() {
           topic=""
         fi
       else
-        echo "⚠️  Could not get lesson. Check LM Studio connection."
+        echo "⚠️  Could not get lesson. Check AI backend connection (LM Studio or Ollama Controller)."
+        echo ""
+        # Show actual error if available (first few lines only)
+        if echo "$lesson" | grep -q "ERROR:"; then
+          echo "Error details:"
+          echo "$lesson" | grep "ERROR:" | head -1 | sed 's/^ERROR: /   /'
+          echo ""
+        fi
+        echo "💡 Troubleshooting:"
+        echo "   • Check if AI backend is running"
+        echo "   • Verify OLLAMA_URL or AI_BACKEND configuration"
+        echo "   • Try: gtd-wizard → Infrastructure → External Services → Ollama Controller"
         echo ""
         read -p "Press Enter to continue..."
         topic=""
@@ -815,9 +830,10 @@ main() {
     echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
     echo ""
     
-    local lesson=$(get_k8s_lesson "$topic" "" "false")
+    local lesson=$(get_k8s_lesson "$topic" "" "false" 2>&1)
+    local lesson_status=$?
     
-    if [[ -n "$lesson" ]]; then
+    if [[ $lesson_status -eq 0 && -n "$lesson" ]]; then
       echo "$lesson" | sed 's/^/   /'
       echo ""
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -835,7 +851,18 @@ main() {
           echo ""
         fi
     else
-      echo "⚠️  Could not get lesson. Check LM Studio connection."
+      echo "⚠️  Could not get lesson. Check AI backend connection (LM Studio or Ollama Controller)."
+      echo ""
+      # Show actual error if available (first few lines only)
+      if echo "$lesson" | grep -q "ERROR:"; then
+        echo "Error details:"
+        echo "$lesson" | grep "ERROR:" | head -1 | sed 's/^ERROR: /   /'
+        echo ""
+      fi
+      echo "💡 Troubleshooting:"
+      echo "   • Check if AI backend is running"
+      echo "   • Verify OLLAMA_URL or AI_BACKEND configuration"
+      echo "   • Try: gtd-wizard → Infrastructure → External Services → Ollama Controller"
       exit 1
     fi
   fi

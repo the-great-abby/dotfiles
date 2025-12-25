@@ -1,0 +1,179 @@
+#!/bin/bash
+# GTD Check-In Suggestions Generator
+# Pre-generates AI suggestions for morning and evening check-ins
+# Runs at 3am to have suggestions ready when user starts check-in
+
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# Load daily log config
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+# Paths
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+SUGGESTIONS_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}/checkin_suggestions"
+mkdir -p "$SUGGESTIONS_DIR"
+
+# Find persona helper
+PERSONA_HELPER=""
+POSSIBLE_PATHS=(
+  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+  if [[ -f "$path" ]]; then
+    PERSONA_HELPER="$path"
+    break
+  fi
+done
+
+if [[ -z "$PERSONA_HELPER" || ! -f "$PERSONA_HELPER" ]]; then
+  echo "Error: gtd_persona_helper.py not found" >&2
+  exit 1
+fi
+
+# Get AI suggestions function (same as in gtd-checkin)
+get_ai_suggestions() {
+  local review_type="${1:-morning}"  # morning or evening
+  local days_back="${2:-3}"  # How many days to analyze
+  
+  local PYTHON_CMD=$(gtd_get_mcp_python)
+  if [[ -z "$PYTHON_CMD" ]]; then
+    return 1  # Python not available
+  fi
+  
+  # Collect recent log entries
+  local log_content=""
+  local entry_count=0
+  
+  for i in $(seq 0 $((days_back - 1))); do
+    local check_date=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+      check_date=$($DATE_CMD -v-${i}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      check_date=$($DATE_CMD -d "-${i} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$check_date" ]]; then
+      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
+      if [[ -f "$log_file" ]]; then
+        # Extract log entries (lines with timestamps)
+        local entries=$(grep "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null | head -20)
+        if [[ -n "$entries" ]]; then
+          if [[ -n "$log_content" ]]; then
+            log_content="${log_content}\n\n--- ${check_date} ---\n${entries}"
+          else
+            log_content="--- ${check_date} ---\n${entries}"
+          fi
+          local count=$(echo "$entries" | wc -l | tr -d ' ')
+          entry_count=$((entry_count + count))
+        fi
+      fi
+    fi
+  done
+  
+  # Only get suggestions if we have log entries
+  if [[ -z "$log_content" || $entry_count -eq 0 ]]; then
+    return 1
+  fi
+  
+  # Determine persona based on review type
+  local persona="hank"  # Default to Hank for general advice
+  if [[ "$review_type" == "morning" ]]; then
+    persona="hank"  # Practical morning advice
+  else
+    persona="louiza"  # Accountability for evening
+  fi
+  
+  # Create prompt based on review type
+  local prompt=""
+  if [[ "$review_type" == "morning" ]]; then
+    prompt=$(printf "Based on my recent daily log entries from the last %d days, provide 2-3 brief, actionable suggestions for today. Focus on priorities, patterns you notice, and what I should focus on. Keep it concise and practical.\n\nRecent log entries:\n%s" "$days_back" "$log_content")
+  else
+    prompt=$(printf "Based on my recent daily log entries from the last %d days, provide 2-3 brief suggestions for improvement, patterns you notice, and what I should focus on tomorrow. Be encouraging but honest. Keep it concise.\n\nRecent log entries:\n%s" "$days_back" "$log_content")
+  fi
+  
+  # Get AI suggestion (persona helper expects prompt as second argument)
+  # Use URGENT priority (40) for foreground/interactive requests
+  export GTD_REQUEST_PRIORITY=40
+  # Use timeout if available to prevent hanging (increased to 30s for controller polling)
+  local suggestion=""
+  # Use printf %q to properly quote the prompt for command line
+  local quoted_prompt=$(printf '%q' "$prompt")
+  if command -v gtimeout &>/dev/null; then
+    suggestion=$(eval "gtimeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+  elif command -v timeout &>/dev/null; then
+    suggestion=$(eval "timeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+  else
+    # No timeout available, just try to get suggestion (may take a while)
+    suggestion=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+  fi
+  unset GTD_REQUEST_PRIORITY
+  
+  # Clean up the suggestion (persona helper adds header, we want just the advice)
+  if [[ -n "$suggestion" ]]; then
+    # Extract just the advice content (between the divider lines)
+    # Also remove any line numbers or debug output that might have leaked through
+    suggestion=$(echo "$suggestion" | sed -n '/^━/,/^━/p' | sed '1d;$d' | sed '/^$/d' | grep -v '^[[:space:]]*[0-9]\+[[:space:]]*$' | grep -v '^@make' | grep -v '^([0-9]\+-[0-9]\+)')
+  fi
+  
+  if [[ -n "$suggestion" && ${#suggestion} -gt 20 ]]; then
+    echo "$suggestion"
+    return 0
+  fi
+  
+  return 1
+}
+
+# Generate suggestions for today
+TODAY=$(gtd_get_today)
+DATE_CMD=$(gtd_get_date_cmd)
+
+# Generate morning suggestions
+echo "Generating morning check-in suggestions..."
+morning_suggestions=$(get_ai_suggestions "morning" 3)
+if [[ -n "$morning_suggestions" ]]; then
+  echo "$morning_suggestions" > "${SUGGESTIONS_DIR}/morning_${TODAY}.txt"
+  echo "✓ Morning suggestions saved"
+else
+  # Create empty file to indicate we tried
+  touch "${SUGGESTIONS_DIR}/morning_${TODAY}.txt"
+  echo "⚠ No morning suggestions (insufficient log data)"
+fi
+
+# Generate evening suggestions
+echo "Generating evening check-in suggestions..."
+evening_suggestions=$(get_ai_suggestions "evening" 3)
+if [[ -n "$evening_suggestions" ]]; then
+  echo "$evening_suggestions" > "${SUGGESTIONS_DIR}/evening_${TODAY}.txt"
+  echo "✓ Evening suggestions saved"
+else
+  # Create empty file to indicate we tried
+  touch "${SUGGESTIONS_DIR}/evening_${TODAY}.txt"
+  echo "⚠ No evening suggestions (insufficient log data)"
+fi
+
+# Clean up old suggestion files (keep last 7 days)
+find "$SUGGESTIONS_DIR" -name "morning_*.txt" -mtime +7 -delete 2>/dev/null
+find "$SUGGESTIONS_DIR" -name "evening_*.txt" -mtime +7 -delete 2>/dev/null
+
+echo "Done!"
+

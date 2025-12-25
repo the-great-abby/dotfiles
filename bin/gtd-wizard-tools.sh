@@ -2580,9 +2580,14 @@ EOF
       echo "   git clone git@github.com:the-great-abby/message_queue.git rabbitmq"
       echo "   cd rabbitmq && make setup"
       echo ""
+      echo -e "${GREEN}   Ollama Controller:${NC}"
+      echo "   git clone git@github.com:the-great-abby/llm_proxy.git ollama_controller"
+      echo "   cd ollama_controller && make k8s-deploy"
+      echo ""
       echo -e "${GREEN}2. Get Connection Information:${NC}"
       echo "   Database: cd ~/code/external_services/database && make connection-info"
       echo "   RabbitMQ: cd ~/code/external_services/rabbitmq && make connection-info"
+      echo "   Ollama Controller: cd ~/code/external_services/ollama_controller && make connection-info"
       echo ""
       echo -e "${BOLD}AI Host Setup:${NC}"
       echo ""
@@ -2603,11 +2608,18 @@ EOF
       echo "  4. List models: ollama list"
       echo "  5. Default port: 11434"
       echo ""
+      echo -e "${GREEN}Ollama Controller (Recommended):${NC}"
+      echo "  Provides request throttling and queuing for AI requests."
+      echo "  1. Clone: git clone git@github.com:the-great-abby/llm_proxy.git ~/code/external_services/ollama_controller"
+      echo "  2. Deploy: cd ~/code/external_services/ollama_controller && make k8s-deploy"
+      echo "  3. Configure: Use wizard → Infrastructure → External Services → Ollama Controller"
+      echo ""
       echo -e "${BOLD}Configuration:${NC}"
       echo "  Use this wizard to configure services after installation:"
       echo "  • Option 1: Configure AI Backend"
       echo "  • Option 63 (Main Menu): Database Infrastructure Wizard"
       echo "  • Option 64 (Main Menu): RabbitMQ Management Wizard"
+      echo "  • Infrastructure → External Services → Ollama Controller"
       echo ""
       echo -e "${BOLD}Full Documentation:${NC}"
       echo "  📚 Complete Setup Guide: docs/COMPLETE_SETUP_GUIDE.md"
@@ -4906,11 +4918,12 @@ guided_setup_wizard() {
   echo "  1. Download external service repositories"
   echo "  2. Setup PostgreSQL database"
   echo "  3. Setup RabbitMQ message queue"
-  echo "  4. Configure AI host (LM Studio or Ollama)"
-  echo "  5. Configure GTD system to use these services"
-  echo "  6. Setup MCP server"
+  echo "  4. Setup Ollama Controller (AI request throttling)"
+  echo "  5. Configure AI host (LM Studio or Ollama)"
+  echo "  6. Configure GTD system to use these services"
+  echo "  7. Setup MCP server"
   echo ""
-  echo -e "${YELLOW}⚠️  This will take 10-15 minutes.${NC}"
+  echo -e "${YELLOW}⚠️  This will take 15-20 minutes.${NC}"
   echo ""
   echo -n "Continue with guided setup? (y/N): "
   read confirm
@@ -4922,7 +4935,7 @@ guided_setup_wizard() {
   fi
   
   local step=1
-  local total_steps=6
+  local total_steps=7
   
   # Step 1: Download External Service Repositories
   clear
@@ -4931,9 +4944,10 @@ guided_setup_wizard() {
   echo -e "${BOLD}${CYAN}Step $step/$total_steps: Download External Service Repositories${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
-  echo "We'll download two repositories:"
+  echo "We'll download three repositories:"
   echo "  • Database: git@github.com:the-great-abby/postgres_databases.git"
   echo "  • RabbitMQ: git@github.com:the-great-abby/message_queue.git"
+  echo "  • Ollama Controller: git@github.com:the-great-abby/llm_proxy.git"
   echo ""
   echo -n "Ready to download? (y/N): "
   read confirm
@@ -4970,12 +4984,28 @@ guided_setup_wizard() {
     else
       echo -e "${GREEN}✓ RabbitMQ repository already exists${NC}"
     fi
+    
+    # Download ollama controller repo
+    if [[ ! -d "ollama_controller" ]]; then
+      echo ""
+      echo "Downloading Ollama Controller repository..."
+      if git clone git@github.com:the-great-abby/llm_proxy.git ollama_controller 2>&1; then
+        echo -e "${GREEN}✓ Ollama Controller repository downloaded${NC}"
+      else
+        echo -e "${RED}❌ Failed to download Ollama Controller repository${NC}"
+        echo "You can manually clone it later:"
+        echo "  git clone git@github.com:the-great-abby/llm_proxy.git ~/code/external_services/ollama_controller"
+      fi
+    else
+      echo -e "${GREEN}✓ Ollama Controller repository already exists${NC}"
+    fi
   else
     echo "Skipping repository download. You can do this manually:"
     echo "  mkdir -p ~/code/external_services"
     echo "  cd ~/code/external_services"
     echo "  git clone git@github.com:the-great-abby/postgres_databases.git database"
     echo "  git clone git@github.com:the-great-abby/message_queue.git rabbitmq"
+    echo "  git clone git@github.com:the-great-abby/llm_proxy.git ollama_controller"
   fi
   echo ""
   gtd_enter_to_continue
@@ -5077,7 +5107,59 @@ guided_setup_wizard() {
   gtd_enter_to_continue
   ((step++))
   
-  # Step 4: Configure AI Host
+  # Step 4: Setup Ollama Controller
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}Step $step/$total_steps: Setup Ollama Controller${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "The Ollama Controller provides request throttling and queuing for AI requests."
+  echo "This helps manage load and ensures reliable AI responses."
+  echo ""
+  echo -e "${YELLOW}Prerequisites:${NC}"
+  echo "  • Kubernetes cluster running and accessible via kubectl"
+  echo "  • kubectl configured correctly"
+  echo "  • PostgreSQL database already set up (from step 2)"
+  echo ""
+  echo -n "Ready to setup Ollama Controller? (y/N): "
+  read confirm
+  if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+    if [[ -d ~/code/external_services/ollama_controller ]]; then
+      cd ~/code/external_services/ollama_controller
+      echo ""
+      echo "Deploying Ollama Controller..."
+      if make k8s-deploy 2>&1; then
+        echo ""
+        echo -e "${GREEN}✓ Ollama Controller deployment initiated${NC}"
+        echo ""
+        echo "Waiting for Ollama Controller to be ready (this may take 30-60 seconds)..."
+        if kubectl wait --for=condition=ready pod -l app=ollama-controller-api -n ollama-controller --timeout=120s 2>/dev/null; then
+          echo -e "${GREEN}✓ Ollama Controller is ready!${NC}"
+          echo ""
+          echo "Connection information:"
+          make connection-info 2>/dev/null || echo "  Run 'make connection-info' for details"
+        else
+          echo -e "${YELLOW}⚠️  Ollama Controller is still starting up${NC}"
+          echo "You can check status with: cd ~/code/external_services/ollama_controller && kubectl get pods -n ollama-controller"
+        fi
+      else
+        echo -e "${RED}❌ Failed to deploy Ollama Controller${NC}"
+        echo "You can try manually: cd ~/code/external_services/ollama_controller && make k8s-deploy"
+      fi
+    else
+      echo -e "${RED}❌ Ollama Controller repository not found${NC}"
+      echo "Please complete step 1 first, or manually clone the repository."
+    fi
+  else
+    echo "Skipping Ollama Controller setup. You can do this manually:"
+    echo "  cd ~/code/external_services/ollama_controller && make k8s-deploy"
+  fi
+  echo ""
+  gtd_enter_to_continue
+  ((step++))
+  
+  # Step 5: Configure AI Host
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -5170,7 +5252,7 @@ guided_setup_wizard() {
   gtd_enter_to_continue
   ((step++))
   
-  # Step 5: Configure GTD System
+  # Step 6: Configure GTD System
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -5205,7 +5287,7 @@ guided_setup_wizard() {
   gtd_enter_to_continue
   ((step++))
   
-  # Step 6: Setup MCP Server
+  # Step 7: Setup MCP Server
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
