@@ -1,0 +1,52 @@
+#!/bin/bash
+# Quick script to redeploy Ollama Controller API with updated code
+
+set -e
+
+echo "🚀 Redeploying Ollama Controller API"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+OLLAMA_CONTROLLER_DIR="$HOME/code/external_services/ollama_controller"
+
+if [[ ! -d "$OLLAMA_CONTROLLER_DIR" ]]; then
+    echo "❌ Ollama Controller directory not found: $OLLAMA_CONTROLLER_DIR"
+    exit 1
+fi
+
+cd "$OLLAMA_CONTROLLER_DIR"
+
+echo "📦 Building new images with updated code..."
+if ! make k8s-build; then
+    echo "❌ Build failed"
+    exit 1
+fi
+
+echo ""
+echo "🔄 Restarting API deployment..."
+kubectl rollout restart deployment ollama-controller-api -n ollama-controller
+
+echo ""
+echo "⏳ Waiting for deployment to be ready..."
+kubectl rollout status deployment ollama-controller-api -n ollama-controller --timeout=120s
+
+echo ""
+echo "✅ Redeployment complete!"
+echo ""
+echo "🧪 Testing new endpoint..."
+sleep 2
+
+# Test the endpoint
+if curl -s --max-time 5 "http://127.0.0.1:31080/v1/models" >/dev/null 2>&1; then
+    echo "✅ /v1/models endpoint is working!"
+else
+    echo "⚠️  /v1/models endpoint not responding yet (may need a moment to start)"
+fi
+
+echo ""
+echo "To test chat completions:"
+echo "  curl -X POST http://127.0.0.1:31080/v1/chat/completions \\"
+echo "    -H 'Content-Type: application/json' \\"
+echo "    -d '{\"model\":\"gemma2:1b\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}'"
+echo ""
+

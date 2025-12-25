@@ -952,20 +952,38 @@ def check_ai_server(config):
     base_url = config["url"].replace("/v1/chat/completions", "")
     
     try:
+        # Try /v1/models first (OpenAI-compatible, direct Ollama)
         models_url = f"{base_url}/v1/models"
-        req = urllib.request.Request(models_url)
-        with urllib.request.urlopen(req, timeout=5) as response:
-            models_data = json.loads(response.read().decode('utf-8'))
-            if 'data' in models_data and len(models_data['data']) > 0:
-                return True, "Server is running"
+        try:
+            req = urllib.request.Request(models_url)
+            with urllib.request.urlopen(req, timeout=5) as response:
+                models_data = json.loads(response.read().decode('utf-8'))
+                if 'data' in models_data and len(models_data['data']) > 0:
+                    return True, "Server is running"
+                elif isinstance(models_data, list) and len(models_data) > 0:
+                    # Ollama Controller returns list directly
+                    return True, "Server is running"
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                # Try /api/v1/models (Ollama Controller format)
+                models_url = f"{base_url}/api/v1/models"
+                req = urllib.request.Request(models_url)
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    models_data = json.loads(response.read().decode('utf-8'))
+                    if 'models' in models_data and len(models_data['models']) > 0:
+                        return True, "Server is running"
+                    elif isinstance(models_data, list) and len(models_data) > 0:
+                        return True, "Server is running"
+                    else:
+                        return False, "Server is running but no models are available"
             else:
-                return False, "Server is running but no models are available"
+                raise
     except urllib.error.URLError as e:
         return False, f"Could not connect to {backend_name} server at {base_url}"
     except Exception as e:
         return False, f"Error checking server: {e}"
 
-def call_persona(config, persona_key, content, context="", skip_gtd_context=False, web_search_requested=False, enable_gtd_tools=False, use_instruct=False):
+def call_persona(config, persona_key, content, context="", skip_gtd_context=False, web_search_requested=False, enable_gtd_tools=False, use_instruct=False, is_background=False):
     """Call AI backend (LM Studio or Ollama) with a specific persona.
     
     Args:
@@ -977,6 +995,7 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
         web_search_requested: Whether web search is requested
         enable_gtd_tools: Whether to enable GTD tool calls (list_tasks, create_task, etc.)
         use_instruct: If True, use instruct model (better for structured output, JSON formatting, precise instructions)
+        is_background: If True, use lower priority (20) for background tasks, otherwise use HIGH (30) for foreground
     """
     # urllib is already imported at module level
     
@@ -1115,6 +1134,14 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
         if "max_tokens" in persona:
             max_tokens = persona["max_tokens"]
     
+    # Determine priority: 30+ for foreground/interactive, 20 or lower for background
+    # Foreground = user-initiated interactive requests (persona helper, wizard, etc.)
+    # Background = scheduled tasks, batch processing, async jobs
+    if is_background:
+        request_priority = 20  # NORMAL priority for background tasks
+    else:
+        request_priority = 30  # HIGH priority for foreground/interactive requests
+    
     payload = {
         "model": model_name,
         "messages": [
@@ -1122,7 +1149,8 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
             {"role": "user", "content": user_prompt}
         ],
         "temperature": persona["temperature"],
-        "max_tokens": max_tokens
+        "max_tokens": max_tokens,
+        "priority": request_priority  # HIGH priority for foreground/interactive requests
     }
     
     # If model supports tool calling and web search is requested, add tool definitions
@@ -1305,6 +1333,87 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
             response_data = response.read()
             result = json.loads(response_data.decode('utf-8'))
             
+            # Check if this is an async/queued response from Ollama Controller
+            if result.get('status') == 'queued' and result.get('request_id'):
+                # This is an async response - poll for completion
+                request_id = result['request_id']
+                base_url = config["url"].replace("/v1/chat/completions", "")
+                # Use OpenAI-compatible status endpoint
+                status_url = f"{base_url}/v1/chat/completions/{request_id}"
+                
+                # Poll for completion (max 60 seconds, check every 0.5 seconds)
+                import time
+                max_poll_time = 60
+                poll_interval = 0.5
+                start_poll_time = time.time()
+                
+                try:
+                    log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"  -> Async request queued, polling for completion (request_id: {request_id})\n")
+                except Exception:
+                    pass
+                
+                while time.time() - start_poll_time < max_poll_time:
+                    time.sleep(poll_interval)
+                    try:
+                        status_req = urllib.request.Request(status_url)
+                        with urllib.request.urlopen(status_req, timeout=5) as status_response:
+                            status_data = json.loads(status_response.read().decode('utf-8'))
+                            
+                            # Check if request is completed (has choices)
+                            if 'choices' in status_data and len(status_data.get('choices', [])) > 0:
+                                # Request completed - use the OpenAI format response directly
+                                result = status_data
+                                break
+                            elif 'error' in status_data:
+                                error_msg = status_data['error'].get('message', 'Request failed')
+                                return (f"⚠️  Request failed: {error_msg}", 1)
+                            # If still queued/processing, continue polling
+                    except urllib.error.HTTPError as e:
+                        if e.code == 400:
+                            # Request not completed yet (400 = "request_not_completed")
+                            # Read the error to check status
+                            try:
+                                error_data = json.loads(e.read().decode('utf-8'))
+                                error_detail = error_data.get('detail', {})
+                                if isinstance(error_detail, dict):
+                                    status = error_detail.get('status', 'unknown')
+                                    if status in ['failed', 'error']:
+                                        error_msg = error_detail.get('error', {}).get('message', 'Request failed')
+                                        return (f"⚠️  Request failed: {error_msg}", 1)
+                                    # Otherwise continue polling (queued/processing)
+                            except Exception:
+                                pass
+                            continue
+                        elif e.code == 404:
+                            # Request not found yet, continue polling
+                            continue
+                        else:
+                            # Other HTTP error - log but continue
+                            try:
+                                log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                                with open(log_file, "a", encoding="utf-8") as f:
+                                    f.write(f"  -> HTTP {e.code} while polling, continuing...\n")
+                            except Exception:
+                                pass
+                            continue
+                    except urllib.error.URLError:
+                        # Continue polling on connection errors
+                        continue
+                    except Exception as e:
+                        # Log but continue polling
+                        try:
+                            log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"  -> Polling error: {e}\n")
+                        except Exception:
+                            pass
+                        continue
+                else:
+                    # Timeout
+                    return (f"⚠️  Request timed out after {max_poll_time} seconds", 1)
+            
             # Log full response for debugging with timing info
             log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
             try:
@@ -1463,7 +1572,8 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
                         "model": model_name,
                         "messages": followup_messages,
                         "temperature": persona["temperature"],
-                        "max_tokens": max_tokens
+                        "max_tokens": max_tokens,
+                        "priority": request_priority  # Same priority as original request
                     }
                     
                     # Don't include tools in followup - model should respond with final answer

@@ -32,17 +32,32 @@ if [[ -n "$NODEPORT_SVC" ]]; then
     echo ""
     
     # Check if pods are running
-    SELECTOR=$(kubectl get svc -n "$NAMESPACE" "$SERVICE" -o jsonpath='{.spec.selector}' 2>/dev/null)
-    if [[ -n "$SELECTOR" ]]; then
-        echo "   Checking pods with selector: $SELECTOR"
-        PODS=$(kubectl get pods -n "$NAMESPACE" -l "$SELECTOR" 2>/dev/null | tail -n +2)
-        if [[ -n "$PODS" ]]; then
-            echo "   ✅ Pods found:"
-            echo "$PODS" | while read line; do
-                echo "      $line"
-            done
+    SELECTOR_JSON=$(kubectl get svc -n "$NAMESPACE" "$SERVICE" -o jsonpath='{.spec.selector}' 2>/dev/null)
+    if [[ -n "$SELECTOR_JSON" ]]; then
+        echo "   Checking pods with selector: $SELECTOR_JSON"
+        # Convert JSON selector to key=value format for kubectl
+        SELECTOR=$(echo "$SELECTOR_JSON" | jq -r 'to_entries | map("\(.key)=\(.value)") | join(",")' 2>/dev/null)
+        if [[ -n "$SELECTOR" ]]; then
+            PODS=$(kubectl get pods -n "$NAMESPACE" -l "$SELECTOR" 2>/dev/null | tail -n +2)
+            if [[ -n "$PODS" ]]; then
+                echo "   ✅ Pods found:"
+                echo "$PODS" | while read line; do
+                    echo "      $line"
+                done
+            else
+                echo "   ⚠️  No pods found matching selector"
+            fi
         else
-            echo "   ⚠️  No pods found matching selector"
+            # Fallback: try using JSON directly (some kubectl versions support this)
+            PODS=$(kubectl get pods -n "$NAMESPACE" --selector="$SELECTOR_JSON" 2>/dev/null | tail -n +2)
+            if [[ -n "$PODS" ]]; then
+                echo "   ✅ Pods found:"
+                echo "$PODS" | while read line; do
+                    echo "      $line"
+                done
+            else
+                echo "   ⚠️  No pods found matching selector"
+            fi
         fi
     fi
 else
@@ -85,26 +100,147 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+# Detect node IP for connectivity testing
+NODE_IP="192.168.64.2"
+if command -v minikube &>/dev/null && minikube status &>/dev/null 2>&1; then
+    NODE_IP=$(minikube ip 2>/dev/null || echo "192.168.64.2")
+elif kubectl get nodes &>/dev/null 2>&1; then
+    DETECTED_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+    if [[ "$DETECTED_IP" == "127.0.0.1" ]] || [[ "$DETECTED_IP" == *"192.168"* ]]; then
+        NODE_IP="127.0.0.1"
+    elif [[ -n "$DETECTED_IP" ]]; then
+        NODE_IP="$DETECTED_IP"
+    fi
+fi
+
 # Test connectivity
 echo "🔌 Testing Connectivity:"
 echo ""
 
 # Test PostgreSQL NodePort
-if nc -zv 192.168.64.2 30003 &>/dev/null 2>&1; then
-    echo "✅ PostgreSQL NodePort (192.168.64.2:30003) is reachable"
+if nc -zv "$NODE_IP" 30003 &>/dev/null 2>&1; then
+    echo "✅ PostgreSQL NodePort ($NODE_IP:30003) is reachable"
 else
-    echo "❌ PostgreSQL NodePort (192.168.64.2:30003) is NOT reachable"
+    echo "❌ PostgreSQL NodePort ($NODE_IP:30003) is NOT reachable"
     echo "   This could mean:"
     echo "   - Service is not configured as NodePort"
     echo "   - Service is not running"
     echo "   - Network connectivity issue"
+    echo "   - Wrong IP address (detected: $NODE_IP)"
 fi
 
 # Test RabbitMQ NodePort
-if nc -zv 192.168.64.2 30672 &>/dev/null 2>&1; then
-    echo "✅ RabbitMQ NodePort (192.168.64.2:30672) is reachable"
+if nc -zv "$NODE_IP" 30672 &>/dev/null 2>&1; then
+    echo "✅ RabbitMQ NodePort ($NODE_IP:30672) is reachable"
 else
-    echo "❌ RabbitMQ NodePort (192.168.64.2:30672) is NOT reachable"
+    echo "❌ RabbitMQ NodePort ($NODE_IP:30672) is NOT reachable"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check Ollama Controller API NodePort (31080)
+echo "📊 Ollama Controller API NodePort (31080):"
+echo ""
+
+OLLAMA_NODEPORT=$(kubectl get svc -A -o json | jq -r '.items[] | select(.spec.type=="NodePort") | select(.spec.ports[]?.nodePort==31080) | "\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null)
+
+if [[ -n "$OLLAMA_NODEPORT" ]]; then
+    echo "✅ Found NodePort service on port 31080:"
+    echo "   $OLLAMA_NODEPORT"
+    echo ""
+    
+    NAMESPACE=$(echo "$OLLAMA_NODEPORT" | cut -d'/' -f1)
+    SERVICE=$(echo "$OLLAMA_NODEPORT" | cut -d'/' -f2)
+    
+    echo "   Service details:"
+    kubectl get svc -n "$NAMESPACE" "$SERVICE" -o wide
+    echo ""
+    
+    # Check if pods are running
+    SELECTOR_JSON=$(kubectl get svc -n "$NAMESPACE" "$SERVICE" -o jsonpath='{.spec.selector}' 2>/dev/null)
+    if [[ -n "$SELECTOR_JSON" ]]; then
+        echo "   Checking pods with selector: $SELECTOR_JSON"
+        # Convert JSON selector to key=value format for kubectl
+        SELECTOR=$(echo "$SELECTOR_JSON" | jq -r 'to_entries | map("\(.key)=\(.value)") | join(",")' 2>/dev/null)
+        if [[ -n "$SELECTOR" ]]; then
+            PODS=$(kubectl get pods -n "$NAMESPACE" -l "$SELECTOR" 2>/dev/null | tail -n +2)
+            if [[ -n "$PODS" ]]; then
+                echo "   ✅ Pods found:"
+                echo "$PODS" | while read line; do
+                    echo "      $line"
+                done
+            else
+                echo "   ⚠️  No pods found matching selector"
+            fi
+        else
+            # Fallback: try using JSON directly (some kubectl versions support this)
+            PODS=$(kubectl get pods -n "$NAMESPACE" --selector="$SELECTOR_JSON" 2>/dev/null | tail -n +2)
+            if [[ -n "$PODS" ]]; then
+                echo "   ✅ Pods found:"
+                echo "$PODS" | while read line; do
+                    echo "      $line"
+                done
+            else
+                echo "   ⚠️  No pods found matching selector"
+            fi
+        fi
+    fi
+else
+    echo "❌ No NodePort service found on port 31080"
+    echo ""
+    echo "   Checking for Ollama Controller API services:"
+    kubectl get svc -A | grep -i "ollama-controller-api" || echo "   (No Ollama Controller API services found)"
+    echo ""
+    echo "   💡 To set up NodePort:"
+    echo "      cd ~/code/external_services/ollama_controller/kubernetes"
+    echo "      kubectl apply -f ollama-controller-api-nodeport.yaml"
+    echo "      Or patch existing service:"
+    echo "      kubectl patch svc ollama-controller-api-service -n ollama-controller -p '{\"spec\":{\"type\":\"NodePort\",\"ports\":[{\"port\":8080,\"targetPort\":8080,\"nodePort\":31080}]}}'"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Test connectivity
+echo "🔌 Testing Ollama Connectivity:"
+echo ""
+
+# Detect node IP
+NODE_IP="192.168.64.2"
+if command -v minikube &>/dev/null && minikube status &>/dev/null 2>&1; then
+    NODE_IP=$(minikube ip 2>/dev/null || echo "192.168.64.2")
+elif kubectl get nodes &>/dev/null 2>&1; then
+    DETECTED_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+    if [[ "$DETECTED_IP" == "127.0.0.1" ]] || [[ "$DETECTED_IP" == *"192.168"* ]]; then
+        NODE_IP="127.0.0.1"
+    elif [[ -n "$DETECTED_IP" ]]; then
+        NODE_IP="$DETECTED_IP"
+    fi
+fi
+
+# Test Ollama Controller API NodePort
+if nc -zv "$NODE_IP" 31080 &>/dev/null 2>&1; then
+    echo "✅ Ollama Controller API NodePort ($NODE_IP:31080) is reachable"
+    echo ""
+    echo "   Test API endpoint:"
+    if curl -s --max-time 5 "http://$NODE_IP:31080/v1/models" &>/dev/null; then
+        echo "   ✅ Ollama Controller API is responding"
+        echo "   URL: http://$NODE_IP:31080/v1/chat/completions"
+        echo "   Note: Controller supports OpenAI-compatible endpoints"
+    else
+        echo "   ⚠️  Ollama Controller API endpoint not responding (service may be starting)"
+        echo "   Note: Controller should support /v1/chat/completions endpoint"
+    fi
+else
+    echo "❌ Ollama Controller API NodePort ($NODE_IP:31080) is NOT reachable"
+    echo "   This could mean:"
+    echo "   - Service is not configured as NodePort"
+    echo "   - Service is not running"
+    echo "   - Network connectivity issue"
+    echo "   - Controller API may need to be redeployed"
 fi
 
 echo ""

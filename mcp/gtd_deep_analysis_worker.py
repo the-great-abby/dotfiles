@@ -212,6 +212,7 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
         ],
         "temperature": 0.7,
         "max_tokens": max_tokens,
+        "priority": 20,  # NORMAL priority for background tasks (deep analysis worker)
     }
     
     data = json.dumps(payload).encode('utf-8')

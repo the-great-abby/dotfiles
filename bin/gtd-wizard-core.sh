@@ -2866,6 +2866,166 @@ external_rabbitmq_wizard() {
   gtd_quick_pause
 }
 
+# Launch Ollama Controller configuration wizard
+external_ollama_controller_wizard() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🤖 Ollama Controller Configuration${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  echo "This wizard will help you configure Ollama to use Kubernetes NodePort."
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) 🔧 Configure Ollama Kubernetes Connection"
+  echo "  2) 📋 Show Connection Information"
+  echo "  3) 🔌 Verify NodePort Service"
+  echo "  4) 🧪 Test Ollama Connection"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back to Main Menu"
+  echo ""
+  echo -n "Choose: "
+  read ollama_choice
+  
+  case "$ollama_choice" in
+    1)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔧 Configure Ollama Kubernetes Connection${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      if [[ -f "$HOME/code/dotfiles/bin/configure-ollama-kubernetes" ]]; then
+        "$HOME/code/dotfiles/bin/configure-ollama-kubernetes"
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/configure-ollama-kubernetes" ]]; then
+        "$HOME/code/personal/dotfiles/bin/configure-ollama-kubernetes"
+      else
+        gtd_feedback error "configure-ollama-kubernetes script not found"
+        echo "Please ensure the script exists in your dotfiles bin directory."
+      fi
+      
+      gtd_enter_to_continue
+      ;;
+    2)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}📋 Ollama Connection Information${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      local ollama_dir="$HOME/code/external_services/ollama_controller"
+      if [[ ! -d "$ollama_dir" ]]; then
+        ollama_dir="$HOME/code/ollama_controller"
+      fi
+      
+      if [[ -d "$ollama_dir" ]] && [[ -f "$ollama_dir/Makefile" ]]; then
+        cd "$ollama_dir" || return 1
+        make connection-info
+      else
+        echo "Ollama controller directory not found."
+        echo "Expected: ~/code/external_services/ollama_controller"
+        echo ""
+        echo "Connection information:"
+        echo "  NodePort: 31134"
+        echo "  URL: http://<NODE_IP>:31134/v1/chat/completions"
+        echo ""
+        echo "To get the correct Node IP, run: make verify-nodeport"
+      fi
+      
+      gtd_enter_to_continue
+      ;;
+    3)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🔌 Verify Ollama NodePort Service${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      cd "$HOME/code/dotfiles" && make verify-nodeport 2>/dev/null || {
+        echo "Running verify-nodeport..."
+        if [[ -f "$HOME/code/dotfiles/bin/verify-nodeport" ]]; then
+          "$HOME/code/dotfiles/bin/verify-nodeport"
+        else
+          echo "verify-nodeport script not found"
+        fi
+      }
+      
+      gtd_enter_to_continue
+      ;;
+    4)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🧪 Test Ollama Connection${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Detect node IP
+      NODE_IP="192.168.64.2"
+      if command -v minikube &>/dev/null && minikube status &>/dev/null 2>&1; then
+        NODE_IP=$(minikube ip 2>/dev/null || echo "192.168.64.2")
+      elif kubectl get nodes &>/dev/null 2>&1; then
+        DETECTED_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+        if [[ "$DETECTED_IP" == "127.0.0.1" ]] || [[ "$DETECTED_IP" == *"192.168"* ]]; then
+          NODE_IP="127.0.0.1"
+        elif [[ -n "$DETECTED_IP" ]]; then
+          NODE_IP="$DETECTED_IP"
+        fi
+      fi
+      
+      # Check if using Controller API (port 31080) or direct Ollama (port 31134)
+      OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434/v1/chat/completions}"
+      if [[ "$OLLAMA_URL" == *":31080"* ]]; then
+        TEST_PORT="31080"
+        TEST_SERVICE="Ollama Controller API"
+      else
+        TEST_PORT="31134"
+        TEST_SERVICE="Ollama"
+      fi
+      
+      echo "Testing $TEST_SERVICE at: http://$NODE_IP:$TEST_PORT"
+      echo ""
+      
+      # Test models endpoint
+      if curl -s --max-time 5 "http://$NODE_IP:$TEST_PORT/v1/models" >/dev/null 2>&1; then
+        echo "✅ $TEST_SERVICE API is responding"
+        echo ""
+        echo "Available models:"
+        curl -s --max-time 5 "http://$NODE_IP:$TEST_PORT/v1/models" | python3 -c "import sys, json; data=json.load(sys.stdin); models=[m.get('id', 'unknown') for m in data.get('data', [])]; print('\n'.join(['  - ' + m for m in models[:5]]))" 2>/dev/null || echo "  (Could not parse models list)"
+        if [[ "$TEST_PORT" == "31080" ]]; then
+          echo ""
+          echo "Note: Using Ollama Controller (provides throttling, queuing, monitoring)"
+        fi
+      else
+        echo "❌ $TEST_SERVICE API is not responding"
+        echo ""
+        echo "Possible issues:"
+        if [[ "$TEST_PORT" == "31080" ]]; then
+          echo "  - Controller API NodePort service not configured"
+          echo "  - Controller API service not running"
+          echo "  - Controller may need to be redeployed"
+        else
+          echo "  - NodePort service not configured"
+          echo "  - Ollama service not running"
+        fi
+        echo "  - Network connectivity issue"
+        echo ""
+        echo "Run 'make verify-nodeport' to check NodePort configuration"
+      fi
+      
+      gtd_enter_to_continue
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      gtd_quick_pause
+      ;;
+  esac
+}
+
 # Get favorited tasks (returns array of task files)
 # Optimized to prevent hanging on systems with many files
 get_favorited_tasks() {
@@ -3206,7 +3366,8 @@ PYTHON_EOF
   # INFRASTRUCTURE section
   print_menu_section "${BOLD}${CYAN}🔧 INFRASTRUCTURE - External Services:${NC}" \
     "${GREEN}63)${NC} 🗄️  Database Infrastructure Wizard" \
-    "${GREEN}64)${NC} 🐰 RabbitMQ Management Wizard"
+    "${GREEN}64)${NC} 🐰 RabbitMQ Management Wizard" \
+    "${GREEN}65)${NC} 🤖 Ollama Controller Configuration"
   
   # Exit option (always single line)
   echo -e "${YELLOW}0)${NC} Exit"
@@ -3583,6 +3744,9 @@ main() {
       64)
         award_wizard_xp "wizard_action" "Used wizard: RabbitMQ Management"
         external_rabbitmq_wizard
+        ;;
+      65)
+        external_ollama_controller_wizard
         ;;
       # Handle favorited tasks (900-902) and projects (903-904)
       900|901|902)

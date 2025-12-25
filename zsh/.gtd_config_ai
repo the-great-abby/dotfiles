@@ -27,7 +27,7 @@ LM_STUDIO_INSTRUCT_MODEL="${LM_STUDIO_INSTRUCT_MODEL:-qwen2.5-7b-instruct-mlx}"
 
 # Ollama Configuration (used when AI_BACKEND="ollama")
 # Ollama default port is 11434, uses OpenAI-compatible API
-OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434/v1/chat/completions}"
+OLLAMA_URL="http://127.0.0.1:31080/v1/chat/completions"
 OLLAMA_CHAT_MODEL="${OLLAMA_CHAT_MODEL:-gemma3:1b}"
 OLLAMA_EMBEDDING_MODEL="${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text-v2-moe}"
 

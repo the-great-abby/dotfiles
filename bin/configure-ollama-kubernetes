@@ -1,0 +1,165 @@
+#!/bin/bash
+# Configure GTD system to use Ollama via Kubernetes NodePort
+# Similar to how PostgreSQL and RabbitMQ are configured
+
+set -e
+
+echo "🔧 Configuring Ollama Kubernetes Connection"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if kubectl is available
+if ! command -v kubectl &>/dev/null; then
+    echo "❌ kubectl not found. Cannot configure Kubernetes connection."
+    exit 1
+fi
+
+# Detect Kubernetes node IP
+NODE_IP="192.168.64.2"
+if command -v minikube &>/dev/null && minikube status &>/dev/null 2>&1; then
+    NODE_IP=$(minikube ip 2>/dev/null || echo "192.168.64.2")
+    echo "✅ Detected: Minikube"
+    echo "   Node IP: $NODE_IP"
+elif kubectl get nodes &>/dev/null 2>&1; then
+    DETECTED_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+    if [[ "$DETECTED_IP" == "127.0.0.1" ]] || [[ "$DETECTED_IP" == *"192.168"* ]]; then
+        NODE_IP="127.0.0.1"
+        echo "✅ Detected: Docker Desktop / Rancher Desktop"
+        echo "   NodePort accessible via: 127.0.0.1"
+    elif [[ -n "$DETECTED_IP" ]]; then
+        NODE_IP="$DETECTED_IP"
+        echo "✅ Detected: Kubernetes cluster"
+        echo "   Node IP: $NODE_IP"
+    fi
+fi
+
+# Check if NodePort service exists (Controller API)
+OLLAMA_NODEPORT="31080"
+NODEPORT_SVC=$(kubectl get svc -A -o json 2>/dev/null | jq -r '.items[] | select(.spec.type=="NodePort") | select(.spec.ports[]?.nodePort==31080) | "\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null)
+
+if [[ -z "$NODEPORT_SVC" ]]; then
+    echo ""
+    echo "⚠️  Ollama Controller API NodePort service not found on port 31080"
+    echo ""
+    echo "Would you like to create the NodePort service? (y/N)"
+    read -r create_service
+    if [[ "$create_service" == "y" || "$create_service" == "Y" ]]; then
+        if [[ -f ~/code/external_services/ollama_controller/kubernetes/ollama-controller-api-nodeport.yaml ]]; then
+            echo "Creating NodePort service..."
+            kubectl apply -f ~/code/external_services/ollama_controller/kubernetes/ollama-controller-api-nodeport.yaml
+            echo "✅ NodePort service created"
+        else
+            echo "❌ Service YAML not found at: ~/code/external_services/ollama_controller/kubernetes/ollama-controller-api-nodeport.yaml"
+            echo ""
+            echo "You can create it manually:"
+            echo "  kubectl patch svc ollama-controller-api-service -n ollama-controller -p '{\"spec\":{\"type\":\"NodePort\",\"ports\":[{\"port\":8080,\"targetPort\":8080,\"nodePort\":31080}]}}'"
+            exit 1
+        fi
+    else
+        echo "Skipping NodePort setup. You can configure it later."
+        exit 0
+    fi
+else
+    echo "✅ Found Ollama Controller API NodePort service: $NODEPORT_SVC"
+fi
+
+# Test connectivity
+echo ""
+echo "🔌 Testing Ollama NodePort connectivity..."
+if nc -zv "$NODE_IP" "$OLLAMA_NODEPORT" &>/dev/null 2>&1; then
+    echo "✅ Ollama NodePort ($NODE_IP:$OLLAMA_NODEPORT) is reachable"
+    
+    # Test API endpoint (Controller API supports OpenAI-compatible endpoints)
+    if curl -s --max-time 5 "http://$NODE_IP:$OLLAMA_NODEPORT/v1/models" &>/dev/null; then
+        echo "✅ Ollama Controller API is responding"
+    else
+        echo "⚠️  Ollama Controller API endpoint not responding (service may be starting)"
+        echo "   Note: Controller API should support /v1/chat/completions endpoint"
+    fi
+else
+    echo "❌ Ollama NodePort ($NODE_IP:$OLLAMA_NODEPORT) is NOT reachable"
+    echo "   Please check the service status"
+    exit 1
+fi
+
+# Update configuration files
+echo ""
+echo "📝 Updating GTD configuration files..."
+echo ""
+
+GTD_CONFIG_DIR="$HOME/code/dotfiles/zsh"
+if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+    GTD_CONFIG_DIR="$HOME/code/personal/dotfiles/zsh"
+fi
+
+if [[ ! -d "$GTD_CONFIG_DIR" ]]; then
+    echo "❌ GTD config directory not found. Expected: $HOME/code/dotfiles/zsh or $HOME/code/personal/dotfiles/zsh"
+    exit 1
+fi
+
+GTD_CONFIG_AI="$GTD_CONFIG_DIR/.gtd_config_ai"
+# Controller API supports OpenAI-compatible /v1/chat/completions endpoint
+OLLAMA_URL="http://$NODE_IP:$OLLAMA_NODEPORT/v1/chat/completions"
+
+# Update .gtd_config_ai
+if [[ -f "$GTD_CONFIG_AI" ]]; then
+    # Check if OLLAMA_URL already exists
+    if grep -q "^OLLAMA_URL=" "$GTD_CONFIG_AI" 2>/dev/null; then
+        # Update existing OLLAMA_URL
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' "s|^OLLAMA_URL=.*|OLLAMA_URL=\"$OLLAMA_URL\"|" "$GTD_CONFIG_AI"
+        else
+            sed -i "s|^OLLAMA_URL=.*|OLLAMA_URL=\"$OLLAMA_URL\"|" "$GTD_CONFIG_AI"
+        fi
+        echo "✅ Updated OLLAMA_URL in .gtd_config_ai"
+    else
+        # Add OLLAMA_URL
+        echo "" >> "$GTD_CONFIG_AI"
+        echo "# Ollama Kubernetes NodePort Configuration" >> "$GTD_CONFIG_AI"
+        echo "OLLAMA_URL=\"$OLLAMA_URL\"" >> "$GTD_CONFIG_AI"
+        echo "✅ Added OLLAMA_URL to .gtd_config_ai"
+    fi
+else
+    echo "⚠️  .gtd_config_ai not found. Creating it..."
+    cat > "$GTD_CONFIG_AI" <<EOF
+# Ollama Kubernetes NodePort Configuration
+OLLAMA_URL="$OLLAMA_URL"
+EOF
+    echo "✅ Created .gtd_config_ai with OLLAMA_URL"
+fi
+
+# Also update .gtd_config if it exists
+GTD_CONFIG="$GTD_CONFIG_DIR/.gtd_config"
+if [[ -f "$GTD_CONFIG" ]]; then
+    if grep -q "^OLLAMA_URL=" "$GTD_CONFIG" 2>/dev/null; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' "s|^OLLAMA_URL=.*|OLLAMA_URL=\"$OLLAMA_URL\"|" "$GTD_CONFIG"
+        else
+            sed -i "s|^OLLAMA_URL=.*|OLLAMA_URL=\"$OLLAMA_URL\"|" "$GTD_CONFIG"
+        fi
+        echo "✅ Updated OLLAMA_URL in .gtd_config"
+    fi
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "✅ Configuration complete!"
+echo ""
+echo "Ollama Controller is now configured to use Kubernetes NodePort:"
+echo "  URL: $OLLAMA_URL"
+echo "  Controller API: http://$NODE_IP:$OLLAMA_NODEPORT"
+echo ""
+echo "The Controller API supports OpenAI-compatible endpoints:"
+echo "  - /v1/chat/completions (for chat)"
+echo "  - /v1/models (for model listing)"
+echo ""
+echo "To verify the configuration:"
+echo "  1. Check config: grep OLLAMA_URL $GTD_CONFIG_AI"
+echo "  2. Test connection: curl http://$NODE_IP:$OLLAMA_NODEPORT/v1/models"
+echo "  3. Verify NodePort: make verify-nodeport"
+echo ""
+echo "Note: Make sure AI_BACKEND is set to 'ollama' in your config files"
+echo "      The Controller provides throttling, queuing, and monitoring"
+echo ""
+
