@@ -978,6 +978,163 @@ get_smart_defaults() {
   echo "PRIORITIES_END"
 }
 
+# Show smart tips based on usage patterns
+show_smart_tips() {
+  # Only show tips occasionally (not every time) - 20% chance
+  if [[ $((RANDOM % 5)) -ne 0 ]]; then
+    return 0
+  fi
+  
+  # Check if preferences learning is available
+  if ! command -v gtd-preferences-learn &>/dev/null; then
+    return 0
+  fi
+  
+  # Get usage statistics
+  local prefs_file="$HOME/.gtd_preferences.json"
+  if [[ ! -f "$prefs_file" ]]; then
+    return 0
+  fi
+  
+  # Analyze usage patterns and generate tips
+  local prefs_file="$HOME/.gtd_preferences.json"
+  local tips_output=""
+  tips_output=$(python3 <<PYTHON_EOF
+import json
+import sys
+import os
+from datetime import datetime, timedelta
+
+prefs_file = "$prefs_file"
+
+try:
+    if not os.path.exists(prefs_file):
+        sys.exit(0)
+    
+    with open(prefs_file, "r") as f:
+        prefs = json.load(f)
+    
+    tips = []
+    
+    # Check feature usage
+    feature_usage = prefs.get("feature_usage", {})
+    wizard_options = feature_usage.get("wizard_options", {})
+    
+    # Find frequently used options (used 5+ times)
+    frequent_options = []
+    for option, data in wizard_options.items():
+        if isinstance(data, dict):
+            count = data.get("usage_count", 0)
+        else:
+            count = data if isinstance(data, int) else 0
+        
+        if count >= 5:
+            frequent_options.append((option, count))
+    
+    # Generate tips based on frequent actions
+    if frequent_options:
+        # Sort by usage count
+        frequent_options.sort(key=lambda x: x[1], reverse=True)
+        top_option, count = frequent_options[0]
+        
+        # Map option numbers to feature names and tips
+        option_tips = {
+            "1": ("Capture", "💡 Tip: Use 'gtd-wizard --fuzzy' to enable fuzzy search when selecting tasks/projects!"),
+            "2": ("Process Inbox", "💡 Tip: Use 'gtd-wizard --fuzzy' for faster inbox processing with fuzzy search!"),
+            "3": ("Manage Tasks", "💡 Tip: Try 'gtd-wizard --fuzzy' to quickly find tasks with fuzzy search!"),
+            "4": ("Manage Projects", "💡 Tip: Use 'gtd-wizard --fuzzy' to quickly find projects by typing partial names!"),
+            "5": ("Manage Areas", "💡 Tip: Enable fuzzy search with 'gtd-wizard --fuzzy' for faster area selection!"),
+            "6": ("Review", "💡 Tip: Use command line options like '--fuzzy' to speed up your workflow!"),
+        }
+        
+        if top_option in option_tips:
+            feature_name, tip = option_tips[top_option]
+            tips.append({
+                "type": "command_line",
+                "message": tip,
+                "feature": feature_name,
+                "usage_count": count
+            })
+    
+    # Check if fuzzy search is being used
+    # (We can't easily detect this, but we can suggest it if they use selection features a lot)
+    if len(frequent_options) >= 2:
+        tips.append({
+            "type": "fuzzy_search",
+            "message": "💡 Tip: Enable fuzzy search with 'gtd-wizard --fuzzy' to make finding tasks/projects/areas faster!",
+            "feature": "Fuzzy Search"
+        })
+    
+    # Check for favorited projects that need attention
+    import subprocess
+    import os
+    projects_path = os.path.expanduser("~/Documents/gtd/projects")
+    if os.path.isdir(projects_path):
+        favorited_projects = []
+        for project_dir in os.listdir(projects_path):
+            project_readme = os.path.join(projects_path, project_dir, "README.md")
+            if os.path.isfile(project_readme):
+                try:
+                    with open(project_readme, "r") as f:
+                        content = f.read()
+                        # Check if favorite: true in frontmatter
+                        if "favorite: true" in content or "favorite:true" in content:
+                            # Get project name
+                            project_name = project_dir.replace("-", " ").title()
+                            # Count active tasks in project
+                            project_dir_path = os.path.join(projects_path, project_dir)
+                            active_tasks = 0
+                            if os.path.isdir(project_dir_path):
+                                for task_file in os.listdir(project_dir_path):
+                                    if task_file.endswith(".md") and task_file != "README.md":
+                                        task_path = os.path.join(project_dir_path, task_file)
+                                        try:
+                                            with open(task_path, "r") as tf:
+                                                task_content = tf.read()
+                                                if "status: active" in task_content:
+                                                    active_tasks += 1
+                                        except:
+                                            pass
+                            
+                            if active_tasks > 0:
+                                favorited_projects.append({
+                                    "name": project_name,
+                                    "tasks": active_tasks
+                                })
+                except:
+                    pass
+        
+        # Add reminder about favorited projects
+        if favorited_projects:
+            project = favorited_projects[0]  # Show one at a time
+            tips.append({
+                "type": "favorited_project",
+                "message": f"⭐ Focus Reminder: '{project['name']}' has {project['tasks']} active task(s). This is a favorited project - consider working on it!",
+                "feature": "Favorited Project",
+                "project": project["name"],
+                "task_count": project["tasks"]
+            })
+    
+    # Output tips as JSON
+    if tips:
+        print(json.dumps(tips[0]))  # Show one tip at a time
+except Exception:
+    # Silently fail
+    sys.exit(0)
+PYTHON_EOF
+)
+  
+  # Display tip if we got one
+  if [[ -n "$tips_output" ]]; then
+    local tip_message=$(echo "$tips_output" | python3 -c "import json, sys; d=json.load(sys.stdin); print(d.get('message', ''))" 2>/dev/null)
+    if [[ -n "$tip_message" ]]; then
+      echo ""
+      echo -e "${YELLOW}${tip_message}${NC}"
+      echo ""
+    fi
+  fi
+}
+
 # Show smart defaults section in dashboard
 show_smart_defaults() {
   local time_of_day=$(get_time_of_day)
@@ -1599,7 +1756,7 @@ test_execution_wizard() {
         echo -e "${RED}Test runner not found: $tests_dir/run_tests.sh${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     2)
       echo ""
@@ -1611,7 +1768,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_gtd_common.sh${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     3)
       echo ""
@@ -1623,7 +1780,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_gtd_guides.sh${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     4)
       echo ""
@@ -1635,7 +1792,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_wizard_functions.sh${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     5)
       echo ""
@@ -1647,7 +1804,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_wizard_core_functions.sh${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     6)
       echo ""
@@ -1659,7 +1816,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_zettelkasten_wizard.sh${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     7)
       echo ""
@@ -1672,7 +1829,7 @@ test_execution_wizard() {
           echo ""
         fi
       done
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     8)
       echo ""
@@ -1684,7 +1841,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_enhanced_search.py${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     9)
       echo ""
@@ -1696,7 +1853,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_gtd_persona_helper.py${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     10)
       echo ""
@@ -1708,7 +1865,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_gtd_tool_registry.py${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     11)
       echo ""
@@ -1720,7 +1877,7 @@ test_execution_wizard() {
         echo -e "${RED}Test file not found: $tests_dir/test_lmstudio_helper.py${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     12)
       echo ""
@@ -1732,7 +1889,7 @@ test_execution_wizard() {
         echo -e "${RED}Test runner not found: $tests_dir/run_tests.sh${NC}"
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     0|"")
       return 0
@@ -1829,6 +1986,63 @@ show_process_reminders() {
 }
 
 # Dashboard - Show system status and quick stats (polished version)
+# Read dashboard cache file
+read_dashboard_cache() {
+  local cache_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/.dashboard_cache.json"
+  local cache_age=0
+  
+  if [[ -f "$cache_file" ]]; then
+    # Check cache age (in seconds)
+    if command -v stat &>/dev/null; then
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        cache_age=$(($(date +%s) - $(stat -f %m "$cache_file" 2>/dev/null || echo 0)))
+      else
+        cache_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+      fi
+    fi
+    
+    # Cache is valid if less than 30 seconds old
+    if [[ $cache_age -lt 30 ]]; then
+      # Use Python to parse JSON (more reliable than jq which might not be installed)
+      python3 <<PYTHON_EOF 2>/dev/null
+import json
+import sys
+try:
+    with open("$cache_file", "r") as f:
+        cache = json.load(f)
+    # Output as shell-friendly format
+    print(f"INBOX_COUNT={cache.get('inbox_count', 0)}")
+    print(f"TASKS_COUNT={cache.get('tasks_count', 0)}")
+    print(f"ACTIVE_TASKS_COUNT={cache.get('active_tasks_count', 0)}")
+    print(f"PROJECT_TASKS_COUNT={cache.get('project_tasks_count', 0)}")
+    print(f"TOTAL_ACTIVE_TASKS={cache.get('total_active_tasks', 0)}")
+    print(f"PROJECTS_COUNT={cache.get('projects_count', 0)}")
+    print(f"AREAS_COUNT={cache.get('areas_count', 0)}")
+    print(f"WAITING_COUNT={cache.get('waiting_count', 0)}")
+    print(f"SOMEDAY_COUNT={cache.get('someday_count', 0)}")
+    print(f"SUGGESTIONS_TOTAL={cache.get('suggestions', {}).get('total', 0)}")
+    print(f"SUGGESTIONS_HIGH={cache.get('suggestions', {}).get('high', 0)}")
+    print(f"SUGGESTIONS_MEDIUM={cache.get('suggestions', {}).get('medium', 0)}")
+    print(f"SUGGESTIONS_LOW={cache.get('suggestions', {}).get('low', 0)}")
+    print(f"TODAY_ENTRIES={cache.get('today_entries', 0)}")
+    print(f"STREAK={cache.get('streak', 0)}")
+    # Favorited items as newline-separated
+    favorited_tasks = cache.get('favorited_tasks', [])
+    for task in favorited_tasks[:3]:
+        print(f"FAVORITED_TASK={task}")
+    favorited_projects = cache.get('favorited_projects', [])
+    for project in favorited_projects[:2]:
+        print(f"FAVORITED_PROJECT={project}")
+except Exception as e:
+    pass
+PYTHON_EOF
+      return 0
+    fi
+  fi
+  
+  return 1
+}
+
 # Made robust for different environments (work/home) with comprehensive error handling
 show_dashboard() {
   # Enable error handling that doesn't exit on failures
@@ -1838,6 +2052,53 @@ show_dashboard() {
   # This prevents bad substitution errors from crashing the dashboard
   if command -v init_gtd_paths &>/dev/null; then
     init_gtd_paths 2>/dev/null || true
+  fi
+  
+  # Try to read from cache first
+  local cache_data=""
+  local inbox_count=0
+  local tasks_count=0
+  local active_tasks_count=0
+  local project_tasks_count=0
+  local total_active_tasks=0
+  local projects_count=0
+  local areas_count=0
+  local waiting_count=0
+  local someday_count=0
+  local suggestions_total=0
+  local suggestions_high=0
+  local suggestions_medium=0
+  local suggestions_low=0
+  local today_entries=0
+  local streak=0
+  local favorited_tasks=()
+  local favorited_projects=()
+  local cache_used=false
+  
+  if cache_data=$(read_dashboard_cache 2>/dev/null); then
+    cache_used=true
+    # Parse cache data
+    while IFS='=' read -r key value; do
+      case "$key" in
+        INBOX_COUNT) inbox_count="$value" ;;
+        TASKS_COUNT) tasks_count="$value" ;;
+        ACTIVE_TASKS_COUNT) active_tasks_count="$value" ;;
+        PROJECT_TASKS_COUNT) project_tasks_count="$value" ;;
+        TOTAL_ACTIVE_TASKS) total_active_tasks="$value" ;;
+        PROJECTS_COUNT) projects_count="$value" ;;
+        AREAS_COUNT) areas_count="$value" ;;
+        WAITING_COUNT) waiting_count="$value" ;;
+        SOMEDAY_COUNT) someday_count="$value" ;;
+        SUGGESTIONS_TOTAL) suggestions_total="$value" ;;
+        SUGGESTIONS_HIGH) suggestions_high="$value" ;;
+        SUGGESTIONS_MEDIUM) suggestions_medium="$value" ;;
+        SUGGESTIONS_LOW) suggestions_low="$value" ;;
+        TODAY_ENTRIES) today_entries="$value" ;;
+        STREAK) streak="$value" ;;
+        FAVORITED_TASK) favorited_tasks+=("$value") ;;
+        FAVORITED_PROJECT) favorited_projects+=("$value") ;;
+      esac
+    done <<< "$cache_data"
   fi
   
   # Get current date/time with error handling
@@ -1868,17 +2129,19 @@ show_dashboard() {
   # System Status Section - Compact format
   echo -e "${BOLD}📊 System Status${NC}" 2>/dev/null || echo "📊 System Status"
   
-  # Inbox count (cached for 5 seconds) - with error handling
-  local inbox_count=0
-  if [[ -n "${INBOX_PATH:-}" ]] && [[ -d "${INBOX_PATH:-}" ]]; then
-    # Use timeout if available to prevent hanging
-    if command -v timeout &>/dev/null; then
-      inbox_count=$(timeout 2 bash -c "gtd_get_cached_count 'inbox' '${INBOX_PATH}' '*.md' 5" 2>/dev/null || echo "0")
-    else
-      inbox_count=$(gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md" 5 2>/dev/null || echo "0")
+  # Inbox count - use cache if available, otherwise calculate
+  if [[ "$cache_used" != "true" ]]; then
+    inbox_count=0
+    if [[ -n "${INBOX_PATH:-}" ]] && [[ -d "${INBOX_PATH:-}" ]]; then
+      # Use timeout if available to prevent hanging
+      if command -v timeout &>/dev/null; then
+        inbox_count=$(timeout 2 bash -c "gtd_get_cached_count 'inbox' '${INBOX_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+      else
+        inbox_count=$(gtd_get_cached_count "inbox" "${INBOX_PATH}" "*.md" 5 2>/dev/null || echo "0")
+      fi
+      # Ensure it's numeric
+      [[ "$inbox_count" =~ ^[0-9]+$ ]] || inbox_count=0
     fi
-    # Ensure it's numeric
-    [[ "$inbox_count" =~ ^[0-9]+$ ]] || inbox_count=0
   fi
   if [[ $inbox_count -gt 0 ]]; then
     echo -e "  ${RED}📥${NC} ${BOLD}Inbox:${NC} ${inbox_count} ${YELLOW}→ Process first! (2)${NC}" 2>/dev/null || echo "  📥 Inbox: ${inbox_count} → Process first! (2)"
@@ -1886,103 +2149,103 @@ show_dashboard() {
     echo -e "  ${GREEN}✓${NC} ${BOLD}Inbox:${NC} Empty" 2>/dev/null || echo "  ✓ Inbox: Empty"
   fi
   
-  # Active tasks count (cached) - with error handling
-  local tasks_count=0
-  if [[ -n "${TASKS_PATH:-}" ]] && [[ -d "${TASKS_PATH:-}" ]]; then
-    if command -v timeout &>/dev/null; then
-      tasks_count=$(timeout 2 bash -c "gtd_get_cached_count 'tasks' '${TASKS_PATH}' '*.md' 5" 2>/dev/null || echo "0")
-    else
-      tasks_count=$(gtd_get_cached_count "tasks" "${TASKS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+  # Active tasks count - use cache if available, otherwise calculate
+  if [[ "$cache_used" != "true" ]]; then
+    tasks_count=0
+    if [[ -n "${TASKS_PATH:-}" ]] && [[ -d "${TASKS_PATH:-}" ]]; then
+      if command -v timeout &>/dev/null; then
+        tasks_count=$(timeout 2 bash -c "gtd_get_cached_count 'tasks' '${TASKS_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+      else
+        tasks_count=$(gtd_get_cached_count "tasks" "${TASKS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+      fi
+      [[ "$tasks_count" =~ ^[0-9]+$ ]] || tasks_count=0
     fi
-    # Ensure it's numeric
-    [[ "$tasks_count" =~ ^[0-9]+$ ]] || tasks_count=0
+    
+    # Count active tasks (simplified - only if cache not available)
+    active_tasks_count=0
+    project_tasks_count=0
+    if [[ -n "${TASKS_PATH:-}" ]] && [[ -d "${TASKS_PATH:-}" ]]; then
+      # Quick count - limit to prevent hanging
+      local count=0
+      while IFS= read -r task_file && [[ $count -lt 100 ]]; do
+        [[ ! -f "$task_file" ]] && continue
+        local status=$(gtd_get_frontmatter_value "$task_file" "status" 2>/dev/null || echo "")
+        if [[ "$status" == "active" ]]; then
+          ((active_tasks_count++))
+        fi
+        ((count++))
+      done < <(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | head -100)
+    fi
+    if [[ -n "${PROJECTS_PATH:-}" ]] && [[ -d "${PROJECTS_PATH:-}" ]]; then
+      local count=0
+      while IFS= read -r task_file && [[ $count -lt 100 ]]; do
+        [[ ! -f "$task_file" || "$task_file" == */README.md ]] && continue
+        local status=$(gtd_get_frontmatter_value "$task_file" "status" 2>/dev/null || echo "")
+        if [[ "$status" == "active" ]]; then
+          ((project_tasks_count++))
+        fi
+        ((count++))
+      done < <(find "${PROJECTS_PATH}" -name "*.md" -type f 2>/dev/null | head -100)
+    fi
+    total_active_tasks=$((active_tasks_count + project_tasks_count))
   fi
-  echo -e "  ${CYAN}✅${NC} ${BOLD}Tasks:${NC} ${tasks_count}" 2>/dev/null || echo "  ✅ Tasks: ${tasks_count}"
   
-  # Active projects count (cached) - special pattern for projects - with error handling
-  local projects_count=0
-  if [[ -n "${PROJECTS_PATH:-}" ]] && [[ -d "${PROJECTS_PATH:-}" ]]; then
-    if command -v timeout &>/dev/null; then
-      projects_count=$(timeout 2 bash -c "gtd_get_cached_count 'projects' '${PROJECTS_PATH}' 'projects' 5" 2>/dev/null || echo "0")
-    else
-      projects_count=$(gtd_get_cached_count "projects" "${PROJECTS_PATH}" "projects" 5 2>/dev/null || echo "0")
+  echo -e "  ${CYAN}✅${NC} ${BOLD}Tasks:${NC} ${tasks_count}" 2>/dev/null || echo "  ✅ Tasks: ${tasks_count}"
+  echo -e "  ${YELLOW}📋${NC} ${BOLD}Uncompleted tasks:${NC} ${total_active_tasks}" 2>/dev/null || echo "  📋 Uncompleted tasks: ${total_active_tasks}"
+  
+  # Project-related tasks (same as project_tasks_count from cache)
+  local project_related_tasks=$project_tasks_count
+  if [[ $project_related_tasks -gt 0 ]]; then
+    echo -e "  ${CYAN}📁${NC} ${BOLD}Project-related tasks:${NC} ${project_related_tasks}" 2>/dev/null || echo "  📁 Project-related tasks: ${project_related_tasks}"
+  fi
+  
+  # Projects and Areas count - use cache if available
+  if [[ "$cache_used" != "true" ]]; then
+    projects_count=0
+    if [[ -n "${PROJECTS_PATH:-}" ]] && [[ -d "${PROJECTS_PATH:-}" ]]; then
+      if command -v timeout &>/dev/null; then
+        projects_count=$(timeout 2 bash -c "gtd_get_cached_count 'projects' '${PROJECTS_PATH}' 'projects' 5" 2>/dev/null || echo "0")
+      else
+        projects_count=$(gtd_get_cached_count "projects" "${PROJECTS_PATH}" "projects" 5 2>/dev/null || echo "0")
+      fi
+      [[ "$projects_count" =~ ^[0-9]+$ ]] || projects_count=0
     fi
-    # Ensure it's numeric
-    [[ "$projects_count" =~ ^[0-9]+$ ]] || projects_count=0
+    
+    areas_count=0
+    if [[ -n "${AREAS_PATH:-}" ]] && [[ -d "${AREAS_PATH:-}" ]]; then
+      if command -v timeout &>/dev/null; then
+        areas_count=$(timeout 2 bash -c "gtd_get_cached_count 'areas' '${AREAS_PATH}' '*.md' 5" 2>/dev/null || echo "0")
+      else
+        areas_count=$(gtd_get_cached_count "areas" "${AREAS_PATH}" "*.md" 5 2>/dev/null || echo "0")
+      fi
+      [[ "$areas_count" =~ ^[0-9]+$ ]] || areas_count=0
+    fi
   fi
   echo -e "  ${CYAN}📁${NC} ${BOLD}Projects:${NC} ${projects_count}" 2>/dev/null || echo "  📁 Projects: ${projects_count}"
-  
-  # Areas count (cached) - with error handling
-  local areas_count=0
-  if [[ -n "${AREAS_PATH:-}" ]] && [[ -d "${AREAS_PATH:-}" ]]; then
-    if command -v timeout &>/dev/null; then
-      areas_count=$(timeout 2 bash -c "gtd_get_cached_count 'areas' '${AREAS_PATH}' '*.md' 5" 2>/dev/null || echo "0")
-    else
-      areas_count=$(gtd_get_cached_count "areas" "${AREAS_PATH}" "*.md" 5 2>/dev/null || echo "0")
-    fi
-    # Ensure it's numeric
-    [[ "$areas_count" =~ ^[0-9]+$ ]] || areas_count=0
-  fi
   echo -e "  ${CYAN}🎯${NC} ${BOLD}Areas:${NC} ${areas_count}" 2>/dev/null || echo "  🎯 Areas: ${areas_count}"
   
-  # Smart Suggestions count (with timeout protection and efficiency)
-  # Use GTD_BASE_DIR if available, otherwise fallback to default
-  local suggestions_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/suggestions"
-  local total_suggestions=0
-  local high_conf_suggestions=0
-  local medium_conf_suggestions=0
-  local low_conf_suggestions=0
-  
-  # Only check suggestions if directory exists and is accessible
-  if [[ -d "$suggestions_dir" ]] && [[ -r "$suggestions_dir" ]]; then
-    # Use a simple, fast approach: count pending files with single grep
-    # This is much faster than reading each file individually
-    set +e  # Allow errors in case of permission issues
-    total_suggestions=$(grep -l '"status"[[:space:]]*:[[:space:]]*"pending"' "$suggestions_dir"/*.json 2>/dev/null | wc -l | tr -d ' ' || echo "0")
-    set -e
-    [[ "$total_suggestions" =~ ^[0-9]+$ ]] || total_suggestions=0
-    
-    # Only do detailed confidence breakdown if reasonable number of files (< 50)
-    # This prevents timeout on systems with many suggestion files
-    if [[ $total_suggestions -gt 0 && $total_suggestions -lt 50 ]]; then
-      local processed=0
-      while IFS= read -r suggestion_file && [[ $processed -lt 50 ]]; do
-        # Quick check - only read if file exists and is readable
-        if [[ ! -r "$suggestion_file" ]]; then
-          continue
-        fi
-        
-        # Single read of file content
-        local file_content=$(head -20 "$suggestion_file" 2>/dev/null || echo "")
-        if [[ -z "$file_content" ]]; then
-          continue
-        fi
-        
-        # Get confidence level (single grep)
-        local confidence=$(echo "$file_content" | grep -o '"confidence"[[:space:]]*:[[:space:]]*[0-9.]*' 2>/dev/null | sed 's/.*:[[:space:]]*//' | head -1)
-        
-        if [[ -n "$confidence" ]]; then
-          # Use awk for numeric comparison (more reliable than bc)
-          if awk "BEGIN {exit !($confidence >= 0.85)}" 2>/dev/null; then
-            ((high_conf_suggestions++))
-          elif awk "BEGIN {exit !($confidence >= 0.70)}" 2>/dev/null; then
-            ((medium_conf_suggestions++))
-          else
-            ((low_conf_suggestions++))
-          fi
-        fi
-        ((processed++))
-      done < <(grep -l '"status"[[:space:]]*:[[:space:]]*"pending"' "$suggestions_dir"/*.json 2>/dev/null | head -50)
+  # Smart Suggestions count - use cache if available
+  if [[ "$cache_used" != "true" ]]; then
+    suggestions_total=0
+    suggestions_high=0
+    suggestions_medium=0
+    suggestions_low=0
+    local suggestions_dir="${GTD_BASE_DIR:-$HOME/Documents/gtd}/suggestions"
+    if [[ -d "$suggestions_dir" ]] && [[ -r "$suggestions_dir" ]]; then
+      set +e
+      suggestions_total=$(grep -l '"status"[[:space:]]*:[[:space:]]*"pending"' "$suggestions_dir"/*.json 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+      set -e
+      [[ "$suggestions_total" =~ ^[0-9]+$ ]] || suggestions_total=0
     fi
   fi
   
   # Display suggestions with confidence breakdown
-  if [[ $total_suggestions -gt 0 ]]; then
+  if [[ $suggestions_total -gt 0 ]]; then
     local suggestion_details=""
-    [[ $high_conf_suggestions -gt 0 ]] && suggestion_details+="${GREEN}⭐${high_conf_suggestions}${NC} "
-    [[ $medium_conf_suggestions -gt 0 ]] && suggestion_details+="${YELLOW}●${medium_conf_suggestions}${NC} "
-    [[ $low_conf_suggestions -gt 0 ]] && suggestion_details+="${CYAN}○${low_conf_suggestions}${NC}"
-    echo -e "  ${CYAN}💡${NC} ${BOLD}Suggestions:${NC} ${total_suggestions} ${suggestion_details} ${YELLOW}→ (9)${NC}"
+    [[ $suggestions_high -gt 0 ]] && suggestion_details+="${GREEN}⭐${suggestions_high}${NC} "
+    [[ $suggestions_medium -gt 0 ]] && suggestion_details+="${YELLOW}●${suggestions_medium}${NC} "
+    [[ $suggestions_low -gt 0 ]] && suggestion_details+="${CYAN}○${suggestions_low}${NC}"
+    echo -e "  ${CYAN}💡${NC} ${BOLD}Suggestions:${NC} ${suggestions_total} ${suggestion_details} ${YELLOW}→ (9)${NC}"
   fi
   
   echo ""
@@ -2028,84 +2291,46 @@ show_dashboard() {
     streak_script="$HOME/code/personal/dotfiles/bin/gtd-log-stats"
   fi
   
-  if [[ -n "$streak_script" ]]; then
-    local current_streak=0
-    # Use timeout with reasonable limits and run in subshell to isolate errors
-    # Export DAILY_LOG_DIR so the script can use it
-    if command -v timeout &>/dev/null; then
-      # Run in subshell with timeout and error suppression, with DAILY_LOG_DIR exported
-      # Increase timeout to 5 seconds for streak calculation (may need to check many days)
-      current_streak=$(timeout 5 bash -c "export DAILY_LOG_DIR=\"$DAILY_LOG_DIR\"; '$streak_script' streak 2>/dev/null" 2>/dev/null || echo "0")
-    else
-      # Without timeout, just run directly (it's fast enough, ~0.2s)
-      # The script validates DAILY_LOG_DIR internally, so it should work
-      current_streak=$("$streak_script" streak 2>/dev/null || echo "0")
-    fi
-    # Clean and validate the result
-    current_streak=$(echo "$current_streak" | tr -d '[:space:]' | head -c 10)
-    if [[ ! "$current_streak" =~ ^[0-9]+$ ]]; then
-      current_streak=0
-    fi
-    # Only display if we got a valid result
-    if [[ $current_streak -gt 0 ]]; then
-      echo -e "  ${GREEN}🔥${NC} ${BOLD}Streak:${NC} ${current_streak} day(s)" 2>/dev/null || echo "  🔥 Streak: ${current_streak} day(s)"
-    else
-      echo -e "  ${YELLOW}📝${NC} ${BOLD}Streak:${NC} Start logging!" 2>/dev/null || echo "  📝 Streak: Start logging!"
-    fi
-  fi
-  
-  # Today's log entries - with aggressive error handling
-  local today=""
-  local today_log=""
-  local today_entries=0
-  
-  # Ensure DAILY_LOG_DIR is set (fallback to default if not set)
-  if [[ -z "${DAILY_LOG_DIR:-}" ]]; then
-    # Try to load from config file
-    local daily_log_config="$HOME/code/dotfiles/zsh/.daily_log_config"
-    if [[ ! -f "$daily_log_config" ]]; then
-      daily_log_config="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
-    fi
-    if [[ -f "$daily_log_config" ]]; then
-      # Read DAILY_LOG_DIR from config file (handle both quoted and unquoted values)
-      local log_dir=$(grep "^DAILY_LOG_DIR=" "$daily_log_config" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g" | xargs)
-      if [[ -n "$log_dir" ]]; then
-        DAILY_LOG_DIR="$log_dir"
-        export DAILY_LOG_DIR
+  # Streak and Today's entries - use cache if available
+  if [[ "$cache_used" != "true" ]]; then
+    streak=0
+    if [[ -n "$streak_script" ]]; then
+      if command -v timeout &>/dev/null; then
+        streak=$(timeout 5 bash -c "export DAILY_LOG_DIR=\"$DAILY_LOG_DIR\"; '$streak_script' streak 2>/dev/null" 2>/dev/null || echo "0")
+      else
+        streak=$("$streak_script" streak 2>/dev/null || echo "0")
       fi
+      streak=$(echo "$streak" | tr -d '[:space:]' | head -c 10)
+      [[ ! "$streak" =~ ^[0-9]+$ ]] && streak=0
     fi
-  fi
-  
-  # Validate that DAILY_LOG_DIR exists and is accessible, fallback to default if not
-  if [[ -n "${DAILY_LOG_DIR:-}" ]] && [[ ! -d "${DAILY_LOG_DIR:-}" ]]; then
-    # Config directory doesn't exist, use default
-    DAILY_LOG_DIR="$HOME/Documents/daily_logs"
-    export DAILY_LOG_DIR
-  fi
-  
-  # Final fallback to default if still not set
-  DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
-  export DAILY_LOG_DIR
-  
-  if command -v date &>/dev/null; then
-    # Get today's date with timeout protection
-    if command -v timeout &>/dev/null; then
-      today=$(timeout 1 bash -c "gtd_get_today 2>/dev/null || date +%Y-%m-%d 2>/dev/null" 2>/dev/null || echo "")
-    else
-      today=$(gtd_get_today 2>/dev/null || date +%Y-%m-%d 2>/dev/null || echo "")
-    fi
-    if [[ -n "$today" ]] && [[ -n "${DAILY_LOG_DIR:-}" ]] && [[ -d "${DAILY_LOG_DIR:-}" ]]; then
-      today_log="${DAILY_LOG_DIR}/${today}.md"
-      if [[ -f "$today_log" ]] && [[ -r "$today_log" ]]; then
-        # Use timeout for grep to prevent hanging on large files
-        if command -v timeout &>/dev/null; then
-          today_entries=$(timeout 1 grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
-        else
-          today_entries=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
+    
+    today_entries=0
+    if command -v date &>/dev/null; then
+      local today=""
+      if command -v timeout &>/dev/null; then
+        today=$(timeout 1 bash -c "gtd_get_today 2>/dev/null || date +%Y-%m-%d 2>/dev/null" 2>/dev/null || echo "")
+      else
+        today=$(gtd_get_today 2>/dev/null || date +%Y-%m-%d 2>/dev/null || echo "")
+      fi
+      if [[ -n "$today" ]] && [[ -n "${DAILY_LOG_DIR:-}" ]] && [[ -d "${DAILY_LOG_DIR:-}" ]]; then
+        local today_log="${DAILY_LOG_DIR}/${today}.md"
+        if [[ -f "$today_log" ]] && [[ -r "$today_log" ]]; then
+          if command -v timeout &>/dev/null; then
+            today_entries=$(timeout 1 grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
+          else
+            today_entries=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$today_log" 2>/dev/null || echo "0")
+          fi
+          [[ "$today_entries" =~ ^[0-9]+$ ]] || today_entries=0
         fi
-        [[ "$today_entries" =~ ^[0-9]+$ ]] || today_entries=0
       fi
     fi
+  fi
+  
+  # Display streak
+  if [[ $streak -gt 0 ]]; then
+    echo -e "  ${GREEN}🔥${NC} ${BOLD}Streak:${NC} ${streak} day(s)" 2>/dev/null || echo "  🔥 Streak: ${streak} day(s)"
+  else
+    echo -e "  ${YELLOW}📝${NC} ${BOLD}Streak:${NC} Start logging!" 2>/dev/null || echo "  📝 Streak: Start logging!"
   fi
   echo -e "  ${CYAN}📝${NC} ${BOLD}Today:${NC} ${today_entries} entries" 2>/dev/null || echo "  📝 Today: ${today_entries} entries"
   
@@ -2154,6 +2379,15 @@ show_dashboard() {
       else
         show_smart_defaults 2>/dev/null || true
       fi
+      
+      # Show smart tips (occasionally, based on usage patterns)
+      if declare -f show_smart_tips &>/dev/null; then
+        if command -v timeout &>/dev/null; then
+          timeout 2 bash -c "show_smart_tips" 2>/dev/null || true
+        else
+          show_smart_tips 2>/dev/null || true
+        fi
+      fi
     fi
     set -e
   fi
@@ -2169,6 +2403,85 @@ show_dashboard() {
   echo -e "  ${CYAN}💡${NC} 'What now?' → ${BOLD}40${NC}" 2>/dev/null || echo "  💡 'What now?' → 40"
   echo -e "  ${CYAN}📝${NC} Daily log → ${BOLD}15${NC}" 2>/dev/null || echo "  📝 Daily log → 15"
   echo -e "  ${CYAN}📊${NC} Full status → ${BOLD}17${NC}" 2>/dev/null || echo "  📊 Full status → 17"
+  
+  # Favorited Items Section - use cache if available
+  if [[ "$cache_used" != "true" ]]; then
+    favorited_tasks=()
+    favorited_projects=()
+    # Get favorited tasks (limit to 3 for display)
+    if declare -f get_favorited_tasks &>/dev/null; then
+      local task_count=0
+      while IFS= read -r task_file && [[ $task_count -lt 3 ]]; do
+        [[ -n "$task_file" ]] && favorited_tasks+=("$task_file") && ((task_count++))
+      done < <(get_favorited_tasks 2>/dev/null)
+    fi
+    
+    # Get favorited projects (limit to 2 for display)
+    if declare -f get_favorited_projects &>/dev/null; then
+      local project_count=0
+      while IFS= read -r project_dir && [[ $project_count -lt 2 ]]; do
+        [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir") && ((project_count++))
+      done < <(get_favorited_projects 2>/dev/null)
+    fi
+  fi
+  
+  # Display favorited items with quick access numbers
+  if [[ ${#favorited_tasks[@]} -gt 0 ]] || [[ ${#favorited_projects[@]} -gt 0 ]]; then
+    echo ""
+    echo -e "  ${BOLD}${YELLOW}⭐ Favorited Items${NC}" 2>/dev/null || echo "  ⭐ Favorited Items"
+    
+    # Show favorited tasks (up to 3, matching main menu)
+    local task_index=0
+    for task_file in "${favorited_tasks[@]}"; do
+      [[ ! -f "$task_file" ]] && continue
+      local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+      if [[ ${#task_name} -gt 35 ]]; then
+        task_name="${task_name:0:32}..."
+      fi
+      local menu_num=$((900 + task_index))  # Start at 900 to avoid conflicts and allow growth
+      echo -e "    ${GREEN}${menu_num})${NC} ⭐ ${task_name}" 2>/dev/null || echo "    ${menu_num}) ⭐ ${task_name}"
+      ((task_index++))
+      if [[ $task_index -ge 3 ]]; then
+        break
+      fi
+    done
+    
+    # Show favorited projects (up to 2, matching main menu)
+    local project_index=0
+    for project_dir in "${favorited_projects[@]}"; do
+      [[ ! -d "$project_dir" ]] && continue
+      local project_slug=$(basename "$project_dir")
+      local project_readme="${project_dir}/README.md"
+      local project_name=""
+      
+      if [[ -f "$project_readme" ]]; then
+        # Try to get name from frontmatter first
+        project_name=$(gtd_get_frontmatter_value "$project_readme" "name" 2>/dev/null || echo "")
+        [[ -z "$project_name" ]] && project_name=$(gtd_get_frontmatter_value "$project_readme" "project" 2>/dev/null || echo "")
+        
+        # If still no name, try to get from H1 heading
+        if [[ -z "$project_name" ]]; then
+          project_name=$(head -20 "$project_readme" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' || echo "")
+        fi
+      fi
+      
+      # Final fallback: format the slug nicely
+      if [[ -z "$project_name" ]]; then
+        project_name=$(echo "$project_slug" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      fi
+      
+      if [[ ${#project_name} -gt 35 ]]; then
+        project_name="${project_name:0:32}..."
+      fi
+      local menu_num=$((903 + project_index))  # Start at 903 to avoid conflicts and allow growth
+      echo -e "    ${GREEN}${menu_num})${NC} ⭐ ${project_name}" 2>/dev/null || echo "    ${menu_num}) ⭐ ${project_name}"
+      ((project_index++))
+      if [[ $project_index -ge 2 ]]; then
+        break
+      fi
+    done
+  fi
+  
   echo ""
   
   gtd_section_divider "$CYAN" 2>/dev/null || echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -2553,6 +2866,97 @@ external_rabbitmq_wizard() {
   gtd_quick_pause
 }
 
+# Get favorited tasks (returns array of task files)
+# Optimized to prevent hanging on systems with many files
+get_favorited_tasks() {
+  local favorited_tasks=()
+  local file_count=0
+  local max_files=100  # Limit to prevent hanging
+  
+  # Check tasks directory
+  if [[ -d "${TASKS_PATH:-}" ]]; then
+    while IFS= read -r task_file && [[ $file_count -lt $max_files ]]; do
+      [[ ! -f "$task_file" ]] && continue
+      ((file_count++))
+      # Use head to limit file reading (frontmatter is at top)
+      local frontmatter=$(head -30 "$task_file" 2>/dev/null || echo "")
+      if [[ -z "$frontmatter" ]]; then
+        continue
+      fi
+      # Extract values from frontmatter directly (faster than calling function twice)
+      local favorite=$(echo "$frontmatter" | grep "^favorite:" | head -1 | cut -d':' -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      local status=$(echo "$frontmatter" | grep "^status:" | head -1 | cut -d':' -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      if [[ "$favorite" == "true" ]] && [[ "$status" == "active" ]]; then
+        favorited_tasks+=("$task_file")
+      fi
+    done < <(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | head -$max_files)
+  fi
+  
+  # Check project directories (limit to prevent hanging)
+  if [[ -d "${PROJECTS_PATH:-}" ]]; then
+    file_count=0
+    while IFS= read -r task_file && [[ $file_count -lt $max_files ]]; do
+      [[ ! -f "$task_file" || "$task_file" == */README.md ]] && continue
+      ((file_count++))
+      # Use head to limit file reading (frontmatter is at top)
+      local frontmatter=$(head -30 "$task_file" 2>/dev/null || echo "")
+      if [[ -z "$frontmatter" ]]; then
+        continue
+      fi
+      # Extract values from frontmatter directly (faster than calling function twice)
+      local favorite=$(echo "$frontmatter" | grep "^favorite:" | head -1 | cut -d':' -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      local status=$(echo "$frontmatter" | grep "^status:" | head -1 | cut -d':' -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      if [[ "$favorite" == "true" ]] && [[ "$status" == "active" ]]; then
+        favorited_tasks+=("$task_file")
+      fi
+    done < <(find "${PROJECTS_PATH}" -name "*.md" -type f 2>/dev/null | head -$max_files)
+  fi
+  
+  # Output task files (one per line)
+  for task_file in "${favorited_tasks[@]}"; do
+    echo "$task_file"
+  done
+}
+
+# Get favorited projects (returns array of project directories)
+# Optimized to prevent hanging on systems with many projects
+get_favorited_projects() {
+  local favorited_projects=()
+  local max_projects=50  # Limit to prevent hanging
+  
+  if [[ -d "${PROJECTS_PATH:-}" ]]; then
+    # Use sorted order to match cache worker behavior
+    while IFS= read -r project_dir; do
+      [[ ! -d "$project_dir" ]] && continue
+      local readme="${project_dir}/README.md"
+      if [[ -f "$readme" ]]; then
+        # Use head to limit file reading (frontmatter is at top)
+        local frontmatter=$(head -30 "$readme" 2>/dev/null || echo "")
+        if [[ -z "$frontmatter" ]]; then
+          continue
+        fi
+        # Extract values from frontmatter directly (faster than calling function twice)
+        local favorite=$(echo "$frontmatter" | grep "^favorite:" | head -1 | cut -d':' -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+        local project_status=$(echo "$frontmatter" | grep "^status:" | head -1 | cut -d':' -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+        # If no status field, assume active (default for projects)
+        [[ -z "$project_status" ]] && project_status="active"
+        if [[ "$favorite" == "true" ]] && [[ "$project_status" == "active" ]]; then
+          favorited_projects+=("$project_dir")
+          # Limit results to prevent hanging
+          if [[ ${#favorited_projects[@]} -ge $max_projects ]]; then
+            break
+          fi
+        fi
+      fi
+    done < <(find "${PROJECTS_PATH}" -type d -mindepth 1 -maxdepth 1 2>/dev/null | sort)
+  fi
+  
+  # Output project directories (one per line)
+  for project_dir in "${favorited_projects[@]}"; do
+    echo "$project_dir"
+  done
+}
+
 # Main menu display
 show_main_menu() {
   # Show organization techniques guide (helper text at top)
@@ -2567,87 +2971,244 @@ show_main_menu() {
   echo -e "${BOLD}What would you like to do?${NC}"
   echo ""
   
-  echo -e "${BOLD}${CYAN}📥 INPUTS - Capture & Process:${NC}"
-  echo -e "${GREEN}1)${NC} 📥 Capture something to inbox"
-  echo -e "${GREEN}2)${NC} 📋 Process inbox items"
-  echo -e "${GREEN}15)${NC} 📝 Log to daily log"
-  echo -e "${GREEN}31)${NC} 👁️  View daily log"
-  echo -e "${GREEN}19)${NC} 🌅 Morning/Evening Check-In"
-  echo ""
+  # Get column setting (default to 1 if not set)
+  local columns="${GTD_WIZARD_COLUMNS:-1}"
   
-  echo -e "${BOLD}${CYAN}🗂️  ORGANIZATION - Manage Your System:${NC}"
-  echo -e "${GREEN}3)${NC} ✅ Manage tasks"
-  echo -e "${GREEN}4)${NC} 📁 Manage projects"
-  echo -e "${GREEN}5)${NC} 🎯 Manage areas of responsibility"
-  echo -e "${GREEN}8)${NC} 🗺️  Manage MOCs (Maps of Content)"
-  echo -e "${GREEN}23)${NC} 🔗 Zettelkasten (atomic notes)"
-  echo -e "${GREEN}55)${NC} 🎯 Prioritization Review"
-  echo ""
-  echo -e "${BOLD}${CYAN}🧠 SECOND BRAIN - Advanced Operations:${NC}"
-  echo -e "${GREEN}48)${NC} 🔗 Connect notes"
-  echo -e "${GREEN}49)${NC} 📊 Converge/consolidate notes"
-  echo -e "${GREEN}50)${NC} 🔍 Discover connections"
-  echo -e "${GREEN}51)${NC} 📝 Distill (progressive summarization)"
-  echo -e "${GREEN}52)${NC} 💡 Diverge (expand ideas)"
-  echo -e "${GREEN}53)${NC} 🌲 Evergreen notes"
-  echo -e "${GREEN}54)${NC} 📦 Note packets"
-  echo ""
+  # Helper function to print menu section
+  print_menu_section() {
+    local section_title="$1"
+    shift
+    local menu_items=("$@")
+    
+    echo -e "$section_title"
+    if [[ "$columns" == "2" ]]; then
+      gtd_print_menu_items_two_columns "${menu_items[@]}"
+    else
+      for item in "${menu_items[@]}"; do
+        echo -e "  $item"
+      done
+    fi
+    echo ""
+  }
   
-  echo -e "${BOLD}${CYAN}📤 OUTPUTS - Reviews & Creation:${NC}"
-  echo -e "${GREEN}6)${NC} 📊 Review (daily/weekly/monthly)"
-  echo -e "${GREEN}7)${NC} 🧠 Sync with Second Brain"
-  echo -e "${GREEN}57)${NC} 🔄 Bidirectional Obsidian Sync"
-  echo -e "${GREEN}59)${NC} 📊 Enhanced Review System"
-  echo -e "${GREEN}62)${NC} 📝 Review Draft Notes (evergreen insights)"
-  echo -e "${GREEN}9)${NC} ✍️  Express Phase (create content from notes)"
-  echo -e "${GREEN}10)${NC} 📋 Use Templates"
-  echo -e "${GREEN}22)${NC} 🎨 Create diagrams & mindmaps"
-  echo ""
+  # FOCUS section - favorited tasks and projects (only show if there are any)
+  # Try to use cache first for faster loading
+  local favorited_tasks=()
+  local favorited_projects=()
+  local cache_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/.dashboard_cache.json"
+  local cache_used=false
   
-  echo -e "${BOLD}${CYAN}📚 LEARNING - Guides & Discovery:${NC}"
-  echo -e "${GREEN}12)${NC} 📚 Learn Organization System (GTD + Second Brain + Zettelkasten)"
-  echo -e "${GREEN}13)${NC} 🧠 Learn Second Brain (where to start)"
-  echo -e "${GREEN}14)${NC} 🎯 Discover Life Vision (if you don't have a plan)"
-  echo -e "${GREEN}20)${NC} ☸️  Learn Kubernetes/CKA"
-  echo -e "${GREEN}21)${NC} 🇬🇷 Learn Greek (Language)"
-  echo ""
+  # Try to read from cache (if fresh, less than 30 seconds old)
+  if [[ -f "$cache_file" ]]; then
+    local cache_age=0
+    if command -v stat &>/dev/null; then
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        cache_age=$(($(date +%s) - $(stat -f %m "$cache_file" 2>/dev/null || echo 0)))
+      else
+        cache_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+      fi
+    fi
+    
+    # Cache is valid if less than 30 seconds old
+    if [[ $cache_age -lt 30 ]]; then
+      local cache_data=""
+      cache_data=$(python3 <<PYTHON_EOF 2>/dev/null
+import json
+import sys
+try:
+    with open("$cache_file", "r") as f:
+        cache = json.load(f)
+    # Output favorited items (cache stores them as lists of path strings)
+    favorited_tasks = cache.get('favorited_tasks', [])
+    for task_path in favorited_tasks[:3]:  # Limit to 3 for menu
+        if task_path and isinstance(task_path, str):
+            print(f"FAVORITED_TASK={task_path}")
+    favorited_projects = cache.get('favorited_projects', [])
+    for project_path in favorited_projects[:2]:  # Limit to 2 for menu
+        if project_path and isinstance(project_path, str):
+            print(f"FAVORITED_PROJECT={project_path}")
+except Exception:
+    pass
+PYTHON_EOF
+)
+      if [[ -n "$cache_data" ]]; then
+        cache_used=true
+        while IFS='=' read -r key value; do
+          case "$key" in
+            FAVORITED_TASK) [[ -n "$value" ]] && favorited_tasks+=("$value") ;;
+            FAVORITED_PROJECT) [[ -n "$value" ]] && favorited_projects+=("$value") ;;
+          esac
+        done <<< "$cache_data"
+      fi
+    fi
+  fi
   
-  echo -e "${BOLD}${CYAN}🔍 ANALYSIS - Insights & Tracking:${NC}"
-  echo -e "${GREEN}16)${NC} 🔍 Search GTD system"
-  echo -e "${GREEN}17)${NC} 📊 System status"
-  echo -e "${GREEN}25)${NC} 🎯 Goal Tracking & Progress"
-  echo -e "${GREEN}26)${NC} ⚡ Energy Audit (drains & boosts)"
-  echo -e "${GREEN}30)${NC} 💪 HealthKit & Health Data (disabled)"
-  echo -e "${GREEN}34)${NC} 📈 Log statistics & streaks"
-  echo -e "${GREEN}35)${NC} 🔗 Metric correlations"
-  echo -e "${GREEN}36)${NC} 🔍 Pattern recognition"
-  echo -e "${GREEN}37)${NC} 📊 Weekly progress report"
-  echo -e "${GREEN}38)${NC} 🧠 Second Brain metrics"
-  echo -e "${GREEN}56)${NC} 📊 Success metrics (usage & effectiveness)"
-  echo -e "${GREEN}58)${NC} 📚 Learning System Preferences"
-  echo ""
+  # Fallback to live calculation if cache not available or stale
+  if [[ "$cache_used" != "true" ]]; then
+    # Check if function exists before calling
+    if declare -f get_favorited_tasks &>/dev/null; then
+      while IFS= read -r task_file; do
+        [[ -n "$task_file" ]] && favorited_tasks+=("$task_file")
+      done < <(get_favorited_tasks 2>/dev/null)
+    fi
+    
+    # Check if function exists before calling
+    if declare -f get_favorited_projects &>/dev/null; then
+      while IFS= read -r project_dir; do
+        [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir")
+      done < <(get_favorited_projects 2>/dev/null)
+    fi
+  fi
   
-  echo -e "${BOLD}${CYAN}🛠️  TOOLS & SUPPORT:${NC}"
-  echo -e "${GREEN}11)${NC} 🤖 Get advice from personas"
-  echo -e "${GREEN}18)${NC} 🔁 Manage habits & recurring tasks"
-  echo -e "${GREEN}24)${NC} 🤖 AI Suggestions & MCP Tools"
-  echo -e "${GREEN}29)${NC} 📅 Calendar (view, sync tasks, check conflicts)"
-  echo -e "${GREEN}39)${NC} ⚡ Energy-aware scheduling"
-  echo -e "${GREEN}40)${NC} 🎯 What should I do now? (context-aware)"
-  echo -e "${GREEN}41)${NC} 🔍 Find items (advanced search)"
-  echo -e "${GREEN}42)${NC} 🎉 Celebrate milestones"
-  echo ""
+  # Always show FOCUS section if there are favorited items, or show helpful message
+  if [[ ${#favorited_tasks[@]} -gt 0 ]] || [[ ${#favorited_projects[@]} -gt 0 ]]; then
+    local focus_items=()
+    
+    # Add favorited tasks with quick edit/complete
+    local task_index=0
+    for task_file in "${favorited_tasks[@]}"; do
+      [[ ! -f "$task_file" ]] && continue
+      local task_id=$(basename "$task_file" .md)
+      local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+      # Truncate long task names
+      if [[ ${#task_name} -gt 40 ]]; then
+        task_name="${task_name:0:37}..."
+      fi
+      local menu_num=$((900 + task_index))  # Start at 900 to avoid conflicts and allow growth
+      focus_items+=("${GREEN}${menu_num})${NC} ⭐ ${task_name} (Quick Edit/Complete)")
+      ((task_index++))
+      if [[ $task_index -ge 3 ]]; then  # Limit to 3 tasks
+        break
+      fi
+    done
+    
+    # Add favorited projects with quick edit
+    local project_index=0
+    for project_dir in "${favorited_projects[@]}"; do
+      [[ ! -d "$project_dir" ]] && continue
+      local project_slug=$(basename "$project_dir")
+      local project_readme="${project_dir}/README.md"
+      local project_name=""
+      
+      if [[ -f "$project_readme" ]]; then
+        # Try to get name from frontmatter first
+        project_name=$(gtd_get_frontmatter_value "$project_readme" "name" 2>/dev/null || echo "")
+        [[ -z "$project_name" ]] && project_name=$(gtd_get_frontmatter_value "$project_readme" "project" 2>/dev/null || echo "")
+        
+        # If still no name, try to get from H1 heading
+        if [[ -z "$project_name" ]]; then
+          project_name=$(head -20 "$project_readme" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' || echo "")
+        fi
+      fi
+      
+      # Final fallback: format the slug nicely
+      if [[ -z "$project_name" ]]; then
+        project_name=$(echo "$project_slug" | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      fi
+      
+      # Truncate long project names
+      if [[ ${#project_name} -gt 40 ]]; then
+        project_name="${project_name:0:37}..."
+      fi
+      
+      local menu_num=$((903 + project_index))  # Start at 903 to avoid conflicts and allow growth
+      focus_items+=("${GREEN}${menu_num})${NC} ⭐ ${project_name} (Quick Edit)")
+      ((project_index++))
+      if [[ $project_index -ge 2 ]]; then  # Limit to 2 projects
+        break
+      fi
+    done
+    
+    if [[ ${#focus_items[@]} -gt 0 ]]; then
+      print_menu_section "${BOLD}${YELLOW}⭐ FOCUS - Favorited Items:${NC}" "${focus_items[@]}"
+    fi
+  fi
   
-  echo -e "${BOLD}${CYAN}⚙️  SETTINGS:${NC}"
-  echo -e "${GREEN}27)${NC} ⚙️  Configuration & Setup"
-  echo -e "${GREEN}28)${NC} 🎮 Gamification & Habitica"
-  echo -e "${GREEN}60)${NC} 💻 Switch Computer Mode (work/home)"
-  echo -e "${GREEN}61)${NC} 🧪 Run Unit Tests"
-  echo ""
-  echo -e "${BOLD}${CYAN}🔧 INFRASTRUCTURE - External Services:${NC}"
-  echo -e "${GREEN}63)${NC} 🗄️  Database Infrastructure Wizard"
-  echo -e "${GREEN}64)${NC} 🐰 RabbitMQ Management Wizard"
-  echo ""
+  # INPUTS section
+  print_menu_section "${BOLD}${CYAN}📥 INPUTS - Capture & Process:${NC}" \
+    "${GREEN}1)${NC} 📥 Capture something to inbox" \
+    "${GREEN}2)${NC} 📋 Process inbox items" \
+    "${GREEN}15)${NC} 📝 Log to daily log" \
+    "${GREEN}31)${NC} 👁️  View daily log" \
+    "${GREEN}19)${NC} 🌅 Morning/Evening Check-In"
+  
+  # ORGANIZATION section
+  print_menu_section "${BOLD}${CYAN}🗂️  ORGANIZATION - Manage Your System:${NC}" \
+    "${GREEN}3)${NC} ✅ Manage tasks" \
+    "${GREEN}4)${NC} 📁 Manage projects" \
+    "${GREEN}5)${NC} 🎯 Manage areas of responsibility" \
+    "${GREEN}8)${NC} 🗺️  Manage MOCs (Maps of Content)" \
+    "${GREEN}23)${NC} 🔗 Zettelkasten (atomic notes)" \
+    "${GREEN}55)${NC} 🎯 Prioritization Review"
+  
+  # SECOND BRAIN section
+  print_menu_section "${BOLD}${CYAN}🧠 SECOND BRAIN - Advanced Operations:${NC}" \
+    "${GREEN}48)${NC} 🔗 Connect notes" \
+    "${GREEN}49)${NC} 📊 Converge/consolidate notes" \
+    "${GREEN}50)${NC} 🔍 Discover connections" \
+    "${GREEN}51)${NC} 📝 Distill (progressive summarization)" \
+    "${GREEN}52)${NC} 💡 Diverge (expand ideas)" \
+    "${GREEN}53)${NC} 🌲 Evergreen notes" \
+    "${GREEN}54)${NC} 📦 Note packets"
+  
+  # OUTPUTS section
+  print_menu_section "${BOLD}${CYAN}📤 OUTPUTS - Reviews & Creation:${NC}" \
+    "${GREEN}6)${NC} 📊 Review (daily/weekly/monthly)" \
+    "${GREEN}7)${NC} 🧠 Sync with Second Brain" \
+    "${GREEN}57)${NC} 🔄 Bidirectional Obsidian Sync" \
+    "${GREEN}59)${NC} 📊 Enhanced Review System" \
+    "${GREEN}62)${NC} 📝 Review Draft Notes (evergreen insights)" \
+    "${GREEN}9)${NC} ✍️  Express Phase (create content from notes)" \
+    "${GREEN}10)${NC} 📋 Use Templates" \
+    "${GREEN}22)${NC} 🎨 Create diagrams & mindmaps"
+  
+  # LEARNING section
+  print_menu_section "${BOLD}${CYAN}📚 LEARNING - Guides & Discovery:${NC}" \
+    "${GREEN}12)${NC} 📚 Learn Organization System (GTD + Second Brain + Zettelkasten)" \
+    "${GREEN}13)${NC} 🧠 Learn Second Brain (where to start)" \
+    "${GREEN}14)${NC} 🎯 Discover Life Vision (if you don't have a plan)" \
+    "${GREEN}20)${NC} ☸️  Learn Kubernetes/CKA" \
+    "${GREEN}21)${NC} 🇬🇷 Learn Greek (Language)"
+  
+  # ANALYSIS section
+  print_menu_section "${BOLD}${CYAN}🔍 ANALYSIS - Insights & Tracking:${NC}" \
+    "${GREEN}16)${NC} 🔍 Search GTD system" \
+    "${GREEN}17)${NC} 📊 System status" \
+    "${GREEN}25)${NC} 🎯 Goal Tracking & Progress" \
+    "${GREEN}26)${NC} ⚡ Energy Audit (drains & boosts)" \
+    "${GREEN}30)${NC} 💪 HealthKit & Health Data (disabled)" \
+    "${GREEN}34)${NC} 📈 Log statistics & streaks" \
+    "${GREEN}35)${NC} 🔗 Metric correlations" \
+    "${GREEN}36)${NC} 🔍 Pattern recognition" \
+    "${GREEN}37)${NC} 📊 Weekly progress report" \
+    "${GREEN}38)${NC} 🧠 Second Brain metrics" \
+    "${GREEN}56)${NC} 📊 Success metrics (usage & effectiveness)" \
+    "${GREEN}58)${NC} 📚 Learning System Preferences"
+  
+  # TOOLS section
+  print_menu_section "${BOLD}${CYAN}🛠️  TOOLS & SUPPORT:${NC}" \
+    "${GREEN}11)${NC} 🤖 Get advice from personas" \
+    "${GREEN}18)${NC} 🔁 Manage habits & recurring tasks" \
+    "${GREEN}24)${NC} 🤖 AI Suggestions & MCP Tools" \
+    "${GREEN}29)${NC} 📅 Calendar (view, sync tasks, check conflicts)" \
+    "${GREEN}39)${NC} ⚡ Energy-aware scheduling" \
+    "${GREEN}40)${NC} 🎯 What should I do now? (context-aware)" \
+    "${GREEN}41)${NC} 🔍 Find items (advanced search)" \
+    "${GREEN}42)${NC} 🎉 Celebrate milestones"
+  
+  # SETTINGS section
+  print_menu_section "${BOLD}${CYAN}⚙️  SETTINGS:${NC}" \
+    "${GREEN}27)${NC} ⚙️  Configuration & Setup" \
+    "${GREEN}28)${NC} 🎮 Gamification & Habitica" \
+    "${GREEN}60)${NC} 💻 Switch Computer Mode (work/home)" \
+    "${GREEN}61)${NC} 🧪 Run Unit Tests"
+  
+  # INFRASTRUCTURE section
+  print_menu_section "${BOLD}${CYAN}🔧 INFRASTRUCTURE - External Services:${NC}" \
+    "${GREEN}63)${NC} 🗄️  Database Infrastructure Wizard" \
+    "${GREEN}64)${NC} 🐰 RabbitMQ Management Wizard"
+  
+  # Exit option (always single line)
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
   
@@ -3022,6 +3583,421 @@ main() {
       64)
         award_wizard_xp "wizard_action" "Used wizard: RabbitMQ Management"
         external_rabbitmq_wizard
+        ;;
+      # Handle favorited tasks (900-902) and projects (903-904)
+      900|901|902)
+        # Get favorited tasks
+        local favorited_tasks=()
+        while IFS= read -r task_file; do
+          [[ -n "$task_file" ]] && favorited_tasks+=("$task_file")
+        done < <(get_favorited_tasks)
+        
+        # Calculate which task was selected (900 = first, 901 = second, 902 = third)
+        local task_index=$((choice - 900))
+        if [[ $task_index -ge 0 && $task_index -lt ${#favorited_tasks[@]} ]]; then
+          local selected_task_file="${favorited_tasks[$task_index]}"
+          local task_id=$(basename "$selected_task_file" .md)
+          local task_name=$(head -20 "$selected_task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$selected_task_file" .md)
+          
+          clear
+          echo ""
+          echo -e "${BOLD}⭐ Favorited Task: ${task_name}${NC}"
+          echo ""
+          echo "What would you like to do?"
+          echo ""
+          echo "  1) Quick Edit"
+          echo "  2) Quick Complete"
+          echo "  3) View Full Task"
+          echo "  4) ⭐ Unfavorite (remove from favorites)"
+          echo ""
+          echo -e "${YELLOW}0)${NC} Back to Main Menu"
+          echo ""
+          echo -n "Choose: "
+          read action_choice
+          
+          case "$action_choice" in
+            1)
+              # Quick edit - use task update wizard
+              if command -v gtd-task &>/dev/null; then
+                gtd-task update "$task_id"
+              else
+                gtd_feedback error "gtd-task command not found"
+              fi
+              gtd_quick_pause
+              ;;
+            2)
+              # Quick complete
+              if command -v gtd-task &>/dev/null; then
+                gtd-task complete "$task_id"
+                gtd_action_success "completed" "favorited task" "$task_name"
+              else
+                gtd_feedback error "gtd-task command not found"
+              fi
+              gtd_quick_pause
+              ;;
+            3)
+              # View full task
+              if command -v gtd-task &>/dev/null; then
+                gtd-task view "$task_id"
+                gtd_enter_to_continue
+              else
+                gtd_feedback error "gtd-task command not found"
+                gtd_quick_pause
+              fi
+              ;;
+            4)
+              # Unfavorite task
+              if [[ -f "$selected_task_file" ]]; then
+                if grep -q "^favorite:" "$selected_task_file" 2>/dev/null; then
+                  if [[ "$OSTYPE" == "darwin"* ]]; then
+                    sed -i '' "s/^favorite:.*/favorite: false/" "$selected_task_file"
+                  else
+                    sed -i "s/^favorite:.*/favorite: false/" "$selected_task_file"
+                  fi
+                  echo ""
+                  echo -e "${GREEN}✓${NC} Task '$task_name' unfavorited"
+                  echo "   It will no longer appear in your favorited items list."
+                else
+                  echo ""
+                  echo -e "${YELLOW}⚠️${NC} Task is not currently favorited"
+                fi
+                echo ""
+                gtd_quick_pause
+              else
+                gtd_feedback error "Task file not found"
+                gtd_quick_pause
+              fi
+              ;;
+            0|"")
+              # Back - do nothing
+              ;;
+            *)
+              echo "Invalid choice"
+              gtd_quick_pause
+              ;;
+          esac
+        else
+          gtd_feedback error "Favorited task not found"
+          gtd_quick_pause
+        fi
+        ;;
+      903|904)
+        # Get favorited projects - use same method as menu (cache first, then function)
+        local favorited_projects=()
+        local cache_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/.dashboard_cache.json"
+        local cache_used=false
+        
+        # Try to read from cache first (same as menu does)
+        if [[ -f "$cache_file" ]]; then
+          local cache_age=0
+          if command -v stat &>/dev/null; then
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              cache_age=$(($(date +%s) - $(stat -f %m "$cache_file" 2>/dev/null || echo 0)))
+            else
+              cache_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+            fi
+          fi
+          
+          # Cache is valid if less than 30 seconds old (same as menu)
+          if [[ $cache_age -lt 30 ]]; then
+            local cache_data=""
+            cache_data=$(python3 <<PYTHON_EOF 2>/dev/null
+import json
+try:
+    with open("$cache_file", "r") as f:
+        cache = json.load(f)
+    favorited_projects = cache.get('favorited_projects', [])
+    for project_path in favorited_projects[:2]:  # Limit to 2
+        if project_path and isinstance(project_path, str):
+            print(f"FAVORITED_PROJECT={project_path}")
+except Exception:
+    pass
+PYTHON_EOF
+)
+            if [[ -n "$cache_data" ]]; then
+              cache_used=true
+              while IFS='=' read -r key value; do
+                case "$key" in
+                  FAVORITED_PROJECT) [[ -n "$value" ]] && favorited_projects+=("$value") ;;
+                esac
+              done <<< "$cache_data"
+            fi
+          fi
+        fi
+        
+        # Fallback to function if cache not available or stale
+        if [[ "$cache_used" != "true" ]]; then
+          if declare -f get_favorited_projects &>/dev/null; then
+            while IFS= read -r project_dir; do
+              [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir")
+            done < <(get_favorited_projects 2>/dev/null)
+          fi
+        fi
+        
+        # Calculate which project was selected (903 = first, 904 = second)
+        local project_index=$((choice - 903))
+        if [[ $project_index -ge 0 && $project_index -lt ${#favorited_projects[@]} ]]; then
+          local selected_project_dir="${favorited_projects[$project_index]}"
+          local project_slug=$(basename "$selected_project_dir")
+          local project_readme="${selected_project_dir}/README.md"
+          local project_name="$project_slug"
+          if [[ -f "$project_readme" ]]; then
+            project_name=$(gtd_get_frontmatter_value "$project_readme" "name" 2>/dev/null || echo "$project_slug")
+            [[ -z "$project_name" ]] && project_name=$(gtd_get_frontmatter_value "$project_readme" "project" 2>/dev/null || echo "$project_slug")
+          fi
+          
+          clear
+          echo ""
+          echo -e "${BOLD}⭐ Favorited Project: ${project_name}${NC}"
+          echo ""
+          echo "What would you like to do?"
+          echo ""
+          echo "  1) Quick Edit (view/edit project)"
+          echo "  2) View Project Tasks"
+          echo "  3) View Full Project"
+          echo "  4) ⭐ Unfavorite (remove from favorites)"
+          echo ""
+          echo -e "${YELLOW}0)${NC} Back to Main Menu"
+          echo ""
+          echo -n "Choose: "
+          read action_choice
+          
+          case "$action_choice" in
+            1)
+              # Quick edit - view project
+              if command -v gtd-project &>/dev/null; then
+                gtd-project view "$project_slug"
+                echo ""
+                echo "What would you like to edit?"
+                echo "  1) Update project status"
+                echo "  2) Add task to project"
+                echo "  3) Add note to project"
+                echo ""
+                echo -e "${YELLOW}0)${NC} Back"
+                echo ""
+                echo -n "Choose: "
+                read edit_choice
+                
+                case "$edit_choice" in
+                  1)
+                    echo -n "New status: "
+                    read new_status
+                    if [[ -n "$new_status" ]]; then
+                      gtd-project status "$project_slug" "$new_status"
+                    fi
+                    ;;
+                  2)
+                    echo -n "Task description: "
+                    read task_desc
+                    if [[ -n "$task_desc" ]]; then
+                      gtd-project add-task "$project_slug" "$task_desc"
+                    fi
+                    ;;
+                  3)
+                    gtd-project add-note "$project_slug"
+                    ;;
+                esac
+              else
+                gtd_feedback error "gtd-project command not found"
+              fi
+              gtd_quick_pause
+              ;;
+            2)
+              # View and manage project tasks interactively
+              # Check if review_project_tasks function exists (from gtd-wizard-org.sh)
+              if declare -f review_project_tasks &>/dev/null; then
+                review_project_tasks "$project_slug" "$project_name"
+              else
+                # Fallback: use gtd-project view and offer basic interaction
+                if command -v gtd-project &>/dev/null; then
+                  clear
+                  echo ""
+                  echo -e "${BOLD}⭐ Project Tasks: ${project_name}${NC}"
+                  echo ""
+                  gtd-project view "$project_slug" | grep -A 100 "## Tasks" || gtd-project view "$project_slug"
+                  echo ""
+                  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                  echo ""
+                  echo "What would you like to do?"
+                  echo "  1) Select a task to manage (complete, edit, add notes)"
+                  echo "  2) Back to project menu"
+                  echo ""
+                  echo -n "Choose: "
+                  read task_action
+                  
+                  case "$task_action" in
+                    1)
+                      # Get tasks in project
+                      local project_dir="${PROJECTS_PATH:-$HOME/Documents/gtd/1-projects}/${project_slug}"
+                      local tasks=()
+                      if [[ -d "$project_dir" ]]; then
+                        while IFS= read -r task_file; do
+                          [[ ! -f "$task_file" ]] && continue
+                          [[ "$task_file" == */README.md ]] && continue
+                          local status=$(gtd_get_frontmatter_value "$task_file" "status" 2>/dev/null)
+                          if [[ "$status" == "active" ]]; then
+                            tasks+=("$task_file")
+                          fi
+                        done < <(find "$project_dir" -name "*.md" -type f 2>/dev/null)
+                      fi
+                      
+                      if [[ ${#tasks[@]} -eq 0 ]]; then
+                        echo ""
+                        echo "No active tasks found in this project."
+                        gtd_quick_pause
+                      else
+                        # Display tasks for selection
+                        echo ""
+                        echo "Select a task:"
+                        local task_index=1
+                        local task_ids=()
+                        for task_file in "${tasks[@]}"; do
+                          local task_id=$(basename "$task_file" .md)
+                          task_ids+=("$task_id")
+                          local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+                          if [[ ${#task_name} -gt 50 ]]; then
+                            task_name="${task_name:0:47}..."
+                          fi
+                          echo "  ${task_index}) ${task_name}"
+                          ((task_index++))
+                        done
+                        echo ""
+                        echo -n "Task number: "
+                        read selected_num
+                        
+                        if [[ "$selected_num" =~ ^[0-9]+$ ]] && [[ "$selected_num" -ge 1 ]] && [[ "$selected_num" -le ${#tasks[@]} ]]; then
+                          local selected_task_id="${task_ids[$((selected_num - 1))]}"
+                          local selected_task_file="${tasks[$((selected_num - 1))]}"
+                          local selected_task_name=$(head -20 "$selected_task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || echo "$selected_task_id")
+                          
+                          clear
+                          echo ""
+                          echo -e "${BOLD}Task: ${selected_task_name}${NC}"
+                          echo ""
+                          echo "What would you like to do?"
+                          echo "  1) Complete task"
+                          echo "  2) Edit task"
+                          echo "  3) Add note to task"
+                          echo "  4) View full task"
+                          echo ""
+                          echo -e "${YELLOW}0)${NC} Back"
+                          echo ""
+                          echo -n "Choose: "
+                          read task_choice
+                          
+                          case "$task_choice" in
+                            1)
+                              if command -v gtd-task &>/dev/null; then
+                                gtd-task complete "$selected_task_id"
+                                gtd_action_success "completed" "task" "$selected_task_name"
+                              else
+                                gtd_feedback error "gtd-task command not found"
+                              fi
+                              gtd_quick_pause
+                              ;;
+                            2)
+                              if command -v gtd-task &>/dev/null; then
+                                gtd-task update "$selected_task_id"
+                              else
+                                gtd_feedback error "gtd-task command not found"
+                              fi
+                              gtd_quick_pause
+                              ;;
+                            3)
+                              if command -v gtd-task &>/dev/null; then
+                                echo -n "Note title (or press Enter to be prompted): "
+                                read note_title
+                                if [[ -n "$note_title" ]]; then
+                                  gtd-task add-note "$selected_task_id" "$note_title"
+                                else
+                                  gtd-task add-note "$selected_task_id"
+                                fi
+                              else
+                                gtd_feedback error "gtd-task command not found"
+                              fi
+                              gtd_quick_pause
+                              ;;
+                            4)
+                              if command -v gtd-task &>/dev/null; then
+                                gtd-task view "$selected_task_id"
+                                gtd_enter_to_continue
+                              else
+                                gtd_feedback error "gtd-task command not found"
+                              fi
+                              ;;
+                            0|"")
+                              # Back - do nothing
+                              ;;
+                            *)
+                              echo "Invalid choice"
+                              gtd_quick_pause
+                              ;;
+                          esac
+                        else
+                          gtd_feedback error "Invalid task number"
+                          gtd_quick_pause
+                        fi
+                      fi
+                      ;;
+                    2|0|"")
+                      # Back - do nothing
+                      ;;
+                    *)
+                      echo "Invalid choice"
+                      gtd_quick_pause
+                      ;;
+                  esac
+                else
+                  gtd_feedback error "gtd-project command not found"
+                  gtd_quick_pause
+                fi
+              fi
+              ;;
+            3)
+              # View full project
+              if command -v gtd-project &>/dev/null; then
+                gtd-project view "$project_slug"
+                gtd_enter_to_continue
+              else
+                gtd_feedback error "gtd-project command not found"
+                gtd_quick_pause
+              fi
+              ;;
+            4)
+              # Unfavorite project
+              if [[ -f "$project_readme" ]]; then
+                if grep -q "^favorite:" "$project_readme" 2>/dev/null; then
+                  if [[ "$OSTYPE" == "darwin"* ]]; then
+                    sed -i '' "s/^favorite:.*/favorite: false/" "$project_readme"
+                  else
+                    sed -i "s/^favorite:.*/favorite: false/" "$project_readme"
+                  fi
+                  echo ""
+                  echo -e "${GREEN}✓${NC} Project '$project_name' unfavorited"
+                  echo "   It will no longer appear in your favorited items list."
+                else
+                  echo ""
+                  echo -e "${YELLOW}⚠️${NC} Project is not currently favorited"
+                fi
+                echo ""
+                gtd_quick_pause
+              else
+                gtd_feedback error "Project README not found"
+                gtd_quick_pause
+              fi
+              ;;
+            0|"")
+              # Back - do nothing
+              ;;
+            *)
+              echo "Invalid choice"
+              gtd_quick_pause
+              ;;
+          esac
+        else
+          gtd_feedback error "Favorited project not found"
+          gtd_quick_pause
+        fi
         ;;
       0|"")
         clear

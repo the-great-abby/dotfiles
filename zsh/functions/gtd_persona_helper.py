@@ -316,6 +316,14 @@ PERSONAS = {
         "system_prompt": "You are Jeremy Crawford, the Lead Rules Designer for Dungeons & Dragons at Wizards of the Coast. You're known for your deep understanding of game mechanics, rules expertise, and ability to explain complex systems clearly. Use phrases like 'Let's check the rules', 'Here's how that works', 'That's a great question', and 'The rules are meant to serve the story.' You're methodical, precise, and you think deeply about how systems work. You're known for saying 'The rules are tools, not constraints' and 'Good rules support good storytelling.' You help with system design, strategic thinking, understanding complex systems, and finding elegant solutions. You think in terms of mechanics, balance, and creating systems that work well. When helping with life challenges, you frame them as systems to understand, rules to learn, or mechanics to optimize. You're thoughtful, precise, and help people understand how things work so they can use that knowledge effectively. You speak with the clarity and expertise of someone who has spent years thinking about how systems work. Be methodical, clear, and help them understand their challenges as systems they can learn to navigate effectively.",
         "expertise": "rules_systems",
         "temperature": 0.7
+    },
+    # Pathfinder Kingmaker Character Persona - CUSTOMIZE THIS WITH YOUR CHARACTER'S DETAILS
+    # Replace [CHARACTER_NAME], [CLASS], [RACE], [ALIGNMENT], [PERSONALITY_TRAITS], [BACKSTORY], [CATCHPHRASES] with your character's actual information
+    "kingmaker-char": {
+        "name": "Rakasha Elka",
+        "system_prompt": "You are Rakasha Elka, a Brawling Blademaster samurai Half Orc from the Pathfinder Kingmaker campaign. Your alignment is Lawful Neutral. You're quick to anger, and ready to fight at a moment's notice ... Your backstory includes: Your character was left for dead after a murderer killed your master's son (your mentee), You have sworn an oath of vengence to hunt the character, and you were just made Royal Enforcer of your party's new kingdom in the stolen lands, where you believe the killer escaped. You speak in character, using phrases like (No catchphrases identified yet). When asked how you would act in a situation, respond as this character would - considering your alignment, personality, background, class abilities, and the context of the Kingmaker campaign. Think about what motivates you, what you value, and how your past experiences shape your decisions. Be true to the character while providing helpful roleplay advice. Consider the political, social, and combat aspects of situations in the Stolen Lands. Help the player understand how you would react, what you would say, and what actions you would take based on your character's nature.",
+        "expertise": "pathfinder_roleplay",
+        "temperature": 0.8
     }
 }
 
@@ -818,6 +826,7 @@ def read_config():
         "backend": "lmstudio",  # Default to lmstudio for backward compatibility
         "url": "http://localhost:1234/v1/chat/completions",
         "chat_model": "",
+        "instruct_model": "",  # Instruct model for structured output/JSON formatting
         "name": "",
         "max_tokens": 1200,
         "timeout": 60,  # Default 60 seconds for local systems
@@ -852,10 +861,14 @@ def read_config():
                             config["lmstudio_url"] = value
                         elif key == "LM_STUDIO_CHAT_MODEL":
                             config["lmstudio_model"] = value
+                        elif key == "LM_STUDIO_INSTRUCT_MODEL":
+                            config["lmstudio_instruct_model"] = value
                         elif key == "OLLAMA_URL":
                             config["ollama_url"] = value
                         elif key == "OLLAMA_CHAT_MODEL":
                             config["ollama_model"] = value
+                        elif key == "OLLAMA_INSTRUCT_MODEL":
+                            config["ollama_instruct_model"] = value
                         elif key == "NAME" or key == "GTD_USER_NAME":
                             config["name"] = value
                         elif key == "GTD_DEEP_MODEL_NAME":
@@ -907,8 +920,12 @@ def read_config():
                                 config["backend"] = value.lower()
                             elif mode_key == "LM_STUDIO_CHAT_MODEL" and value:
                                 config["lmstudio_model"] = value
+                            elif mode_key == "LM_STUDIO_INSTRUCT_MODEL" and value:
+                                config["lmstudio_instruct_model"] = value
                             elif mode_key == "OLLAMA_CHAT_MODEL" and value:
                                 config["ollama_model"] = value
+                            elif mode_key == "OLLAMA_INSTRUCT_MODEL" and value:
+                                config["ollama_instruct_model"] = value
                             elif mode_key == "DEEP_MODEL_NAME" and value:
                                 config["deep_model_name"] = value
     
@@ -917,10 +934,12 @@ def read_config():
     if backend == "ollama":
         config["url"] = config.get("ollama_url", "http://localhost:11434/v1/chat/completions")
         config["chat_model"] = config.get("ollama_model", "")
+        config["instruct_model"] = config.get("ollama_instruct_model", "")
         config["backend_name"] = "Ollama"
     else:  # Default to lmstudio
         config["url"] = config.get("lmstudio_url", "http://localhost:1234/v1/chat/completions")
         config["chat_model"] = config.get("lmstudio_model", "")
+        config["instruct_model"] = config.get("lmstudio_instruct_model", "")
         config["backend_name"] = "LM Studio"
     
     return config
@@ -946,7 +965,7 @@ def check_ai_server(config):
     except Exception as e:
         return False, f"Error checking server: {e}"
 
-def call_persona(config, persona_key, content, context="", skip_gtd_context=False, web_search_requested=False, enable_gtd_tools=False):
+def call_persona(config, persona_key, content, context="", skip_gtd_context=False, web_search_requested=False, enable_gtd_tools=False, use_instruct=False):
     """Call AI backend (LM Studio or Ollama) with a specific persona.
     
     Args:
@@ -957,6 +976,7 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
         skip_gtd_context: Skip GTD-specific context in prompts
         web_search_requested: Whether web search is requested
         enable_gtd_tools: Whether to enable GTD tool calls (list_tasks, create_task, etc.)
+        use_instruct: If True, use instruct model (better for structured output, JSON formatting, precise instructions)
     """
     # urllib is already imported at module level
     
@@ -1043,7 +1063,15 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
         user_prompt = f"Context: {context}\n\n{user_prompt}"
     
     # Prepare request
-    model_name = config.get("chat_model", "").strip()
+    # Use instruct model if requested (for structured output, JSON formatting, precise instructions)
+    if use_instruct:
+        model_name = config.get("instruct_model", "").strip()
+        # Fall back to regular chat model if instruct model not configured
+        if not model_name:
+            model_name = config.get("chat_model", "").strip()
+    else:
+        model_name = config.get("chat_model", "").strip()
+    
     if not model_name:
         model_name = "local-model"
     

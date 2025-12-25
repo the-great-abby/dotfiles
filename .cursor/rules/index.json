@@ -107,6 +107,63 @@
       "alwaysApply": true,
       "priority": 9,
       "categories": ["quality", "maintainability", "bash", "python"]
+    },
+    {
+      "id": "pause-functions",
+      "file": "pause-functions.mdc",
+      "description": "When to use gtd_enter_to_continue vs gtd_quick_pause",
+      "filePatterns": [
+        "**/*.sh",
+        "**/bin/**",
+        "**/zsh/functions/**"
+      ],
+      "matchStrings": [
+        "gtd_quick_pause",
+        "gtd_enter_to_continue",
+        "gtd_pause",
+        "review",
+        "report",
+        "display",
+        "show.*task",
+        "list.*task",
+        "analysis result",
+        "summary",
+        "dashboard"
+      ],
+      "alwaysApply": true,
+      "priority": 8,
+      "categories": ["ux", "bash", "quality"]
+    },
+    {
+      "id": "architecture-decisions",
+      "file": "architecture-decisions.mdc",
+      "description": "Maintain architecture decisions documentation as system evolves",
+      "filePatterns": [
+        "**/*.sh",
+        "**/*.py",
+        "**/bin/**",
+        "**/mcp/**",
+        "docs/**"
+      ],
+      "matchStrings": [
+        "architecture decision",
+        "architectural change",
+        "new infrastructure",
+        "new database",
+        "new framework",
+        "ADR",
+        "message queue",
+        "sync mechanism",
+        "storage architecture",
+        "infrastructure",
+        "deployment",
+        "technology choice",
+        "trade-off",
+        "decision record"
+      ],
+      "alwaysApply": false,
+      "priority": 7,
+      "categories": ["documentation", "architecture", "maintainability"]
     }
   ],
   "categories": {
@@ -116,7 +173,10 @@
     "quality": "Rules related to code quality",
     "bash": "Rules specific to bash/shell scripts",
     "python": "Rules specific to Python code",
-    "compatibility": "Rules related to cross-platform and version compatibility"
+    "compatibility": "Rules related to cross-platform and version compatibility",
+    "maintainability": "Rules related to code maintainability and DRY principles",
+    "documentation": "Rules related to maintaining documentation",
+    "architecture": "Rules related to system architecture and design decisions"
   },
   "matchLogic": {
     "description": "Rules are matched when ANY filePattern OR matchString matches",

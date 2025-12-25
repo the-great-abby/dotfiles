@@ -1,0 +1,168 @@
+---
+description: Maintain architecture decisions documentation as system evolves
+globs: ["**/*.sh", "**/*.py", "**/bin/**", "**/mcp/**", "docs/**"]
+alwaysApply: false
+priority: 7
+---
+
+# Architecture Decisions Documentation Rule
+
+**PURPOSE**: Ensure architectural decisions are documented in `docs/architecture_decisions.md` as the system evolves.
+
+## When to Document an Architecture Decision
+
+Document a new Architecture Decision Record (ADR) when making changes that:
+
+1. **Introduce new technologies or frameworks**
+   - New databases, message queues, libraries
+   - New infrastructure components (k8s services, networking)
+   - New programming languages or major dependencies
+
+2. **Change fundamental data structures or storage**
+   - File formats, database schemas
+   - Data organization (directory structures, naming conventions)
+   - Sync mechanisms or data flow patterns
+
+3. **Modify system behavior or constraints**
+   - New compatibility requirements
+   - Performance optimizations with trade-offs
+   - New user interaction patterns
+
+4. **Change how components interact**
+   - API changes, integration patterns
+   - Communication protocols (queues, RPC, etc.)
+   - Cross-system dependencies
+
+5. **Introduce significant trade-offs**
+   - Performance vs. complexity
+   - Features vs. simplicity
+   - Cost vs. capability
+   - Reliability vs. speed
+
+## ADR Format Template
+
+When documenting a new decision, use this format in `docs/architecture_decisions.md`:
+
+```markdown
+### ADR-XXX: [Short Descriptive Title]
+
+**Status**: Active | Superseded | Deprecated  
+**Date**: YYYY-MM-DD  
+**Context**: [What situation or problem led to this decision?]
+
+**Decision**: [What was decided? Be specific about the choice made.]
+
+**Rationale**:
+- [Reason 1: Why this choice?]
+- [Reason 2: What problem does it solve?]
+- [Reason 3: What constraints does it address?]
+
+**Alternatives Considered**:
+- **Alternative 1**: [Description] → **Rejected**: [Why it was rejected]
+- **Alternative 2**: [Description] → **Rejected**: [Why it was rejected]
+
+**Consequences**:
+- **Positive**: [What benefits does this bring?]
+- **Negative**: [What drawbacks or trade-offs?]
+- **Neutral**: [What are the neutral implications?]
+- **Mitigation**: [How are negative consequences addressed?]
+
+**Implementation Notes**:
+- [Key implementation details or patterns]
+- [Links to relevant code/files]
+- [Special considerations for future maintainers]
+```
+
+## How to Add to architecture_decisions.md
+
+1. **Find the appropriate section** (Language & Platform, Storage, Infrastructure, etc.)
+2. **Add the ADR** using the template above
+3. **Number sequentially**: ADR-016, ADR-017, etc.
+4. **Update Table of Contents** if adding a new major section
+5. **Link from related code**: Add comments in code referencing the ADR when relevant
+
+## When to Update Existing ADRs
+
+Update an existing ADR when:
+
+1. **Decision is superseded** - Change status to "Superseded" and add new ADR explaining why
+2. **Decision is deprecated** - Change status to "Deprecated" and document replacement
+3. **Implementation details change** - Update "Implementation Notes" section
+4. **Consequences become clearer** - Add to "Consequences" section based on experience
+
+## Code Comments for ADR References
+
+When implementing code related to an architectural decision, add comments:
+
+```bash
+# See ADR-003: Markdown files with YAML frontmatter
+# This function writes tasks directly to markdown files...
+```
+
+```python
+# See ADR-006: RabbitMQ with file queue fallback
+# This function tries RabbitMQ first, falls back to file queue
+def queue_job(message):
+    ...
+```
+
+## Common Decision Categories
+
+Add ADRs under these sections (or create new sections if needed):
+
+1. **Language & Platform Decisions** - Programming languages, shell compatibility, platform constraints
+2. **Storage Architecture** - File formats, databases, data persistence
+3. **Infrastructure & Deployment** - k8s, networking, service configuration
+4. **AI & Automation Architecture** - LLM usage, AI integration patterns
+5. **User Interface & Interaction** - CLI vs GUI, interaction patterns
+6. **Data Flow & Processing** - How data moves through the system
+7. **Cross-Device & Sync Strategy** - Multi-device coordination
+
+## Examples of Decisions That Should Be Documented
+
+✅ **Document these**:
+- Switching from port-forwarding to NodePort (ADR-005)
+- Choosing local LLMs over cloud APIs (ADR-009)
+- Implementing unified learning system (ADR-008)
+- Using markdown files instead of database (ADR-003)
+- Work/Home mode split (ADR-015)
+
+❌ **Don't document these** (too minor):
+- Adding a new command-line flag
+- Refactoring function names
+- Adding utility functions
+- Bug fixes that don't change architecture
+- Documentation updates
+
+## Maintenance Checklist
+
+When making architectural changes:
+
+- [ ] Is this a significant architectural decision?
+- [ ] Does it introduce new technologies or patterns?
+- [ ] Does it change how components interact?
+- [ ] Are there meaningful trade-offs or consequences?
+- [ ] If yes to any above → Create/update ADR in `docs/architecture_decisions.md`
+- [ ] Add code comments referencing the ADR
+- [ ] Update related documentation if needed
+
+## AI Assistant Instructions
+
+When you see code changes that introduce:
+- New infrastructure components
+- New data storage patterns
+- New communication mechanisms
+- Significant refactoring of system architecture
+- New dependencies or technology choices
+- Changes to work/home mode behavior
+- New sync or cross-device patterns
+
+**Prompt the user**: "This appears to be a significant architectural change. Should we document this as ADR-XXX in `docs/architecture_decisions.md`?"
+
+Then help create the ADR using the template above.
+
+## Related Files
+
+- **Architecture Decisions Document**: `docs/architecture_decisions.md`
+- **System Specification**: `docs/gtd_system_spec.md` (complements ADRs with technical details)
+- **Implementation Code**: Check code comments for ADR references

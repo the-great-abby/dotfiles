@@ -128,6 +128,47 @@ if [[ -f "$GTD_WIZARD_ENHANCED_REVIEW" ]]; then
   source "$GTD_WIZARD_ENHANCED_REVIEW"
 fi
 
+# Parse command-line arguments
+GTD_WIZARD_COLUMNS=1  # Default to single column
+GTD_FUZZY_SEARCH="false"  # Default to no fuzzy search
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --columns=*)
+      GTD_WIZARD_COLUMNS="${1#*=}"
+      if [[ "$GTD_WIZARD_COLUMNS" != "1" && "$GTD_WIZARD_COLUMNS" != "2" ]]; then
+        echo "Warning: Invalid columns value '$GTD_WIZARD_COLUMNS'. Using default (1 column)." >&2
+        GTD_WIZARD_COLUMNS=1
+      fi
+      shift
+      ;;
+    --fuzzy)
+      GTD_FUZZY_SEARCH="true"
+      shift
+      ;;
+    --help|-h)
+      echo "GTD Wizard - Interactive Getting Things Done system"
+      echo ""
+      echo "Usage: gtd-wizard [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --columns=1|2    Display menu in 1 or 2 columns (default: 1)"
+      echo "  --fuzzy          Enable fuzzy search for tasks/projects/areas"
+      echo "  --help, -h        Show this help message"
+      echo ""
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Use --help for usage information" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Export for use in other functions
+export GTD_WIZARD_COLUMNS
+export GTD_FUZZY_SEARCH
+
 # Clear screen
 clear
 
@@ -762,7 +803,11 @@ select_from_tasks() {
   echo "" >&2
   
   # Get user input (prompt to stderr so it shows)
-  echo -n "Select ${item_type} (number or partial name): " >&2
+  local fuzzy_hint=""
+  if [[ "${GTD_FUZZY_SEARCH:-false}" == "true" ]]; then
+    fuzzy_hint=" (fuzzy search enabled)"
+  fi
+  echo -n "Select ${item_type} (number or partial name${fuzzy_hint}): " >&2
   read user_input
   
   if [[ -z "$user_input" ]]; then
@@ -781,23 +826,100 @@ select_from_tasks() {
     fi
   fi
   
-  # Try partial name matching (case-insensitive)
+  # Check if fuzzy search is enabled (via environment variable)
+  local use_fuzzy="${GTD_FUZZY_SEARCH:-false}"
+  
+  # Try partial name matching (case-insensitive) or fuzzy search
   declare -a matches
   declare -a match_indices
+  declare -a match_scores
   
-  for i in "${!task_names[@]}"; do
-    local task_name="${task_names[$i]}"
-    local task_id="${task_ids[$i]}"
+  if [[ "$use_fuzzy" == "true" ]] && command -v python3 &>/dev/null; then
+    # Use Python difflib for fuzzy matching
+    local fuzzy_output=""
+    fuzzy_output=$({
+      echo "$user_input"
+      for i in "${!task_names[@]}"; do
+        echo "${task_names[$i]}"
+        echo "${task_ids[$i]}"
+      done
+    } | python3 <<'PYTHON_EOF'
+import sys
+import difflib
+
+user_input = sys.stdin.readline().strip()
+task_names = []
+task_ids = []
+while True:
+    name = sys.stdin.readline().strip()
+    if not name:
+        break
+    task_id = sys.stdin.readline().strip()
+    task_names.append(name)
+    task_ids.append(task_id)
+
+matches = []
+match_indices = []
+match_scores = []
+
+for i, task_name in enumerate(task_names):
+    task_id = task_ids[i]
+    task_name_lower = task_name.lower()
+    task_id_lower = task_id.lower()
+    user_input_lower = user_input.lower()
     
-    # Case-insensitive partial match (bash 3.2 compatible)
-    local task_name_lower=$(echo "$task_name" | tr '[:upper:]' '[:lower:]')
-    local task_id_lower=$(echo "$task_id" | tr '[:upper:]' '[:lower:]')
-    local user_input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
-    if [[ "$task_name_lower" == *"$user_input_lower"* ]] || [[ "$task_id_lower" == *"$user_input_lower"* ]]; then
-      matches+=("$task_name")
-      match_indices+=($i)
+    # First check for substring match (case-insensitive) - this is a perfect match
+    if user_input_lower in task_name_lower or user_input_lower in task_id_lower:
+        # Substring match gets highest score
+        matches.append(task_name)
+        match_indices.append(i)
+        match_scores.append(1.0)
+    else:
+        # Use fuzzy matching for partial/typo matches
+        name_score = difflib.SequenceMatcher(None, user_input_lower, task_name_lower).ratio()
+        id_score = difflib.SequenceMatcher(None, user_input_lower, task_id_lower).ratio()
+        score = max(name_score, id_score)
+        # Lower threshold to 0.2 to catch more matches
+        if score >= 0.2:
+            matches.append(task_name)
+            match_indices.append(i)
+            match_scores.append(score)
+
+if matches:
+    sorted_data = sorted(zip(match_scores, matches, match_indices), reverse=True)
+    match_scores, matches, match_indices = zip(*sorted_data)
+    for score, name, idx in zip(match_scores, matches, match_indices):
+        print(f"{score}|{name}|{idx}")
+PYTHON_EOF
+)
+    
+    # Parse fuzzy results
+    if [[ -n "$fuzzy_output" ]]; then
+      while IFS='|' read -r score name idx; do
+        if [[ -n "$score" && -n "$name" && -n "$idx" ]]; then
+          matches+=("$name")
+          match_indices+=($idx)
+          match_scores+=("$score")
+        fi
+      done <<< "$fuzzy_output"
     fi
-  done
+  else
+    # Original partial name matching (case-insensitive)
+    for i in "${!task_names[@]}"; do
+      local task_name="${task_names[$i]}"
+      local task_id="${task_ids[$i]}"
+      
+      # Case-insensitive partial match (bash 3.2 compatible)
+      local task_name_lower=$(echo "$task_name" | tr '[:upper:]' '[:lower:]')
+      local task_id_lower=$(echo "$task_id" | tr '[:upper:]' '[:lower:]')
+      local user_input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
+      if [[ "$task_name_lower" == *"$user_input_lower"* ]] || [[ "$task_id_lower" == *"$user_input_lower"* ]]; then
+        matches+=("$task_name")
+        match_indices+=($i)
+        match_scores+=("1.0")  # Perfect match for partial
+      fi
+    done
+  fi
   
   local match_count=${#matches[@]}
   

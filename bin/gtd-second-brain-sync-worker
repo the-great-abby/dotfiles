@@ -9,15 +9,28 @@ DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Default to file queue, but allow override
 QUEUE_TYPE="${1:-file}"
 
-# Get Python path
-MCP_PYTHON=$(command -v python3)
-if [[ -z "$MCP_PYTHON" ]]; then
-    echo "Error: python3 not found" >&2
-    exit 1
+# Find Python executable (check virtualenv first)
+MCP_DIR="$HOME/code/dotfiles/mcp"
+if [[ ! -d "$MCP_DIR" ]]; then
+    MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+fi
+
+VENV_PYTHON="${MCP_DIR}/venv/bin/python3"
+if [[ -f "$VENV_PYTHON" ]]; then
+    MCP_PYTHON="$VENV_PYTHON"
+else
+    MCP_PYTHON=$(command -v python3)
+    if [[ -z "$MCP_PYTHON" ]]; then
+        echo "Error: python3 not found" >&2
+        exit 1
+    fi
 fi
 
 # Worker script path
-WORKER_SCRIPT="$DOTFILES_DIR/mcp/gtd_second_brain_sync_worker.py"
+WORKER_SCRIPT="${MCP_DIR}/gtd_second_brain_sync_worker.py"
+if [[ ! -f "$WORKER_SCRIPT" ]]; then
+    WORKER_SCRIPT="$DOTFILES_DIR/mcp/gtd_second_brain_sync_worker.py"
+fi
 
 if [[ ! -f "$WORKER_SCRIPT" ]]; then
     echo "Error: Worker script not found: $WORKER_SCRIPT" >&2

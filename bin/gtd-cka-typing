@@ -320,11 +320,11 @@ practice_command() {
     echo -e "   Time: ${duration}s | WPM: ${wpm} | Accuracy: ${accuracy}%"
     echo ""
     
-    # Update stats
-    update_typing_stats "$command" "$duration" "$wpm" "$accuracy" "correct"
+    # Update stats (with error handling to prevent script exit)
+    update_typing_stats "$command" "$duration" "$wpm" "$accuracy" "correct" || true
     
     echo -e "${BOLD}Press Enter for next command (or 'q' to quit)...${NC}"
-    read -r next_action
+    read -r next_action || return 2  # If read fails (e.g., EOF), treat as quit
     
     if [[ "$next_action" == "q" || "$next_action" == "Q" ]]; then
       return 2  # Quit signal
@@ -374,11 +374,11 @@ practice_command() {
     echo -e "   Time: ${duration}s | WPM: ${wpm} | Accuracy: ${accuracy}%"
     echo ""
     
-    # Update stats
-    update_typing_stats "$command" "$duration" "$wpm" "$accuracy" "incorrect"
+    # Update stats (with error handling to prevent script exit)
+    update_typing_stats "$command" "$duration" "$wpm" "$accuracy" "incorrect" || true
     
     echo -e "${BOLD}Press Enter to try again (or 's' to skip, 'q' to quit)...${NC}"
-    read -r next_action
+    read -r next_action || return 2  # If read fails (e.g., EOF), treat as quit
     
     if [[ "$next_action" == "q" || "$next_action" == "Q" ]]; then
       return 2  # Quit signal
@@ -398,7 +398,12 @@ update_typing_stats() {
   local accuracy="$4"
   local result="$5"
   
-  init_typing_stats
+  # Return early if required parameters are missing
+  if [[ -z "$command" || -z "$duration" ]]; then
+    return 0  # Silently fail to prevent script exit
+  fi
+  
+  init_typing_stats || return 0  # If init fails, continue anyway
   
   local data=$(cat "$TYPING_STATS_FILE")
   local sessions=$(echo "$data" | grep -o '"sessions": [0-9]*' | grep -o '[0-9]*')
@@ -438,17 +443,20 @@ update_typing_stats() {
   data=$(echo "$data" | sed "s/\"best_wpm\": $best_wpm/\"best_wpm\": $best_wpm/")
   data=$(echo "$data" | sed "s/\"best_accuracy\": $best_accuracy/\"best_accuracy\": $best_accuracy/")
   
-  local today=$($DATE_CMD +"%Y-%m-%d")
+  local today=$($DATE_CMD +"%Y-%m-%d" 2>/dev/null || echo "unknown")
   data=$(echo "$data" | sed "s/\"last_session\": \"[^\"]*\"/\"last_session\": \"$today\"/")
   
-  echo "$data" > "$TYPING_STATS_FILE"
+  # Write stats file with error handling
+  echo "$data" > "$TYPING_STATS_FILE" 2>/dev/null || true
   
   # Award XP for practice session
   if command -v gtd-cka-gamification &>/dev/null; then
     if [[ "$result" == "correct" ]]; then
-      gtd-cka-gamification practice > /dev/null 2>&1
+      gtd-cka-gamification practice > /dev/null 2>&1 || true
     fi
   fi
+  
+  return 0  # Always return success to prevent script exit
 }
 
 # Show typing practice menu
@@ -576,7 +584,7 @@ practice_session() {
           fi
           
           echo ""
-          read -p "Press Enter to continue..."
+          read -p "Press Enter to continue..." || true
         fi
         return 0  # Exit session
       elif [[ $result -eq 1 ]]; then
@@ -587,9 +595,10 @@ practice_session() {
         # Try again - loop back to practice the same command
         continue
       else
-        # Unknown result, count as attempted
-        ((total++))
-        break  # Move to next command
+        # Unknown result - treat as error, but allow retry
+        # This handles unexpected return codes gracefully
+        echo -e "${YELLOW}⚠️  Unexpected result, allowing retry...${NC}" >&2
+        continue  # Allow retry instead of breaking
       fi
     done
   done
@@ -701,12 +710,14 @@ main() {
               ((correct++))
               ((total++))
             elif [[ $result -eq 2 ]]; then
-              break
+              break  # User wants to quit
             elif [[ $result -eq 3 ]]; then
-              ((i--))
+              ((i--))  # Decrement counter to retry same command
               continue
             else
-              ((total++))
+              # Unknown result - allow retry instead of counting as attempted
+              ((i--))
+              continue
             fi
           fi
         done

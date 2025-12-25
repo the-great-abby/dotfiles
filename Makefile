@@ -1,12 +1,25 @@
 GLIBC_VER=2.31-r0
 
 # GTD System Commands
-.PHONY: gtd-wizard gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status gtd-diagram
+.PHONY: gtd-wizard gtd-wizard-2col gtd-wizard-fuzzy gtd-wizard-full gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status gtd-diagram
 .PHONY: worker-deep-start worker-deep-stop worker-vector-start worker-vector-stop worker-task-org-start worker-task-org-stop worker-brain-sync-start worker-brain-sync-stop worker-status worker-deep-status worker-vector-status worker-task-org-status rabbitmq-status filewatcher-start filewatcher-stop filewatcher-status filewatcher-scan scheduler-start scheduler-stop scheduler-status scheduler-run verify-nodeport diagnose-nodeport vector-db-init-extension vector-db-init-schema
 
 # GTD Interactive Wizard
+# Default wizard (1 column, no fuzzy search)
 gtd-wizard:
 	@$(HOME)/code/dotfiles/bin/gtd-wizard
+
+# Wizard with 2-column layout
+gtd-wizard-2col:
+	@$(HOME)/code/dotfiles/bin/gtd-wizard --columns=2
+
+# Wizard with fuzzy search enabled
+gtd-wizard-fuzzy:
+	@$(HOME)/code/dotfiles/bin/gtd-wizard --fuzzy
+
+# Wizard with both 2-column layout and fuzzy search
+gtd-wizard-full:
+	@$(HOME)/code/dotfiles/bin/gtd-wizard --columns=2 --fuzzy
 
 # Quick capture
 gtd-capture:
@@ -1046,7 +1059,13 @@ advice-worker-stop: ## Stop advice worker daemon
 	fi
 
 advice-worker-status: ## Check advice worker status
-	@$(HOME)/code/dotfiles/bin/gtd-advice-worker status
+	@if pgrep -f "gtd_advice_worker.py" >/dev/null; then \
+		echo "✅ Advice Worker: Running (PID: $$(pgrep -f 'gtd_advice_worker.py' | head -1))"; \
+		echo "   Type: Python RabbitMQ Worker"; \
+	else \
+		echo "ℹ️  Advice Worker: Not running"; \
+		echo "   Start with: make advice-worker-start"; \
+	fi
 
 # External Services Deployment
 .PHONY: services-deploy-rabbitmq services-deploy-database services-deploy-all

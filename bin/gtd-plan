@@ -103,7 +103,19 @@ if [[ -z "$PLAN_TYPE" ]]; then
     *) echo "Invalid choice"; exit 1 ;;
   esac
   
-  if [[ "$PLAN_TYPE" != "general" ]]; then
+  if [[ "$PLAN_TYPE" == "general" ]]; then
+    echo ""
+    echo "What would you like to think through?"
+    echo "  (Describe what you're trying to plan, a problem you're solving, or a question you have)"
+    echo ""
+    echo -n "Your question or topic: "
+    read general_topic
+    if [[ -z "$general_topic" ]]; then
+      echo "No topic provided. Exiting."
+      exit 0
+    fi
+    ITEM_NAME="$general_topic"
+  elif [[ "$PLAN_TYPE" != "general" ]]; then
     echo ""
     
     # Use standardized path initialization (DRY - reuse existing helper)

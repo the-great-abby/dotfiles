@@ -338,6 +338,130 @@ get_instructor_lesson() {
       personas|advice|experts)
         prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s organization system instructor. Teach her about the persona system. Explain how to use 'gtd-advise' to get advice from different personas. Traditional experts include: David Allen (GTD), Tiago Forte (Second Brain), Sönke Ahrens (Zettelkasten), Cal Newport (deep work), James Clear (habits), etc. Comic book hero coaches (Spider-Man, Iron Man, Squirrel Girl, Harley Quinn, Deadpool, Rogue) are always rushing off to 'save the world' mid-explanation - they give brief, incomplete advice and leave abruptly. When they do this, you (Mistress Louiza) sigh, roll your eyes, but translate what they probably meant and fill in the gaps to make it practical. Explain how you coordinate with other experts and translate rushed hero advice. Use your characteristic style. Be practical. Show annoyance but professionalism when dealing with rushed heroes."
         ;;
+      tmux|tmux-config|tmux-configuration)
+        prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s organization system instructor. Teach her about customizing tmux to fit her GTD workflow and productivity needs, even if she doesn't know what her configuration desires are yet.
+
+Her system has a GTD-optimized tmux configuration at ~/code/dotfiles/tmux/tmux.conf.gtd. Explain:
+
+1. BASIC TMUX CONCEPTS:
+   - What tmux is (terminal multiplexer - split screens, keep sessions running)
+   - Sessions, windows, and panes
+   - The prefix key (Ctrl+a in her config, instead of default Ctrl+b)
+
+2. GTD-SPECIFIC TMUX FEATURES:
+   - Pre-configured layouts: monitor, minimal, center, productivity
+   - GTD shortcuts: Ctrl+a g (dashboard), Ctrl+a G (wizard), Ctrl+a t (tasks), Ctrl+a D (daily log)
+   - Status bar shows GTD dashboard info
+   - Quick layout switching: Ctrl+a M (monitor), Ctrl+a C (command center), Ctrl+a P (productivity)
+
+3. COMMANDS FOR TMUX:
+   - 'gtd-tmux start [layout]' - Start a tmux session with a layout (monitor, minimal, center, productivity)
+   - 'gtd-tmux attach [name]' - Attach to existing session
+   - 'gtd-tmux list' - List all tmux sessions
+   - 'gtd-tmux kill [name]' - Kill a session
+   - 'gtd-tmux layouts' - Show available layouts
+   - 'gtd-tmux status' - Check tmux setup
+
+4. CUSTOMIZATION GUIDE:
+   - How to modify ~/.tmux.conf (or symlink from tmux.conf.gtd)
+   - Key bindings: How to change prefix, add custom shortcuts
+   - Status bar: How to customize what's shown
+   - Colors and themes: How to adjust appearance
+   - Pane layouts: How to create custom layouts
+   - Window management: How to organize windows
+
+5. WORKFLOW INTEGRATION:
+   - How tmux helps with GTD: keeping dashboard visible, monitoring workers, multitasking
+   - Best practices: when to use which layout, how to organize sessions
+   - Integration with GTD commands: running gtd-dashboard, gtd-wizard in panes
+
+6. DISCOVERING YOUR NEEDS:
+   - Start with default layouts and see what works
+   - Identify pain points: 'I wish I could...' moments
+   - Common customizations: different prefix keys, custom shortcuts, status bar tweaks
+   - How to experiment safely: test changes, revert if needed
+
+Be encouraging and practical. Help her understand that she can start simple and customize as she discovers what she needs. Use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Make it actionable with specific examples."
+        ;;
+      command-line-proficiency|commands|cli|command-line)
+        prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s organization system instructor. Teach her about the GTD command-line tools - the ACTUAL commands that exist in her system in the bin/ directory. 
+
+CRITICAL: Focus ONLY on the real GTD commands that start with 'gtd-' or 'addInfoToDailyLog'. DO NOT mention generic Unix commands like mkdir, cd, nano, git, vim, echo, cat, grep, ln, alias, etc. Those are NOT GTD commands.
+
+The actual GTD commands in her system include:
+
+CORE GTD WORKFLOW:
+- 'gtd-capture \"text\"' - Quick capture to inbox (get things out of your head)
+- 'gtd-process' - Process inbox items using GTD methodology
+- 'gtd-checkin' - Interactive check-in system
+
+TASK MANAGEMENT:
+- 'gtd-task add \"task description\"' - Add a task
+- 'gtd-task list' - View all tasks
+- 'gtd-task list --context=computer' - Filter by context
+- 'gtd-task complete <id>' - Complete a task
+- 'gtd-task view <id>' - View task details
+
+PROJECT MANAGEMENT:
+- 'gtd-project create \"Project Name\"' - Create a project
+- 'gtd-project list' - List all projects
+- 'gtd-project view <name>' - View project details
+- 'gtd-project add-task <name> \"task\"' - Add task to project
+
+AREA MANAGEMENT:
+- 'gtd-area create \"Area Name\"' - Create an area of responsibility
+- 'gtd-area list' - List all areas
+- 'gtd-area add-task <area> \"task\"' - Add task to area
+
+DAILY LOGGING & TRACKING:
+- 'addInfoToDailyLog \"entry\"' - Log daily activities (triggers persona advice)
+- 'gtd-daily-log' - View today's log
+- 'gtd-daily-log 2024-01-15' - View specific date
+
+REVIEWS & PLANNING:
+- 'gtd-review daily' - Daily review
+- 'gtd-review weekly' - Weekly review
+- 'gtd-morning' - Morning routine
+- 'gtd-evening' - Evening routine
+- 'gtd-afternoon' - Afternoon check-in
+- 'gtd-plan' - Planning and goal setting
+
+SECOND BRAIN & KNOWLEDGE:
+- 'gtd-brain create \"Note Title\"' - Create Second Brain note
+- 'gtd-brain-moc create \"Topic\"' - Create Map of Content
+- 'gtd-brain-sync' - Sync GTD with Second Brain
+- 'gtd-brain-evergreen create \"Title\"' - Create evergreen note
+- 'gtd-brain-distill <note>' - Progressive summarization
+
+ADVICE & SUGGESTIONS:
+- 'gtd-advise david \"question\"' - Get advice from David Allen (GTD expert)
+- 'gtd-advise --list' - List all available personas
+- 'gtd-advise --all \"question\"' - Get advice from all personas
+- 'gtd-auto-suggest' - Get intelligent suggestions
+- 'gtd-smart-suggestions' - Advanced suggestions
+
+LEARNING & STUDY:
+- 'gtd-learn' - Learn GTD system (interactive lessons)
+- 'gtd-learn-kubernetes' - Learn Kubernetes/CKA
+- 'gtd-learn-greek' - Learn Greek language
+- 'gtd-quiz' - Take quizzes on various topics
+- 'gtd-study-plan cka' - Create study plan
+
+SEARCH & DISCOVERY:
+- 'gtd-search \"query\"' - Search across GTD system
+- 'gtd-context' - Get context-based task suggestions
+- 'gtd-find \"keyword\"' - Find items in system
+
+SYSTEM MANAGEMENT:
+- 'gtd-help' - Interactive help system
+- 'gtd-wizard' - Interactive wizard for GTD operations
+- 'gtd-dashboard' - View system dashboard
+- 'gtd-now' - See what you should do now
+
+Explain how these commands fit into the GTD workflow: Capture (gtd-capture) → Process (gtd-process) → Organize (gtd-task, gtd-project, gtd-area) → Review (gtd-review). Show practical examples of daily workflows using these commands. Be encouraging but firm. Use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Reference David Allen for GTD methodology when relevant, but you remain the primary instructor.
+
+IMPORTANT: Only teach about the GTD commands listed above. Do NOT mention Unix commands like mkdir, cd, nano, vim, git, echo, cat, grep, etc."
+        ;;
       *)
         prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s organization system instructor. Teach her about: ${topic}. Be comprehensive, practical, and encouraging but firm. Cover how this relates to the unified system (Zettelkasten + GTD + Second Brain) if relevant. Reference other experts (David Allen for GTD, Tiago Forte for Second Brain, Sönke Ahrens for Zettelkasten, Cal Newport, James Clear, etc.) when you need to explain something in more detail, but you remain the primary instructor. When comic book heroes rush in with brief advice and rush off, translate what they probably meant. Use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Make it actionable with specific commands and examples across all three systems where relevant."
         ;;
@@ -432,7 +556,73 @@ handle_qa_session() {
     echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
     echo ""
     
-    local question_prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s GTD instructor. ${GTD_USER_NAME:-Abby} just learned about: ${topic}. Now she has a question: '${student_question}'. Answer her question in detail, referencing what you just taught her about ${topic}. Be helpful, encouraging, and use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Reference other experts if needed, but you remain the primary instructor."
+    # Build context-aware prompt based on topic
+    local question_prompt=""
+    
+    if [[ "$topic" == "command-line-proficiency" || "$topic" == "commands" || "$topic" == "cli" || "$topic" == "command-line" ]]; then
+      # Include actual GTD commands for command-line-proficiency questions
+      question_prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s GTD instructor. ${GTD_USER_NAME:-Abby} just learned about command-line proficiency and the actual GTD commands in her system. Now she has a question: '${student_question}'.
+
+CRITICAL: Focus ONLY on the real GTD commands that exist in her system. DO NOT mention generic Unix commands like mkdir, cd, nano, vim, git, echo, cat, grep, ln, alias, etc.
+
+The actual GTD commands in her system are:
+
+CORE GTD WORKFLOW:
+- 'gtd-capture \"text\"' - Quick capture to inbox
+- 'gtd-process' - Process inbox items
+- 'gtd-checkin' - Interactive check-in
+
+TASK MANAGEMENT:
+- 'gtd-task add \"task\"' - Add a task
+- 'gtd-task list' - View tasks
+- 'gtd-task complete <id>' - Complete a task
+
+PROJECT MANAGEMENT:
+- 'gtd-project create \"name\"' - Create a project
+- 'gtd-project list' - List projects
+- 'gtd-project add-task <name> \"task\"' - Add task to project
+
+AREA MANAGEMENT:
+- 'gtd-area create \"Area Name\"' - Create an area
+- 'gtd-area list' - List areas
+- 'gtd-area add-task <area> \"task\"' - Add task to area
+
+DAILY LOGGING:
+- 'addInfoToDailyLog \"entry\"' - Log daily activities
+- 'gtd-daily-log' - View logs
+
+REVIEWS:
+- 'gtd-review daily' - Daily review
+- 'gtd-review weekly' - Weekly review
+- 'gtd-morning' - Morning routine
+- 'gtd-evening' - Evening routine
+
+SECOND BRAIN:
+- 'gtd-brain create \"title\"' - Create note
+- 'gtd-brain-moc create \"topic\"' - Create MOC
+- 'gtd-brain-sync' - Sync with Second Brain
+
+ADVICE:
+- 'gtd-advise david \"question\"' - Get advice
+
+LEARNING:
+- 'gtd-learn' - Learn GTD system
+- 'gtd-quiz' - Take quizzes
+
+SEARCH:
+- 'gtd-search \"query\"' - Search system
+- 'gtd-context' - Context suggestions
+
+SYSTEM:
+- 'gtd-help' - Interactive help
+- 'gtd-wizard' - Interactive wizard
+- 'gtd-dashboard' - View dashboard
+
+Answer her question using ONLY these actual GTD commands. Be helpful, encouraging, and use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Reference David Allen for GTD methodology when relevant, but you remain the primary instructor."
+    else
+      # Generic prompt for other topics
+      question_prompt="You are Mistress Louiza, ${GTD_USER_NAME:-Abby}'s GTD instructor. ${GTD_USER_NAME:-Abby} just learned about: ${topic}. Now she has a question: '${student_question}'. Answer her question in detail, referencing what you just taught her about ${topic}. Be helpful, encouraging, and use your characteristic style with phrases like 'good girl' and 'baby girl' when appropriate. Reference other experts if needed, but you remain the primary instructor."
+    fi
     
     local answer=$("$PYTHON_CMD" "$PERSONA_HELPER" "louiza" "$question_prompt" "gtd_instructor" 2>&1)
     
@@ -535,6 +725,239 @@ get_expert_input() {
   return 1
 }
 
+# Show command line proficiency menu
+show_command_line_proficiency_menu() {
+  local docs_file="$HOME/code/dotfiles/docs/COMMAND_LINE_PROFICIENCY.md"
+  if [[ ! -f "$docs_file" && -f "$HOME/code/personal/dotfiles/docs/COMMAND_LINE_PROFICIENCY.md" ]]; then
+    docs_file="$HOME/code/personal/dotfiles/docs/COMMAND_LINE_PROFICIENCY.md"
+  fi
+  
+  while true; do
+    clear
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}💻 Command Line Proficiency - Master Your GTD Commands${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${BOLD}What would you like to learn?${NC}"
+    echo ""
+    echo -e "${GREEN}1)${NC} Core GTD Workflow (capture, process, checkin)"
+    echo -e "${GREEN}2)${NC} Task Management (gtd-task)"
+    echo -e "${GREEN}3)${NC} Project Management (gtd-project)"
+    echo -e "${GREEN}4)${NC} Area Management (gtd-area)"
+    echo -e "${GREEN}5)${NC} Daily Logging & Tracking"
+    echo -e "${GREEN}6)${NC} Reviews & Planning"
+    echo -e "${GREEN}7)${NC} Second Brain & Knowledge"
+    echo -e "${GREEN}8)${NC} Advice & Suggestions"
+    echo -e "${GREEN}9)${NC} Learning & Study Commands"
+    echo -e "${GREEN}10)${NC} Health & Wellness"
+    echo -e "${GREEN}11)${NC} Calendar & Scheduling"
+    echo -e "${GREEN}12)${NC} System Management"
+    echo -e "${GREEN}13)${NC} Quick Reference Guide"
+    echo -e "${GREEN}14)${NC} View Full Documentation"
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}💬 Learn with Mistress Louiza${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}15)${NC} Get Lesson on Command Line Proficiency"
+    echo ""
+    echo -e "${YELLOW}0)${NC} Back to Main Menu"
+    echo ""
+    echo -n "Choose: "
+    read choice
+    
+    case "$choice" in
+      1)
+        show_command_category "Core GTD Workflow" "gtd-capture|gtd-process|gtd-checkin"
+        ;;
+      2)
+        show_command_category "Task Management" "gtd-task"
+        ;;
+      3)
+        show_command_category "Project Management" "gtd-project"
+        ;;
+      4)
+        show_command_category "Area Management" "gtd-area"
+        ;;
+      5)
+        show_command_category "Daily Logging & Tracking" "addInfoToDailyLog|gtd-daily-log|gtd-log"
+        ;;
+      6)
+        show_command_category "Reviews & Planning" "gtd-review|gtd-morning|gtd-evening|gtd-afternoon|gtd-plan"
+        ;;
+      7)
+        show_command_category "Second Brain & Knowledge" "gtd-brain"
+        ;;
+      8)
+        show_command_category "Advice & Suggestions" "gtd-advise|gtd-auto-suggest|gtd-smart-suggestions"
+        ;;
+      9)
+        show_command_category "Learning & Study" "gtd-learn|gtd-quiz|gtd-study-plan"
+        ;;
+      10)
+        show_command_category "Health & Wellness" "gtd-health|gtd-food|gtd-lunch|gtd-workout"
+        ;;
+      11)
+        show_command_category "Calendar & Scheduling" "gtd-calendar|gtd-log-calendar"
+        ;;
+      12)
+        show_command_category "System Management" "gtd-context|gtd-search|gtd-find|gtd-dashboard|gtd-now"
+        ;;
+      13)
+        show_quick_reference
+        ;;
+      14)
+        if [[ -f "$docs_file" ]]; then
+          if command -v less &>/dev/null; then
+            less "$docs_file"
+          elif command -v more &>/dev/null; then
+            more "$docs_file"
+          else
+            cat "$docs_file"
+            echo ""
+            read -p "Press Enter to continue..."
+          fi
+        else
+          echo "Documentation file not found: $docs_file"
+          read -p "Press Enter to continue..."
+        fi
+        ;;
+      15)
+        # Get lesson from Mistress Louiza
+        echo ""
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${CYAN}👑 Lesson from Mistress Louiza${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo -e "${BOLD}💬 From Mistress Louiza:${NC}"
+        echo ""
+        
+        local lesson=$(get_instructor_lesson "command-line-proficiency")
+        
+        if [[ -n "$lesson" ]]; then
+          echo "$lesson" | sed 's/^/   /'
+          echo ""
+          echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+          echo ""
+          
+          # Q&A session
+          handle_qa_session "command-line-proficiency"
+          
+          echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+          echo ""
+          read -p "Press Enter to continue..."
+        else
+          echo "⚠️  Could not get lesson. Check LM Studio connection."
+          read -p "Press Enter to continue..."
+        fi
+        ;;
+      0)
+        return
+        ;;
+      *)
+        echo "Invalid choice. Press Enter..."
+        read
+        ;;
+    esac
+  done
+}
+
+# Show command category
+show_command_category() {
+  local category="$1"
+  local pattern="$2"
+  local docs_file="$HOME/code/dotfiles/docs/COMMAND_LINE_PROFICIENCY.md"
+  if [[ ! -f "$docs_file" && -f "$HOME/code/personal/dotfiles/docs/COMMAND_LINE_PROFICIENCY.md" ]]; then
+    docs_file="$HOME/code/personal/dotfiles/docs/COMMAND_LINE_PROFICIENCY.md"
+  fi
+  
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📚 $category${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  if [[ -f "$docs_file" ]]; then
+    # Extract section for this category
+    local in_section=false
+    local section_content=""
+    
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^##[[:space:]]+$category ]]; then
+        in_section=true
+        continue
+      elif [[ "$in_section" == true ]] && [[ "$line" =~ ^##[[:space:]]+ ]]; then
+        break
+      elif [[ "$in_section" == true ]]; then
+        section_content+="$line"$'\n'
+      fi
+    done < "$docs_file"
+    
+    if [[ -n "$section_content" ]]; then
+      echo "$section_content" | head -100
+    else
+      echo "No documentation found for this category."
+    fi
+  else
+    echo "Documentation file not found."
+  fi
+  
+  echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
+# Show quick reference
+show_quick_reference() {
+  clear
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🚀 Quick Reference${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo -e "${BOLD}Most Common Commands:${NC}"
+  echo ""
+  echo -e "${GREEN}gtd-capture${NC} \"text\"              - Quick capture to inbox"
+  echo -e "${GREEN}gtd-process${NC}                      - Process inbox items"
+  echo -e "${GREEN}gtd-task add${NC} \"task\"             - Add a task"
+  echo -e "${GREEN}gtd-task list${NC}                    - View tasks"
+  echo -e "${GREEN}addInfoToDailyLog${NC} \"entry\"       - Log your day"
+  echo -e "${GREEN}gtd-review daily${NC}                 - Daily review"
+  echo -e "${GREEN}gtd-advise david${NC} \"question\"    - Get advice"
+  echo -e "${GREEN}gtd-search${NC} \"query\"             - Search system"
+  echo ""
+  echo -e "${BOLD}Learning Commands:${NC}"
+  echo ""
+  echo -e "${GREEN}gtd-learn${NC}                        - Learn GTD system"
+  echo -e "${GREEN}gtd-learn-kubernetes${NC}             - Learn Kubernetes/CKA"
+  echo -e "${GREEN}gtd-learn-greek${NC}                  - Learn Greek"
+  echo -e "${GREEN}gtd-quiz${NC}                         - Take a quiz"
+  echo ""
+  echo -e "${BOLD}Second Brain Commands:${NC}"
+  echo ""
+  echo -e "${GREEN}gtd-brain create${NC} \"title\"       - Create note"
+  echo -e "${GREEN}gtd-brain-moc create${NC} \"topic\"    - Create MOC"
+  echo -e "${GREEN}gtd-brain-sync${NC}                    - Sync with Second Brain"
+  echo ""
+  echo -e "${BOLD}Daily Workflow:${NC}"
+  echo ""
+  echo -e "${GREEN}Morning:${NC}"
+  echo "  gtd-morning"
+  echo "  gtd-process"
+  echo ""
+  echo -e "${GREEN}During the day:${NC}"
+  echo "  gtd-capture \"ideas\""
+  echo "  addInfoToDailyLog \"activities\""
+  echo "  gtd-task list"
+  echo ""
+  echo -e "${GREEN}Evening:${NC}"
+  echo "  gtd-evening"
+  echo "  gtd-review daily"
+  echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  read -p "Press Enter to continue..."
+}
+
 # Show lesson menu
 show_lesson_menu() {
   clear
@@ -557,12 +980,14 @@ show_lesson_menu() {
   echo -e "${GREEN}11)${NC} Second Brain (Knowledge Organization)"
   echo -e "${GREEN}12)${NC} Unified System Integration (How All Three Work Together)"
   echo -e "${GREEN}13)${NC} Personas & Getting Advice (Including Comic Book Heroes)"
-  echo -e "${GREEN}14)${NC} Custom Topic"
+  echo -e "${GREEN}14)${NC} Command Line Proficiency (Master All GTD Commands)"
+  echo -e "${GREEN}15)${NC} tmux Configuration (Customize Your Terminal Setup)"
+  echo -e "${GREEN}16)${NC} Custom Topic"
   echo ""
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "${BOLD}📊 Personalized Critique${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${GREEN}15)${NC} Get Personalized Critique on My System Usage"
+  echo -e "${GREEN}17)${NC} Get Personalized Critique on My System Usage"
   echo ""
   echo -e "${YELLOW}0)${NC} Exit"
   echo ""
@@ -598,11 +1023,17 @@ main() {
         12) topic="unified-system" ;;
         13) topic="personas" ;;
         14)
+          # Command Line Proficiency
+          show_command_line_proficiency_menu
+          continue
+          ;;
+        15) topic="tmux" ;;
+        16)
           echo ""
           echo -n "What topic would you like to learn about? "
           read topic
           ;;
-        15)
+        17)
           # Personalized critique mode
           echo ""
           echo -e "${BOLD}📊 Personalized System Critique${NC}"
@@ -775,6 +1206,7 @@ Topics:
   second-brain, brain   - Learn about Second Brain (knowledge organization)
   unified-system        - Learn about unified system (all three together)
   personas, advice      - Learn about personas (including comic book heroes)
+  tmux, tmux-config     - Learn about customizing tmux for GTD workflow
 
 Examples:
   gtd-learn              # Interactive menu
@@ -782,6 +1214,7 @@ Examples:
   gtd-learn zettelkasten # Learn about atomic notes
   gtd-learn second-brain # Learn about Second Brain
   gtd-learn unified-system # Learn how all three work together
+  gtd-learn tmux         # Learn about customizing tmux for GTD workflow
 
 Mistress Louiza will teach you the unified system and call in other experts
 (David Allen for GTD, Tiago Forte for Second Brain, Sönke Ahrens for Zettelkasten,

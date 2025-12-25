@@ -36,6 +36,7 @@ GTD_ACRONYMS=(
   "ORM|Object-Relational Mapping|Database abstraction layer"
   "MVC|Model-View-Controller|Software architecture pattern"
   "RESTful|RESTful|REST-compliant API design"
+  "MCP|Model Context Protocol|Model Context Protocol - AI tools and access"
   
   # DevOps & Operations
   "SRE|Site Reliability Engineering|Engineering discipline"

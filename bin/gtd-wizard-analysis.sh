@@ -62,7 +62,8 @@ status_wizard() {
   echo "  5) 🚀 Kubernetes Deployment Status"
   echo "  6) 📋 View Kubernetes Pod Logs (Debug)"
   echo "  7) 📝 View LM Studio Request Logs (Debug)"
-  echo "  8) 🔍 Vector Database Status & Inspection"
+  echo "  8) 🦙 View Ollama Request Logs (Debug)"
+  echo "  9) 🔍 Vector Database Status & Inspection"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -216,14 +217,18 @@ status_wizard() {
         
         # Advice Worker
         echo -e "${CYAN}Advice Worker:${NC}"
-        if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
-          if pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
-            pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1)
-          else
-            pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
-          fi
-          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+        # Check for Python RabbitMQ worker first (correct one)
+        if pgrep -f "gtd_advice_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
+          echo -e "  ${GREEN}✅ Running (PID: $pid) - Python RabbitMQ Worker${NC}"
           ADVICE_WORKER_RUNNING=true
+        # Check for old bash file-queue worker (should be stopped)
+        elif pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
+          pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1)
+          echo -e "  ${YELLOW}⚠️  Running (PID: $pid) - OLD BASH WORKER (file queue only)${NC}"
+          echo -e "  ${YELLOW}   This worker doesn't connect to RabbitMQ!${NC}"
+          echo -e "  ${YELLOW}   Please restart to use the Python RabbitMQ worker.${NC}"
+          ADVICE_WORKER_RUNNING=false  # Mark as not running since it's the wrong worker
         else
           echo -e "  ${CYAN}ℹ️  Not running${NC}"
           ADVICE_WORKER_RUNNING=false
@@ -266,6 +271,18 @@ status_wizard() {
         fi
         echo ""
         
+        # Dashboard Cache Worker
+        echo -e "${CYAN}Dashboard Cache Worker:${NC}"
+        if pgrep -f "gtd_dashboard_cache_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_dashboard_cache_worker.py" | head -1)
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+          DASHBOARD_CACHE_WORKER_RUNNING=true
+        else
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+          DASHBOARD_CACHE_WORKER_RUNNING=false
+        fi
+        echo ""
+        
         # Show RabbitMQ Queue Status inline
         echo -e "${BOLD}RabbitMQ Queue Status:${NC}"
         # Check NodePort first (preferred), then fallback to port-forward
@@ -281,8 +298,13 @@ status_wizard() {
         if [[ "$RABBITMQ_AVAILABLE" == "true" ]]; then
           if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
             # Call status script and show key info
+            # Use set +e to prevent script from exiting on error
+            set +e
             QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
-            if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
+            QUEUE_STATUS_EXIT=$?
+            set -e
+            
+            if [[ $QUEUE_STATUS_EXIT -eq 0 ]] && echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
               # Helper function to restart a worker
               restart_worker() {
                 local worker_name="$1"
@@ -295,12 +317,44 @@ status_wizard() {
                   echo ""
                   echo -e "${YELLOW}⚠️  ${worker_name} worker process running but not consuming from RabbitMQ${NC}"
                   echo -e "${CYAN}🔄 Restarting ${worker_name} worker...${NC}"
-                  # Stop existing worker
-                  pkill -f "$process_pattern" 2>/dev/null
+                  
+                  # Stop existing worker with retry
+                  pkill -f "$process_pattern" 2>/dev/null || true
+                  
+                  # Wait and check if stopped (up to 5 seconds)
+                  local stopped=false
+                  for i in {1..5}; do
+                    sleep 1
+                    if ! pgrep -f "$process_pattern" >/dev/null; then
+                      stopped=true
+                      break
+                    fi
+                  done
+                  
+                  # Force kill if still running
+                  if [[ "$stopped" == "false" ]]; then
+                    echo -e "${YELLOW}   Force killing worker (SIGKILL)...${NC}"
+                    # Kill by pattern
+                    pkill -9 -f "$process_pattern" 2>/dev/null || true
+                    # Also kill any related Python processes if it's a Python worker
+                    if [[ "$process_pattern" == *"advice"* ]]; then
+                      pkill -9 -f "gtd_advice_worker.py" 2>/dev/null || true
+                      # Kill old bash worker if running
+                      pkill -9 -f "gtd-advice-worker.*daemon" 2>/dev/null || true
+                      # Kill any bash processes running the worker
+                      ps aux | grep -E "gtd-advice-worker|gtd_advice_worker" | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null || true
+                    fi
+                    sleep 2
+                  fi
+                  
+                  # Wait a moment before starting to ensure cleanup
+                  sleep 1
+                  
+                  # Start worker (suppress "Killed" messages from background processes)
+                  (nohup "${start_cmd[@]}" >>"$log_file" 2>&1 &) 2>/dev/null || true
+                  disown -a 2>/dev/null || true
                   sleep 2
-                  # Start worker
-                  "${start_cmd[@]}" >"$log_file" 2>&1 &
-                  sleep 2
+                  
                   if pgrep -f "$process_pattern" >/dev/null; then
                     echo -e "${GREEN}✓ ${worker_name} worker restarted${NC}"
                   else
@@ -321,12 +375,44 @@ status_wizard() {
                   echo ""
                   echo -e "${YELLOW}⚠️  ${worker_name} worker process running but not consuming from RabbitMQ${NC}"
                   echo -e "${CYAN}🔄 Restarting ${worker_name} worker...${NC}"
-                  # Stop existing worker
-                  pkill -f "$process_pattern" 2>/dev/null
+                  
+                  # Stop existing worker with retry
+                  pkill -f "$process_pattern" 2>/dev/null || true
+                  
+                  # Wait and check if stopped (up to 5 seconds)
+                  local stopped=false
+                  for i in {1..5}; do
+                    sleep 1
+                    if ! pgrep -f "$process_pattern" >/dev/null; then
+                      stopped=true
+                      break
+                    fi
+                  done
+                  
+                  # Force kill if still running
+                  if [[ "$stopped" == "false" ]]; then
+                    echo -e "${YELLOW}   Force killing worker (SIGKILL)...${NC}"
+                    # Kill by pattern
+                    pkill -9 -f "$process_pattern" 2>/dev/null || true
+                    # Also kill any related Python processes if it's a Python worker
+                    if [[ "$process_pattern" == *"advice"* ]]; then
+                      pkill -9 -f "gtd_advice_worker.py" 2>/dev/null || true
+                      # Kill old bash worker if running
+                      pkill -9 -f "gtd-advice-worker.*daemon" 2>/dev/null || true
+                      # Kill any bash processes running the worker
+                      ps aux | grep -E "gtd-advice-worker|gtd_advice_worker" | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null || true
+                    fi
+                    sleep 2
+                  fi
+                  
+                  # Wait a moment before starting to ensure cleanup
+                  sleep 1
+                  
+                  # Start worker (suppress "Killed" messages from background processes)
+                  (nohup "${start_cmd[@]}" >>"$log_file" 2>&1 &) 2>/dev/null || true
+                  disown -a 2>/dev/null || true
                   sleep 2
-                  # Start worker
-                  nohup "${start_cmd[@]}" >>"$log_file" 2>&1 &
-                  sleep 2
+                  
                   if pgrep -f "$process_pattern" >/dev/null; then
                     echo -e "${GREEN}✓ ${worker_name} worker restarted${NC}"
                   else
@@ -373,12 +459,22 @@ status_wizard() {
               ADVICE_INFO=$(echo "$QUEUE_STATUS" | grep -A 5 "Advice Queue:" | head -6)
               echo "$ADVICE_INFO"
               if echo "$ADVICE_INFO" | grep -q "Messages waiting: [1-9]" && echo "$ADVICE_INFO" | grep -q "Active consumers: 0"; then
-                if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
-                  if command -v gtd-advice-worker &>/dev/null; then
-                    restart_worker "Advice" "gtd-advice-worker.*daemon" "/tmp/advice-worker.log" gtd-advice-worker daemon
-                  elif [[ -f "$HOME/code/dotfiles/bin/gtd-advice-worker" ]]; then
-                    restart_worker "Advice" "gtd-advice-worker.*daemon" "/tmp/advice-worker.log" "$HOME/code/dotfiles/bin/gtd-advice-worker" daemon
-                  fi
+                # Check if Python worker is running (correct one)
+                if pgrep -f "gtd_advice_worker.py" >/dev/null; then
+                  # Python worker running but not connected - restart it
+                  restart_worker "Advice" "gtd_advice_worker.py" "/tmp/advice-worker.log" make -C "$HOME/code/dotfiles" advice-worker-start
+                # Check if old bash worker is running (wrong one - stop it and start Python worker)
+                elif pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
+                  echo ""
+                  echo -e "${YELLOW}⚠️  Old bash worker detected. Stopping and starting Python RabbitMQ worker...${NC}"
+                  pkill -f "gtd-advice-worker.*daemon" 2>/dev/null || true
+                  sleep 2
+                  make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
+                # No worker running - start Python worker
+                else
+                  echo ""
+                  echo -e "${CYAN}Starting Advice worker (Python RabbitMQ)...${NC}"
+                  make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
                 fi
               fi
               
@@ -429,8 +525,11 @@ status_wizard() {
               # Show queue status if available
               if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
                 sleep 1  # Brief pause for port-forward to be fully ready
+                set +e
                 QUEUE_STATUS=$("$HOME/code/dotfiles/bin/gtd-rabbitmq-status" 2>&1)
-                if echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
+                QUEUE_STATUS_EXIT=$?
+                set -e
+                if [[ $QUEUE_STATUS_EXIT -eq 0 ]] && echo "$QUEUE_STATUS" | grep -q "✅ Connected"; then
                   echo ""
                   echo "$QUEUE_STATUS" | grep -A 5 "Deep Analysis Queue:" | head -6
                   echo "$QUEUE_STATUS" | grep -A 5 "Vectorization Queue:" | head -6
@@ -463,11 +562,13 @@ status_wizard() {
         echo "  4) Manage Task Organization Worker"
         echo "  5) Manage Second Brain Sync Worker"
         echo "  6) Manage Badge Suggestion Worker"
-        echo "  7) Start All Workers"
-        echo "  8) Stop All Workers"
-        echo "  9) View RabbitMQ Queue Status"
-        echo " 10) Restart All Workers (Reconnect to RabbitMQ)"
-        echo " 11) 📦 Migrate File Queue to RabbitMQ"
+        echo "  7) Manage Dashboard Cache Worker"
+        echo "  8) Start All Workers"
+        echo "  9) Stop All Workers"
+            echo " 10) View RabbitMQ Queue Status"
+            echo " 11) 🔍 Diagnose RabbitMQ Connection Issues"
+            echo " 12) Restart All Workers (Reconnect to RabbitMQ)"
+            echo " 13) 📦 Migrate File Queue to RabbitMQ"
         echo "  0) Back"
         echo ""
         echo -n "Choose: "
@@ -498,6 +599,10 @@ status_wizard() {
             manage_worker "gtd_badge_suggestion_worker.py" "Badge Suggestion"
             ;;
           7)
+            # Manage Dashboard Cache Worker
+            manage_worker "gtd_dashboard_cache_worker.py" "Dashboard Cache"
+            ;;
+          8)
             # Start all workers
             echo ""
             echo "Starting all workers..."
@@ -507,10 +612,15 @@ status_wizard() {
             make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
             gtd-badge-suggestion-worker daemon 2>/dev/null || true
+            if command -v gtd-dashboard-cache-worker &>/dev/null; then
+              gtd-dashboard-cache-worker 2>/dev/null || true
+            elif [[ -f "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" 2>/dev/null || true
+            fi
             echo ""
             gtd_quick_pause
             ;;
-          8)
+          9)
             # Stop all workers
             echo ""
             echo "Stopping all workers..."
@@ -520,11 +630,15 @@ status_wizard() {
             make -C "$HOME/code/dotfiles" worker-task-org-stop 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-brain-sync-stop 2>/dev/null || true
             gtd-badge-suggestion-worker stop 2>/dev/null || true
+            if pgrep -f "gtd_dashboard_cache_worker.py" >/dev/null; then
+              pkill -f "gtd_dashboard_cache_worker.py" 2>/dev/null || true
+              echo -e "${GREEN}✓ Dashboard Cache Worker stopped${NC}"
+            fi
             echo ""
             echo -e "${GREEN}✓ All workers stopped${NC}"
             gtd_quick_pause
             ;;
-          9)
+          10)
             # View RabbitMQ Queue Status
             echo ""
             # Check NodePort first (preferred), then fallback to port-forward
@@ -553,14 +667,34 @@ status_wizard() {
             
             # Now try to get queue status
             if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-status" ]]; then
+              set +e
               "$HOME/code/dotfiles/bin/gtd-rabbitmq-status"
+              STATUS_EXIT=$?
+              set -e
+              if [[ $STATUS_EXIT -ne 0 ]]; then
+                echo ""
+                echo -e "${YELLOW}⚠️  RabbitMQ status check failed (exit code: $STATUS_EXIT)${NC}"
+                echo "   This usually means RabbitMQ is not accessible."
+              fi
             else
               echo -e "${YELLOW}⚠️  RabbitMQ status script not found${NC}"
             fi
             echo ""
             gtd_quick_pause
             ;;
-          10)
+          11)
+            # Diagnose RabbitMQ Connection Issues
+            echo ""
+            if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-diagnose" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-rabbitmq-diagnose"
+            else
+              echo -e "${YELLOW}⚠️  Diagnostic script not found${NC}"
+              echo "   Expected: $HOME/code/dotfiles/bin/gtd-rabbitmq-diagnose"
+            fi
+            echo ""
+            gtd_enter_to_continue
+            ;;
+          12)
             # Restart all workers to reconnect to RabbitMQ
             echo ""
             echo -e "${CYAN}Restarting workers to connect to RabbitMQ...${NC}"
@@ -574,6 +708,10 @@ status_wizard() {
             if pgrep -f "gtd_vector_worker.py" >/dev/null; then
               echo "Stopping Vectorization Worker..."
               make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_dashboard_cache_worker.py" >/dev/null; then
+              echo "Stopping Dashboard Cache Worker..."
+              pkill -f "gtd_dashboard_cache_worker.py" 2>/dev/null || true
             fi
             if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
               echo "Stopping Task Organization Worker..."
@@ -598,7 +736,11 @@ status_wizard() {
             make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
             make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
             gtd-badge-suggestion-worker daemon 2>/dev/null || true
-            gtd-badge-suggestion-worker daemon 2>/dev/null || true
+            if command -v gtd-dashboard-cache-worker &>/dev/null; then
+              gtd-dashboard-cache-worker 2>/dev/null || true
+            elif [[ -f "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" 2>/dev/null || true
+            fi
             
             echo ""
             echo -e "${GREEN}✓ Workers restarted${NC}"
@@ -608,7 +750,66 @@ status_wizard() {
             echo ""
             gtd_quick_pause
             ;;
-          11)
+          12)
+            # Restart all workers to reconnect to RabbitMQ
+            echo ""
+            echo -e "${CYAN}Restarting workers to connect to RabbitMQ...${NC}"
+            echo ""
+            
+            # Stop workers
+            if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+              echo "Stopping Deep Analysis Worker..."
+              make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_vector_worker.py" >/dev/null; then
+              echo "Stopping Vectorization Worker..."
+              make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_dashboard_cache_worker.py" >/dev/null; then
+              echo "Stopping Dashboard Cache Worker..."
+              pkill -f "gtd_dashboard_cache_worker.py" 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+              echo "Stopping Task Organization Worker..."
+              make -C "$HOME/code/dotfiles" worker-task-org-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then
+              echo "Stopping Second Brain Sync Worker..."
+              make -C "$HOME/code/dotfiles" worker-brain-sync-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null; then
+              echo "Stopping Badge Suggestion Worker..."
+              gtd-badge-suggestion-worker stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_advice_worker.py" >/dev/null; then
+              echo "Stopping Advice Worker..."
+              make -C "$HOME/code/dotfiles" advice-worker-stop 2>/dev/null || true
+            fi
+            
+            sleep 2
+            
+            # Start workers
+            echo ""
+            echo "Starting workers..."
+            make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
+            gtd-badge-suggestion-worker daemon 2>/dev/null || true
+            if command -v gtd-dashboard-cache-worker &>/dev/null; then
+              gtd-dashboard-cache-worker daemon 2>/dev/null || true
+            fi
+            make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
+            
+            echo ""
+            echo -e "${GREEN}✓ Workers restarted${NC}"
+            echo ""
+            echo "Wait a few seconds, then check connection:"
+            echo "  make rabbitmq-status"
+            echo ""
+            gtd_quick_pause
+            ;;
+          13)
             # Migrate file queue to RabbitMQ
             echo ""
             if [[ -f "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
@@ -757,6 +958,38 @@ status_wizard() {
       gtd_quick_pause
       ;;
     8)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🦙 Ollama Request Logs (Debug)${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      # Check if gtd-check-ollama-logs exists
+      if command -v gtd-check-ollama-logs &>/dev/null; then
+        gtd-check-ollama-logs 100
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-check-ollama-logs" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-check-ollama-logs" 100
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-check-ollama-logs" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-check-ollama-logs" 100
+      else
+        # Fallback: show logs directly, filtered for Ollama
+        LOG_FILE="$HOME/.gtd_logs/tool_calls.log"
+        if [[ ! -f "$LOG_FILE" ]]; then
+          echo -e "${YELLOW}⚠️  Log file doesn't exist yet: $LOG_FILE${NC}"
+          echo "   It will be created on first Ollama request."
+        else
+          echo "Log file: $LOG_FILE"
+          echo ""
+          echo "Last 100 lines (filtered for Ollama requests):"
+          echo ""
+          tail -100 "$LOG_FILE" | grep -E "(ollama|Ollama|11434|Sending request|API Response|ERROR|timed out|elapsed)" -i | tail -30
+        fi
+      fi
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    9)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1044,17 +1277,28 @@ manage_task_org_worker() {
 manage_advice_worker() {
   local pid
   local worker_action
+  local worker_type=""
   
-  # Check for both possible process names (bash script and Python script)
-  if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
-    if pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
-      pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1)
-    else
-      pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
-    fi
+  # Check for Python RabbitMQ worker first (correct one)
+  if pgrep -f "gtd_advice_worker.py" >/dev/null; then
+    pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
+    worker_type="Python RabbitMQ"
+  # Check for old bash file-queue worker (should be stopped)
+  elif pgrep -f "gtd-advice-worker.*daemon" >/dev/null; then
+    pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1)
+    worker_type="OLD BASH (file queue only)"
+  fi
+  
+  if [[ -n "$pid" ]]; then
     echo ""
     echo -e "${BOLD}Advice Worker${NC}"
-    echo -e "  Status: ${GREEN}✅ Running (PID: $pid)${NC}"
+    if [[ "$worker_type" == "Python RabbitMQ" ]]; then
+      echo -e "  Status: ${GREEN}✅ Running (PID: $pid) - Python RabbitMQ Worker${NC}"
+    else
+      echo -e "  Status: ${YELLOW}⚠️  Running (PID: $pid) - ${worker_type}${NC}"
+      echo -e "  ${YELLOW}⚠️  This worker doesn't connect to RabbitMQ!${NC}"
+      echo -e "  ${YELLOW}   Please restart to use the Python RabbitMQ worker.${NC}"
+    fi
     echo ""
     echo "Options:"
     echo "  1) Stop worker"
@@ -1074,13 +1318,19 @@ manage_advice_worker() {
         if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null && ! pgrep -f "gtd_advice_worker.py" >/dev/null; then
           echo -e "${GREEN}✅ Worker stopped${NC}"
         else
-          echo -e "${YELLOW}⚠️  Worker still running, trying force kill...${NC}"
-          kill -9 "$pid" 2>/dev/null
-          sleep 1
+          echo -e "${YELLOW}⚠️  Worker still running, trying force kill (SIGKILL)...${NC}"
+          # Kill by PID
+          kill -9 "$pid" 2>/dev/null || true
+          # Also kill by pattern (catches any related processes)
+          pkill -9 -f "gtd-advice-worker.*daemon" 2>/dev/null || true
+          pkill -9 -f "gtd_advice_worker.py" 2>/dev/null || true
+          # Kill any bash processes running the worker script
+          ps aux | grep -E "gtd-advice-worker|gtd_advice_worker" | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null || true
+          sleep 2
           if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null && ! pgrep -f "gtd_advice_worker.py" >/dev/null; then
             echo -e "${GREEN}✅ Worker stopped${NC}"
           else
-            echo -e "${RED}❌ Could not stop worker${NC}"
+            echo -e "${RED}❌ Could not stop worker. Try manually: pkill -9 -f 'gtd-advice-worker'${NC}"
           fi
         fi
         echo ""
@@ -1089,18 +1339,86 @@ manage_advice_worker() {
       2)
         echo ""
         echo "Restarting Advice worker..."
-        kill "$pid" 2>/dev/null
+        
+        # Stop worker with proper retry logic
+        echo "   Stopping worker (PID: $pid)..."
+        kill "$pid" 2>/dev/null || true
+        
+        # Stop both old and new workers to be safe
+        pkill -f "gtd-advice-worker.*daemon" 2>/dev/null || true
+        pkill -f "gtd_advice_worker.py" 2>/dev/null || true
+        
+        # Wait and check if stopped (up to 5 seconds)
+        local stopped=false
+        for i in {1..5}; do
+          sleep 1
+          if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null && ! pgrep -f "gtd_advice_worker.py" >/dev/null; then
+            stopped=true
+            break
+          fi
+        done
+        
+        # Force kill if still running
+        if [[ "$stopped" == "false" ]]; then
+          echo -e "${YELLOW}   Worker still running, force killing (SIGKILL)...${NC}"
+          # Kill by PID first if we have it
+          if [[ -n "$pid" ]]; then
+            kill -9 "$pid" 2>/dev/null || true
+          fi
+          # Also kill by pattern (catches any related processes)
+          pkill -9 -f "gtd-advice-worker.*daemon" 2>/dev/null || true
+          pkill -9 -f "gtd_advice_worker.py" 2>/dev/null || true
+          # Kill any bash processes running the worker script
+          ps aux | grep -E "gtd-advice-worker|gtd_advice_worker" | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null || true
+          sleep 2
+          
+          # Final check
+          if pgrep -f "gtd-advice-worker.*daemon" >/dev/null || pgrep -f "gtd_advice_worker.py" >/dev/null; then
+            echo -e "${RED}❌ Could not stop worker. Please check manually.${NC}"
+            echo ""
+            gtd_quick_pause
+            return 1
+          fi
+        fi
+        
+        echo -e "${GREEN}✓ Worker stopped${NC}"
+        
+        # Wait a moment before starting to ensure cleanup
+        sleep 1
+        
+        # Always start the Python RabbitMQ worker (never the old bash worker)
+        echo "   Starting Python RabbitMQ worker..."
+        make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || {
+          echo -e "${RED}❌ Failed to start worker via Makefile${NC}"
+          echo "   Trying direct Python worker start..."
+          MCP_DIR="$HOME/code/dotfiles/mcp"
+          if [[ ! -d "$MCP_DIR" ]]; then
+            MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+          fi
+          VENV_PYTHON="${MCP_DIR}/venv/bin/python3"
+          WORKER_SCRIPT="${MCP_DIR}/gtd_advice_worker.py"
+          if [[ -f "$VENV_PYTHON" && -f "$WORKER_SCRIPT" ]]; then
+            (nohup "$VENV_PYTHON" "$WORKER_SCRIPT" >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+            sleep 2
+            local start_pid=$(pgrep -f "gtd_advice_worker.py" | head -1 || echo "")
+            if [[ -n "$start_pid" ]]; then
+              echo -e "${GREEN}✓ Worker started (PID: $start_pid)${NC}"
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+            else
+              echo -e "${YELLOW}⚠️  Worker may not have started. Check logs: tail -f /tmp/advice-worker.log${NC}"
+            fi
+          else
+            echo -e "${RED}❌ Could not find Python worker script${NC}"
+          fi
+        }
+        
+        # Verify worker started (check for Python worker only)
         sleep 2
-        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null && ! pgrep -f "gtd_advice_worker.py" >/dev/null; then
-          echo -e "${GREEN}✓ Worker stopped, restarting...${NC}"
-          make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || {
-            echo "Starting advice worker..."
-            nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
-            echo "✓ Worker started (PID: $!)"
-            echo "   Logs: tail -f /tmp/advice-worker.log"
-          }
+        if pgrep -f "gtd_advice_worker.py" >/dev/null; then
+          local new_pid=$(pgrep -f "gtd_advice_worker.py" | head -1)
+          echo -e "${GREEN}✓ Python RabbitMQ worker restarted (new PID: $new_pid)${NC}"
         else
-          echo -e "${YELLOW}⚠️  Worker still running${NC}"
+          echo -e "${YELLOW}⚠️  Worker may not have started. Check logs: tail -f /tmp/advice-worker.log${NC}"
         fi
         echo ""
         gtd_quick_pause
@@ -1183,19 +1501,47 @@ manage_advice_worker() {
     echo -n "Choose: "
     read worker_action
     
-    # Start worker if requested
+    # Start worker if requested (always use Python RabbitMQ worker)
     if [[ "$worker_action" == "1" ]]; then
+      echo "Starting Python RabbitMQ worker..."
       make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || {
-        echo "Starting advice worker..."
-        nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
-        echo "✓ Worker started (PID: $!)"
-        echo "   Logs: tail -f /tmp/advice-worker.log"
+        echo "   Trying direct Python worker start..."
+        MCP_DIR="$HOME/code/dotfiles/mcp"
+        if [[ ! -d "$MCP_DIR" ]]; then
+          MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+        fi
+        VENV_PYTHON="${MCP_DIR}/venv/bin/python3"
+        WORKER_SCRIPT="${MCP_DIR}/gtd_advice_worker.py"
+        if [[ -f "$VENV_PYTHON" && -f "$WORKER_SCRIPT" ]]; then
+          (nohup "$VENV_PYTHON" "$WORKER_SCRIPT" >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+          disown -a 2>/dev/null || true
+          sleep 2
+          local worker_pid=$(pgrep -f "gtd_advice_worker.py" | head -1 || echo "")
+          if [[ -n "$worker_pid" ]]; then
+            echo -e "${GREEN}✓ Python RabbitMQ worker started (PID: $worker_pid)${NC}"
+          else
+            echo -e "${YELLOW}⚠️  Worker may not have started. Check logs: tail -f /tmp/advice-worker.log${NC}"
+          fi
+        else
+          echo -e "${RED}❌ Could not find Python worker script${NC}"
+        fi
       }
       echo ""
       gtd_quick_pause
     elif [[ "$worker_action" == "2" ]]; then
-      echo "Starting advice worker in foreground (Ctrl+C to stop)..."
-      gtd-advice-worker daemon
+      echo "Starting Python RabbitMQ worker in foreground (Ctrl+C to stop)..."
+      MCP_DIR="$HOME/code/dotfiles/mcp"
+      if [[ ! -d "$MCP_DIR" ]]; then
+        MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+      fi
+      VENV_PYTHON="${MCP_DIR}/venv/bin/python3"
+      WORKER_SCRIPT="${MCP_DIR}/gtd_advice_worker.py"
+      if [[ -f "$VENV_PYTHON" && -f "$WORKER_SCRIPT" ]]; then
+        "$VENV_PYTHON" "$WORKER_SCRIPT"
+      else
+        echo -e "${RED}❌ Could not find Python worker script${NC}"
+        gtd_quick_pause
+      fi
     fi
   fi
 }
@@ -2207,7 +2553,7 @@ now_wizard() {
     echo "❌ gtd-now command not found"
   fi
   echo ""
-  gtd_quick_pause
+  gtd_enter_to_continue
 }
 
 find_wizard() {
@@ -2368,18 +2714,68 @@ manage_worker() {
       2)
         echo ""
         echo "Restarting ${worker_name} worker..."
-        kill "$pid" 2>/dev/null
-        sleep 2
-        if ! pgrep -f "$worker_script" >/dev/null; then
-          echo -e "${GREEN}✓ Worker stopped, restarting...${NC}"
-          # Start worker using make command
-          if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
-            make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
-          elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
-            make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+        
+        # Stop worker with proper retry logic
+        echo "   Stopping worker (PID: $pid)..."
+        kill "$pid" 2>/dev/null || true
+        
+        # Wait and check if stopped (up to 5 seconds)
+        local stopped=false
+        for i in {1..5}; do
+          sleep 1
+          if ! pgrep -f "$worker_script" >/dev/null; then
+            stopped=true
+            break
           fi
+        done
+        
+        # Force kill if still running
+        if [[ "$stopped" == "false" ]]; then
+          echo -e "${YELLOW}   Worker still running, force killing...${NC}"
+          pkill -9 -f "$worker_script" 2>/dev/null || true
+          sleep 2
+          
+          # Final check
+          if pgrep -f "$worker_script" >/dev/null; then
+            echo -e "${RED}❌ Could not stop worker. Please check manually.${NC}"
+            echo ""
+            gtd_quick_pause
+            return 1
+          fi
+        fi
+        
+        echo -e "${GREEN}✓ Worker stopped${NC}"
+        
+        # Wait a moment before starting to ensure cleanup
+        sleep 1
+        
+        # Start worker using appropriate method
+        echo "   Starting worker..."
+        if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
+          make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
+          make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_second_brain_sync_worker.py" ]]; then
+          make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_task_organize_worker.py" ]]; then
+          make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_dashboard_cache_worker.py" ]]; then
+          if command -v gtd-dashboard-cache-worker &>/dev/null; then
+            gtd-dashboard-cache-worker 2>/dev/null || true
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" 2>/dev/null || true
+          fi
+        elif [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
+          gtd-badge-suggestion-worker daemon 2>/dev/null || true
+        fi
+        
+        # Verify worker started
+        sleep 2
+        if pgrep -f "$worker_script" >/dev/null; then
+          local new_pid=$(pgrep -f "$worker_script" | head -1)
+          echo -e "${GREEN}✓ Worker restarted (new PID: $new_pid)${NC}"
         else
-          echo -e "${YELLOW}⚠️  Worker still running${NC}"
+          echo -e "${YELLOW}⚠️  Worker may not have started. Check logs.${NC}"
         fi
         echo ""
         gtd_quick_pause
@@ -2399,6 +2795,8 @@ manage_worker() {
           LOG_FILE="/tmp/vector-worker.log"
         elif [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
           LOG_FILE="/tmp/badge-suggestion-worker.log"
+        elif [[ "$worker_script" == "gtd_dashboard_cache_worker.py" ]]; then
+          LOG_FILE="/tmp/dashboard-cache-worker.log"
         else
           LOG_FILE="/tmp/${worker_script%.py}.log"
         fi
@@ -2492,11 +2890,23 @@ manage_worker() {
       1)
         echo ""
         echo "Starting ${worker_name} worker..."
-        # Start worker using make command
+        # Start worker using make command or direct command
         if [[ "$worker_script" == "gtd_deep_analysis_worker.py" ]]; then
           make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
         elif [[ "$worker_script" == "gtd_vector_worker.py" ]]; then
           make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_second_brain_sync_worker.py" ]]; then
+          make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_task_organize_worker.py" ]]; then
+          make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
+          gtd-badge-suggestion-worker daemon 2>/dev/null || true
+        elif [[ "$worker_script" == "gtd_dashboard_cache_worker.py" ]]; then
+          if command -v gtd-dashboard-cache-worker &>/dev/null; then
+            gtd-dashboard-cache-worker 2>/dev/null || true
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" 2>/dev/null || true
+          fi
         fi
         sleep 2
         if pgrep -f "$worker_script" >/dev/null; then

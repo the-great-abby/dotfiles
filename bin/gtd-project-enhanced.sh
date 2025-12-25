@@ -331,22 +331,51 @@ link_project_to_goal() {
     return 1
   fi
   
-  # Update frontmatter
-  if grep -q "^goal:" "$readme" 2>/dev/null; then
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' "s/^goal:.*/goal: ${goal_name}/" "$readme"
+  # Check if file has frontmatter (starts with ---)
+  local has_frontmatter=false
+  if head -1 "$readme" 2>/dev/null | grep -q "^---"; then
+    has_frontmatter=true
+  fi
+  
+  if [[ "$has_frontmatter" == "true" ]]; then
+    # File has frontmatter - update or add goal field
+    if grep -q "^goal:" "$readme" 2>/dev/null; then
+      # Update existing goal field
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s/^goal:.*/goal: ${goal_name}/" "$readme"
+      else
+        sed -i "s/^goal:.*/goal: ${goal_name}/" "$readme"
+      fi
     else
-      sed -i "s/^goal:.*/goal: ${goal_name}/" "$readme"
-    fi
-  else
-    # Add goal field after status
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' "/^status:/a\\
+      # Add goal field after status (or after first frontmatter line if no status)
+      if grep -q "^status:" "$readme" 2>/dev/null; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          sed -i '' "/^status:/a\\
 goal: ${goal_name}
 " "$readme"
-    else
-      sed -i "/^status:/a\\goal: ${goal_name}" "$readme"
+        else
+          sed -i "/^status:/a\\goal: ${goal_name}" "$readme"
+        fi
+      else
+        # No status field, add after first line of frontmatter (after ---)
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          sed -i '' "1a\\
+goal: ${goal_name}
+" "$readme"
+        else
+          sed -i "1a\\goal: ${goal_name}" "$readme"
+        fi
+      fi
     fi
+  else
+    # File doesn't have frontmatter - add it at the beginning
+    local temp_file=$(mktemp)
+    echo "---" > "$temp_file"
+    echo "goal: ${goal_name}" >> "$temp_file"
+    echo "---" >> "$temp_file"
+    echo "" >> "$temp_file"
+    cat "$readme" >> "$temp_file"
+    mv "$temp_file" "$readme"
   fi
   
   echo "✓ Linked project '$project_name' to goal '$goal_name'"
@@ -409,10 +438,10 @@ show_goal_hierarchy() {
     fi
     
     local progress=$(get_frontmatter_value "$goal_file" "progress")
-    local status=$(get_frontmatter_value "$goal_file" "status")
+    local goal_status=$(get_frontmatter_value "$goal_file" "status")
     
     echo "Goal: $goal_name"
-    echo "Progress: ${progress}% | Status: $status"
+    echo "Progress: ${progress}% | Status: $goal_status"
     echo ""
     echo "Projects:"
     
@@ -425,9 +454,9 @@ show_goal_hierarchy() {
       
       local goal_name=$(get_frontmatter_value "$goal_file" "name")
       local progress=$(get_frontmatter_value "$goal_file" "progress")
-      local status=$(get_frontmatter_value "$goal_file" "status")
+      local goal_status=$(get_frontmatter_value "$goal_file" "status")
       
-      if [[ "$status" != "active" ]]; then
+      if [[ "$goal_status" != "active" ]]; then
         continue
       fi
       

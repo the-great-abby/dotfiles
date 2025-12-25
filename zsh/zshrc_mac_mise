@@ -116,6 +116,23 @@ _GTD_HINTS=(
   "😄 Satirical take: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py george \"your situation\""
   "🇬🇧 Witty analysis: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py john \"your question\""
   "🎤 Sharp insights: python3 ~/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py jon \"review this\""
+  "🔄 Restart dashboard worker: gtd-restart-dashboard-worker"
+  "📊 View dashboard: gtd-dashboard (or gtd-dashboard --watch for live updates)"
+  "📈 Weekly progress report: gtd-weekly-progress"
+  "⚡ Energy audit report: gtd-energy-audit report [days]"
+  "🖥️  Start tmux session: gtd-tmux start [monitor|minimal|center|productivity]"
+  "🖥️  Attach to tmux: gtd-tmux attach (or gtd-tmux list to see sessions)"
+  "📋 Task reports: gtd-task list (or gtd-task list --context=computer)"
+  "📁 Project reports: gtd-project list (or gtd-project view [name])"
+  "🔍 Search system: gtd-search \"query\" (or gtd-find \"keyword\")"
+  "💡 Context suggestions: gtd-context (suggests tasks based on current context)"
+  "📊 System status: gtd-now (see what you should do now)"
+  "🎓 Learn GTD system: gtd-learn (or gtd-learn [topic] for specific lessons)"
+  "🖥️  Learn tmux config: gtd-learn tmux (customize your tmux setup)"
+  "📝 View daily log: gtd-daily-log (or gtd-daily-log [date])"
+  "🔄 Process inbox: gtd-process (interactive inbox processing)"
+  "✅ Complete task: gtd-task complete [id]"
+  "⭐ Favorite task/project: Use gtd-wizard option 19 (Organize) to favorite items"
 )
 
 # Daily log reminder with rotating hints - shows every 5 commands

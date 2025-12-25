@@ -78,11 +78,30 @@ lowercase=$(echo "$var" | awk '{print tolower($0)}')
 
 **Instead of**: `declare -A array`
 
-**Use**:
+**Use**: Delimiter-based approach with regular arrays
 ```bash
-# Use regular arrays with key-value pairs
-# Or use separate arrays for keys and values
-# Or use a delimiter-based approach
+# Store data as: "key|||value1|||value2|||value3"
+# Then parse with: ${var%%|||*} and ${var#*|||}
+
+# Example: Grouping tasks by project
+all_task_data=()
+all_task_data+=("${project}|||${task_file}|||${task_name}|||${priority}")
+
+# To filter by project:
+for task_data in "${all_task_data[@]}"; do
+  local task_project="${task_data%%|||*}"  # Get project (before first |||)
+  if [[ "$task_project" == "$target_project" ]]; then
+    local rest="${task_data#*|||}"  # Get everything after first |||
+    local task_file="${rest%%|||*}"  # Get task_file
+    rest="${rest#*|||}"  # Get remaining
+    local task_name="${rest%%|||*}"  # Get task_name
+    local priority="${rest#*|||}"  # Get priority
+    # Process task...
+  fi
+done
+
+# Alternative: Use separate arrays for keys and values
+# Or use temporary files for complex grouping
 ```
 
 ## Common Error Messages

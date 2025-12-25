@@ -409,7 +409,7 @@ def process_rabbitmq_queue():
                 # If heartbeat setting fails, continue without it
                 pass
             
-            print(f"Connecting to RabbitMQ... (attempt {retry_count + 1}/{max_retries})")
+            print(f"Connecting to RabbitMQ at {RABBITMQ_URL}... (attempt {retry_count + 1}/{max_retries})")
             sys.stdout.flush()
             
             # Ensure old connection is closed before creating new one
@@ -419,12 +419,20 @@ def process_rabbitmq_queue():
             except:
                 pass
             
-            connection = pika.BlockingConnection(params)
-            channel = connection.channel()
-            channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
-            
-            print(f"✅ Connected to RabbitMQ at {datetime.now()}")
-            sys.stdout.flush()
+            try:
+                connection = pika.BlockingConnection(params)
+                channel = connection.channel()
+                channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
+                
+                print(f"✅ Connected to RabbitMQ at {datetime.now()}")
+                print(f"   Queue: {RABBITMQ_QUEUE}")
+                print(f"   URL: {RABBITMQ_URL}")
+                sys.stdout.flush()
+            except Exception as conn_e:
+                error_msg = f"Failed to connect to RabbitMQ: {conn_e}"
+                print(f"❌ {error_msg}")
+                sys.stdout.flush()
+                raise Exception(error_msg) from conn_e
             retry_count = 0
             
             connection_error_occurred = False
@@ -698,10 +706,22 @@ if __name__ == "__main__":
                     print("\n⚠️  Interrupted by user")
                     sys.exit(0)
                 except Exception as e:
-                    print(f"\n❌ RabbitMQ error: {e}")
+                    error_msg = f"\n❌ RabbitMQ error: {e}"
+                    print(error_msg)
                     print("Full traceback:")
                     traceback.print_exc()
-                    print("\nFalling back to file queue...")
+                    print(f"\n⚠️  Falling back to file queue mode...")
+                    print(f"   Queue file: {QUEUE_FILE}")
+                    print(f"   Results dir: {RESULTS_DIR}")
+                    sys.stdout.flush()
+                    # Write error to log file explicitly
+                    try:
+                        log_file = Path("/tmp/advice-worker.log")
+                        with open(log_file, 'a') as f:
+                            f.write(f"\n[{datetime.now()}] {error_msg}\n")
+                            traceback.print_exc(file=f)
+                    except:
+                        pass
                     try:
                         process_file_queue()
                     except Exception as file_e:

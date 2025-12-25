@@ -34,6 +34,7 @@ except ImportError:
 def read_embedding_config() -> Dict[str, Any]:
     """
     Read embedding model configuration from config files.
+    Supports both LM Studio and Ollama backends.
     
     Returns:
         Dictionary with embedding configuration
@@ -52,7 +53,10 @@ def read_embedding_config() -> Dict[str, Any]:
     embedding_model = ""
     base_url = "http://localhost:1234/v1"
     timeout = 60
+    backend = "lmstudio"  # Default to lmstudio for backward compatibility
+    computer_mode = "home"  # Default to home
     
+    # First pass: read all config values (later files override earlier ones)
     for config_path in config_paths:
         if config_path.exists():
             with open(config_path, 'r') as f:
@@ -68,10 +72,17 @@ def read_embedding_config() -> Dict[str, Any]:
                         if value.startswith("${") and ":-" in value:
                             value = value.split(":-", 1)[1].rstrip("}")
                         
-                        # Allow later files to override earlier ones (remove "and not embedding_model" check)
-                        if key == "LM_STUDIO_EMBEDDING_MODEL":
+                        if key == "AI_BACKEND":
+                            backend = value.lower()
+                        elif key == "GTD_COMPUTER_MODE":
+                            computer_mode = value.lower()
+                        elif key == "LM_STUDIO_EMBEDDING_MODEL":
                             embedding_model = value
                         elif key == "LM_STUDIO_URL" and "/v1" in value:
+                            base_url = value.replace("/v1/chat/completions", "/v1")
+                        elif key == "OLLAMA_EMBEDDING_MODEL":
+                            embedding_model = value
+                        elif key == "OLLAMA_URL" and "/v1" in value:
                             base_url = value.replace("/v1/chat/completions", "/v1")
                         elif key == "LM_STUDIO_TIMEOUT" or key == "TIMEOUT":
                             try:
@@ -79,13 +90,56 @@ def read_embedding_config() -> Dict[str, Any]:
                             except ValueError:
                                 pass
     
-    # Override with environment variables
-    embedding_model = os.getenv("LM_STUDIO_EMBEDDING_MODEL", embedding_model)
+    # Second pass: check for mode-specific settings (WORK_* or HOME_*)
+    mode_prefix = "WORK_" if computer_mode == "work" else "HOME_"
+    for config_path in config_paths:
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        if '#' in value:
+                            value = value.split('#')[0].strip()
+                        value = value.strip('"').strip("'")
+                        if value.startswith("${") and ":-" in value:
+                            value = value.split(":-", 1)[1].rstrip("}")
+                        
+                        # Check for mode-specific settings
+                        if key.startswith(mode_prefix):
+                            mode_key = key[len(mode_prefix):]  # Remove prefix
+                            if mode_key == "AI_BACKEND" and value:
+                                backend = value.lower()
+                            elif mode_key == "LM_STUDIO_EMBEDDING_MODEL" and value:
+                                embedding_model = value
+                            elif mode_key == "LM_STUDIO_URL" and "/v1" in value:
+                                base_url = value.replace("/v1/chat/completions", "/v1")
+                            elif mode_key == "OLLAMA_EMBEDDING_MODEL" and value:
+                                embedding_model = value
+                            elif mode_key == "OLLAMA_URL" and "/v1" in value:
+                                base_url = value.replace("/v1/chat/completions", "/v1")
+    
+    # Set URL and model based on backend
+    if backend == "ollama":
+        # Use Ollama defaults if not set
+        if not base_url or base_url == "http://localhost:1234/v1":
+            base_url = "http://localhost:11434/v1"
+        # Override with environment variables
+        embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", embedding_model)
+    else:
+        # Use LM Studio defaults if not set
+        if not base_url or base_url == "http://localhost:11434/v1":
+            base_url = "http://localhost:1234/v1"
+        # Override with environment variables
+        embedding_model = os.getenv("LM_STUDIO_EMBEDDING_MODEL", embedding_model)
     
     return {
         "embedding_model": embedding_model,
         "base_url": base_url,
-        "timeout": timeout
+        "timeout": timeout,
+        "backend": backend
     }
 
 
@@ -107,10 +161,19 @@ def generate_embedding(text: str, config: Optional[Dict[str, Any]] = None) -> Op
     
     # Get embedding model
     embedding_model = embedding_config.get("embedding_model", "")
+    backend = embedding_config.get("backend", "lmstudio").lower()
+    
     if not embedding_model:
-        embedding_model = os.getenv("LM_STUDIO_EMBEDDING_MODEL", "")
+        # Try environment variable based on backend
+        if backend == "ollama":
+            embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", "")
+        else:
+            embedding_model = os.getenv("LM_STUDIO_EMBEDDING_MODEL", "")
+        
         if not embedding_model:
-            print("Error: No embedding model configured. Set LM_STUDIO_EMBEDDING_MODEL in .gtd_config_ai", file=sys.stderr)
+            backend_name = "Ollama" if backend == "ollama" else "LM Studio"
+            env_var = "OLLAMA_EMBEDDING_MODEL" if backend == "ollama" else "LM_STUDIO_EMBEDDING_MODEL"
+            print(f"Error: No embedding model configured. Set {env_var} in .gtd_config_ai or set AI_BACKEND={backend}", file=sys.stderr)
             return None
     
     # Get API URL from embedding_config (not config, which may be None)

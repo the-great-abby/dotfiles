@@ -1,0 +1,191 @@
+#!/bin/bash
+# Diagnostic script to check why suggestions aren't showing up
+
+source "$HOME/code/dotfiles/bin/gtd-common.sh" 2>/dev/null || true
+
+GTD_BASE_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}"
+LEARNING_FILE="$GTD_BASE_DIR/unified_learning.json"
+SUGGESTIONS_DIR="$GTD_BASE_DIR/suggestions"
+
+echo ""
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}🔍 Suggestion System Diagnostic${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Check if Python is available
+PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null || echo "")
+if [[ -z "$PYTHON_CMD" ]]; then
+    echo -e "${RED}❌ Python not available${NC}"
+    echo "   Cannot run full diagnostic"
+    exit 1
+fi
+
+# Run Python diagnostic
+"$PYTHON_CMD" << 'PYTHON_EOF'
+import json
+import sys
+from pathlib import Path
+from collections import defaultdict
+
+# Import learning system
+try:
+    sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "mcp"))
+    from gtd_unified_learning import (
+        load_learning_data,
+        SUGGESTION_TYPES,
+        get_stats_summary
+    )
+except ImportError as e:
+    print(f"Error importing learning system: {e}")
+    sys.exit(1)
+
+# Load learning data
+data = load_learning_data()
+summary = get_stats_summary()
+
+print("\n📊 CURRENT THRESHOLDS")
+print("=" * 60)
+for stype, info in SUGGESTION_TYPES.items():
+    threshold = data["thresholds"].get(stype, info["default_threshold"])
+    default = info["default_threshold"]
+    status = "✅ Default" if threshold == default else ("⬆️  Raised" if threshold > default else "⬇️  Lowered")
+    
+    stats = data["stats"].get(stype, {})
+    accepted = stats.get("accepted", 0)
+    rejected = stats.get("rejected", 0)
+    total = accepted + rejected
+    
+    if total > 0:
+        rate = accepted / total
+        rate_str = f"{rate:.0%}"
+    else:
+        rate_str = "N/A"
+    
+    print(f"\n{info['name']}:")
+    print(f"  Threshold: {threshold:.0%} (default: {default:.0%}) {status}")
+    print(f"  Decisions: {accepted} accepted, {rejected} rejected ({rate_str} acceptance)")
+    
+    if threshold > default and total >= 10:
+        print(f"  ⚠️  Threshold raised - fewer suggestions will show")
+        if rate < 0.50:
+            print(f"  💡 Low acceptance rate ({rate:.0%}) caused threshold increase")
+
+print("\n\n📈 OVERALL STATS")
+print("=" * 60)
+print(f"Total decisions: {summary['total_decisions']}")
+print(f"Overall acceptance rate: {summary['overall_acceptance_rate']:.0%}")
+
+print("\n\n🔍 PENDING SUGGESTIONS ANALYSIS")
+print("=" * 60)
+
+# Check pending suggestions
+suggestions_dir = Path.home() / "Documents" / "gtd" / "suggestions"
+if not suggestions_dir.exists():
+    print("❌ Suggestions directory not found")
+else:
+    pending = []
+    all_suggestions = []
+    
+    for suggestion_file in suggestions_dir.glob("*.json"):
+        try:
+            with open(suggestion_file) as f:
+                suggestion = json.load(f)
+                all_suggestions.append(suggestion)
+                if suggestion.get("status") == "pending":
+                    pending.append(suggestion)
+        except Exception:
+            continue
+    
+    print(f"Total suggestions: {len(all_suggestions)}")
+    print(f"Pending suggestions: {len(pending)}")
+    
+    if pending:
+        # Group by confidence
+        by_confidence = defaultdict(list)
+        for s in pending:
+            conf = s.get("confidence", 0.0)
+            bucket = f"{int(conf * 10) / 10:.1f}"
+            by_confidence[bucket].append(s)
+        
+        print("\nPending by confidence:")
+        for bucket in sorted(by_confidence.keys(), reverse=True):
+            count = len(by_confidence[bucket])
+            print(f"  {bucket}: {count} suggestion(s)")
+        
+        # Check which would be filtered
+        filtered_out = []
+        shown = []
+        
+        for s in pending:
+            # Try to determine type (simplified)
+            stype = "task_from_log"  # Default
+            if "area" in s.get("title", "").lower() or "area" in s.get("reason", "").lower():
+                stype = "area_assignment"
+            elif "moc" in s.get("title", "").lower():
+                stype = "moc_creation"
+            
+            threshold = data["thresholds"].get(stype, SUGGESTION_TYPES[stype]["default_threshold"])
+            confidence = s.get("confidence", 0.0)
+            
+            if confidence < threshold:
+                filtered_out.append((s.get("title", "Unknown"), confidence, threshold, stype))
+            else:
+                shown.append((s.get("title", "Unknown"), confidence))
+        
+        if filtered_out:
+            print(f"\n⚠️  {len(filtered_out)} suggestion(s) filtered out by thresholds:")
+            for title, conf, thresh, stype in filtered_out[:5]:
+                print(f"  • {title[:60]}")
+                print(f"    Confidence: {conf:.0%} < Threshold: {thresh:.0%} ({SUGGESTION_TYPES[stype]['name']})")
+            if len(filtered_out) > 5:
+                print(f"  ... and {len(filtered_out) - 5} more")
+        
+        if shown:
+            print(f"\n✅ {len(shown)} suggestion(s) would be shown:")
+            for title, conf in shown[:5]:
+                print(f"  • {title[:60]} ({conf:.0%})")
+            if len(shown) > 5:
+                print(f"  ... and {len(shown) - 5} more")
+    else:
+        print("✅ No pending suggestions found")
+
+print("\n\n💡 RECOMMENDATIONS")
+print("=" * 60)
+
+# Check if thresholds are too high
+high_thresholds = []
+for stype, info in SUGGESTION_TYPES.items():
+    threshold = data["thresholds"].get(stype, info["default_threshold"])
+    default = info["default_threshold"]
+    stats = data["stats"].get(stype, {})
+    total = stats.get("accepted", 0) + stats.get("rejected", 0)
+    
+    if threshold > default + 0.10 and total >= 10:  # Raised by more than 10%
+        high_thresholds.append((stype, info["name"], threshold, default))
+
+if high_thresholds:
+    print("⚠️  Some thresholds have been raised significantly:")
+    for stype, name, threshold, default in high_thresholds:
+        print(f"  • {name}: {threshold:.0%} (was {default:.0%})")
+    print("\n💡 To reset thresholds, you can:")
+    print("   1. Accept more suggestions to lower thresholds")
+    print("   2. Manually adjust thresholds in the learning data file")
+    print("   3. Wait for more decisions to balance out")
+else:
+    print("✅ Thresholds look reasonable")
+
+# Check if there are many pending but filtered
+if pending and filtered_out:
+    filter_rate = len(filtered_out) / len(pending)
+    if filter_rate > 0.5:
+        print(f"\n⚠️  {filter_rate:.0%} of pending suggestions are being filtered out")
+        print("   This suggests thresholds may be too high")
+
+print("\n")
+
+PYTHON_EOF
+
+echo ""
+gtd_enter_to_continue
+

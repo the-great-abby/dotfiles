@@ -1,4 +1,7 @@
 #!/bin/bash
+# IMPORTANT: This script must be compatible with bash 3.2 (macOS default)
+# See .cursorrules for bash compatibility guidelines
+# DO NOT use associative arrays (declare -A) or bash 4+ features
 # GTD Common Helper Library
 # Source this file in your GTD scripts to get consistent behavior
 #
@@ -302,6 +305,241 @@ gtd_print_warning() {
   echo -e "${YELLOW}⚠${NC} $1"
 }
 
+# Print items in two columns
+# Usage: gtd_print_two_columns "item1" "item2" "item3" ...
+# Or: gtd_print_two_columns "${array[@]}"
+# Optional: gtd_print_two_columns --width=35 "${array[@]}"
+gtd_print_two_columns() {
+  local column_width=35
+  local items=()
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --width=*)
+        column_width="${1#*=}"
+        shift
+        ;;
+      *)
+        items+=("$1")
+        shift
+        ;;
+    esac
+  done
+  
+  if [[ ${#items[@]} -eq 0 ]]; then
+    return 0
+  fi
+  
+  # Get terminal width (default to 80 if not available)
+  local term_width=80
+  if command -v tput &>/dev/null; then
+    term_width=$(tput cols 2>/dev/null || echo "80")
+  elif [[ -n "${COLUMNS:-}" ]]; then
+    term_width="$COLUMNS"
+  fi
+  
+  # Calculate column width (leave space for separator)
+  local separator_width=4
+  local available_width=$((term_width - separator_width))
+  local calculated_width=$((available_width / 2))
+  
+  # Use provided width or calculated, whichever is smaller
+  if [[ $calculated_width -lt $column_width ]]; then
+    column_width=$calculated_width
+  fi
+  
+  # Display items in two columns
+  local i=0
+  local total=${#items[@]}
+  
+  while [[ $i -lt $total ]]; do
+    local left_item="${items[$i]}"
+    local right_item=""
+    
+    # Get right column item if it exists
+    local right_idx=$((i + 1))
+    if [[ $right_idx -lt $total ]]; then
+      right_item="${items[$right_idx]}"
+    fi
+    
+    # Truncate items if needed (bash 3.2 compatible)
+    local left_display="$left_item"
+    if [[ ${#left_display} -gt $column_width ]]; then
+      left_display="${left_display:0:$((column_width - 3))}..."
+    fi
+    
+    local right_display="$right_item"
+    if [[ -n "$right_item" ]]; then
+      if [[ ${#right_display} -gt $column_width ]]; then
+        right_display="${right_display:0:$((column_width - 3))}..."
+      fi
+      # Print both columns
+      printf "  %-${column_width}s    %-${column_width}s\n" "$left_display" "$right_display"
+      i=$((i + 2))
+    else
+      # Only left column
+      printf "  %-${column_width}s\n" "$left_display"
+      i=$((i + 1))
+    fi
+  done
+}
+
+# Print items in two columns with custom formatting
+# Usage: gtd_print_two_columns_formatted "prefix" "item1" "item2" ...
+# Each item will be prefixed with the prefix string
+gtd_print_two_columns_formatted() {
+  local prefix="$1"
+  shift
+  local items=("$@")
+  
+  if [[ ${#items[@]} -eq 0 ]]; then
+    return 0
+  fi
+  
+  # Format items with prefix
+  local formatted_items=()
+  for item in "${items[@]}"; do
+    formatted_items+=("${prefix}${item}")
+  done
+  
+  gtd_print_two_columns "${formatted_items[@]}"
+}
+
+# Print menu items in two columns (for wizard menus)
+# Usage: gtd_print_menu_items_two_columns "item1" "item2" ...
+# Handles ANSI color codes in items properly
+gtd_print_menu_items_two_columns() {
+  local items=("$@")
+  
+  if [[ ${#items[@]} -eq 0 ]]; then
+    return 0
+  fi
+  
+  # Get terminal width (default to 80 if not available)
+  local term_width=80
+  if command -v tput &>/dev/null; then
+    term_width=$(tput cols 2>/dev/null || echo "80")
+  elif [[ -n "${COLUMNS:-}" ]]; then
+    term_width="$COLUMNS"
+  fi
+  
+  # Calculate column width (leave space for separator)
+  # Use a fixed reasonable width for two columns (bash 3.2 compatible)
+  local separator_width=4
+  local available_width=$((term_width - separator_width))
+  local column_width=$((available_width / 2))
+  
+  # Ensure minimum column width for readability (at least 35 chars per column)
+  local min_column_width=35
+  if [[ $column_width -lt $min_column_width ]]; then
+    column_width=$min_column_width
+  fi
+  
+  # Helper function to strip ANSI codes for width calculation (bash 3.2 compatible)
+  # Handles both actual ANSI codes and variable names like ${GREEN}, ${NC}
+  strip_ansi_codes() {
+    local text="$1"
+    # Remove actual ANSI escape sequences
+    text=$(echo "$text" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/\\033\[[0-9;]*m//g')
+    # Remove common color variable patterns (they don't contribute to visible width)
+    text=$(echo "$text" | sed 's/\${GREEN}//g' | sed 's/\${CYAN}//g' | sed 's/\${YELLOW}//g' | sed 's/\${RED}//g' | sed 's/\${BOLD}//g' | sed 's/\${NC}//g' | sed 's/\${GRAY}//g')
+    echo "$text"
+  }
+  
+  # Display items in two columns
+  local i=0
+  local total=${#items[@]}
+  
+  while [[ $i -lt $total ]]; do
+    local left_item="${items[$i]}"
+    local right_item=""
+    
+    # Get right column item if it exists
+    local right_idx=$((i + 1))
+    if [[ $right_idx -lt $total ]]; then
+      right_item="${items[$right_idx]}"
+    fi
+    
+    if [[ -n "$right_item" ]]; then
+      # Calculate visible width (without ANSI codes) for proper alignment
+      local left_visible=$(strip_ansi_codes "$left_item")
+      local right_visible=$(strip_ansi_codes "$right_item")
+      local left_len=${#left_visible}
+      local right_len=${#right_visible}
+      
+      # Truncate if needed - preserve ANSI codes/variables properly
+      if [[ $left_len -gt $column_width ]]; then
+        local truncate_at=$((column_width - 3))
+        
+        # Extract prefix (ANSI codes or color variables at start)
+        local left_prefix=""
+        # Check for variable patterns like ${GREEN} at start
+        if [[ "$left_item" =~ ^(\$\{[A-Z]+\}) ]]; then
+          left_prefix="${BASH_REMATCH[1]}"
+        # Check for actual ANSI escape sequence
+        elif [[ "$left_item" =~ ^($'\033'\[[0-9;]*m) ]]; then
+          left_prefix="${BASH_REMATCH[1]}"
+        fi
+        
+        # Always add NC at end for truncated items to reset color
+        local left_suffix="${NC}"
+        
+        # Truncate the visible text and rebuild with codes
+        local truncated_text="${left_visible:0:$truncate_at}..."
+        left_item="${left_prefix}${truncated_text}${left_suffix}"
+        left_len=$((truncate_at + 3))
+      fi
+      
+      if [[ $right_len -gt $column_width ]]; then
+        local truncate_at=$((column_width - 3))
+        
+        # Extract prefix (same logic as left)
+        local right_prefix=""
+        if [[ "$right_item" =~ ^(\$\{[A-Z]+\}) ]]; then
+          right_prefix="${BASH_REMATCH[1]}"
+        elif [[ "$right_item" =~ ^($'\033'\[[0-9;]*m) ]]; then
+          right_prefix="${BASH_REMATCH[1]}"
+        fi
+        
+        # Always add NC at end for truncated items
+        local right_suffix="${NC}"
+        
+        local truncated_text="${right_visible:0:$truncate_at}..."
+        right_item="${right_prefix}${truncated_text}${right_suffix}"
+        right_len=$((truncate_at + 3))
+      fi
+      
+      # Calculate padding needed for left column
+      local left_pad=$((column_width - left_len))
+      if [[ $left_pad -lt 0 ]]; then
+        left_pad=0
+      fi
+      
+      # Build padding string
+      local pad_str=""
+      local j=0
+      while [[ $j -lt $left_pad ]]; do
+        pad_str="${pad_str} "
+        ((j++))
+      done
+      
+      # Print both columns using echo -e to interpret ANSI codes
+      # Use printf for padding, then echo -e for the actual content
+      printf "  "
+      echo -ne "${left_item}"
+      printf "%*s" $left_pad ""
+      printf "    "
+      echo -e "${right_item}"
+      i=$((i + 2))
+    else
+      # Only left column
+      echo -e "  ${left_item}"
+      i=$((i + 1))
+    fi
+  done
+}
+
 # ============================================================================
 # Polished UX Helpers
 # ============================================================================
@@ -327,12 +565,16 @@ gtd_pause() {
 }
 
 # Quick pause for non-critical operations (2 second auto-continue)
+# Use for: Quick error messages, simple confirmations, brief status updates
+# DO NOT use for: Reports, reviews, lists, or any information users need to read
 gtd_quick_pause() {
   gtd_pause 2 "Press Enter to continue..."
 }
 
 # Enter to continue - waits for user to press Enter (no auto-continue)
 # Use this when displaying information that users need time to review
+# Use for: Reports, reviews, task lists, analysis results, summaries, dashboards
+# Rule: If it's information the user needs to READ → use this function
 gtd_enter_to_continue() {
   gtd_pause 0 "Press Enter to continue..."
 }

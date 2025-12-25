@@ -1,0 +1,54 @@
+#!/bin/bash
+# Quick wrapper for Pathfinder Kingmaker character advice
+# Bypasses gtd-advise context gathering for faster responses
+
+# Find persona helper
+PERSONA_HELPER=""
+POSSIBLE_PATHS=(
+  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+  if [[ -f "$path" ]]; then
+    PERSONA_HELPER="$path"
+    break
+  fi
+done
+
+if [[ -z "$PERSONA_HELPER" || ! -f "$PERSONA_HELPER" ]]; then
+  echo "Error: Persona helper not found" >&2
+  exit 1
+fi
+
+# Use common Python helper
+if [[ -f "$HOME/code/dotfiles/bin/gtd-common.sh" ]]; then
+  source "$HOME/code/dotfiles/bin/gtd-common.sh"
+  PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null)
+fi
+
+if [[ -z "$PYTHON_CMD" ]]; then
+  if [[ -f "/opt/homebrew/bin/python3" ]]; then
+    PYTHON_CMD="/opt/homebrew/bin/python3"
+  elif command -v python3 &>/dev/null; then
+    PYTHON_CMD="python3"
+  else
+    echo "Error: python3 not found" >&2
+    exit 1
+  fi
+fi
+
+# Collect all arguments as the question
+question="$*"
+
+if [[ -z "$question" ]]; then
+  echo "Usage: gtd-kingmaker-advise \"your question\""
+  echo ""
+  echo "Example:"
+  echo "  gtd-kingmaker-advise \"How would you react to becoming the royal enforcer?\""
+  exit 1
+fi
+
+# Call persona helper directly with --simple to skip context gathering
+"$PYTHON_CMD" "$PERSONA_HELPER" "kingmaker-char" "$question" "" "--simple"
+

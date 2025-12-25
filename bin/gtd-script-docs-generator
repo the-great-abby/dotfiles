@@ -1,0 +1,255 @@
+#!/bin/bash
+# GTD Script Documentation Generator
+# Analyzes all scripts in bin directory and generates comprehensive documentation
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOCS_DIR="$SCRIPT_DIR/../docs"
+OUTPUT_FILE="$DOCS_DIR/COMMAND_LINE_PROFICIENCY.md"
+
+# Source common helpers
+GTD_COMMON="$SCRIPT_DIR/gtd-common.sh"
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+echo -e "${BOLD}${CYAN}Generating Script Documentation...${NC}"
+
+# Create docs directory if it doesn't exist
+mkdir -p "$DOCS_DIR"
+
+# Start documentation file
+cat > "$OUTPUT_FILE" <<'EOF'
+# Command Line Proficiency - GTD Scripts Reference
+
+> **Learn to master your GTD command line tools** - Comprehensive guide to all scripts in the `bin/` directory, organized by activity type and process.
+
+## 📚 Table of Contents
+
+- [Core GTD Workflow](#core-gtd-workflow)
+- [Task Management](#task-management)
+- [Project Management](#project-management)
+- [Area Management](#area-management)
+- [Daily Logging & Tracking](#daily-logging--tracking)
+- [Reviews & Planning](#reviews--planning)
+- [Second Brain & Knowledge](#second-brain--knowledge)
+- [Advice & Suggestions](#advice--suggestions)
+- [Learning & Study](#learning--study)
+- [Health & Wellness](#health--wellness)
+- [Calendar & Scheduling](#calendar--scheduling)
+- [System Management](#system-management)
+- [Workers & Background Tasks](#workers--background-tasks)
+- [Utilities & Helpers](#utilities--helpers)
+
+---
+
+EOF
+
+# Function to extract script info
+extract_script_info() {
+  local script="$1"
+  local script_name=$(basename "$script")
+  
+  # Skip non-executable files and common.sh
+  if [[ ! -x "$script" ]] || [[ "$script_name" == "gtd-common.sh" ]]; then
+    return
+  fi
+  
+  # Extract description from first comment block
+  local description=$(head -20 "$script" | grep -E "^# " | head -3 | sed 's/^# //' | tr '\n' ' ' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
+  
+  # Extract usage patterns
+  local usage=$(grep -E "^# Usage:|^# usage:|^usage\(\)" "$script" -A 5 | head -10 | grep -v "^--" | sed 's/^# *//' | head -5)
+  
+  # Determine category based on name
+  local category="Utilities & Helpers"
+  if [[ "$script_name" =~ ^gtd-(capture|process|task|project|area|review|checkin) ]]; then
+    category="Core GTD Workflow"
+  elif [[ "$script_name" =~ ^gtd-task ]]; then
+    category="Task Management"
+  elif [[ "$script_name" =~ ^gtd-project ]]; then
+    category="Project Management"
+  elif [[ "$script_name" =~ ^gtd-area ]]; then
+    category="Area Management"
+  elif [[ "$script_name" =~ ^gtd-(log|daily-log|addInfoToDailyLog) ]]; then
+    category="Daily Logging & Tracking"
+  elif [[ "$script_name" =~ ^gtd-(review|plan|morning|evening|afternoon) ]]; then
+    category="Reviews & Planning"
+  elif [[ "$script_name" =~ ^gtd-brain ]]; then
+    category="Second Brain & Knowledge"
+  elif [[ "$script_name" =~ ^gtd-(advise|advice|suggest|auto-suggest) ]]; then
+    category="Advice & Suggestions"
+  elif [[ "$script_name" =~ ^gtd-(learn|study|quiz|cka|greek) ]]; then
+    category="Learning & Study"
+  elif [[ "$script_name" =~ ^gtd-(health|food|lunch|workout) ]]; then
+    category="Health & Wellness"
+  elif [[ "$script_name" =~ ^gtd-calendar ]]; then
+    category="Calendar & Scheduling"
+  elif [[ "$script_name" =~ ^gtd-(worker|vector|sync|status|diagnose|config) ]]; then
+    category="System Management"
+  elif [[ "$script_name" =~ -worker$ ]]; then
+    category="Workers & Background Tasks"
+  fi
+  
+  echo "$script_name|$description|$category"
+}
+
+# Generate documentation by category
+generate_docs() {
+  echo -e "${GREEN}Analyzing scripts...${NC}"
+  
+  # Collect all script info
+  declare -A categories
+  
+  for script in "$SCRIPT_DIR"/gtd-*; do
+    if [[ -f "$script" && -x "$script" ]]; then
+      local info=$(extract_script_info "$script")
+      if [[ -n "$info" ]]; then
+        local category=$(echo "$info" | cut -d'|' -f3)
+        local name=$(echo "$info" | cut -d'|' -f1)
+        local desc=$(echo "$info" | cut -d'|' -f2)
+        
+        if [[ -z "${categories[$category]}" ]]; then
+          categories[$category]=""
+        fi
+        categories[$category]+="$name|$desc"$'\n'
+      fi
+    fi
+  done
+  
+  # Write documentation by category
+  local category_order=(
+    "Core GTD Workflow"
+    "Task Management"
+    "Project Management"
+    "Area Management"
+    "Daily Logging & Tracking"
+    "Reviews & Planning"
+    "Second Brain & Knowledge"
+    "Advice & Suggestions"
+    "Learning & Study"
+    "Health & Wellness"
+    "Calendar & Scheduling"
+    "System Management"
+    "Workers & Background Tasks"
+    "Utilities & Helpers"
+  )
+  
+  for category in "${category_order[@]}"; do
+    if [[ -n "${categories[$category]}" ]]; then
+      echo "" >> "$OUTPUT_FILE"
+      echo "## $category" >> "$OUTPUT_FILE"
+      echo "" >> "$OUTPUT_FILE"
+      
+      # Sort scripts in this category
+      echo "${categories[$category]}" | sort -t'|' -k1 | while IFS='|' read -r name desc; do
+        if [[ -n "$name" ]]; then
+          echo "### \`$name\`" >> "$OUTPUT_FILE"
+          echo "" >> "$OUTPUT_FILE"
+          if [[ -n "$desc" ]]; then
+            echo "$desc" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+          fi
+          
+          # Try to get more detailed info from script
+          local script_path="$SCRIPT_DIR/$name"
+          if [[ -f "$script_path" ]]; then
+            # Extract usage examples
+            local usage=$(grep -A 10 "Usage:" "$script_path" 2>/dev/null | head -10 | sed 's/^# *//')
+            if [[ -n "$usage" ]]; then
+              echo "**Usage:**" >> "$OUTPUT_FILE"
+              echo '```bash' >> "$OUTPUT_FILE"
+              echo "$usage" | head -5 >> "$OUTPUT_FILE"
+              echo '```' >> "$OUTPUT_FILE"
+              echo "" >> "$OUTPUT_FILE"
+            fi
+          fi
+          
+          echo "---" >> "$OUTPUT_FILE"
+          echo "" >> "$OUTPUT_FILE"
+        fi
+      done
+    fi
+  done
+  
+  # Add quick reference section
+  cat >> "$OUTPUT_FILE" <<'EOF'
+
+## 🚀 Quick Reference
+
+### Most Common Commands
+
+```bash
+# Capture something quickly
+gtd-capture "your text here"
+
+# Process your inbox
+gtd-process
+
+# Add a task
+gtd-task add "task description"
+
+# View tasks
+gtd-task list
+
+# Log your day
+addInfoToDailyLog "what you did"
+
+# Daily review
+gtd-review daily
+
+# Get advice
+gtd-advise david "your question"
+
+# Search
+gtd-search "query"
+```
+
+### Learning Commands
+
+```bash
+# Learn GTD system
+gtd-learn
+
+# Learn Kubernetes/CKA
+gtd-learn-kubernetes
+
+# Learn Greek
+gtd-learn-greek
+
+# Take a quiz
+gtd-quiz
+```
+
+### Second Brain Commands
+
+```bash
+# Create a note
+gtd-brain create "note title"
+
+# Create MOC
+gtd-brain-moc create "topic"
+
+# Sync with Second Brain
+gtd-brain-sync
+```
+
+---
+
+*Generated automatically - Last updated: $(date)*
+EOF
+
+  echo -e "${GREEN}✓ Documentation generated: $OUTPUT_FILE${NC}"
+}
+
+# Run generator
+generate_docs
+
+echo -e "${BOLD}${CYAN}Documentation generation complete!${NC}"
+

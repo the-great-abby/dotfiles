@@ -212,7 +212,11 @@ select_from_list() {
   echo "" >&2
   
   # Get user input (prompt to stderr so it shows)
-  echo -n "Select ${item_type} (number or partial name): " >&2
+  local fuzzy_hint=""
+  if [[ "${GTD_FUZZY_SEARCH:-false}" == "true" ]]; then
+    fuzzy_hint=" (fuzzy search enabled)"
+  fi
+  echo -n "Select ${item_type} (number or partial name${fuzzy_hint}): " >&2
   read user_input
   
   if [[ -z "$user_input" ]]; then
@@ -248,26 +252,142 @@ select_from_list() {
     fi
   fi
   
-  # Try partial name matching (case-insensitive)
+  # Check if fuzzy search is enabled (via environment variable)
+  local use_fuzzy="${GTD_FUZZY_SEARCH:-false}"
+  
+  # Try partial name matching (case-insensitive) or fuzzy search
   # bash 3.2 compatible - no declare -a
   matches=()
   match_indices=()
+  match_scores=()
   
-  for i in "${!item_names[@]}"; do
-    local display_name="${item_names[$i]}"
-    local file_base=$(basename "${item_paths[$i]}" .md)
-    
-    # Case-insensitive partial match
-    # Convert to lowercase for comparison (bash compatible method)
-    local display_name_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
-    local file_base_lower=$(echo "$file_base" | tr '[:upper:]' '[:lower:]')
-    local user_input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
-    
-    if [[ "$display_name_lower" == *"$user_input_lower"* ]] || [[ "$file_base_lower" == *"$user_input_lower"* ]]; then
-      matches+=("$display_name")
-      match_indices+=($i)
+  if [[ "$use_fuzzy" == "true" ]]; then
+    # Get the correct Python executable (venv or Homebrew, not system Python)
+    local python_cmd=""
+    if declare -f gtd_get_mcp_python &>/dev/null; then
+      python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "")
     fi
-  done
+    if [[ -z "$python_cmd" ]]; then
+      # Fallback: check for Homebrew Python or system python3
+      if [[ -f "/opt/homebrew/bin/python3" ]]; then
+        python_cmd="/opt/homebrew/bin/python3"
+      elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+      fi
+    fi
+    
+    if [[ -n "$python_cmd" ]] && command -v "$python_cmd" &>/dev/null; then
+    # Use Python difflib for fuzzy matching (built-in, no dependencies)
+    # Pass data via stdin to avoid bash array expansion issues
+    local fuzzy_output=""
+    fuzzy_output=$({
+      echo "$user_input"
+      for i in "${!item_names[@]}"; do
+        echo "${item_names[$i]}"
+        echo "${item_paths[$i]}"
+      done
+    } | "$python_cmd" <<'PYTHON_EOF'
+import sys
+import difflib
+
+# Read user input (first line)
+user_input = sys.stdin.readline().strip()
+
+# Read item names and paths (pairs)
+item_names = []
+item_paths = []
+while True:
+    name = sys.stdin.readline().strip()
+    if not name:
+        break
+    path = sys.stdin.readline().strip()
+    item_names.append(name)
+    item_paths.append(path)
+
+# Calculate fuzzy match scores
+matches = []
+match_indices = []
+match_scores = []
+
+for i, display_name in enumerate(item_names):
+    file_base = item_paths[i].split('/')[-1].replace('.md', '')
+    display_name_lower = display_name.lower()
+    file_base_lower = file_base.lower()
+    user_input_lower = user_input.lower()
+    
+    # First check for substring match (case-insensitive) - this is a perfect match
+    if user_input_lower in display_name_lower or user_input_lower in file_base_lower:
+        # Substring match gets highest score
+        matches.append(display_name)
+        match_indices.append(i)
+        match_scores.append(1.0)
+    else:
+        # Use fuzzy matching for partial/typo matches
+        name_score = difflib.SequenceMatcher(None, user_input_lower, display_name_lower).ratio()
+        file_score = difflib.SequenceMatcher(None, user_input_lower, file_base_lower).ratio()
+        score = max(name_score, file_score)
+        # Lower threshold to 0.2 to catch more matches
+        if score >= 0.2:
+            matches.append(display_name)
+            match_indices.append(i)
+            match_scores.append(score)
+
+# Sort by score (highest first)
+if matches:
+    sorted_data = sorted(zip(match_scores, matches, match_indices), reverse=True)
+    match_scores, matches, match_indices = zip(*sorted_data)
+    
+    # Output in format: score|display_name|index (one per line)
+    for score, name, idx in zip(match_scores, matches, match_indices):
+        print(f"{score}|{name}|{idx}")
+PYTHON_EOF
+)
+    
+    # Parse fuzzy results
+    if [[ -n "$fuzzy_output" ]]; then
+      while IFS='|' read -r score name idx; do
+        if [[ -n "$score" && -n "$name" && -n "$idx" ]]; then
+          matches+=("$name")
+          match_indices+=($idx)
+          match_scores+=("$score")
+        fi
+      done <<< "$fuzzy_output"
+    fi
+    else
+      # Fallback to partial matching if Python not available
+      for i in "${!item_names[@]}"; do
+        local display_name="${item_names[$i]}"
+        local item_path="${item_paths[$i]}"
+        local file_base=$(basename "$item_path" .md)
+        local display_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+        local file_base_lower=$(echo "$file_base" | tr '[:upper:]' '[:lower:]')
+        local input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
+        
+        if [[ "$display_lower" == *"$input_lower"* ]] || [[ "$file_base_lower" == *"$input_lower"* ]]; then
+          matches+=("$display_name")
+          match_indices+=($i)
+        fi
+      done
+    fi
+  else
+    # Original partial name matching (case-insensitive)
+    for i in "${!item_names[@]}"; do
+      local display_name="${item_names[$i]}"
+      local file_base=$(basename "${item_paths[$i]}" .md)
+      
+      # Case-insensitive partial match
+      # Convert to lowercase for comparison (bash compatible method)
+      local display_name_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+      local file_base_lower=$(echo "$file_base" | tr '[:upper:]' '[:lower:]')
+      local user_input_lower=$(echo "$user_input" | tr '[:upper:]' '[:lower:]')
+      
+      if [[ "$display_name_lower" == *"$user_input_lower"* ]] || [[ "$file_base_lower" == *"$user_input_lower"* ]]; then
+        matches+=("$display_name")
+        match_indices+=($i)
+        match_scores+=("1.0")  # Perfect match for partial
+      fi
+    done
+  fi
   
   local match_count=${#matches[@]}
   
@@ -380,7 +500,7 @@ select_from_numbered_list() {
 # Returns: persona key (e.g., "hank", "david") via stdout, empty if cancelled
 select_persona() {
   # Available personas array (bash 3.2 compatible - no declare -a)
-  personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob" "matt" "brennan" "chris" "aabria" "jeremy")
+  personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob" "matt" "brennan" "chris" "aabria" "jeremy" "kingmaker-char")
   
   # Function to get persona display info
   get_persona_info() {
@@ -435,6 +555,7 @@ select_persona() {
       chris) echo "Chris Perkins - Game design, world-building, creative mechanics, memorable adventures, system design" ;;
       aabria) echo "Aabria Iyengar - Collaborative storytelling, diverse narratives, inclusive stories, character development" ;;
       jeremy) echo "Jeremy Crawford - Rules expertise, game mechanics, system design, understanding complex systems" ;;
+      kingmaker-char) echo "Rakasha Elka - Pathfinder Kingmaker character, roleplay advice, character decision-making" ;;
       *) echo "Unknown persona" ;;
     esac
   }

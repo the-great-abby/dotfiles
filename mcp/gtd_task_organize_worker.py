@@ -216,7 +216,7 @@ Only group tasks that are clearly related. Return ONLY the JSON array."""
         system_prompt = "You are a GTD organization assistant. Group related tasks and suggest project names."
         
         try:
-            response = call_fast_ai(prompt, system_prompt)
+            response = call_fast_ai(prompt, system_prompt, use_instruct=True)
             
             # Extract JSON from response
             import re

@@ -1398,15 +1398,45 @@ def queue_second_brain_sync(sync_type: str = "full", context: Optional[Dict[str,
         return f"queue_failed: {e}"
 
 
-def call_fast_ai(prompt: str, system_prompt: str = None) -> str:
-    """Call the fast AI model (Gemma 1b) for quick responses."""
+def call_fast_ai(prompt: str, system_prompt: str = None, use_instruct: bool = False, context: str = None) -> str:
+    """Call the fast AI model for quick responses.
+    
+    Args:
+        prompt: The user prompt
+        system_prompt: Optional system prompt (defaults to GTD assistant)
+        use_instruct: If True, use instruct model (better for structured output, JSON formatting, precise instructions)
+        context: Optional context to pre-load (e.g., daily log content). This gets added to the system prompt
+                 or as a separate message to give the model awareness of the context before answering.
+    """
     import urllib.request
     
     if system_prompt is None:
         system_prompt = "You are a helpful GTD assistant. Provide concise, actionable suggestions."
     
+    # If context is provided, enhance the system prompt with it
+    # This pre-loads the context so the model is aware of it before answering
+    if context:
+        system_prompt = f"""{system_prompt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONTEXT (Pre-loaded for awareness):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{context}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You have been provided with the context above. Use this information to provide more context-aware and relevant responses. When answering questions, reference this context when relevant."""
+    
+    # Select model: use instruct model if requested, otherwise use regular chat model
+    if use_instruct:
+        model_name = LM_CONFIG.get("instruct_model", FAST_MODEL_NAME)
+        # Fall back to regular model if instruct not configured
+        if not model_name:
+            model_name = FAST_MODEL_NAME
+    else:
+        model_name = FAST_MODEL_NAME
+    
     payload = {
-        "model": FAST_MODEL_NAME,
+        "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
@@ -1440,6 +1470,121 @@ def call_fast_ai(prompt: str, system_prompt: str = None) -> str:
         return f"Error: Invalid JSON response from AI server: {e}"
     except Exception as e:
         return f"Error calling AI: {e}"
+
+
+def load_daily_log_context(date_range: str = "today", max_length: int = 2000) -> str:
+    """Load daily log content for pre-loading into fast model context.
+    
+    Args:
+        date_range: "today", "week", "month", "all", or specific date (YYYY-MM-DD)
+        max_length: Maximum length of context to return (to avoid token limits)
+    
+    Returns:
+        Formatted daily log content ready to be used as context
+    """
+    def read_log_file(date_str: str) -> str:
+        """Read daily log file, trying both .md and .txt extensions."""
+        log_dir = Path.home() / "Documents" / "daily_logs"
+        if not log_dir.exists():
+            # Try alternative location from config
+            if GTD_CONFIG_FILE.exists():
+                with open(GTD_CONFIG_FILE) as f:
+                    for line in f:
+                        if line.startswith("DAILY_LOG_DIR="):
+                            log_dir = Path(line.split("=", 1)[1].strip().strip('"').strip("'").replace("$HOME", str(Path.home())))
+                            break
+        
+        # Try .md first (most common), then .txt
+        for ext in [".md", ".txt"]:
+            log_file = log_dir / f"{date_str}{ext}"
+            if log_file.exists():
+                try:
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        return f.read()
+                except Exception:
+                    continue
+        return ""
+    
+    try:
+        if date_range == "today":
+            log_content = read_log_file(datetime.now().strftime("%Y-%m-%d"))
+        elif date_range == "week":
+            # Get last 7 days
+            today = datetime.now()
+            logs = []
+            for i in range(7):
+                date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+                content = read_log_file(date)
+                if content:
+                    logs.append(f"--- {date} ---\n{content}")
+            log_content = "\n\n".join(reversed(logs))
+        elif date_range == "month":
+            # Get last 30 days
+            today = datetime.now()
+            logs = []
+            for i in range(30):
+                date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+                content = read_log_file(date)
+                if content:
+                    logs.append(f"--- {date} ---\n{content}")
+            log_content = "\n\n".join(reversed(logs))
+        elif date_range == "all":
+            # Get all logs (this might be very long, so we'll limit it)
+            log_dir = Path.home() / "Documents" / "daily_logs"
+            if not log_dir.exists():
+                # Try alternative location
+                log_dir = Path.home() / "code" / "dotfiles" / "Documents" / "daily_logs"
+            
+            if log_dir.exists():
+                # Try both .md and .txt
+                log_files = []
+                for ext in [".md", ".txt"]:
+                    log_files.extend(log_dir.glob(f"*{ext}"))
+                log_files = sorted(set(log_files), key=lambda x: x.stem, reverse=True)[:30]  # Last 30 days max
+                logs = []
+                for log_file in log_files:
+                    date = log_file.stem
+                    content = read_log_file(date)
+                    if content:
+                        logs.append(f"--- {date} ---\n{content}")
+                log_content = "\n\n".join(reversed(logs))
+            else:
+                log_content = ""
+        else:
+            # Specific date
+            log_content = read_log_file(date_range)
+        
+        # Truncate if too long (keep the most recent part)
+        if len(log_content) > max_length:
+            log_content = "..." + log_content[-max_length:]
+        
+        return log_content
+    except Exception as e:
+        return f"Error loading daily log context: {e}"
+
+
+def call_fast_ai_with_daily_log(prompt: str, date_range: str = "today", system_prompt: str = None, 
+                                  use_instruct: bool = False) -> str:
+    """Call the fast AI model with daily log context pre-loaded.
+    
+    This is a convenience wrapper that automatically loads daily log content
+    and includes it as context, making the fast model aware of your daily logs
+    before answering questions.
+    
+    Args:
+        prompt: The user prompt/question
+        date_range: "today", "week", "month", "all", or specific date (YYYY-MM-DD)
+        system_prompt: Optional system prompt (defaults to GTD assistant)
+        use_instruct: If True, use instruct model
+    
+    Returns:
+        AI response with context awareness
+    """
+    # Load daily log context
+    context = load_daily_log_context(date_range)
+    
+    # Call fast AI with context pre-loaded
+    return call_fast_ai(prompt, system_prompt, use_instruct, context)
 
 
 @server.list_tools()
@@ -2159,7 +2304,7 @@ Format your response as JSON array of objects with keys: title, reason, confiden
 
 Only suggest tasks that are clearly actionable. If no tasks are found, return an empty array."""
 
-        response = call_fast_ai(prompt, "You are a GTD task extraction expert. Return only valid JSON.")
+        response = call_fast_ai(prompt, "You are a GTD task extraction expert. Return only valid JSON.", use_instruct=True)
         
         try:
             # Try to extract JSON from response
@@ -3211,7 +3356,7 @@ Return ONLY the JSON object, no other text."""
 
         system_prompt = "You are a GTD system expert. You understand semantic intent and can translate natural language commands into specific system actions. Return only valid JSON."
 
-        response = call_fast_ai(prompt, system_prompt)
+        response = call_fast_ai(prompt, system_prompt, use_instruct=True)
         
         try:
             import re
@@ -3717,8 +3862,9 @@ IMPORTANT: Use the web search results above to provide accurate, factual answers
                     pass
         
         # Call the AI with error handling
+        # Use instruct model for structured JSON output
         try:
-            response = call_fast_ai(prompt, system_prompt)
+            response = call_fast_ai(prompt, system_prompt, use_instruct=True)
             
             # Check if we got an error string (call_fast_ai returns error strings instead of raising)
             if response and response.startswith("Error"):

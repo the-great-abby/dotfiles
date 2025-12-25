@@ -53,6 +53,64 @@ gtd-l() {
   fi
 }
 
+# Dashboard cache worker management
+gtd-restart-dashboard-worker() {
+  local worker_script="gtd_dashboard_cache_worker.py"
+  local worker_wrapper="gtd-dashboard-cache-worker"
+  local pid
+  
+  echo "🔄 Restarting Dashboard Cache Worker..."
+  echo ""
+  
+  # Check if running and kill if needed
+  if pid=$(pgrep -f "$worker_script" 2>/dev/null | head -1); then
+    echo "  Stopping existing worker (PID: $pid)..."
+    kill "$pid" 2>/dev/null
+    sleep 2
+    
+    # Force kill if still running
+    if pgrep -f "$worker_script" >/dev/null; then
+      echo "  Force killing stuck process..."
+      pkill -9 -f "$worker_script" 2>/dev/null
+      sleep 1
+    fi
+  else
+    echo "  No running worker found"
+  fi
+  
+  # Start worker
+  echo "  Starting new worker..."
+  if command -v "$worker_wrapper" &>/dev/null; then
+    "$worker_wrapper" 2>/dev/null
+  elif [[ -f "$HOME/code/dotfiles/bin/$worker_wrapper" ]]; then
+    "$HOME/code/dotfiles/bin/$worker_wrapper" 2>/dev/null
+  else
+    echo "  ❌ Error: Worker script not found"
+    return 1
+  fi
+  
+  # Verify it started
+  sleep 1
+  if pid=$(pgrep -f "$worker_script" 2>/dev/null | head -1); then
+    echo ""
+    echo "  ✅ Dashboard cache worker restarted (PID: $pid)"
+    echo ""
+    echo "📋 Useful Commands:"
+    echo "  • Check status:    pgrep -f gtd_dashboard_cache_worker.py"
+    echo "  • View logs:       tail -f /tmp/dashboard-cache-worker.log"
+    echo "  • Stop worker:     pkill -f gtd_dashboard_cache_worker.py"
+    echo "  • Restart again:   gtd-restart-dashboard-worker"
+    echo "  • Check cache:     cat ~/Documents/gtd/.dashboard_cache.json | jq"
+    echo ""
+  else
+    echo ""
+    echo "  ❌ Failed to start worker"
+    echo "  Check logs: tail -20 /tmp/dashboard-cache-worker.log"
+    echo ""
+    return 1
+  fi
+}
+
 # Short aliases (only if not already defined - protects against Oh My Zsh conflicts)
 if ! alias p &>/dev/null; then
   alias p="gtd-process"

@@ -1,0 +1,547 @@
+#!/bin/bash
+# RabbitMQ Connection Diagnostics
+# Comprehensive tool to diagnose intermittent RabbitMQ connectivity issues
+
+set +e  # Don't exit on errors - we want to show all diagnostics
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${CYAN}🔍 RabbitMQ Connection Diagnostics${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Track overall status
+OVERALL_STATUS=0
+
+# 1. Check Network Connectivity
+echo -e "${BOLD}1. Network Connectivity Tests${NC}"
+echo ""
+echo -e "  ${CYAN}Note: System uses NodePort (not port-forward)${NC}"
+echo ""
+
+# Check NodePort (primary method)
+echo -n "  NodePort (192.168.64.2:30672): "
+# Use gtimeout on macOS (from GNU coreutils via Homebrew) or fallback to perl
+if command -v gtimeout &>/dev/null; then
+  TIMEOUT_CMD="gtimeout"
+elif command -v timeout &>/dev/null; then
+  TIMEOUT_CMD="timeout"
+else
+  # Fallback: use perl to implement timeout
+  TIMEOUT_CMD=""
+fi
+
+if [[ -n "$TIMEOUT_CMD" ]]; then
+  NC_OUTPUT=$($TIMEOUT_CMD 3 nc -zv 192.168.64.2 30672 2>&1)
+  NC_EXIT=$?
+  if [[ $NC_EXIT -eq 0 ]] || echo "$NC_OUTPUT" | grep -q "succeeded"; then
+    echo -e "${GREEN}✅ Accessible${NC}"
+    NODEPORT_AVAILABLE=true
+  else
+    echo -e "${RED}❌ Not accessible${NC}"
+    NODEPORT_AVAILABLE=false
+    OVERALL_STATUS=1
+    # Show detailed error
+    echo -e "     ${YELLOW}Testing connection...${NC}"
+    echo "$NC_OUTPUT" | head -1 | sed 's/^/     /'
+  fi
+else
+  # Fallback without timeout command - use background process with kill
+  nc -zv 192.168.64.2 30672 >/tmp/nc_test.out 2>&1 &
+  NC_PID=$!
+  sleep 2
+  if kill $NC_PID 2>/dev/null; then
+    # Process still running after 2 seconds = likely failed
+    wait $NC_PID 2>/dev/null
+    if grep -q "succeeded" /tmp/nc_test.out 2>/dev/null; then
+      echo -e "${GREEN}✅ Accessible${NC}"
+      NODEPORT_AVAILABLE=true
+    else
+      echo -e "${RED}❌ Not accessible${NC}"
+      NODEPORT_AVAILABLE=false
+      OVERALL_STATUS=1
+      echo -e "     ${YELLOW}Testing connection...${NC}"
+      cat /tmp/nc_test.out 2>/dev/null | head -1 | sed 's/^/     /' || true
+    fi
+  else
+    # Process finished quickly - check output
+    if grep -q "succeeded" /tmp/nc_test.out 2>/dev/null; then
+      echo -e "${GREEN}✅ Accessible${NC}"
+      NODEPORT_AVAILABLE=true
+    else
+      echo -e "${RED}❌ Not accessible${NC}"
+      NODEPORT_AVAILABLE=false
+      OVERALL_STATUS=1
+      echo -e "     ${YELLOW}Testing connection...${NC}"
+      cat /tmp/nc_test.out 2>/dev/null | head -1 | sed 's/^/     /' || true
+    fi
+  fi
+  rm -f /tmp/nc_test.out 2>/dev/null || true
+fi
+
+# Check Port-Forward (legacy - not used, but check for troubleshooting)
+echo -n "  Port-Forward (localhost:5672) [legacy]: "
+if [[ -n "$TIMEOUT_CMD" ]]; then
+  NC_PF_OUTPUT=$($TIMEOUT_CMD 3 nc -zv localhost 5672 2>&1)
+  NC_PF_EXIT=$?
+  if [[ $NC_PF_EXIT -eq 0 ]] || echo "$NC_PF_OUTPUT" | grep -q "succeeded"; then
+    echo -e "${CYAN}ℹ️  Accessible (not used - system uses NodePort)${NC}"
+    PORTFORWARD_AVAILABLE=true
+  else
+    echo -e "${CYAN}ℹ️  Not accessible (expected - system uses NodePort)${NC}"
+    PORTFORWARD_AVAILABLE=false
+  fi
+else
+  # Fallback without timeout
+  nc -zv localhost 5672 >/tmp/nc_pf_test.out 2>&1 &
+  NC_PID=$!
+  sleep 2
+  if kill $NC_PID 2>/dev/null; then
+    wait $NC_PID 2>/dev/null
+    if grep -q "succeeded" /tmp/nc_pf_test.out 2>/dev/null; then
+      echo -e "${CYAN}ℹ️  Accessible (not used - system uses NodePort)${NC}"
+      PORTFORWARD_AVAILABLE=true
+    else
+      echo -e "${CYAN}ℹ️  Not accessible (expected - system uses NodePort)${NC}"
+      PORTFORWARD_AVAILABLE=false
+    fi
+  else
+    if grep -q "succeeded" /tmp/nc_pf_test.out 2>/dev/null; then
+      echo -e "${CYAN}ℹ️  Accessible (not used - system uses NodePort)${NC}"
+      PORTFORWARD_AVAILABLE=true
+    else
+      echo -e "${CYAN}ℹ️  Not accessible (expected - system uses NodePort)${NC}"
+      PORTFORWARD_AVAILABLE=false
+    fi
+  fi
+  rm -f /tmp/nc_pf_test.out 2>/dev/null || true
+fi
+
+echo ""
+
+# 2. Check Kubernetes Pod Status
+echo -e "${BOLD}2. Kubernetes Pod Status${NC}"
+echo ""
+
+if ! command -v kubectl &>/dev/null; then
+  echo -e "  ${YELLOW}⚠️  kubectl not found - skipping Kubernetes checks${NC}"
+  echo ""
+else
+  # Check if we can connect to cluster
+  if ! kubectl cluster-info &>/dev/null 2>&1; then
+    echo -e "  ${RED}❌ Cannot connect to Kubernetes cluster${NC}"
+    echo "     Run: kubectl cluster-info"
+    OVERALL_STATUS=1
+    echo ""
+  else
+    # Check RabbitMQ namespace
+    if ! kubectl get namespace rabbitmq-system &>/dev/null 2>&1; then
+      echo -e "  ${RED}❌ Namespace 'rabbitmq-system' not found${NC}"
+      echo "     RabbitMQ may not be deployed"
+      OVERALL_STATUS=1
+      echo ""
+    else
+      # Get pod status
+      PODS=$(kubectl get pods -n rabbitmq-system -l app.kubernetes.io/name=rabbitmq 2>/dev/null)
+      if [[ -z "$PODS" ]] || ! echo "$PODS" | grep -q "rabbitmq"; then
+        echo -e "  ${RED}❌ No RabbitMQ pods found${NC}"
+        echo "     Check: kubectl get pods -n rabbitmq-system"
+        OVERALL_STATUS=1
+      else
+        echo "  Pod Status:"
+        echo "$PODS" | tail -n +2 | while read line; do
+          if [[ -n "$line" ]]; then
+            POD_NAME=$(echo "$line" | awk '{print $1}')
+            POD_STATUS=$(echo "$line" | awk '{print $3}')
+            RESTARTS=$(echo "$line" | awk '{print $4}')
+            AGE=$(echo "$line" | awk '{print $5}')
+            
+            if [[ "$POD_STATUS" == "Running" ]]; then
+              echo -e "    ${GREEN}✅ ${POD_NAME}${NC} - Status: ${GREEN}${POD_STATUS}${NC}, Restarts: ${RESTARTS}, Age: ${AGE}"
+            elif [[ "$POD_STATUS" == "Pending" ]] || [[ "$POD_STATUS" == "ContainerCreating" ]]; then
+              echo -e "    ${YELLOW}⚠️  ${POD_NAME}${NC} - Status: ${YELLOW}${POD_STATUS}${NC}, Restarts: ${RESTARTS}, Age: ${AGE}"
+              OVERALL_STATUS=1
+            else
+              echo -e "    ${RED}❌ ${POD_NAME}${NC} - Status: ${RED}${POD_STATUS}${NC}, Restarts: ${RESTARTS}, Age: ${AGE}"
+              OVERALL_STATUS=1
+            fi
+            
+            # Check restart count
+            if [[ "$RESTARTS" != "0" ]] && [[ "$RESTARTS" != "0" ]]; then
+              RESTART_NUM=$(echo "$RESTARTS" | grep -oE '[0-9]+' | head -1)
+              if [[ -n "$RESTART_NUM" ]] && [[ "$RESTART_NUM" -gt 5 ]]; then
+                echo -e "      ${YELLOW}⚠️  High restart count (${RESTART_NUM}) - pod may be unstable${NC}"
+              fi
+            fi
+          fi
+        done
+        
+        # Check for recent pod events
+        echo ""
+        echo "  Recent Pod Events (last 5):"
+        EVENTS=$(kubectl get events -n rabbitmq-system --sort-by='.lastTimestamp' 2>/dev/null | tail -5)
+        if [[ -n "$EVENTS" ]]; then
+          echo "$EVENTS" | while read line; do
+            if [[ -n "$line" ]] && echo "$line" | grep -qE "(Warning|Error|Failed)"; then
+              echo -e "    ${YELLOW}⚠️  ${line}${NC}"
+            elif [[ -n "$line" ]]; then
+              echo "    $line"
+            fi
+          done
+        else
+          echo "    (No recent events)"
+        fi
+      fi
+    fi
+  fi
+  echo ""
+fi
+
+# 3. Check Service Status
+echo -e "${BOLD}3. Service Status${NC}"
+echo ""
+
+if command -v kubectl &>/dev/null && kubectl get namespace rabbitmq-system &>/dev/null 2>&1; then
+  # Check NodePort service
+  NODEPORT_SVC=$(kubectl get svc -n rabbitmq-system -o jsonpath='{.items[?(@.spec.type=="NodePort")].metadata.name}' 2>/dev/null | head -1)
+  if [[ -n "$NODEPORT_SVC" ]]; then
+    echo "  NodePort Service: ${GREEN}✅ Found${NC} ($NODEPORT_SVC)"
+    NODEPORT_PORT=$(kubectl get svc -n rabbitmq-system "$NODEPORT_SVC" -o jsonpath='{.spec.ports[?(@.port==5672)].nodePort}' 2>/dev/null)
+    if [[ -n "$NODEPORT_PORT" ]]; then
+      echo "    NodePort: ${CYAN}${NODEPORT_PORT}${NC}"
+    fi
+  else
+    echo -e "  NodePort Service: ${YELLOW}⚠️  Not found${NC}"
+    echo "    (May be using port-forward instead)"
+  fi
+  
+  # Check ClusterIP service
+  CLUSTERIP_SVC=$(kubectl get svc -n rabbitmq-system -o jsonpath='{.items[?(@.spec.type=="ClusterIP")].metadata.name}' 2>/dev/null | head -1)
+  if [[ -n "$CLUSTERIP_SVC" ]]; then
+    echo "  ClusterIP Service: ${GREEN}✅ Found${NC} ($CLUSTERIP_SVC)"
+  else
+    echo -e "  ClusterIP Service: ${YELLOW}⚠️  Not found${NC}"
+  fi
+  
+  # Check endpoints
+  echo ""
+  echo "  Service Endpoints:"
+  ENDPOINTS=$(kubectl get endpoints -n rabbitmq-system 2>/dev/null | grep rabbitmq)
+  if [[ -n "$ENDPOINTS" ]]; then
+    echo "$ENDPOINTS" | while read line; do
+      ENDPOINT_NAME=$(echo "$line" | awk '{print $1}')
+      ENDPOINT_ADDR=$(echo "$line" | awk '{print $2}')
+      if [[ "$ENDPOINT_ADDR" == "<none>" ]] || [[ -z "$ENDPOINT_ADDR" ]]; then
+        echo -e "    ${RED}❌ ${ENDPOINT_NAME}${NC} - No endpoints (service not connected to pods)"
+        OVERALL_STATUS=1
+      else
+        echo -e "    ${GREEN}✅ ${ENDPOINT_NAME}${NC} - Endpoints: ${ENDPOINT_ADDR}"
+      fi
+    done
+  else
+    echo -e "    ${YELLOW}⚠️  No endpoints found${NC}"
+  fi
+  
+  # Check PVC status (storage issues cause pod restarts)
+  echo ""
+  echo "  Persistent Volume Claims:"
+  PVC_STATUS=$(kubectl get pvc -n rabbitmq-system 2>/dev/null | grep rabbitmq || true)
+  if [[ -n "$PVC_STATUS" ]]; then
+    echo "$PVC_STATUS" | tail -n +2 | while read line; do
+      if [[ -n "$line" ]]; then
+        PVC_NAME=$(echo "$line" | awk '{print $1}')
+        PVC_STATUS_VAL=$(echo "$line" | awk '{print $2}')
+        PVC_STORAGE_CLASS=$(echo "$line" | awk '{print $6}')
+        
+        if [[ "$PVC_STATUS_VAL" == "Pending" ]]; then
+          echo -e "    ${RED}❌ ${PVC_NAME}${NC} - Status: ${RED}Pending${NC}"
+          echo -e "      ${YELLOW}⚠️  Storage class '${PVC_STORAGE_CLASS}' may not exist${NC}"
+          echo -e "      ${CYAN}   Check: kubectl get storageclass${NC}"
+        elif [[ "$PVC_STATUS_VAL" == "Bound" ]]; then
+          echo -e "    ${GREEN}✅ ${PVC_NAME}${NC} - Status: ${GREEN}Bound${NC}"
+        else
+          echo -e "    ${YELLOW}⚠️  ${PVC_NAME}${NC} - Status: ${YELLOW}${PVC_STATUS_VAL}${NC}"
+        fi
+      fi
+    done
+    # Check if any PVC is Pending (outside the while loop to update OVERALL_STATUS)
+    if echo "$PVC_STATUS" | grep -q "Pending"; then
+      OVERALL_STATUS=1
+    fi
+  else
+    echo -e "    ${CYAN}ℹ️  No PVCs found${NC}"
+  fi
+else
+  echo -e "  ${YELLOW}⚠️  Cannot check service status (kubectl not available or namespace not found)${NC}"
+fi
+echo ""
+
+# 4. Port-Forward Process (Legacy - Not Used)
+echo -e "${BOLD}4. Port-Forward Process${NC} ${CYAN}(Legacy - System uses NodePort)${NC}"
+echo ""
+
+PF_PID=$(ps aux | grep "[k]ubectl.*port-forward.*5672" | awk '{print $2}' | head -1)
+if [[ -n "$PF_PID" ]]; then
+  echo -e "  Port-Forward: ${CYAN}ℹ️  Running${NC} (PID: $PF_PID) - ${CYAN}Not needed (system uses NodePort)${NC}"
+else
+  echo -e "  Port-Forward: ${CYAN}ℹ️  Not running${NC} - ${GREEN}Expected (system uses NodePort)${NC}"
+fi
+echo ""
+
+# 5. Test AMQP Connection
+echo -e "${BOLD}5. AMQP Connection Test${NC}"
+echo ""
+
+# Find Python executable
+MCP_VENV="$HOME/code/dotfiles/mcp/venv/bin/python3"
+if [[ ! -f "$MCP_VENV" ]]; then
+  MCP_VENV="$HOME/code/personal/dotfiles/mcp/venv/bin/python3"
+fi
+
+if [[ -f "$MCP_VENV" ]]; then
+  PYTHON_CMD="$MCP_VENV"
+else
+  PYTHON_CMD="python3"
+fi
+
+# Read config
+GTD_CONFIG_DIR="${HOME}/code/dotfiles/zsh"
+if [[ -f "${GTD_CONFIG_DIR}/.gtd_config_database" ]]; then
+  source "${GTD_CONFIG_DIR}/.gtd_config_database" 2>/dev/null || true
+fi
+
+RABBITMQ_URL="${RABBITMQ_URL:-amqp://localhost:5672}"
+
+# Build URL with credentials if not in URL
+if [[ "$RABBITMQ_URL" != *"@"* ]]; then
+  RABBITMQ_USER="${RABBITMQ_USER:-guest}"
+  RABBITMQ_PASS="${RABBITMQ_PASS:-guest}"
+  if [[ -n "$RABBITMQ_USER" ]]; then
+    if [[ -n "$RABBITMQ_PASS" ]]; then
+      RABBITMQ_URL="amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@${RABBITMQ_URL#amqp://}"
+    else
+      RABBITMQ_URL="amqp://${RABBITMQ_USER}@${RABBITMQ_URL#amqp://}"
+    fi
+  fi
+fi
+
+echo "  Testing connection to: ${RABBITMQ_URL/\/\/.*@/\/\/***@}"  # Hide password
+echo ""
+
+# Test connection with timeout
+CONNECTION_TEST=$("$PYTHON_CMD" << 'PYEOF'
+import sys
+import pika
+import os
+
+url = os.environ.get('RABBITMQ_URL', 'amqp://localhost:5672')
+timeout = 5
+
+try:
+    params = pika.URLParameters(url)
+    params.socket_timeout = timeout
+    params.connection_attempts = 1
+    params.retry_delay = 1
+    
+    connection = pika.BlockingConnection(params)
+    channel = connection.channel()
+    
+    # Try to declare a test queue
+    channel.queue_declare(queue='test_connection', durable=False, auto_delete=True)
+    
+    connection.close()
+    print("SUCCESS")
+    sys.exit(0)
+except pika.exceptions.ProbableAuthenticationError as e:
+    print(f"AUTH_ERROR: {e}")
+    sys.exit(1)
+except pika.exceptions.AMQPConnectionError as e:
+    print(f"CONNECTION_ERROR: {e}")
+    sys.exit(1)
+except Exception as e:
+    print(f"ERROR: {e}")
+    sys.exit(1)
+PYEOF
+RABBITMQ_URL="$RABBITMQ_URL"
+)
+
+CONNECTION_EXIT=$?
+
+if [[ "$CONNECTION_TEST" == "SUCCESS" ]]; then
+  echo -e "  AMQP Connection: ${GREEN}✅ Success${NC}"
+elif echo "$CONNECTION_TEST" | grep -q "AUTH_ERROR"; then
+  echo -e "  AMQP Connection: ${RED}❌ Authentication failed${NC}"
+  echo "    $(echo "$CONNECTION_TEST" | sed 's/AUTH_ERROR: //')"
+  OVERALL_STATUS=1
+elif echo "$CONNECTION_TEST" | grep -q "CONNECTION_ERROR"; then
+  echo -e "  AMQP Connection: ${RED}❌ Connection failed${NC}"
+  echo "    $(echo "$CONNECTION_TEST" | sed 's/CONNECTION_ERROR: //')"
+  OVERALL_STATUS=1
+else
+  echo -e "  AMQP Connection: ${RED}❌ Failed${NC}"
+  if [[ -n "$CONNECTION_TEST" ]]; then
+    echo "    $CONNECTION_TEST"
+  fi
+  OVERALL_STATUS=1
+fi
+echo ""
+
+# 6. Check DNS Resolution (if using hostname)
+echo -e "${BOLD}6. DNS Resolution${NC}"
+echo ""
+
+# Extract hostname from URL
+HOSTNAME=$(echo "$RABBITMQ_URL" | sed 's|amqp://||' | sed 's|.*@||' | cut -d':' -f1)
+if [[ "$HOSTNAME" != "localhost" ]] && [[ "$HOSTNAME" != "127.0.0.1" ]] && [[ "$HOSTNAME" != "192.168.64.2" ]]; then
+  echo -n "  Resolving $HOSTNAME: "
+  if host "$HOSTNAME" &>/dev/null 2>&1 || getent hosts "$HOSTNAME" &>/dev/null 2>&1; then
+    RESOLVED=$(host "$HOSTNAME" 2>/dev/null | grep "has address" | awk '{print $4}' | head -1)
+    if [[ -z "$RESOLVED" ]]; then
+      RESOLVED=$(getent hosts "$HOSTNAME" 2>/dev/null | awk '{print $1}' | head -1)
+    fi
+    if [[ -n "$RESOLVED" ]]; then
+      echo -e "${GREEN}✅ ${RESOLVED}${NC}"
+    else
+      echo -e "${YELLOW}⚠️  Could not resolve${NC}"
+    fi
+  else
+    echo -e "${RED}❌ DNS resolution failed${NC}"
+    OVERALL_STATUS=1
+  fi
+else
+  echo "  (Using IP address - no DNS resolution needed)"
+fi
+echo ""
+
+# 7. Check Recent Logs
+echo -e "${BOLD}7. Recent Connection Attempts${NC}"
+echo ""
+
+# Check worker logs for connection errors
+LOG_FILES=(
+  "/tmp/advice-worker.log"
+  "/tmp/deep-analysis-worker.log"
+  "/tmp/vector-worker.log"
+  "/tmp/rabbitmq-pf.log"
+)
+
+FOUND_ERRORS=false
+for log_file in "${LOG_FILES[@]}"; do
+  if [[ -f "$log_file" ]]; then
+    # Look for connection errors in last 50 lines
+    ERRORS=$(tail -50 "$log_file" 2>/dev/null | grep -iE "(connection|error|failed|timeout|refused)" | tail -5)
+    if [[ -n "$ERRORS" ]]; then
+      if [[ "$FOUND_ERRORS" == "false" ]]; then
+        FOUND_ERRORS=true
+      fi
+      echo "  ${CYAN}$(basename "$log_file"):${NC}"
+      echo "$ERRORS" | while read line; do
+        if echo "$line" | grep -qiE "(error|failed|timeout|refused)"; then
+          echo -e "    ${YELLOW}⚠️  $line${NC}"
+        else
+          echo "    $line"
+        fi
+      done
+      echo ""
+    fi
+  fi
+done
+
+if [[ "$FOUND_ERRORS" == "false" ]]; then
+  echo "  (No recent connection errors found in logs)"
+fi
+echo ""
+
+# 8. Summary and Recommendations
+echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}Summary${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+if [[ "$OVERALL_STATUS" -eq 0 ]]; then
+  echo -e "${GREEN}✅ All checks passed - RabbitMQ appears to be accessible${NC}"
+else
+  echo -e "${YELLOW}⚠️  Some issues detected - see details above${NC}"
+  echo ""
+  echo -e "${BOLD}Recommended Actions:${NC}"
+  echo ""
+  
+  # Check for high restart count
+  RESTART_COUNT=$(kubectl get pods -n rabbitmq-system -l app.kubernetes.io/name=rabbitmq -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || echo "0")
+  if [[ -n "$RESTART_COUNT" ]] && [[ "$RESTART_COUNT" -gt 10 ]]; then
+    echo -e "  ${RED}⚠️  CRITICAL: RabbitMQ pod has restarted ${RESTART_COUNT} times!${NC}"
+    echo ""
+    
+    # Check if PVC is the issue
+    PVC_STATUS=$(kubectl get pvc -n rabbitmq-system rabbitmq-data -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [[ "$PVC_STATUS" == "Pending" ]]; then
+      PVC_STORAGE_CLASS=$(kubectl get pvc -n rabbitmq-system rabbitmq-data -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo "")
+      echo -e "  ${RED}🔴 ROOT CAUSE: PVC is Pending - storage class '${PVC_STORAGE_CLASS}' not found!${NC}"
+      echo ""
+      echo "  Fix: Update RabbitMQ to use an existing storage class:"
+      echo "    1. Check available storage classes:"
+      echo "       kubectl get storageclass"
+      echo ""
+      echo "    2. Update RabbitMQ deployment/statefulset to use 'local-path' (default):"
+      echo "       kubectl patch pvc rabbitmq-data -n rabbitmq-system -p '{\"spec\":{\"storageClassName\":\"local-path\"}}'"
+      echo "       OR"
+      echo "       Edit RabbitMQ deployment and change storageClassName to 'local-path'"
+      echo ""
+      echo "    3. Delete the pod to force recreation with new storage:"
+      echo "       kubectl delete pod -n rabbitmq-system <pod-name>"
+      echo ""
+    else
+      echo "  1. Check pod logs for errors:"
+      echo "     kubectl logs -n rabbitmq-system <pod-name> --tail=50"
+      echo ""
+      echo "  2. Check pod events for storage/health issues:"
+      echo "     kubectl describe pod -n rabbitmq-system <pod-name>"
+      echo ""
+      echo "  3. Check PVC status (storage issues often cause restarts):"
+      echo "     kubectl get pvc -n rabbitmq-system"
+      echo "     kubectl describe pvc -n rabbitmq-system rabbitmq-data"
+      echo ""
+    fi
+  fi
+  
+  if [[ "$NODEPORT_AVAILABLE" != "true" ]]; then
+    echo "  4. Check if RabbitMQ pod is running:"
+    echo "     kubectl get pods -n rabbitmq-system"
+    echo ""
+    echo "  5. If pod is not running, check events:"
+    echo "     kubectl describe pod -n rabbitmq-system <pod-name>"
+    echo ""
+    echo "  6. Verify NodePort service:"
+    echo "     kubectl get svc -n rabbitmq-system"
+    echo "     kubectl get svc -n rabbitmq-system rabbitmq -o yaml | grep nodePort"
+    echo ""
+    echo "  7. Test NodePort connectivity:"
+    echo "     nc -zv 192.168.64.2 30672"
+    echo ""
+  fi
+  
+  if [[ "$CONNECTION_EXIT" -ne 0 ]]; then
+    echo "  5. Test connection manually:"
+    echo "     bin/test_rabbitmq_connection.sh"
+    echo ""
+  fi
+  
+  echo "  6. Check RabbitMQ status:"
+  echo "     bin/gtd-rabbitmq-status"
+  echo ""
+fi
+
+echo ""
+echo -e "${CYAN}For more detailed troubleshooting, see:${NC}"
+echo "  docs/RABBITMQ_TROUBLESHOOTING.md"
+echo ""
+
+exit $OVERALL_STATUS
+

@@ -122,12 +122,40 @@ EOF
   local last_command=$(echo "$data" | grep -o '"last_command": "[^"]*"' | cut -d'"' -f4)
   
   if [[ "$last_date" != "$today" ]]; then
-    # Get all commands
+    # Get all commands - more robust parsing
     local commands=$(echo "$data" | grep -o '"commands": \[[^]]*\]' | sed 's/"commands": \[//' | sed 's/\]//')
     local cmd_array=()
+    
+    # Parse commands into array
     while IFS= read -r line; do
-      [[ -n "$line" ]] && cmd_array+=("$line")
-    done <<< "$(echo "$commands" | tr ',' '\n' | sed 's/"//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')"
+      local cleaned=$(echo "$line" | sed 's/"//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      [[ -n "$cleaned" ]] && cmd_array+=("$cleaned")
+    done <<< "$(echo "$commands" | tr ',' '\n')"
+    
+    # Fallback commands if parsing failed
+    if [[ ${#cmd_array[@]} -eq 0 ]]; then
+      cmd_array=(
+        "kubectl get pods"
+        "kubectl get pods -A"
+        "kubectl describe pod"
+        "kubectl logs"
+        "kubectl exec -it"
+        "kubectl get deployments"
+        "kubectl scale deployment"
+        "kubectl rollout status"
+        "kubectl get services"
+        "kubectl expose deployment"
+        "kubectl get configmaps"
+        "kubectl create configmap"
+        "kubectl get secrets"
+        "kubectl create secret"
+        "kubectl get pv"
+        "kubectl get pvc"
+        "kubectl get events"
+        "kubectl top pods"
+        "kubectl top nodes"
+      )
+    fi
     
     # Pick random command (but not the same as yesterday)
     local new_command=""
@@ -141,14 +169,26 @@ EOF
       fi
     done
     
+    # Final fallback if still empty
+    if [[ -z "$new_command" ]]; then
+      new_command="${cmd_array[0]}"
+    fi
+    
     # Update file
     data=$(echo "$data" | sed "s/\"last_date\": \"[^\"]*\"/\"last_date\": \"$today\"/")
     data=$(echo "$data" | sed "s/\"last_command\": \"[^\"]*\"/\"last_command\": \"$new_command\"/")
-    echo "$data" > "$commands_file"
+    echo "$data" > "$commands_file" 2>/dev/null || true
     
     echo "$new_command"
   else
-    echo "$last_command"
+    # Return last command, but validate it's not empty
+    if [[ -n "$last_command" ]]; then
+      echo "$last_command"
+    else
+      # If last_command is empty, get a new one
+      # Fallback to a default command
+      echo "kubectl get pods"
+    fi
   fi
 }
 
@@ -335,6 +375,11 @@ quick_quiz() {
 # Command of the day
 show_command_of_the_day() {
   local cmd=$(get_command_of_the_day)
+  
+  # Validate command is not empty
+  if [[ -z "$cmd" ]]; then
+    cmd="kubectl get pods"  # Fallback command
+  fi
   
   clear
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

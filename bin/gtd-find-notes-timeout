@@ -1,0 +1,34 @@
+#!/bin/bash
+# Wrapper for gtd_find_related_notes with timeout
+# Prevents hanging when searching large Second Brain directories
+
+topic="$1"
+max_results="${2:-10}"
+
+# Source the function
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+fi
+
+# Use timeout if available (macOS doesn't have timeout by default)
+if command -v gtimeout &>/dev/null; then
+  # Use gtimeout (from coreutils via homebrew)
+  gtimeout 5s gtd_find_related_notes "$topic" "$max_results" 2>/dev/null || echo ""
+elif command -v timeout &>/dev/null; then
+  # Use timeout (if available)
+  timeout 5s gtd_find_related_notes "$topic" "$max_results" 2>/dev/null || echo ""
+else
+  # Fallback: run in background and kill after timeout
+  (gtd_find_related_notes "$topic" "$max_results" 2>/dev/null) &
+  local pid=$!
+  sleep 5
+  kill $pid 2>/dev/null
+  wait $pid 2>/dev/null
+  # Return empty if killed (timeout)
+  echo ""
+fi
+

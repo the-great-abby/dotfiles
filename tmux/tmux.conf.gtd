@@ -14,6 +14,13 @@ set -ga terminal-overrides ",xterm-256color:Tc"
 # Enable mouse (click, scroll, resize)
 set -g mouse on
 
+# Reduce mouse scroll sensitivity (scroll fewer lines per wheel tick)
+# Scroll by 1 line instead of default (adjust 1-3 for less sensitivity, 5+ for more)
+bind -n WheelUpPane if-shell -F -t = "#{mouse_any_flag}" "send-keys -M" "if -Ft= '#{pane_in_mode}' 'send-keys -M' 'copy-mode -e; send-keys -M'"
+bind -n WheelDownPane if-shell -F -t = "#{mouse_any_flag}" "send-keys -M" "if -Ft= '#{pane_in_mode}' 'send-keys -M' 'send-keys -M'"
+bind -T copy-mode-vi WheelUpPane send-keys -X scroll-up -N 1
+bind -T copy-mode-vi WheelDownPane send-keys -X scroll-down -N 1
+
 # Start window/pane numbering at 1
 set -g base-index 1
 setw -g pane-base-index 1
@@ -39,11 +46,12 @@ unbind C-b
 set -g prefix C-a
 bind C-a send-prefix
 
-# Split panes with | and - (more intuitive)
-bind | split-window -h -c "#{pane_current_path}"
-bind - split-window -v -c "#{pane_current_path}"
-unbind '"'
-unbind %
+# Split panes - traditional bindings (") and %) plus alternatives (| and -)
+bind '"' split-window -v -c "#{pane_current_path}"  # Horizontal split (top/bottom)
+bind % split-window -h -c "#{pane_current_path}"     # Vertical split (left/right)
+# Alternative bindings (more intuitive symbols)
+bind | split-window -h -c "#{pane_current_path}"     # Vertical split (left/right) - same as %
+bind - split-window -v -c "#{pane_current_path}"      # Horizontal split (top/bottom) - same as "
 
 # Vim-style pane navigation
 bind h select-pane -L

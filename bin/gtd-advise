@@ -28,6 +28,15 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
+# Source wizard tools for queue_advice_request function
+WIZARD_TOOLS="$HOME/code/dotfiles/bin/gtd-wizard-tools.sh"
+if [[ ! -f "$WIZARD_TOOLS" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh" ]]; then
+  WIZARD_TOOLS="$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh"
+fi
+if [[ -f "$WIZARD_TOOLS" ]]; then
+  source "$WIZARD_TOOLS" 2>/dev/null || true
+fi
+
 # Load AI config to get default persona for daily log reviews
 GTD_AI_CONFIG="$HOME/code/dotfiles/zsh/.gtd_config_ai"
 if [[ ! -f "$GTD_AI_CONFIG" && -f "$HOME/code/personal/dotfiles/zsh/.gtd_config_ai" ]]; then
@@ -82,7 +91,7 @@ if ! command -v "$PYTHON_CMD" &>/dev/null && [[ ! -f "$PYTHON_CMD" ]]; then
 fi
 
 # Available personas
-PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob" "matt" "brennan" "chris" "aabria" "jeremy")
+PERSONAS=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kettlebell" "maxfit" "dumbbell" "dipbar" "kelsey" "kent" "charity" "rich" "goggins" "dean" "bioneer" "harry" "murphy" "joe" "skippy" "sherlock" "picard" "sandy" "spongebob" "matt" "brennan" "chris" "aabria" "jeremy" "kingmaker-char")
 
 # Show persona info
 show_persona_info() {
@@ -137,6 +146,7 @@ show_persona_info() {
     chris) echo "Chris Perkins - Game design, world-building, creative mechanics, memorable adventures, system design" ;;
     aabria) echo "Aabria Iyengar - Collaborative storytelling, diverse narratives, inclusive stories, character development" ;;
     jeremy) echo "Jeremy Crawford - Rules expertise, game mechanics, system design, understanding complex systems" ;;
+    kingmaker-char) echo "Rakasha Elka - Pathfinder Kingmaker character, roleplay advice, character decision-making" ;;
     *) echo "Unknown persona" ;;
   esac
 }
@@ -814,9 +824,17 @@ advise_single() {
   
   # Start timer early for potentially slow operations (context gathering, MOC search, etc.)
   # This ensures user sees feedback even if these operations take time
-  local persona_name=$(show_persona_info "$persona" 2>/dev/null | cut -d' ' -f1-2 2>/dev/null || echo "AI")
-  show_thinking_timer "Preparing context for ${persona_name}" 2 0 &
-  local prep_timer_pid=$!
+  # Skip timer and context gathering for kingmaker-char in immediate mode (too slow)
+  # Use --background mode for full context with session notes
+  local prep_timer_pid=""
+  if [[ "$persona" == "kingmaker-char" ]]; then
+    echo "💡 Tip: Use 'gtd-advise --background kingmaker-char \"...\"' for full context from session notes" >&2
+    echo "" >&2
+  else
+    local persona_name=$(show_persona_info "$persona" 2>/dev/null | cut -d' ' -f1-2 2>/dev/null || echo "AI")
+    show_thinking_timer "Preparing context for ${persona_name}" 2 0 &
+    prep_timer_pid=$!
+  fi
   
   # If daily log requested, load it and include habit tracker data, goals, and badges
   if [[ "$use_daily_log" == "true" ]]; then
@@ -869,71 +887,99 @@ advise_single() {
   fi
   
   if [[ "$simple_mode" == "false" ]]; then
-    # Even if not reviewing daily log, include goals, badges, and progress for context
-    # This helps advisors remind about goals, badges, and encourage recording completed work
-    # BUT skip this if simple_mode is true (for factual questions)
-    # Get goals and badges first (fast operations)
-    local goals_data=$(get_active_goals 2>/dev/null)
-    local badge_data=$(get_badge_status 2>/dev/null)
-    
-    # Get progress analysis with timeout (may be slow if it uses AI)
-    # Limit it to 3 seconds max to avoid blocking too long
-    # Just call it directly - the function itself has a timeout built in
-    local progress_data=$(get_progress_analysis 7 2>/dev/null || echo "")
-    
-    local context_parts=""
-    if [[ -n "$goals_data" ]]; then
-      context_parts="${goals_data}"
-    fi
-    if [[ -n "$badge_data" ]]; then
-      if [[ -n "$context_parts" ]]; then
-        context_parts="${context_parts}\n${badge_data}"
+      # Skip GTD context gathering for kingmaker-char in immediate mode (too slow)
+      # Use --background mode to get full context
+      if [[ "$persona" == "kingmaker-char" ]]; then
+        # Skip all GTD context for roleplay persona in immediate mode
+        simple_mode="true"
       else
-        context_parts="${badge_data}"
+        # Even if not reviewing daily log, include goals, badges, and progress for context
+        # This helps advisors remind about goals, badges, and encourage recording completed work
+        # BUT skip this if simple_mode is true (for factual questions)
+        # Get goals and badges first (fast operations)
+        local goals_data=$(get_active_goals 2>/dev/null)
+        local badge_data=$(get_badge_status 2>/dev/null)
+        
+        # Get progress analysis with timeout (may be slow if it uses AI)
+        # Limit it to 3 seconds max to avoid blocking too long
+        # Just call it directly - the function itself has a timeout built in
+        local progress_data=$(get_progress_analysis 7 2>/dev/null || echo "")
+      
+        local context_parts=""
+        if [[ -n "$goals_data" ]]; then
+          context_parts="${goals_data}"
+        fi
+        if [[ -n "$badge_data" ]]; then
+          if [[ -n "$context_parts" ]]; then
+            context_parts="${context_parts}\n${badge_data}"
+          else
+            context_parts="${badge_data}"
+          fi
+        fi
+        if [[ -n "$progress_data" ]]; then
+          if [[ -n "$context_parts" ]]; then
+            context_parts="${context_parts}\n${progress_data}"
+          else
+            context_parts="${progress_data}"
+          fi
+        fi
+        
+        if [[ -n "$context_parts" ]]; then
+          content=$(printf "Here's my current status for context:\n%s\n\n%s" "$context_parts" "$content")
+        fi
       fi
-    fi
-    if [[ -n "$progress_data" ]]; then
-      if [[ -n "$context_parts" ]]; then
-        context_parts="${context_parts}\n${progress_data}"
-      else
-        context_parts="${progress_data}"
-      fi
-    fi
-    
-    if [[ -n "$context_parts" ]]; then
-      content=$(printf "Here's my current status for context:\n%s\n\n%s" "$context_parts" "$content")
-    fi
   fi
   
   # Check if question mentions a MOC or topic that might have session notes
   # Extract potential MOC/topic names from the question
   # Timer is already running from above (if not in simple mode)
+  # Skip slow context gathering for kingmaker-char in immediate mode (use --background instead)
   local moc_context=""
   local session_notes=""
   
-  # Common patterns: "MOC", "session notes", topic names
-  if echo "$content" | grep -qiE "(moc|map of content|session note|session write|pathfinder|kingmaker)"; then
+  # For kingmaker-char, skip context gathering in immediate mode (too slow)
+  # Use --background mode to get full context with session notes
+  if [[ "$persona" != "kingmaker-char" ]] && echo "$content" | grep -qiE "(moc|map of content|session note|session write|pathfinder|kingmaker)"; then
     # Try to find relevant MOC
     # Check for "pathfinder kingmaker" specifically
     if echo "$content" | grep -qi "pathfinder.*kingmaker\|kingmaker"; then
       moc_context=$(gtd_get_moc_content "Pathfinder Kingmaker" 2>/dev/null)
       if [[ -n "$moc_context" ]]; then
         # Search for session notes - also check for specific session numbers
+        # Add timeout to prevent hanging (5 second max per search)
         local session_num=$(echo "$content" | grep -oiE "session[[:space:]]+([0-9]+)" | grep -oE "[0-9]+" | head -1)
         if [[ -n "$session_num" ]]; then
           # Search for notes containing both the topic and session number
-          # Try multiple search patterns for flexibility
-          session_notes=$(gtd_find_related_notes "pathfinder kingmaker session ${session_num}" 10 2>/dev/null)
+          # Try multiple search patterns for flexibility (with timeout)
+          # Use background process with timeout to prevent hanging
+          # Use timeout wrapper to prevent hanging
+          if command -v gtd-find-notes-timeout &>/dev/null; then
+            session_notes=$(gtd-find-notes-timeout "pathfinder kingmaker session ${session_num}" 10)
+          else
+            session_notes=$(gtd_find_related_notes "pathfinder kingmaker session ${session_num}" 10 2>/dev/null || echo "")
+          fi
           # If not found, try searching for just the session number (might be in a note title)
           if [[ -z "$session_notes" ]]; then
-            session_notes=$(gtd_find_related_notes "session ${session_num}" 10 2>/dev/null)
+            if command -v gtd-find-notes-timeout &>/dev/null; then
+              session_notes=$(gtd-find-notes-timeout "session ${session_num}" 10)
+            else
+              session_notes=$(gtd_find_related_notes "session ${session_num}" 10 2>/dev/null || echo "")
+            fi
           fi
           # If still not found, try broader search
           if [[ -z "$session_notes" ]]; then
-            session_notes=$(gtd_find_related_notes "pathfinder kingmaker" 10 2>/dev/null)
+            if command -v gtd-find-notes-timeout &>/dev/null; then
+              session_notes=$(gtd-find-notes-timeout "pathfinder kingmaker" 10)
+            else
+              session_notes=$(gtd_find_related_notes "pathfinder kingmaker" 10 2>/dev/null || echo "")
+            fi
           fi
         else
-          session_notes=$(gtd_find_related_notes "pathfinder kingmaker" 10 2>/dev/null)
+          if command -v gtd-find-notes-timeout &>/dev/null; then
+            session_notes=$(gtd-find-notes-timeout "pathfinder kingmaker" 10)
+          else
+            session_notes=$(gtd_find_related_notes "pathfinder kingmaker" 10 2>/dev/null || echo "")
+          fi
         fi
       fi
     else
@@ -945,7 +991,12 @@ advise_single() {
         # Try to find MOC with this topic
         moc_context=$(gtd_get_moc_content "$topic" 2>/dev/null)
         if [[ -n "$moc_context" ]]; then
-          session_notes=$(gtd_find_related_notes "$topic" 5 2>/dev/null)
+          # Add timeout to prevent hanging (5 second max)
+          if command -v gtd-find-notes-timeout &>/dev/null; then
+            session_notes=$(gtd-find-notes-timeout "$topic" 5)
+          else
+            session_notes=$(gtd_find_related_notes "$topic" 5 2>/dev/null || echo "")
+          fi
         fi
       fi
     fi
@@ -1528,6 +1579,73 @@ main() {
       shift
       advise_random "$@"
       ;;
+    --background|--queue|-b)
+      shift
+      # Queue advice request for background processing
+      if [[ $# -eq 0 ]]; then
+        echo "Usage: gtd-advise --background <persona> \"your question\""
+        echo "   Or: gtd-advise --queue <persona> \"your question\""
+        exit 1
+      fi
+      
+      local persona="$1"
+      shift
+      local question="$*"
+      
+      if [[ -z "$question" ]]; then
+        if [[ -t 0 ]]; then
+          echo "Enter your question (press Ctrl+D when done):"
+          question=$(cat)
+        else
+          echo "Usage: gtd-advise --background <persona> \"your question\""
+          exit 1
+        fi
+      fi
+      
+      if [[ " ${PERSONAS[@]} " =~ " ${persona} " ]]; then
+        if declare -f queue_advice_request &>/dev/null; then
+          echo ""
+          echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
+          local request_id=$(queue_advice_request "$persona" "$question" "normal" "false")
+          echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+          echo ""
+          echo "💡 The advice will be processed in the background with full context from your session notes."
+          echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice Results"
+          echo "   Or check: ~/Documents/gtd/advice_results/${request_id}_answer.txt"
+          echo ""
+          
+          # Start worker if not running
+          if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1 && ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1; then
+            echo "Starting advice worker..."
+            if command -v gtd-advice-worker &>/dev/null; then
+              # Use file mode if RabbitMQ not available (worker will auto-detect)
+              (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+              disown -a 2>/dev/null || true
+              sleep 1
+              local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
+              echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+              echo ""
+            elif [[ -f "$HOME/code/dotfiles/bin/gtd-advice-worker" ]]; then
+              (nohup "$HOME/code/dotfiles/bin/gtd-advice-worker" daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+              disown -a 2>/dev/null || true
+              sleep 1
+              local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
+              echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+              echo ""
+            fi
+          fi
+        else
+          echo "Error: queue_advice_request function not found. Cannot queue request." >&2
+          exit 1
+        fi
+      else
+        echo "Unknown persona: $persona"
+        echo "Run 'gtd-advise --list' to see available personas"
+        exit 1
+      fi
+      ;;
     --help|-h|"")
       echo "Usage: gtd-advise [options] <persona> [content]"
       echo ""
@@ -1540,6 +1658,7 @@ main() {
       echo "                                Range: today (default), week, month, all, or YYYY-MM-DD"
       echo "  --random, -R                  Get advice from random persona"
       echo "  --simple, -s                  Ask a simple factual question (no GTD context)"
+      echo "  --background, --queue, -b     Queue request for background processing (includes context)"
       echo "  <persona>                     Get advice from specific persona"
       echo ""
       echo "Personas:"
@@ -1572,6 +1691,7 @@ main() {
       echo "  gtd-advise --review"
       echo "  gtd-advise --random \"Give me advice\""
       echo "  gtd-advise --simple hank \"Who won the 1967 World Series?\"  # Factual question, no GTD context"
+      echo "  gtd-advise --background kingmaker-char \"How would you react?\"  # Queue for background (includes session notes)"
       echo "  echo \"My question\" | gtd-advise david"
       exit 0
       ;;

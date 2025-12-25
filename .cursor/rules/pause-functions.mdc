@@ -1,0 +1,150 @@
+---
+description: When to use gtd_enter_to_continue vs gtd_quick_pause
+globs: ["**/*.sh", "**/bin/**", "**/zsh/functions/**"]
+alwaysApply: true
+priority: 8
+---
+
+# Pause Functions - When to Use Which
+
+## Overview
+
+The GTD system has two main pause functions with different use cases. Choosing the wrong one creates a poor user experience.
+
+## `gtd_enter_to_continue` - Use for Reports, Reviews, and Information Display
+
+**Purpose**: Wait for user to press Enter (no auto-continue)
+
+**Use when:**
+- Displaying reports, lists, or summaries that users need to read
+- Showing review screens (task reviews, project reviews, etc.)
+- Displaying analysis results or statistics
+- Any screen where the user needs time to read and understand the information
+- After showing grouped/aggregated data (tasks by priority, tasks by project, etc.)
+- Dashboard displays
+- Any "review" or "view" functionality
+
+**Example scenarios:**
+- Task review screens (`review_tasks_by_priority_project`)
+- Project summaries
+- Analysis results
+- Task lists grouped by priority/project
+- Handoff reports
+- Any screen showing multiple items that need to be read
+
+**Code example:**
+```bash
+# Display task review
+echo "Tasks by Priority:"
+echo "  • Task 1"
+echo "  • Task 2"
+echo ""
+gtd_enter_to_continue  # ✅ User needs time to read this
+```
+
+## `gtd_quick_pause` - Use for Quick Confirmations and Errors
+
+**Purpose**: Auto-continue after 2 seconds (or user can press Enter early)
+
+**Use when:**
+- Quick error messages
+- Simple confirmations
+- Brief status updates
+- Actions that complete immediately
+- When the user doesn't need to read detailed information
+- Simple success/failure messages
+
+**Example scenarios:**
+- "Task created successfully"
+- "Invalid choice" errors
+- Quick status updates
+- Simple confirmations
+- Brief feedback messages
+
+**Code example:**
+```bash
+if [[ -z "$input" ]]; then
+  gtd_feedback error "No input provided"
+  gtd_quick_pause  # ✅ Quick error, user doesn't need to read long
+  return 1
+fi
+```
+
+## General Rule
+
+**If it's information the user needs to READ and UNDERSTAND → use `gtd_enter_to_continue`**
+
+**If it's a quick message/confirmation → use `gtd_quick_pause`**
+
+## Decision Tree
+
+```
+Is this a report, review, list, or summary?
+├─ YES → Does it contain multiple items or detailed information?
+│   ├─ YES → Use gtd_enter_to_continue ✅
+│   └─ NO → Is it a simple success/error message?
+│       ├─ YES → Use gtd_quick_pause ✅
+│       └─ NO → Use gtd_enter_to_continue ✅
+│
+└─ NO → Is it a quick confirmation or error?
+    ├─ YES → Use gtd_quick_pause ✅
+    └─ NO → Use gtd_enter_to_continue ✅
+```
+
+## Common Mistakes
+
+### ❌ Wrong: Using `gtd_quick_pause` for reviews
+```bash
+# BAD - User can't read the report before it auto-continues
+review_tasks_by_priority
+gtd_quick_pause  # ❌ Report disappears too fast!
+```
+
+### ✅ Correct: Using `gtd_enter_to_continue` for reviews
+```bash
+# GOOD - User has time to read
+review_tasks_by_priority
+gtd_enter_to_continue  # ✅ User can read at their own pace
+```
+
+### ❌ Wrong: Using `gtd_enter_to_continue` for quick errors
+```bash
+# BAD - Unnecessary wait for simple error
+if [[ -z "$input" ]]; then
+  echo "Error: No input"
+  gtd_enter_to_continue  # ❌ User has to press Enter for simple error
+fi
+```
+
+### ✅ Correct: Using `gtd_quick_pause` for quick errors
+```bash
+# GOOD - Quick feedback, auto-continues
+if [[ -z "$input" ]]; then
+  echo "Error: No input"
+  gtd_quick_pause  # ✅ Quick feedback, doesn't block
+fi
+```
+
+## Function Definitions
+
+From `gtd-common.sh`:
+
+```bash
+# Quick pause - auto-continues after 2 seconds
+gtd_quick_pause() {
+  gtd_pause 2 "Press Enter to continue..."
+}
+
+# Enter to continue - waits for user (no auto-continue)
+gtd_enter_to_continue() {
+  gtd_pause 0 "Press Enter to continue..."
+}
+```
+
+## Testing
+
+When adding pause functions:
+1. Ask: "Does the user need to READ this?"
+2. If YES → Use `gtd_enter_to_continue`
+3. If NO → Use `gtd_quick_pause`
+4. Test the flow to ensure users have adequate time to read reports/reviews

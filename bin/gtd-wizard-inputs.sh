@@ -40,6 +40,136 @@ get_log_inspiration() {
   echo -e "${YELLOW}${messages[$message_index]}${NC}"
 }
 
+# Helper function to get incident notes directory
+get_incident_notes_dir() {
+  local SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
+  local incident_dir="${SECOND_BRAIN}/Resources/Incidents"
+  mkdir -p "$incident_dir"
+  echo "$incident_dir"
+}
+
+# Helper function to list active incidents
+list_active_incidents() {
+  local incident_dir=$(get_incident_notes_dir)
+  local incidents=()
+  
+  if [[ -d "$incident_dir" ]]; then
+    while IFS= read -r -d '' file; do
+      # Extract incident title from filename (remove timestamp and .md)
+      local basename=$(basename "$file" .md)
+      local title=$(echo "$basename" | sed 's/^[0-9]\{8\}[0-9]\{6\}-//')
+      # Check if incident is active (not resolved)
+      if grep -q "status:.*active\|status:.*open\|status:.*ongoing" "$file" 2>/dev/null; then
+        incidents+=("$file|$title")
+      fi
+    done < <(find "$incident_dir" -type f -name "*.md" -print0 2>/dev/null | sort -z)
+  fi
+  
+  printf '%s\n' "${incidents[@]}"
+}
+
+# Helper function to generate handoff report
+generate_handoff_report() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}📋 Generating Handoff Report${NC}"
+  echo ""
+  
+  local report_date=$(date +"%Y-%m-%d %H:%M")
+  local report_content=""
+  
+  # Gather active oncall tasks
+  echo "Gathering active oncall tasks..."
+  local oncall_tasks=()
+  if command -v gtd-task &>/dev/null; then
+    while IFS= read -r line; do
+      if [[ -n "$line" ]]; then
+        oncall_tasks+=("$line")
+      fi
+    done < <(gtd-task list --status=active 2>/dev/null | grep -i "#oncall" || true)
+  fi
+  
+  # Gather active incidents
+  echo "Gathering active incidents..."
+  local active_incidents=$(list_active_incidents)
+  
+  # Gather on-deck tasks
+  echo "Gathering on-deck tasks..."
+  local ondeck_tasks=()
+  if command -v gtd-task &>/dev/null; then
+    while IFS= read -r line; do
+      if [[ -n "$line" ]]; then
+        ondeck_tasks+=("$line")
+      fi
+    done < <(gtd-task list --status=active 2>/dev/null | grep -i "#on-deck\|#ondeck" || true)
+  fi
+  
+  # Build report
+  report_content="# Oncall Handoff Report - $report_date\n\n"
+  report_content="${report_content}## Active Incidents\n\n"
+  
+  if [[ -n "$active_incidents" ]]; then
+    local count=1
+    local incidents_section=""
+    while IFS='|' read -r file title; do
+      if [[ -n "$file" && -n "$title" ]]; then
+        incidents_section="${incidents_section}$count. **$title**\n"
+        # Extract key info from incident file
+        if [[ -f "$file" ]]; then
+          local severity=$(grep -i "^severity:" "$file" 2>/dev/null | head -1 | sed 's/.*severity:[[:space:]]*//i' || echo "")
+          local status=$(grep -i "^status:" "$file" 2>/dev/null | head -1 | sed 's/.*status:[[:space:]]*//i' || echo "")
+          if [[ -n "$severity" ]]; then
+            incidents_section="${incidents_section}   - Severity: $severity\n"
+          fi
+          if [[ -n "$status" ]]; then
+            incidents_section="${incidents_section}   - Status: $status\n"
+          fi
+          incidents_section="${incidents_section}   - File: $file\n\n"
+        fi
+        count=$((count + 1))
+      fi
+    done <<< "$active_incidents"
+    report_content="${report_content}${incidents_section}"
+  else
+    report_content="${report_content}No active incidents.\n\n"
+  fi
+  
+  report_content="${report_content}## Active Oncall Tasks\n\n"
+  if [[ ${#oncall_tasks[@]} -gt 0 ]]; then
+    for task in "${oncall_tasks[@]}"; do
+      report_content="${report_content}- $task\n"
+    done
+    report_content="${report_content}\n"
+  else
+    report_content="${report_content}No active oncall tasks.\n\n"
+  fi
+  
+  report_content="${report_content}## On-Deck Tasks\n\n"
+  if [[ ${#ondeck_tasks[@]} -gt 0 ]]; then
+    for task in "${ondeck_tasks[@]}"; do
+      report_content="${report_content}- $task\n"
+    done
+    report_content="${report_content}\n"
+  else
+    report_content="${report_content}No active on-deck tasks.\n\n"
+  fi
+  
+  # Display report
+  echo -e "$report_content"
+  
+  # Save to file
+  local handoff_file="${HOME}/Documents/oncall_handoff_$(date +%Y%m%d_%H%M%S).md"
+  echo -e "$report_content" > "$handoff_file"
+  echo ""
+  echo -e "${GREEN}✓ Handoff report saved to: $handoff_file${NC}"
+  
+  # Also create a note
+  gtd-capture --type=note "Handoff Report Generated - $report_date #oncall #handoff" 2>/dev/null || true
+  
+  echo ""
+  gtd_quick_pause
+}
+
 # Oncall capture wizard - guided workflow for oncall shifts
 oncall_capture_wizard() {
   while true; do
@@ -57,16 +187,25 @@ oncall_capture_wizard() {
     echo ""
     echo "What would you like to capture?"
     echo ""
-    echo "  1) Shift start (begin oncall shift)"
-    echo "  2) Shift end (complete oncall shift)"
-    echo "  3) Incident (track an incident)"
-    echo "  4) Post-mortem (create post-mortem task/note)"
-    echo "  5) Runbook update (documentation improvement)"
-    echo "  6) Alert tuning (reduce noise/improve alerts)"
-    echo "  7) Oncall task (general oncall action item)"
-    echo "  8) Oncall note (general oncall observation)"
-    echo "  9) Handoff notes (shift handoff information)"
-    echo " 10) On deck task (on deck responsibilities)"
+    echo -e "${BOLD}🎯 On Deck (First Day Focus):${NC}"
+    echo "  1) On deck task (on deck responsibilities)"
+    echo ""
+    echo -e "${BOLD}📞 Oncall Shift:${NC}"
+    echo "  2) Shift start (begin oncall shift)"
+    echo "  3) Shift end (complete oncall shift)"
+    echo ""
+    echo -e "${BOLD}🚨 Incidents:${NC}"
+    echo "  4) New incident (track a new incident)"
+    echo "  5) Update incident (add notes to existing incident)"
+    echo "  6) View active incidents (list all active incidents)"
+    echo ""
+    echo -e "${BOLD}📋 Other:${NC}"
+    echo "  7) Post-mortem (create post-mortem task/note)"
+    echo "  8) Runbook update (documentation improvement)"
+    echo "  9) Alert tuning (reduce noise/improve alerts)"
+    echo " 10) Oncall task (general oncall action item)"
+    echo " 11) Oncall note (general oncall observation)"
+    echo " 12) Handoff report (generate shift handoff report)"
     echo ""
     echo -e "${YELLOW}  0) Back to capture menu${NC}"
     echo ""
@@ -79,6 +218,38 @@ oncall_capture_wizard() {
     
     case "$oncall_choice" in
       1)
+        # On deck task
+        clear
+        echo ""
+        echo -e "${BOLD}${CYAN}🎯 On Deck Task${NC}"
+        echo ""
+        echo "On deck responsibilities include:"
+        echo "  • Post daily infra changes before 3pm MST"
+        echo "  • Attend Infrastructure Pre-Release meeting"
+        echo "  • Handle permission requests in #rebel-alliance-reliability"
+        echo "  • Watch reliability channels for inquiries"
+        echo ""
+        echo -n "What on deck task needs to be done? "
+        read ondeck_task_content
+        if [[ -z "$ondeck_task_content" ]]; then
+          echo "❌ Task description required"
+          echo ""
+    gtd_quick_pause
+          continue
+        fi
+        
+        # Create task with oncall and on-deck tags
+        if command -v gtd-task &>/dev/null; then
+          gtd-task add "$ondeck_task_content #oncall #on-deck" --non-interactive --context=computer --energy=medium --priority=not_urgent_important 2>/dev/null || true
+          echo ""
+          echo -e "${GREEN}✓ On deck task created${NC}"
+        else
+          gtd-capture --type=task "$ondeck_task_content #oncall #on-deck"
+          echo ""
+          echo -e "${GREEN}✓ On deck task captured${NC}"
+        fi
+        ;;
+      2)
         # Shift start
         clear
         echo ""
@@ -123,7 +294,7 @@ oncall_capture_wizard() {
         echo ""
         echo -e "${GREEN}✓ Oncall shift started and logged!${NC}"
         ;;
-      2)
+      3)
         # Shift end
         clear
         echo ""
@@ -168,11 +339,11 @@ oncall_capture_wizard() {
         echo ""
         echo -e "${GREEN}✓ Oncall shift completed and logged!${NC}"
         ;;
-      3)
-        # Incident tracking
+      4)
+        # New incident tracking - create persistent note
         clear
         echo ""
-        echo -e "${BOLD}${RED}🚨 Incident Tracking${NC}"
+        echo -e "${BOLD}${RED}🚨 New Incident Tracking${NC}"
         echo ""
         echo -n "Incident title/description: "
         read incident_title
@@ -207,9 +378,50 @@ oncall_capture_wizard() {
         read mttd
         echo -n "Time to resolution (minutes, press Enter to skip): "
         read mttr
-        echo -n "Additional notes (press Enter to skip): "
+        echo -n "Initial notes (press Enter to skip): "
         read incident_notes
         
+        # Create persistent incident note
+        local incident_dir=$(get_incident_notes_dir)
+        local timestamp=$(date +"%Y%m%d%H%M%S")
+        local safe_title=$(echo "$incident_title" | sed 's/[^a-zA-Z0-9]/_/g' | tr '[:upper:]' '[:lower:]' | cut -c1-50)
+        local incident_file="${incident_dir}/${timestamp}-${safe_title}.md"
+        
+        # Create incident note file
+        cat > "$incident_file" <<EOF
+---
+type: incident
+status: active
+severity: ${severity:-unknown}
+created: $(date +"%Y-%m-%d %H:%M:%S")
+tags: [oncall, incident${severity:+, $severity}]
+---
+
+# Incident: $incident_title
+
+**Status:** Active  
+**Severity:** ${severity:-Not specified}  
+**Created:** $(date +"%Y-%m-%d %H:%M:%S")
+
+## Timeline
+
+- **Detected:** $(date +"%Y-%m-%d %H:%M:%S")${mttd:+ (MTTD: ${mttd}m)}${mttr:+ (MTTR: ${mttr}m)}
+
+## Initial Notes
+
+${incident_notes:-No initial notes provided.}
+
+## Updates
+
+$(date +"%Y-%m-%d %H:%M:%S") - Incident created
+
+## Resolution
+
+_To be filled in when incident is resolved._
+
+EOF
+        
+        # Log to daily log
         local incident_content="Incident: $incident_title"
         if [[ -n "$severity" ]]; then
           incident_content="$incident_content [Severity: $severity]"
@@ -220,11 +432,7 @@ oncall_capture_wizard() {
         if [[ -n "$mttr" ]] && [[ "$mttr" =~ ^[0-9]+$ ]]; then
           incident_content="$incident_content [MTTR: ${mttr}m]"
         fi
-        if [[ -n "$incident_notes" ]]; then
-          incident_content="$incident_content - $incident_notes"
-        fi
         
-        # Log to daily log
         if command -v gtd-daily-log &>/dev/null; then
           gtd-daily-log "🚨 $incident_content" --tags="oncall,incident${severity:+,$severity}"
         elif [[ -f "$HOME/code/dotfiles/bin/gtd-daily-log" ]]; then
@@ -232,7 +440,6 @@ oncall_capture_wizard() {
         elif command -v addInfoToDailyLog &>/dev/null || type addInfoToDailyLog &>/dev/null 2>/dev/null; then
           addInfoToDailyLog "🚨 $incident_content (oncall,incident${severity:+,$severity})"
         else
-          # Fallback
           local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
           local today=$(date +"%Y-%m-%d")
           local log_file="${log_dir}/${today}.md"
@@ -254,9 +461,258 @@ oncall_capture_wizard() {
         fi
         
         echo ""
-        echo -e "${GREEN}✓ Incident logged!${NC}"
+        echo -e "${GREEN}✓ Incident logged and saved to: $incident_file${NC}"
+        echo -e "${GRAY}  You can update this incident later using option 5) Update incident${NC}"
         ;;
-      4)
+      5)
+        # Update existing incident
+        clear
+        echo ""
+        echo -e "${BOLD}${RED}📝 Update Incident${NC}"
+        echo ""
+        
+        local active_incidents=$(list_active_incidents)
+        if [[ -z "$active_incidents" ]]; then
+          echo "No active incidents found."
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        echo "Active incidents:"
+        echo ""
+        local count=1
+        local incident_files=()
+        while IFS='|' read -r file title; do
+          if [[ -n "$file" && -n "$title" ]]; then
+            echo "  $count) $title"
+            incident_files+=("$file")
+            count=$((count + 1))
+          fi
+        done <<< "$active_incidents"
+        echo ""
+        echo -n "Select incident to update (1-$((count-1))): "
+        read incident_choice
+        
+        if [[ ! "$incident_choice" =~ ^[0-9]+$ ]] || [[ "$incident_choice" -lt 1 ]] || [[ "$incident_choice" -ge "$count" ]]; then
+          echo "❌ Invalid selection"
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        local selected_file="${incident_files[$((incident_choice - 1))]}"
+        if [[ ! -f "$selected_file" ]]; then
+          echo "❌ Incident file not found"
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        echo ""
+        echo "What would you like to add?"
+        echo "  1) Status update"
+        echo "  2) Additional notes"
+        echo "  3) Resolution notes"
+        echo ""
+        echo -n "Choose: "
+        read update_type
+        
+        case "$update_type" in
+          1)
+            echo ""
+            echo "New status:"
+            echo "  1) Active"
+            echo "  2) Investigating"
+            echo "  3) Resolved"
+            echo "  4) Monitoring"
+            echo ""
+            echo -n "Choose: "
+            read status_choice
+            local new_status=""
+            case "$status_choice" in
+              1) new_status="active" ;;
+              2) new_status="investigating" ;;
+              3) new_status="resolved" ;;
+              4) new_status="monitoring" ;;
+            esac
+            
+            if [[ -n "$new_status" ]]; then
+              # Update frontmatter status (macOS compatible)
+              if grep -q "^status:" "$selected_file" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i '' "s/^status:.*/status: $new_status/" "$selected_file"
+                else
+                  sed -i "s/^status:.*/status: $new_status/" "$selected_file"
+                fi
+              fi
+              
+              # Add to updates section
+              local update_text="$(date +"%Y-%m-%d %H:%M:%S") - Status changed to: $new_status"
+              if grep -q "^## Updates" "$selected_file"; then
+                # Use a temporary file for safer editing
+                local temp_file=$(mktemp)
+                local in_updates=false
+                while IFS= read -r line; do
+                  echo "$line" >> "$temp_file"
+                  if [[ "$line" == "## Updates" ]]; then
+                    in_updates=true
+                    echo "" >> "$temp_file"
+                    echo "$update_text" >> "$temp_file"
+                  fi
+                done < "$selected_file"
+                mv "$temp_file" "$selected_file"
+              else
+                # Add Updates section if it doesn't exist
+                echo "" >> "$selected_file"
+                echo "## Updates" >> "$selected_file"
+                echo "" >> "$selected_file"
+                echo "$update_text" >> "$selected_file"
+              fi
+              
+              echo ""
+              echo -e "${GREEN}✓ Status updated to: $new_status${NC}"
+            fi
+            ;;
+          2)
+            echo ""
+            echo -n "Enter additional notes: "
+            read additional_notes
+            if [[ -n "$additional_notes" ]]; then
+              local update_text="$(date +"%Y-%m-%d %H:%M:%S") - $additional_notes"
+              if grep -q "^## Updates" "$selected_file"; then
+                # Use a temporary file for safer editing
+                local temp_file=$(mktemp)
+                local in_updates=false
+                while IFS= read -r line; do
+                  echo "$line" >> "$temp_file"
+                  if [[ "$line" == "## Updates" ]]; then
+                    in_updates=true
+                    echo "" >> "$temp_file"
+                    echo "$update_text" >> "$temp_file"
+                  fi
+                done < "$selected_file"
+                mv "$temp_file" "$selected_file"
+              else
+                # Add Updates section if it doesn't exist
+                echo "" >> "$selected_file"
+                echo "## Updates" >> "$selected_file"
+                echo "" >> "$selected_file"
+                echo "$update_text" >> "$selected_file"
+              fi
+              
+              echo ""
+              echo -e "${GREEN}✓ Notes added to incident${NC}"
+            fi
+            ;;
+          3)
+            echo ""
+            echo -n "Enter resolution notes: "
+            read resolution_notes
+            if [[ -n "$resolution_notes" ]]; then
+              # Update status to resolved (macOS compatible)
+              if grep -q "^status:" "$selected_file" 2>/dev/null; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                  sed -i '' "s/^status:.*/status: resolved/" "$selected_file"
+                else
+                  sed -i "s/^status:.*/status: resolved/" "$selected_file"
+                fi
+              fi
+              
+              # Add resolution section
+              if grep -q "^## Resolution" "$selected_file"; then
+                # Replace resolution section
+                local temp_file=$(mktemp)
+                local in_resolution=false
+                while IFS= read -r line; do
+                  if [[ "$line" == "## Resolution" ]]; then
+                    in_resolution=true
+                    echo "## Resolution" >> "$temp_file"
+                    echo "" >> "$temp_file"
+                    echo "**Resolved:** $(date +"%Y-%m-%d %H:%M:%S")" >> "$temp_file"
+                    echo "" >> "$temp_file"
+                    echo "$resolution_notes" >> "$temp_file"
+                  elif [[ "$in_resolution" == "true" ]] && [[ "$line" =~ ^## ]]; then
+                    # Next section found, stop replacing
+                    in_resolution=false
+                    echo "$line" >> "$temp_file"
+                  elif [[ "$in_resolution" != "true" ]]; then
+                    echo "$line" >> "$temp_file"
+                  fi
+                done < "$selected_file"
+                mv "$temp_file" "$selected_file"
+              else
+                echo "" >> "$selected_file"
+                echo "## Resolution" >> "$selected_file"
+                echo "" >> "$selected_file"
+                echo "**Resolved:** $(date +"%Y-%m-%d %H:%M:%S")" >> "$selected_file"
+                echo "" >> "$selected_file"
+                echo "$resolution_notes" >> "$selected_file"
+              fi
+              
+              # Add to updates
+              local update_text="$(date +"%Y-%m-%d %H:%M:%S") - Incident resolved: $resolution_notes"
+              if grep -q "^## Updates" "$selected_file"; then
+                local temp_file=$(mktemp)
+                local in_updates=false
+                while IFS= read -r line; do
+                  echo "$line" >> "$temp_file"
+                  if [[ "$line" == "## Updates" ]]; then
+                    in_updates=true
+                    echo "" >> "$temp_file"
+                    echo "$update_text" >> "$temp_file"
+                  fi
+                done < "$selected_file"
+                mv "$temp_file" "$selected_file"
+              fi
+              
+              echo ""
+              echo -e "${GREEN}✓ Incident marked as resolved${NC}"
+            fi
+            ;;
+          *)
+            echo "❌ Invalid choice"
+            ;;
+        esac
+        ;;
+      6)
+        # View active incidents
+        clear
+        echo ""
+        echo -e "${BOLD}${RED}🚨 Active Incidents${NC}"
+        echo ""
+        
+        local active_incidents=$(list_active_incidents)
+        if [[ -z "$active_incidents" ]]; then
+          echo "No active incidents found."
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        local count=1
+        while IFS='|' read -r file title; do
+          if [[ -n "$file" && -n "$title" ]]; then
+            echo -e "${BOLD}$count. $title${NC}"
+            if [[ -f "$file" ]]; then
+              local severity=$(grep -i "^severity:" "$file" 2>/dev/null | head -1 | sed 's/.*severity:[[:space:]]*//i' || echo "")
+              local status=$(grep -i "^status:" "$file" 2>/dev/null | head -1 | sed 's/.*status:[[:space:]]*//i' || echo "")
+              local created=$(grep -i "^created:" "$file" 2>/dev/null | head -1 | sed 's/.*created:[[:space:]]*//i' || echo "")
+              
+              echo "   File: $file"
+              [[ -n "$severity" ]] && echo "   Severity: $severity"
+              [[ -n "$status" ]] && echo "   Status: $status"
+              [[ -n "$created" ]] && echo "   Created: $created"
+            fi
+            echo ""
+            count=$((count + 1))
+          fi
+        done <<< "$active_incidents"
+        
+        echo ""
+        gtd_quick_pause
+        ;;
+      7)
         # Post-mortem
         clear
         echo ""
@@ -308,7 +764,7 @@ oncall_capture_wizard() {
             ;;
         esac
         ;;
-      5)
+      8)
         # Runbook update
         clear
         echo ""
@@ -344,7 +800,7 @@ oncall_capture_wizard() {
           echo -e "${GREEN}✓ Runbook update captured${NC}"
         fi
         ;;
-      6)
+      9)
         # Alert tuning
         clear
         echo ""
@@ -402,7 +858,7 @@ oncall_capture_wizard() {
           echo -e "${GREEN}✓ Alert tuning captured${NC}"
         fi
         ;;
-      7)
+      10)
         # Oncall task
         clear
         echo ""
@@ -428,7 +884,7 @@ oncall_capture_wizard() {
           echo -e "${GREEN}✓ Oncall task captured${NC}"
         fi
         ;;
-      8)
+      11)
         # Oncall note
         clear
         echo ""
@@ -457,57 +913,9 @@ oncall_capture_wizard() {
         echo ""
         echo -e "${GREEN}✓ Oncall note captured!${NC}"
         ;;
-      9)
-        # Handoff notes
-        clear
-        echo ""
-        echo -e "${BOLD}${CYAN}🤝 Shift Handoff Notes${NC}"
-        echo ""
-        echo -n "Handoff notes for next oncall engineer: "
-        read handoff_content
-        if [[ -z "$handoff_content" ]]; then
-          echo "❌ Handoff notes required"
-          echo ""
-    gtd_quick_pause
-          continue
-        fi
-        
-        # Create note with handoff tag
-        gtd-capture --type=note "Handoff: $handoff_content #oncall #handoff"
-        echo ""
-        echo -e "${GREEN}✓ Handoff notes captured!${NC}"
-        ;;
-      10)
-        # On deck task
-        clear
-        echo ""
-        echo -e "${BOLD}${CYAN}🎯 On Deck Task${NC}"
-        echo ""
-        echo "On deck responsibilities include:"
-        echo "  • Post daily infra changes before 3pm MST"
-        echo "  • Attend Infrastructure Pre-Release meeting"
-        echo "  • Handle permission requests in #rebel-alliance-reliability"
-        echo "  • Watch reliability channels for inquiries"
-        echo ""
-        echo -n "What on deck task needs to be done? "
-        read ondeck_task_content
-        if [[ -z "$ondeck_task_content" ]]; then
-          echo "❌ Task description required"
-          echo ""
-    gtd_quick_pause
-          continue
-        fi
-        
-        # Create task with oncall and on-deck tags
-        if command -v gtd-task &>/dev/null; then
-          gtd-task add "$ondeck_task_content #oncall #on-deck" --non-interactive --context=computer --energy=medium --priority=not_urgent_important 2>/dev/null || true
-          echo ""
-          echo -e "${GREEN}✓ On deck task created${NC}"
-        else
-          gtd-capture --type=task "$ondeck_task_content #oncall #on-deck"
-          echo ""
-          echo -e "${GREEN}✓ On deck task captured${NC}"
-        fi
+      12)
+        # Handoff report
+        generate_handoff_report
         ;;
       *)
         echo "❌ Invalid choice"

@@ -1,4 +1,8 @@
 #!/bin/bash
+# IMPORTANT: This script must be compatible with bash 3.2 (macOS default)
+# See .cursorrules for bash compatibility guidelines
+# DO NOT use associative arrays (declare -A) or bash 4+ features
+#
 # GTD Wizard Organization Functions
 # Organization wizards for tasks, projects, areas, MOCs, habits
 
@@ -455,6 +459,8 @@ task_wizard() {
     echo "  8) Add note to task"
     echo "  9) 💬 Restructure with natural language"
     echo "  10) 🧹 Organize tasks (clean up backlog)"
+    echo "  11) 📊 Review tasks by priority/project"
+    echo "  12) ⭐ Favorite/Unfavorite Task"
     echo ""
     echo -e "${YELLOW}0)${NC} Back to Main Menu"
     echo ""
@@ -546,23 +552,34 @@ task_wizard() {
       ;;
     3)
       echo ""
-      local task_list_output=$(gtd-task list)
-      echo "$task_list_output"
-      echo ""
-      echo -n "Task number or ID to view: "
-      read task_input
-      
-      if [[ -z "$task_input" ]]; then
-        gtd_feedback error "No task provided"
-        gtd_quick_pause
-        return 0
-      fi
-      
-      task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
-      if [[ -z "$task_id" ]]; then
-        gtd_feedback error "Task not found: $task_input"
-        gtd_quick_pause
-        return 0
+      echo "Select a task to view:"
+      if declare -f select_from_tasks &>/dev/null; then
+        task_id=$(select_from_tasks "task")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "No task selected"
+          gtd_quick_pause
+          return 0
+        fi
+      else
+        # Fallback to old method
+        local task_list_output=$(gtd-task list)
+        echo "$task_list_output"
+        echo ""
+        echo -n "Task number or ID to view: "
+        read task_input
+        
+        if [[ -z "$task_input" ]]; then
+          gtd_feedback error "No task provided"
+          gtd_quick_pause
+          return 0
+        fi
+        
+        task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "Task not found: $task_input"
+          gtd_quick_pause
+          return 0
+        fi
       fi
       
       gtd-task view "$task_id"
@@ -571,23 +588,34 @@ task_wizard() {
       ;;
     4)
       echo ""
-      local task_list_output=$(gtd-task list)
-      echo "$task_list_output"
-      echo ""
-      echo -n "Task number or ID to complete: "
-      read task_input
-      
-      if [[ -z "$task_input" ]]; then
-        gtd_feedback error "No task provided"
-        gtd_quick_pause
-        return 0
-      fi
-      
-      task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
-      if [[ -z "$task_id" ]]; then
-        gtd_feedback error "Task not found: $task_input"
-        gtd_quick_pause
-        return 0
+      echo "Select a task to complete:"
+      if declare -f select_from_tasks &>/dev/null; then
+        task_id=$(select_from_tasks "task")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "No task selected"
+          gtd_quick_pause
+          return 0
+        fi
+      else
+        # Fallback to old method
+        local task_list_output=$(gtd-task list)
+        echo "$task_list_output"
+        echo ""
+        echo -n "Task number or ID to complete: "
+        read task_input
+        
+        if [[ -z "$task_input" ]]; then
+          gtd_feedback error "No task provided"
+          gtd_quick_pause
+          return 0
+        fi
+        
+        task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "Task not found: $task_input"
+          gtd_quick_pause
+          return 0
+        fi
       fi
       
       gtd-task complete "$task_id"
@@ -596,23 +624,34 @@ task_wizard() {
       ;;
     5)
       echo ""
-      local task_list_output=$(gtd-task list)
-      echo "$task_list_output"
-      echo ""
-      echo -n "Task number or ID to update: "
-      read task_input
-      
-      if [[ -z "$task_input" ]]; then
-        gtd_feedback error "No task provided"
-        gtd_quick_pause
-        return 0
-      fi
-      
-      task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
-      if [[ -z "$task_id" ]]; then
-        gtd_feedback error "Task not found: $task_input"
-        gtd_quick_pause
-        return 0
+      echo "Select a task to update:"
+      if declare -f select_from_tasks &>/dev/null; then
+        task_id=$(select_from_tasks "task")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "No task selected"
+          gtd_quick_pause
+          return 0
+        fi
+      else
+        # Fallback to old method
+        local task_list_output=$(gtd-task list)
+        echo "$task_list_output"
+        echo ""
+        echo -n "Task number or ID to update: "
+        read task_input
+        
+        if [[ -z "$task_input" ]]; then
+          gtd_feedback error "No task provided"
+          gtd_quick_pause
+          return 0
+        fi
+        
+        task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "Task not found: $task_input"
+          gtd_quick_pause
+          return 0
+        fi
       fi
       
       echo -n "New description: "
@@ -625,23 +664,34 @@ task_wizard() {
       echo ""
       echo "Moving a task to a project..."
       echo ""
-      local task_list_output=$(gtd-task list)
-      echo "$task_list_output"
-      echo ""
-      echo -n "Task number or ID to move: "
-      read task_input
-      
-      if [[ -z "$task_input" ]]; then
-        gtd_feedback error "No task provided"
-        gtd_quick_pause
-        return 0
-      fi
-      
-      task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
-      if [[ -z "$task_id" ]]; then
-        gtd_feedback error "Task not found: $task_input"
-        gtd_quick_pause
-        return 0
+      echo "Select a task to move:"
+      if declare -f select_from_tasks &>/dev/null; then
+        task_id=$(select_from_tasks "task")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "No task selected"
+          gtd_quick_pause
+          return 0
+        fi
+      else
+        # Fallback to old method
+        local task_list_output=$(gtd-task list)
+        echo "$task_list_output"
+        echo ""
+        echo -n "Task number or ID to move: "
+        read task_input
+        
+        if [[ -z "$task_input" ]]; then
+          gtd_feedback error "No task provided"
+          gtd_quick_pause
+          return 0
+        fi
+        
+        task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "Task not found: $task_input"
+          gtd_quick_pause
+          return 0
+        fi
       fi
       
       echo ""
@@ -669,23 +719,34 @@ task_wizard() {
       echo ""
       echo "Moving a task to an area..."
       echo ""
-      local task_list_output=$(gtd-task list)
-      echo "$task_list_output"
-      echo ""
-      echo -n "Task number or ID to move to area: "
-      read task_input
-      
-      if [[ -z "$task_input" ]]; then
-        gtd_feedback error "No task provided"
-        gtd_quick_pause
-        return 0
-      fi
-      
-      task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
-      if [[ -z "$task_id" ]]; then
-        gtd_feedback error "Task not found: $task_input"
-        gtd_quick_pause
-        return 0
+      echo "Select a task to move:"
+      if declare -f select_from_tasks &>/dev/null; then
+        task_id=$(select_from_tasks "task")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "No task selected"
+          gtd_quick_pause
+          return 0
+        fi
+      else
+        # Fallback to old method
+        local task_list_output=$(gtd-task list)
+        echo "$task_list_output"
+        echo ""
+        echo -n "Task number or ID to move to area: "
+        read task_input
+        
+        if [[ -z "$task_input" ]]; then
+          gtd_feedback error "No task provided"
+          gtd_quick_pause
+          return 0
+        fi
+        
+        task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "Task not found: $task_input"
+          gtd_quick_pause
+          return 0
+        fi
       fi
       
       # Find the task file
@@ -760,17 +821,28 @@ area: ${area_slug}
       echo ""
       echo "Adding a note to a task..."
       echo ""
-      gtd-task list
-      echo ""
-      echo "💡 Look at the task list above. Each task shows an 'ID:' line."
-      echo "   Copy the task ID (e.g., 20240101120000-task) and paste it below."
-      echo ""
-      echo -n "Task ID to add note to (copy from the list above): "
-      read task_id
-      
-      if [[ -z "$task_id" ]]; then
-        echo "❌ No task ID provided"
-        return 1
+      echo "Select a task to add a note to:"
+      if declare -f select_from_tasks &>/dev/null; then
+        task_id=$(select_from_tasks "task")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "No task selected"
+          gtd_quick_pause
+          return 0
+        fi
+      else
+        # Fallback to old method
+        gtd-task list
+        echo ""
+        echo "💡 Look at the task list above. Each task shows an 'ID:' line."
+        echo "   Copy the task ID (e.g., 20240101120000-task) and paste it below."
+        echo ""
+        echo -n "Task ID to add note to (copy from the list above): "
+        read task_id
+        
+        if [[ -z "$task_id" ]]; then
+          echo "❌ No task ID provided"
+          return 1
+        fi
       fi
       
       # Check if task has existing notes
@@ -870,8 +942,36 @@ area: ${area_slug}
       echo ""
       echo -e "${BOLD}💬 Restructure Task with Natural Language${NC}"
       echo ""
-      local task_list_output=$(gtd-task list)
-      echo "$task_list_output"
+      echo "Select a task to restructure:"
+      if declare -f select_from_tasks &>/dev/null; then
+        task_id=$(select_from_tasks "task")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "No task selected"
+          gtd_quick_pause
+          return 0
+        fi
+      else
+        # Fallback to old method
+        local task_list_output=$(gtd-task list)
+        echo "$task_list_output"
+        echo ""
+        echo -n "Task number or ID to restructure: "
+        read task_input
+        
+        if [[ -z "$task_input" ]]; then
+          gtd_feedback error "No task provided"
+          gtd_quick_pause
+          return 0
+        fi
+        
+        task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
+        if [[ -z "$task_id" ]]; then
+          gtd_feedback error "Task not found: $task_input"
+          gtd_quick_pause
+          return 0
+        fi
+      fi
+      
       echo ""
       echo -e "${CYAN}Example commands:${NC}"
       echo "  • \"Make this more prominent\""
@@ -879,21 +979,6 @@ area: ${area_slug}
       echo "  • \"Focus on this week\""
       echo "  • \"I'm done with this\""
       echo ""
-      echo -n "Task number or ID to restructure: "
-      read task_input
-      
-      if [[ -z "$task_input" ]]; then
-        gtd_feedback error "No task provided"
-        gtd_quick_pause
-        return 0
-      fi
-      
-      task_id=$(get_task_id_by_number "$task_input" "$task_list_output")
-      if [[ -z "$task_id" ]]; then
-        gtd_feedback error "Task not found: $task_input"
-        gtd_quick_pause
-        return 0
-      fi
       
       echo ""
       echo -n "What would you like to do with this task? "
@@ -955,6 +1040,295 @@ area: ${area_slug}
         gtd_quick_pause
       fi
       ;;
+    11)
+      review_tasks_by_priority_project
+      ;;
+    12)
+      echo ""
+      echo -e "${BOLD}⭐ Favorite/Unfavorite Task${NC}"
+      echo ""
+      
+      # Collect all tasks (standalone + project tasks)
+      local all_task_files=()
+      local all_task_names=()
+      local all_task_ids=()
+      
+      # Get standalone tasks
+      if [[ -d "${TASKS_PATH:-}" ]]; then
+        while IFS= read -r task_file; do
+          [[ ! -f "$task_file" ]] && continue
+          local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+          local task_id=$(basename "$task_file" .md)
+          local project=$(gtd_get_frontmatter_value "$task_file" "project" 2>/dev/null || echo "")
+          
+          # Build display name
+          local display_name="$task_name"
+          if [[ -n "$project" ]]; then
+            display_name="$task_name (Project: $project)"
+          fi
+          
+          all_task_files+=("$task_file")
+          all_task_names+=("$display_name")
+          all_task_ids+=("$task_id")
+        done < <(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | sort)
+      fi
+      
+      # Get project tasks
+      if [[ -d "${PROJECTS_PATH:-}" ]]; then
+        while IFS= read -r task_file; do
+          [[ ! -f "$task_file" || "$task_file" == */README.md ]] && continue
+          local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+          local task_id=$(basename "$task_file" .md)
+          local project_dir=$(dirname "$task_file")
+          local project_slug=$(basename "$project_dir")
+          local project_name="$project_slug"
+          
+          # Get project display name
+          local project_readme="${project_dir}/README.md"
+          if [[ -f "$project_readme" ]]; then
+            project_name=$(gtd_get_frontmatter_value "$project_readme" "name" 2>/dev/null || echo "$project_slug")
+            [[ -z "$project_name" ]] && project_name=$(gtd_get_frontmatter_value "$project_readme" "project" 2>/dev/null || echo "$project_slug")
+          fi
+          
+          local display_name="$task_name (Project: $project_name)"
+          
+          all_task_files+=("$task_file")
+          all_task_names+=("$display_name")
+          all_task_ids+=("$task_id")
+        done < <(find "${PROJECTS_PATH}" -name "*.md" -type f 2>/dev/null | sort)
+      fi
+      
+      if [[ ${#all_task_files[@]} -eq 0 ]]; then
+        gtd_feedback error "No tasks found"
+        gtd_quick_pause
+        return 0
+      fi
+      
+      # Display tasks
+      echo "Select a task to favorite/unfavorite:"
+      echo ""
+      for i in "${!all_task_names[@]}"; do
+        local num=$((i + 1))
+        echo "  ${num}) ${all_task_names[$i]}"
+      done
+      echo ""
+      
+      # Get user input with fuzzy search support
+      local fuzzy_hint=""
+      if [[ "${GTD_FUZZY_SEARCH:-false}" == "true" ]]; then
+        fuzzy_hint=" (fuzzy search enabled)"
+      fi
+      echo -n "Task number or name${fuzzy_hint}: "
+      read task_input
+      
+      if [[ -z "$task_input" ]]; then
+        gtd_feedback error "No task selected"
+        gtd_quick_pause
+        return 0
+      fi
+      
+      # Find selected task
+      local task_file=""
+      local task_name=""
+      
+      # Check if it's a number
+      if [[ "$task_input" =~ ^[0-9]+$ ]]; then
+        local selected_index=$((task_input - 1))
+        if [[ $selected_index -ge 0 && $selected_index -lt ${#all_task_files[@]} ]]; then
+          task_file="${all_task_files[$selected_index]}"
+          task_name="${all_task_names[$selected_index]}"
+        else
+          gtd_feedback error "Invalid task number"
+          gtd_quick_pause
+          return 0
+        fi
+      else
+        # Try fuzzy/partial matching
+        local use_fuzzy="${GTD_FUZZY_SEARCH:-false}"
+        local matches=()
+        local match_indices=()
+        
+        if [[ "$use_fuzzy" == "true" ]]; then
+          # Get the correct Python executable
+          local python_cmd=""
+          if declare -f gtd_get_mcp_python &>/dev/null; then
+            python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "")
+          fi
+          if [[ -z "$python_cmd" ]]; then
+            if [[ -f "/opt/homebrew/bin/python3" ]]; then
+              python_cmd="/opt/homebrew/bin/python3"
+            elif command -v python3 &>/dev/null; then
+              python_cmd="python3"
+            fi
+          fi
+          
+          if [[ -n "$python_cmd" ]] && command -v "$python_cmd" &>/dev/null; then
+            local python_script=$(cat <<'PYTHON_SCRIPT'
+import sys
+import difflib
+
+user_input = sys.stdin.readline().strip()
+task_names = []
+task_ids = []
+while True:
+    name = sys.stdin.readline().strip()
+    if not name:
+        break
+    task_id = sys.stdin.readline().strip()
+    task_names.append(name)
+    task_ids.append(task_id)
+
+matches = []
+match_indices = []
+match_scores = []
+
+for i, task_name in enumerate(task_names):
+    task_id = task_ids[i]
+    task_name_lower = task_name.lower()
+    task_id_lower = task_id.lower()
+    user_input_lower = user_input.lower()
+    
+    if user_input_lower in task_name_lower or user_input_lower in task_id_lower:
+        matches.append(task_name)
+        match_indices.append(i)
+        match_scores.append(1.0)
+    else:
+        name_score = difflib.SequenceMatcher(None, user_input_lower, task_name_lower).ratio()
+        id_score = difflib.SequenceMatcher(None, user_input_lower, task_id_lower).ratio()
+        score = max(name_score, id_score)
+        if score >= 0.2:
+            matches.append(task_name)
+            match_indices.append(i)
+            match_scores.append(score)
+
+if matches:
+    sorted_data = sorted(zip(match_scores, matches, match_indices), reverse=True)
+    match_scores, matches, match_indices = zip(*sorted_data)
+    for score, name, idx in zip(match_scores, matches, match_indices):
+        name_clean = name.replace('\n', ' ').replace('\r', ' ')
+        print(f"{score}|{name_clean}|{idx}")
+PYTHON_SCRIPT
+)
+            local fuzzy_output=$({
+              printf "%s\n" "$task_input"
+              for i in "${!all_task_names[@]}"; do
+                printf "%s\n" "${all_task_names[$i]}"
+                printf "%s\n" "${all_task_ids[$i]}"
+              done
+            } | "$python_cmd" -c "$python_script" 2>/dev/null)
+            
+            if [[ -n "$fuzzy_output" ]]; then
+              while IFS='|' read -r score name idx; do
+                [[ -z "$score" || -z "$name" || -z "$idx" ]] && continue
+                if [[ "$idx" =~ ^[0-9]+$ ]]; then
+                  matches+=("$name")
+                  match_indices+=($idx)
+                fi
+              done <<< "$fuzzy_output"
+            fi
+          fi
+        fi
+        
+        # Fallback to partial matching
+        if [[ ${#matches[@]} -eq 0 ]]; then
+          for i in "${!all_task_names[@]}"; do
+            local display_name="${all_task_names[$i]}"
+            local task_id="${all_task_ids[$i]}"
+            local display_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+            local task_id_lower=$(echo "$task_id" | tr '[:upper:]' '[:lower:]')
+            local input_lower=$(echo "$task_input" | tr '[:upper:]' '[:lower:]')
+            
+            if [[ "$display_lower" == *"$input_lower"* ]] || [[ "$task_id_lower" == *"$input_lower"* ]]; then
+              matches+=("$display_name")
+              match_indices+=($i)
+            fi
+          done
+        fi
+        
+        # Handle matches
+        local match_count=${#matches[@]}
+        if [[ $match_count -eq 0 ]]; then
+          gtd_feedback error "No tasks found matching '$task_input'"
+          gtd_quick_pause
+          return 0
+        elif [[ $match_count -eq 1 ]]; then
+          local selected_index="${match_indices[0]}"
+          task_file="${all_task_files[$selected_index]}"
+          task_name="${all_task_names[$selected_index]}"
+        else
+          # Multiple matches - show them
+          echo ""
+          echo "Multiple matches found:"
+          echo ""
+          for i in "${!matches[@]}"; do
+            local num=$((i + 1))
+            echo "  ${num}) ${matches[$i]}"
+          done
+          echo ""
+          echo -n "Select task (number): "
+          read task_num
+          
+          if [[ "$task_num" =~ ^[0-9]+$ ]] && [[ "$task_num" -ge 1 ]] && [[ "$task_num" -le $match_count ]]; then
+            local selected_match_index=$((task_num - 1))
+            local selected_index="${match_indices[$selected_match_index]}"
+            task_file="${all_task_files[$selected_index]}"
+            task_name="${all_task_names[$selected_index]}"
+          else
+            gtd_feedback error "Invalid selection"
+            gtd_quick_pause
+            return 0
+          fi
+        fi
+      fi
+      
+      if [[ -f "$task_file" ]]; then
+        # Check current favorite status
+        local current_favorite=$(gtd_get_frontmatter_value "$task_file" "favorite" 2>/dev/null || echo "")
+        # Extract just the task name (without project info) for display
+        local task_name_display=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+        
+        if [[ "$current_favorite" == "true" ]]; then
+          # Unfavorite
+          if grep -q "^favorite:" "$task_file" 2>/dev/null; then
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              sed -i '' "s/^favorite:.*/favorite: false/" "$task_file"
+            else
+              sed -i "s/^favorite:.*/favorite: false/" "$task_file"
+            fi
+            echo ""
+            echo -e "${GREEN}✓${NC} Task '$task_name_display' unfavorited"
+            echo "   You won't receive reminders about this task anymore."
+          fi
+        else
+          # Favorite
+          if grep -q "^favorite:" "$task_file" 2>/dev/null; then
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              sed -i '' "s/^favorite:.*/favorite: true/" "$task_file"
+            else
+              sed -i "s/^favorite:.*/favorite: true/" "$task_file"
+            fi
+          else
+            # Add favorite field to frontmatter
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              sed -i '' "/^status:/a\\
+favorite: true
+" "$task_file"
+            else
+              sed -i "/^status:/a\\favorite: true" "$task_file"
+            fi
+          fi
+          echo ""
+          echo -e "${GREEN}✓${NC} Task '$task_name_display' favorited"
+          echo "   You'll see quick access to this task in the main menu!"
+        fi
+        echo ""
+        gtd_quick_pause
+      else
+        echo "❌ Task file not found"
+        echo ""
+        gtd_quick_pause
+      fi
+      ;;
     0|"")
       pop_menu
       return 0
@@ -965,6 +1339,1309 @@ area: ${area_slug}
       gtd_quick_pause
       ;;
   esac
+  done
+}
+
+# Review tasks by priority and/or project
+review_tasks_by_priority_project() {
+  push_menu "Task Management"
+  
+  while true; do
+    clear
+    show_breadcrumb
+    gtd_print_header "Review Tasks by Priority/Project" "📊"
+    echo ""
+    echo "How would you like to review your active tasks?"
+    echo ""
+    echo "  1) By task priority (urgent_important, not_urgent_important, etc.)"
+    echo "  2) By project (grouped by project)"
+    echo "  3) By project priority (if projects have priorities)"
+    echo "  4) Combined view (priority + project)"
+    echo "  5) Filter by specific priority"
+    echo "  6) Filter by specific project"
+    echo ""
+    echo -e "${YELLOW}0)${NC} Back to Task Management"
+    echo ""
+    echo -n "Choose: "
+    read review_choice
+    
+    case "$review_choice" in
+      0)
+        pop_menu
+        return 0
+        ;;
+      1)
+        review_tasks_by_task_priority
+        ;;
+      2)
+        review_tasks_by_project
+        ;;
+      3)
+        review_tasks_by_project_priority
+        ;;
+      4)
+        review_tasks_combined_view
+        ;;
+      5)
+        filter_tasks_by_priority
+        ;;
+      6)
+        filter_tasks_by_project
+        ;;
+      *)
+        gtd_feedback error "Invalid choice"
+        gtd_quick_pause
+        ;;
+    esac
+  done
+}
+
+# Review tasks grouped by task priority
+review_tasks_by_task_priority() {
+  clear
+  gtd_print_header "Tasks by Priority" "📊"
+  echo ""
+  
+  # Collect all active tasks
+  local all_tasks=()
+  
+  # Get tasks from tasks directory
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" ]] && continue
+      local status=$(gtd_get_frontmatter_value "$task_file" "status")
+      if [[ "$status" == "active" ]]; then
+        all_tasks+=("$task_file")
+      fi
+    done < <(find "$TASKS_PATH" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  # Get tasks from project directories
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" || "$task_file" == */README.md ]] && continue
+      local status=$(gtd_get_frontmatter_value "$task_file" "status")
+      if [[ "$status" == "active" ]]; then
+        all_tasks+=("$task_file")
+      fi
+    done < <(find "$PROJECTS_PATH" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  if [[ ${#all_tasks[@]} -eq 0 ]]; then
+    echo "No active tasks found."
+    echo ""
+    gtd_enter_to_continue
+    return 0
+  fi
+  
+  # Group by priority
+  local urgent_important=()
+  local not_urgent_important=()
+  local urgent_not_important=()
+  local not_urgent_not_important=()
+  local no_priority=()
+  
+  for task_file in "${all_tasks[@]}"; do
+    local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
+    local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+    local project=$(gtd_get_frontmatter_value "$task_file" "project")
+    
+    # Determine project name
+    local project_display=""
+    if [[ -n "$project" ]]; then
+      local project_dir="${PROJECTS_PATH}/${project}"
+      if [[ -d "$project_dir" ]] && [[ -f "${project_dir}/README.md" ]]; then
+        project_display=$(gtd_get_frontmatter_value "${project_dir}/README.md" "name")
+        [[ -z "$project_display" ]] && project_display="$project"
+      else
+        project_display="$project"
+      fi
+    fi
+    
+    case "$priority" in
+      urgent_important)
+        urgent_important+=("$task_file|$task_name|$project_display")
+        ;;
+      not_urgent_important)
+        not_urgent_important+=("$task_file|$task_name|$project_display")
+        ;;
+      urgent_not_important)
+        urgent_not_important+=("$task_file|$task_name|$project_display")
+        ;;
+      not_urgent_not_important)
+        not_urgent_not_important+=("$task_file|$task_name|$project_display")
+        ;;
+      *)
+        no_priority+=("$task_file|$task_name|$project_display")
+        ;;
+    esac
+  done
+  
+  # Display grouped by priority
+  local total=${#all_tasks[@]}
+  echo "Total active tasks: $total"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  if [[ ${#urgent_important[@]} -gt 0 ]]; then
+    echo ""
+    echo -e "${BOLD}${RED}🔴 Urgent & Important (${#urgent_important[@]})${NC}"
+    echo ""
+    
+    # Build display items for two-column layout
+    local display_items=()
+    for task_info in "${urgent_important[@]}"; do
+      IFS='|' read -r task_file task_name project_display <<< "$task_info"
+      local display_text="• $task_name"
+      [[ -n "$project_display" ]] && display_text="$display_text ($project_display)"
+      display_items+=("$display_text")
+    done
+    
+    # Display in two columns
+    gtd_print_two_columns "${display_items[@]}"
+  fi
+  
+  if [[ ${#not_urgent_important[@]} -gt 0 ]]; then
+    echo ""
+    echo -e "${BOLD}${YELLOW}🟡 Not Urgent & Important (${#not_urgent_important[@]})${NC}"
+    echo ""
+    
+    # Build display items for two-column layout
+    local display_items=()
+    for task_info in "${not_urgent_important[@]}"; do
+      IFS='|' read -r task_file task_name project_display <<< "$task_info"
+      local display_text="• $task_name"
+      [[ -n "$project_display" ]] && display_text="$display_text ($project_display)"
+      display_items+=("$display_text")
+    done
+    
+    # Display in two columns
+    gtd_print_two_columns "${display_items[@]}"
+  fi
+  
+  if [[ ${#urgent_not_important[@]} -gt 0 ]]; then
+    echo ""
+    echo -e "${BOLD}${CYAN}🔵 Urgent & Not Important (${#urgent_not_important[@]})${NC}"
+    echo ""
+    
+    # Build display items for two-column layout
+    local display_items=()
+    for task_info in "${urgent_not_important[@]}"; do
+      IFS='|' read -r task_file task_name project_display <<< "$task_info"
+      local display_text="• $task_name"
+      [[ -n "$project_display" ]] && display_text="$display_text ($project_display)"
+      display_items+=("$display_text")
+    done
+    
+    # Display in two columns
+    gtd_print_two_columns "${display_items[@]}"
+  fi
+  
+  if [[ ${#not_urgent_not_important[@]} -gt 0 ]]; then
+    echo ""
+    echo -e "${BOLD}${GRAY}⚪ Not Urgent & Not Important (${#not_urgent_not_important[@]})${NC}"
+    echo ""
+    
+    # Build display items for two-column layout
+    local display_items=()
+    for task_info in "${not_urgent_not_important[@]}"; do
+      IFS='|' read -r task_file task_name project_display <<< "$task_info"
+      local display_text="• $task_name"
+      [[ -n "$project_display" ]] && display_text="$display_text ($project_display)"
+      display_items+=("$display_text")
+    done
+    
+    # Display in two columns
+    gtd_print_two_columns "${display_items[@]}"
+  fi
+  
+  if [[ ${#no_priority[@]} -gt 0 ]]; then
+    echo ""
+    echo -e "${BOLD}${GRAY}⚫ No Priority Set (${#no_priority[@]})${NC}"
+    echo ""
+    
+    # Build display items for two-column layout
+    local display_items=()
+    for task_info in "${no_priority[@]}"; do
+      IFS='|' read -r task_file task_name project_display <<< "$task_info"
+      local display_text="• $task_name"
+      [[ -n "$project_display" ]] && display_text="$display_text ($project_display)"
+      display_items+=("$display_text")
+    done
+    
+    # Display in two columns
+    gtd_print_two_columns "${display_items[@]}"
+  fi
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Offer interactive task selection
+  echo ""
+  echo "What would you like to do?"
+  echo "  1) Select a task to view/edit/complete"
+  echo "  2) Just review (no action)"
+  echo ""
+  echo -n "Choose: "
+  read action_choice
+  
+  case "$action_choice" in
+    1)
+      # Build task selection list with fuzzy search support
+      local task_names=()
+      local task_files_list=()
+      local task_ids=()
+      
+      for task_file in "${all_tasks[@]}"; do
+        local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
+        local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+        local project=$(gtd_get_frontmatter_value "$task_file" "project")
+        local project_display=""
+        if [[ -n "$project" ]]; then
+          local project_dir="${PROJECTS_PATH}/${project}"
+          if [[ -d "$project_dir" ]] && [[ -f "${project_dir}/README.md" ]]; then
+            project_display=$(gtd_get_frontmatter_value "${project_dir}/README.md" "name")
+            [[ -z "$project_display" ]] && project_display="$project"
+          else
+            project_display="$project"
+          fi
+        fi
+        
+        local display_name="$task_name"
+        [[ -n "$priority" ]] && display_name="$display_name [$priority]"
+        [[ -n "$project_display" ]] && display_name="$display_name (Project: $project_display)"
+        
+        local task_id=$(basename "$task_file" .md)
+        task_names+=("$display_name")
+        task_files_list+=("$task_file")
+        task_ids+=("$task_id")
+      done
+      
+      # Display numbered list
+      echo ""
+      echo "Select a task:"
+      for i in "${!task_names[@]}"; do
+        local num=$((i + 1))
+        echo "  ${num}) ${task_names[$i]}"
+      done
+      echo ""
+      
+      # Get user input with fuzzy search support
+      local fuzzy_hint=""
+      if [[ "${GTD_FUZZY_SEARCH:-false}" == "true" ]]; then
+        fuzzy_hint=" (fuzzy search enabled)"
+      fi
+      echo -n "Task number or name${fuzzy_hint}: "
+      read task_input
+      
+      if [[ -z "$task_input" ]]; then
+        gtd_feedback error "No task selected"
+        gtd_enter_to_continue
+        return 0
+      fi
+      
+      # Check if it's a number
+      if [[ "$task_input" =~ ^[0-9]+$ ]]; then
+        local selected_index=$((task_input - 1))
+        if [[ $selected_index -ge 0 && $selected_index -lt ${#task_files_list[@]} ]]; then
+          local selected_file="${task_files_list[$selected_index]}"
+          interact_with_task "$selected_file"
+        else
+          gtd_feedback error "Invalid task number"
+          gtd_enter_to_continue
+        fi
+      else
+        # Try fuzzy/partial matching
+        local use_fuzzy="${GTD_FUZZY_SEARCH:-false}"
+        local matches=()
+        local match_indices=()
+        
+        if [[ "$use_fuzzy" == "true" ]] && [[ ${#task_names[@]} -gt 0 ]]; then
+          # Get the correct Python executable (venv or Homebrew, not system Python)
+          local python_cmd=""
+          if declare -f gtd_get_mcp_python &>/dev/null; then
+            python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "")
+          fi
+          if [[ -z "$python_cmd" ]]; then
+            # Fallback: check for Homebrew Python or system python3
+            if [[ -f "/opt/homebrew/bin/python3" ]]; then
+              python_cmd="/opt/homebrew/bin/python3"
+            elif command -v python3 &>/dev/null; then
+              python_cmd="python3"
+            fi
+          fi
+          
+          if [[ -z "$python_cmd" ]] || ! command -v "$python_cmd" &>/dev/null; then
+            # Fallback to partial matching if Python not available
+            for i in "${!task_names[@]}"; do
+              local display_name="${task_names[$i]}"
+              local task_id="${task_ids[$i]}"
+              local display_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+              local task_id_lower=$(echo "$task_id" | tr '[:upper:]' '[:lower:]')
+              local input_lower=$(echo "$task_input" | tr '[:upper:]' '[:lower:]')
+              
+              if [[ "$display_lower" == *"$input_lower"* ]] || [[ "$task_id_lower" == *"$input_lower"* ]]; then
+                matches+=("$display_name")
+                match_indices+=($i)
+              fi
+            done
+          else
+            # Use Python difflib for fuzzy matching
+            local fuzzy_output=""
+            # Create a temporary Python script to avoid heredoc stdin conflicts
+            local python_script=$(cat <<'PYTHON_SCRIPT'
+import sys
+import difflib
+
+user_input = sys.stdin.readline().strip()
+task_names = []
+task_ids = []
+while True:
+    name = sys.stdin.readline().strip()
+    if not name:
+        break
+    task_id = sys.stdin.readline().strip()
+    task_names.append(name)
+    task_ids.append(task_id)
+
+matches = []
+match_indices = []
+match_scores = []
+
+for i, task_name in enumerate(task_names):
+    task_id = task_ids[i]
+    task_name_lower = task_name.lower()
+    task_id_lower = task_id.lower()
+    user_input_lower = user_input.lower()
+    
+    # First check for substring match (case-insensitive) - this is a perfect match
+    if user_input_lower in task_name_lower or user_input_lower in task_id_lower:
+        # Substring match gets highest score
+        matches.append(task_name)
+        match_indices.append(i)
+        match_scores.append(1.0)
+    else:
+        # Use fuzzy matching for partial/typo matches
+        name_score = difflib.SequenceMatcher(None, user_input_lower, task_name_lower).ratio()
+        id_score = difflib.SequenceMatcher(None, user_input_lower, task_id_lower).ratio()
+        score = max(name_score, id_score)
+        # Lower threshold to 0.2 to catch more matches
+        if score >= 0.2:
+            matches.append(task_name)
+            match_indices.append(i)
+            match_scores.append(score)
+
+if matches:
+    sorted_data = sorted(zip(match_scores, matches, match_indices), reverse=True)
+    match_scores, matches, match_indices = zip(*sorted_data)
+    for score, name, idx in zip(match_scores, matches, match_indices):
+        # Ensure we output valid data (no newlines in name that would break parsing)
+        name_clean = name.replace('\n', ' ').replace('\r', ' ')
+        print(f"{score}|{name_clean}|{idx}")
+PYTHON_SCRIPT
+)
+          fuzzy_output=$({
+            printf "%s\n" "$task_input"
+            for i in "${!task_names[@]}"; do
+              printf "%s\n" "${task_names[$i]}"
+              printf "%s\n" "${task_ids[$i]}"
+            done
+          } | "$python_cmd" -c "$python_script")
+          
+          # Parse fuzzy results
+          if [[ -n "$fuzzy_output" ]]; then
+            while IFS='|' read -r score name idx; do
+              # Skip empty lines
+              [[ -z "$score" || -z "$name" || -z "$idx" ]] && continue
+              # Validate that idx is a number
+              if [[ "$idx" =~ ^[0-9]+$ ]]; then
+                matches+=("$name")
+                match_indices+=($idx)
+              fi
+            done <<< "$fuzzy_output"
+          fi
+          fi  # Close the if at line 1388 (python_cmd check)
+        else
+          # Fallback to partial matching if fuzzy search disabled or no tasks
+          for i in "${!task_names[@]}"; do
+            local display_name="${task_names[$i]}"
+            local task_id="${task_ids[$i]}"
+            local display_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+            local task_id_lower=$(echo "$task_id" | tr '[:upper:]' '[:lower:]')
+            local input_lower=$(echo "$task_input" | tr '[:upper:]' '[:lower:]')
+            
+            if [[ "$display_lower" == *"$input_lower"* ]] || [[ "$task_id_lower" == *"$input_lower"* ]]; then
+              matches+=("$display_name")
+              match_indices+=($i)
+            fi
+          done
+        fi
+        
+        local match_count=${#matches[@]}
+        if [[ $match_count -eq 0 ]]; then
+          gtd_feedback error "No tasks found matching '$task_input'"
+          gtd_enter_to_continue
+        elif [[ $match_count -eq 1 ]]; then
+          # Single match - use it
+          local selected_index="${match_indices[0]}"
+          local selected_file="${task_files_list[$selected_index]}"
+          interact_with_task "$selected_file"
+        else
+          # Multiple matches - show them
+          echo ""
+          echo "Multiple matches found:"
+          echo ""
+          for i in "${!matches[@]}"; do
+            local num=$((i + 1))
+            echo "  ${num}) ${matches[$i]}"
+          done
+          echo ""
+          echo -n "Select task (number): "
+          read task_num
+          
+          if [[ "$task_num" =~ ^[0-9]+$ ]] && [[ "$task_num" -ge 1 ]] && [[ "$task_num" -le $match_count ]]; then
+            local selected_match_index=$((task_num - 1))
+            local selected_index="${match_indices[$selected_match_index]}"
+            local selected_file="${task_files_list[$selected_index]}"
+            interact_with_task "$selected_file"
+          else
+            gtd_feedback error "Invalid selection"
+            gtd_enter_to_continue
+          fi
+        fi
+      fi
+      ;;
+    2)
+      gtd_enter_to_continue
+      ;;
+    *)
+      gtd_enter_to_continue
+      ;;
+  esac
+}
+
+# Review tasks grouped by project
+review_tasks_by_project() {
+  clear
+  gtd_print_header "Tasks by Project" "📊"
+  echo ""
+  
+  # Collect all active tasks with their projects (bash 3.2 compatible - use array with delimiter)
+  local all_task_data=()
+  
+  # Get tasks from tasks directory
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" ]] && continue
+      local status=$(gtd_get_frontmatter_value "$task_file" "status")
+      if [[ "$status" == "active" ]]; then
+        local project=$(gtd_get_frontmatter_value "$task_file" "project")
+        local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+        local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
+        
+        if [[ -z "$project" ]]; then
+          project="_no_project"
+        fi
+        
+        all_task_data+=("${project}|||${task_file}|||${task_name}|||${priority}")
+      fi
+    done < <(find "$TASKS_PATH" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  # Get tasks from project directories
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" || "$task_file" == */README.md ]] && continue
+      local status=$(gtd_get_frontmatter_value "$task_file" "status")
+      if [[ "$status" == "active" ]]; then
+        local project_dir=$(dirname "$task_file")
+        local project=$(basename "$project_dir")
+        local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+        local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
+        
+        all_task_data+=("${project}|||${task_file}|||${task_name}|||${priority}")
+      fi
+    done < <(find "$PROJECTS_PATH" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  if [[ ${#all_task_data[@]} -eq 0 ]]; then
+    echo "No active tasks found."
+    echo ""
+    gtd_enter_to_continue
+    return 0
+  fi
+  
+  # Get unique projects
+  local unique_projects=()
+  for task_data in "${all_task_data[@]}"; do
+    local project="${task_data%%|||*}"
+    local found=0
+    for existing_project in "${unique_projects[@]}"; do
+      if [[ "$existing_project" == "$project" ]]; then
+        found=1
+        break
+      fi
+    done
+    if [[ $found -eq 0 ]]; then
+      unique_projects+=("$project")
+    fi
+  done
+  
+  # Sort projects
+  local sorted_projects=($(printf '%s\n' "${unique_projects[@]}" | sort))
+  
+  echo "Total active tasks: ${#all_task_data[@]}"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  for project in "${sorted_projects[@]}"; do
+    local project_display="$project"
+    if [[ "$project" != "_no_project" ]]; then
+      local project_dir="${PROJECTS_PATH}/${project}"
+      if [[ -d "$project_dir" ]] && [[ -f "${project_dir}/README.md" ]]; then
+        project_display=$(gtd_get_frontmatter_value "${project_dir}/README.md" "name")
+        [[ -z "$project_display" ]] && project_display="$project"
+      fi
+    else
+      project_display="(No Project)"
+    fi
+    
+    # Count tasks for this project
+    local count=0
+    local project_tasks=()
+    for task_data in "${all_task_data[@]}"; do
+      local task_project="${task_data%%|||*}"
+      if [[ "$task_project" == "$project" ]]; then
+        ((count++))
+        project_tasks+=("$task_data")
+      fi
+    done
+    
+    echo ""
+    echo -e "${BOLD}📁 $project_display (${count} task(s))${NC}"
+    echo ""
+    
+    # Display tasks in this project
+    for task_data in "${project_tasks[@]}"; do
+      local rest="${task_data#*|||}"
+      local task_file="${rest%%|||*}"
+      rest="${rest#*|||}"
+      local task_name="${rest%%|||*}"
+      local priority="${rest#*|||}"
+      
+      echo "  • $task_name"
+      [[ -n "$priority" ]] && echo "    Priority: $priority"
+    done
+  done
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Offer interactive task selection
+  echo ""
+  echo "What would you like to do?"
+  echo "  1) Select a task to view/edit/complete"
+  echo "  2) Just review (no action)"
+  echo ""
+  echo -n "Choose: "
+  read action_choice
+  
+  case "$action_choice" in
+    1)
+      # Build task selection list from all projects with fuzzy search support
+      local task_names=()
+      local task_files_list=()
+      local task_ids=()
+      
+      for project in "${sorted_projects[@]}"; do
+        for task_data in "${all_task_data[@]}"; do
+          local task_project="${task_data%%|||*}"
+          if [[ "$task_project" == "$project" ]]; then
+            local rest="${task_data#*|||}"
+            local task_file="${rest%%|||*}"
+            rest="${rest#*|||}"
+            local task_name="${rest%%|||*}"
+            local priority="${rest#*|||}"
+            
+            local project_display="$project"
+            if [[ "$project" != "_no_project" ]]; then
+              local project_dir="${PROJECTS_PATH}/${project}"
+              if [[ -d "$project_dir" ]] && [[ -f "${project_dir}/README.md" ]]; then
+                project_display=$(gtd_get_frontmatter_value "${project_dir}/README.md" "name")
+                [[ -z "$project_display" ]] && project_display="$project"
+              fi
+            else
+              project_display="(No Project)"
+            fi
+            
+            local display_name="$task_name"
+            [[ -n "$priority" ]] && display_name="$display_name [$priority]"
+            display_name="$display_name (Project: $project_display)"
+            
+            local task_id=$(basename "$task_file" .md)
+            task_names+=("$display_name")
+            task_files_list+=("$task_file")
+            task_ids+=("$task_id")
+          fi
+        done
+      done
+      
+      # Display numbered list
+      echo ""
+      echo "Select a task:"
+      for i in "${!task_names[@]}"; do
+        local num=$((i + 1))
+        echo "  ${num}) ${task_names[$i]}"
+      done
+      echo ""
+      
+      # Get user input with fuzzy search support
+      local fuzzy_hint=""
+      if [[ "${GTD_FUZZY_SEARCH:-false}" == "true" ]]; then
+        fuzzy_hint=" (fuzzy search enabled)"
+      fi
+      echo -n "Task number or name${fuzzy_hint}: "
+      read task_input
+      
+      if [[ -z "$task_input" ]]; then
+        gtd_feedback error "No task selected"
+        gtd_enter_to_continue
+        return 0
+      fi
+      
+      # Check if it's a number
+      if [[ "$task_input" =~ ^[0-9]+$ ]]; then
+        local selected_index=$((task_input - 1))
+        if [[ $selected_index -ge 0 && $selected_index -lt ${#task_files_list[@]} ]]; then
+          local selected_file="${task_files_list[$selected_index]}"
+          interact_with_task "$selected_file"
+        else
+          gtd_feedback error "Invalid task number"
+          gtd_enter_to_continue
+        fi
+      else
+        # Try fuzzy/partial matching
+        local use_fuzzy="${GTD_FUZZY_SEARCH:-false}"
+        local matches=()
+        local match_indices=()
+        
+        if [[ "$use_fuzzy" == "true" ]]; then
+          # Get the correct Python executable (venv or Homebrew, not system Python)
+          local python_cmd=""
+          if declare -f gtd_get_mcp_python &>/dev/null; then
+            python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "")
+          fi
+          if [[ -z "$python_cmd" ]]; then
+            # Fallback: check for Homebrew Python or system python3
+            if [[ -f "/opt/homebrew/bin/python3" ]]; then
+              python_cmd="/opt/homebrew/bin/python3"
+            elif command -v python3 &>/dev/null; then
+              python_cmd="python3"
+            fi
+          fi
+          
+          if [[ -n "$python_cmd" ]] && command -v "$python_cmd" &>/dev/null; then
+            local fuzzy_output=""
+            # Create a temporary Python script to avoid heredoc stdin conflicts
+            local python_script=$(cat <<'PYTHON_SCRIPT'
+import sys
+import difflib
+
+user_input = sys.stdin.readline().strip()
+task_names = []
+task_ids = []
+while True:
+    name = sys.stdin.readline().strip()
+    if not name:
+        break
+    task_id = sys.stdin.readline().strip()
+    task_names.append(name)
+    task_ids.append(task_id)
+
+matches = []
+match_indices = []
+match_scores = []
+
+for i, task_name in enumerate(task_names):
+    task_id = task_ids[i]
+    task_name_lower = task_name.lower()
+    task_id_lower = task_id.lower()
+    user_input_lower = user_input.lower()
+    
+    # First check for substring match (case-insensitive) - this is a perfect match
+    if user_input_lower in task_name_lower or user_input_lower in task_id_lower:
+        # Substring match gets highest score
+        matches.append(task_name)
+        match_indices.append(i)
+        match_scores.append(1.0)
+    else:
+        # Use fuzzy matching for partial/typo matches
+        name_score = difflib.SequenceMatcher(None, user_input_lower, task_name_lower).ratio()
+        id_score = difflib.SequenceMatcher(None, user_input_lower, task_id_lower).ratio()
+        score = max(name_score, id_score)
+        # Lower threshold to 0.2 to catch more matches
+        if score >= 0.2:
+            matches.append(task_name)
+            match_indices.append(i)
+            match_scores.append(score)
+
+if matches:
+    sorted_data = sorted(zip(match_scores, matches, match_indices), reverse=True)
+    match_scores, matches, match_indices = zip(*sorted_data)
+    for score, name, idx in zip(match_scores, matches, match_indices):
+        # Ensure we output valid data (no newlines in name that would break parsing)
+        name_clean = name.replace('\n', ' ').replace('\r', ' ')
+        print(f"{score}|{name_clean}|{idx}")
+PYTHON_SCRIPT
+)
+            fuzzy_output=$({
+              printf "%s\n" "$task_input"
+              for i in "${!task_names[@]}"; do
+                printf "%s\n" "${task_names[$i]}"
+                printf "%s\n" "${task_ids[$i]}"
+              done
+            } | "$python_cmd" -c "$python_script")
+          
+          if [[ -n "$fuzzy_output" ]]; then
+            while IFS='|' read -r score name idx; do
+              if [[ -n "$score" && -n "$name" && -n "$idx" ]]; then
+                matches+=("$name")
+                match_indices+=($idx)
+              fi
+            done <<< "$fuzzy_output"
+          fi
+          else
+            # Fallback to partial matching if Python not available
+            for i in "${!task_names[@]}"; do
+            local display_name="${task_names[$i]}"
+            local task_id="${task_ids[$i]}"
+            local display_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+            local task_id_lower=$(echo "$task_id" | tr '[:upper:]' '[:lower:]')
+            local input_lower=$(echo "$task_input" | tr '[:upper:]' '[:lower:]')
+            
+            if [[ "$display_lower" == *"$input_lower"* ]] || [[ "$task_id_lower" == *"$input_lower"* ]]; then
+              matches+=("$display_name")
+              match_indices+=($i)
+            fi
+          done
+          fi  # Close the if at line 1758 (python_cmd check)
+        else
+          # Fallback to partial matching if fuzzy search disabled
+          for i in "${!task_names[@]}"; do
+            local display_name="${task_names[$i]}"
+            local task_id="${task_ids[$i]}"
+            local display_lower=$(echo "$display_name" | tr '[:upper:]' '[:lower:]')
+            local task_id_lower=$(echo "$task_id" | tr '[:upper:]' '[:lower:]')
+            local input_lower=$(echo "$task_input" | tr '[:upper:]' '[:lower:]')
+            
+            if [[ "$display_lower" == *"$input_lower"* ]] || [[ "$task_id_lower" == *"$input_lower"* ]]; then
+              matches+=("$display_name")
+              match_indices+=($i)
+            fi
+          done
+        fi  # Close the if at line 1743 (use_fuzzy check)
+        
+        local match_count=${#matches[@]}
+        if [[ $match_count -eq 0 ]]; then
+          gtd_feedback error "No tasks found matching '$task_input'"
+          gtd_enter_to_continue
+        elif [[ $match_count -eq 1 ]]; then
+          local selected_index="${match_indices[0]}"
+          local selected_file="${task_files_list[$selected_index]}"
+          interact_with_task "$selected_file"
+        else
+          echo ""
+          echo "Multiple matches found:"
+          echo ""
+          for i in "${!matches[@]}"; do
+            local num=$((i + 1))
+            echo "  ${num}) ${matches[$i]}"
+          done
+          echo ""
+          echo -n "Select task (number): "
+          read task_num
+          
+          if [[ "$task_num" =~ ^[0-9]+$ ]] && [[ "$task_num" -ge 1 ]] && [[ "$task_num" -le $match_count ]]; then
+            local selected_match_index=$((task_num - 1))
+            local selected_index="${match_indices[$selected_match_index]}"
+            local selected_file="${task_files_list[$selected_index]}"
+            interact_with_task "$selected_file"
+          else
+            gtd_feedback error "Invalid selection"
+            gtd_enter_to_continue
+          fi
+        fi
+      fi  # Close the else at line 1737 (not a number)
+      ;;
+    2)
+      gtd_enter_to_continue
+      ;;
+    *)
+      gtd_enter_to_continue
+      ;;
+  esac
+}
+
+# Review tasks by project priority (if projects have priorities)
+review_tasks_by_project_priority() {
+  clear
+  gtd_print_header "Tasks by Project Priority" "📊"
+  echo ""
+  
+  # This would require projects to have priority fields
+  # For now, show a message and fall back to project grouping
+  echo "Note: Project priorities are not yet implemented."
+  echo "Showing tasks grouped by project instead..."
+  echo ""
+  gtd_enter_to_continue
+  review_tasks_by_project
+}
+
+# Combined view: priority within projects
+review_tasks_combined_view() {
+  clear
+  gtd_print_header "Tasks: Priority within Projects" "📊"
+  echo ""
+  
+  # Collect all tasks (bash 3.2 compatible)
+  local all_task_data=()
+  
+  # Collect tasks from tasks directory
+  if [[ -d "$TASKS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" ]] && continue
+      local status=$(gtd_get_frontmatter_value "$task_file" "status")
+      if [[ "$status" == "active" ]]; then
+        local project=$(gtd_get_frontmatter_value "$task_file" "project")
+        local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+        local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
+        
+        if [[ -z "$project" ]]; then
+          project="_no_project"
+        fi
+        
+        all_task_data+=("${project}|||${task_file}|||${task_name}|||${priority}")
+      fi
+    done < <(find "$TASKS_PATH" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  if [[ -d "$PROJECTS_PATH" ]]; then
+    while IFS= read -r task_file; do
+      [[ ! -f "$task_file" || "$task_file" == */README.md ]] && continue
+      local status=$(gtd_get_frontmatter_value "$task_file" "status")
+      if [[ "$status" == "active" ]]; then
+        local project_dir=$(dirname "$task_file")
+        local project=$(basename "$project_dir")
+        local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+        local priority=$(gtd_get_frontmatter_value "$task_file" "priority")
+        
+        all_task_data+=("${project}|||${task_file}|||${task_name}|||${priority}")
+      fi
+    done < <(find "$PROJECTS_PATH" -name "*.md" -type f 2>/dev/null)
+  fi
+  
+  if [[ ${#all_task_data[@]} -eq 0 ]]; then
+    echo "No active tasks found."
+    echo ""
+    gtd_enter_to_continue
+    return 0
+  fi
+  
+  # Get unique projects
+  local unique_projects=()
+  for task_data in "${all_task_data[@]}"; do
+    local project="${task_data%%|||*}"
+    local found=0
+    for existing_project in "${unique_projects[@]}"; do
+      if [[ "$existing_project" == "$project" ]]; then
+        found=1
+        break
+      fi
+    done
+    if [[ $found -eq 0 ]]; then
+      unique_projects+=("$project")
+    fi
+  done
+  
+  local sorted_projects=($(printf '%s\n' "${unique_projects[@]}" | sort))
+  
+  echo "Total active tasks: ${#all_task_data[@]}"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  for project in "${sorted_projects[@]}"; do
+    local project_display="$project"
+    if [[ "$project" != "_no_project" ]]; then
+      local project_dir="${PROJECTS_PATH}/${project}"
+      if [[ -d "$project_dir" ]] && [[ -f "${project_dir}/README.md" ]]; then
+        project_display=$(gtd_get_frontmatter_value "${project_dir}/README.md" "name")
+        [[ -z "$project_display" ]] && project_display="$project"
+      fi
+    else
+      project_display="(No Project)"
+    fi
+    
+    # Group tasks by priority within this project
+    local urgent_important=()
+    local not_urgent_important=()
+    local urgent_not_important=()
+    local not_urgent_not_important=()
+    local no_priority=()
+    
+    for task_data in "${all_task_data[@]}"; do
+      local task_project="${task_data%%|||*}"
+      if [[ "$task_project" == "$project" ]]; then
+        local rest="${task_data#*|||}"
+        rest="${rest#*|||}"
+        local task_name="${rest%%|||*}"
+        local priority="${rest#*|||}"
+        
+        case "$priority" in
+          urgent_important)
+            urgent_important+=("$task_name")
+            ;;
+          not_urgent_important)
+            not_urgent_important+=("$task_name")
+            ;;
+          urgent_not_important)
+            urgent_not_important+=("$task_name")
+            ;;
+          not_urgent_not_important)
+            not_urgent_not_important+=("$task_name")
+            ;;
+          *)
+            no_priority+=("$task_name")
+            ;;
+        esac
+      fi
+    done
+    
+    local count=$((${#urgent_important[@]} + ${#not_urgent_important[@]} + ${#urgent_not_important[@]} + ${#not_urgent_not_important[@]} + ${#no_priority[@]}))
+    
+    echo ""
+    echo -e "${BOLD}📁 $project_display (${count} task(s))${NC}"
+    
+    if [[ ${#urgent_important[@]} -gt 0 ]]; then
+      echo ""
+      echo -e "  ${RED}🔴 Urgent & Important:${NC}"
+      for task_name in "${urgent_important[@]}"; do
+        echo "    • $task_name"
+      done
+    fi
+    
+    if [[ ${#not_urgent_important[@]} -gt 0 ]]; then
+      echo ""
+      echo -e "  ${YELLOW}🟡 Not Urgent & Important:${NC}"
+      for task_name in "${not_urgent_important[@]}"; do
+        echo "    • $task_name"
+      done
+    fi
+    
+    if [[ ${#urgent_not_important[@]} -gt 0 ]]; then
+      echo ""
+      echo -e "  ${CYAN}🔵 Urgent & Not Important:${NC}"
+      for task_name in "${urgent_not_important[@]}"; do
+        echo "    • $task_name"
+      done
+    fi
+    
+    if [[ ${#not_urgent_not_important[@]} -gt 0 ]]; then
+      echo ""
+      echo -e "  ${GRAY}⚪ Not Urgent & Not Important:${NC}"
+      for task_name in "${not_urgent_not_important[@]}"; do
+        echo "    • $task_name"
+      done
+    fi
+    
+    if [[ ${#no_priority[@]} -gt 0 ]]; then
+      echo ""
+      echo -e "  ${GRAY}⚫ No Priority:${NC}"
+      for task_name in "${no_priority[@]}"; do
+        echo "    • $task_name"
+      done
+    fi
+  done
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Offer interactive task selection
+  echo ""
+  echo "What would you like to do?"
+  echo "  1) Select a task to view/edit/complete"
+  echo "  2) Just review (no action)"
+  echo ""
+  echo -n "Choose: "
+  read action_choice
+  
+  case "$action_choice" in
+    1)
+      # Build task selection list from all projects
+      local task_list=()
+      local task_files_list=()
+      local count=1
+      
+      for project in "${sorted_projects[@]}"; do
+        for task_data in "${all_task_data[@]}"; do
+          local task_project="${task_data%%|||*}"
+          if [[ "$task_project" == "$project" ]]; then
+            local rest="${task_data#*|||}"
+            local task_file="${rest%%|||*}"
+            rest="${rest#*|||}"
+            local task_name="${rest%%|||*}"
+            local priority="${rest#*|||}"
+            
+            local project_display="$project"
+            if [[ "$project" != "_no_project" ]]; then
+              local project_dir="${PROJECTS_PATH}/${project}"
+              if [[ -d "$project_dir" ]] && [[ -f "${project_dir}/README.md" ]]; then
+                project_display=$(gtd_get_frontmatter_value "${project_dir}/README.md" "name")
+                [[ -z "$project_display" ]] && project_display="$project"
+              fi
+            else
+              project_display="(No Project)"
+            fi
+            
+            local display_name="$task_name"
+            [[ -n "$priority" ]] && display_name="$display_name [$priority]"
+            display_name="$display_name (Project: $project_display)"
+            
+            task_list+=("$count|$display_name")
+            task_files_list+=("$task_file")
+            ((count++))
+          fi
+        done
+      done
+      
+      echo ""
+      echo "Select a task:"
+      for task_item in "${task_list[@]}"; do
+        IFS='|' read -r num name <<< "$task_item"
+        echo "  $num) $name"
+      done
+      echo ""
+      echo -n "Task number: "
+      read task_num
+      
+      if [[ "$task_num" =~ ^[0-9]+$ ]] && [[ "$task_num" -ge 1 ]] && [[ "$task_num" -le ${#task_files_list[@]} ]]; then
+        local selected_file="${task_files_list[$((task_num - 1))]}"
+        interact_with_task "$selected_file"
+      else
+        gtd_feedback error "Invalid task number"
+        gtd_enter_to_continue
+      fi
+      ;;
+    2)
+      gtd_enter_to_continue
+      ;;
+    *)
+      gtd_enter_to_continue
+      ;;
+  esac
+}
+
+# Filter tasks by specific priority
+filter_tasks_by_priority() {
+  clear
+  gtd_print_header "Filter Tasks by Priority" "📊"
+  echo ""
+  echo "Select priority level:"
+  echo ""
+  echo "  1) Urgent & Important"
+  echo "  2) Not Urgent & Important"
+  echo "  3) Urgent & Not Important"
+  echo "  4) Not Urgent & Not Important"
+  echo ""
+  echo -n "Choose: "
+  read priority_choice
+  
+  local priority_filter=""
+  case "$priority_choice" in
+    1) priority_filter="urgent_important" ;;
+    2) priority_filter="not_urgent_important" ;;
+    3) priority_filter="urgent_not_important" ;;
+    4) priority_filter="not_urgent_not_important" ;;
+    *)
+      gtd_feedback error "Invalid choice"
+      gtd_enter_to_continue
+      return 0
+      ;;
+  esac
+  
+  echo ""
+  gtd-task list --priority="$priority_filter" --status=active
+  echo ""
+  gtd_enter_to_continue
+}
+
+# Filter tasks by specific project
+filter_tasks_by_project() {
+  clear
+  gtd_print_header "Filter Tasks by Project" "📊"
+  echo ""
+  
+  if [[ ! -d "$PROJECTS_PATH" ]] || [[ -z "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+    echo "No projects found."
+    echo ""
+    gtd_enter_to_continue
+    return 0
+  fi
+  
+  echo "Select project:"
+  echo ""
+  local selected_project=$(select_from_list "project" "$PROJECTS_PATH" "project")
+  
+  if [[ -z "$selected_project" ]]; then
+    gtd_feedback error "No project selected"
+    gtd_enter_to_continue
+    return 0
+  fi
+  
+  local project_slug=$(echo "$selected_project" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+  
+  echo ""
+  gtd-task list --project="$project_slug" --status=active
+  echo ""
+  gtd_enter_to_continue
+}
+
+# Interactive task actions (view, edit, update, complete)
+interact_with_task() {
+  local task_file="$1"
+  
+  if [[ ! -f "$task_file" ]]; then
+    gtd_feedback error "Task file not found"
+    gtd_enter_to_continue
+    return 1
+  fi
+  
+  local task_id=$(basename "$task_file" .md)
+  local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || echo "$task_id")
+  
+  while true; do
+    clear
+    gtd_print_header "Task: $task_name" "✅"
+    echo ""
+    
+    # Show task details
+    gtd-task view "$task_id" 2>/dev/null || {
+      echo "Task ID: $task_id"
+      echo "File: $task_file"
+      echo ""
+      echo "Content:"
+      head -30 "$task_file" 2>/dev/null | tail -20
+    }
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "What would you like to do with this task?"
+    echo ""
+    echo "  1) View full task details"
+    echo "  2) Update task (edit description, priority, context, etc.)"
+    echo "  3) Complete task"
+    echo "  4) Add note to task"
+    echo ""
+    echo -e "${YELLOW}0)${NC} Back to review"
+    echo ""
+    echo -n "Choose: "
+    read task_action
+    
+    case "$task_action" in
+      0)
+        return 0
+        ;;
+      1)
+        clear
+        gtd_print_header "Task Details: $task_name" "✅"
+        echo ""
+        gtd-task view "$task_id"
+        echo ""
+        gtd_enter_to_continue
+        ;;
+      2)
+        clear
+        gtd_print_header "Update Task: $task_name" "✏️"
+        echo ""
+        echo "Current task details shown above."
+        echo ""
+        echo "You can update:"
+        echo "  • Task description"
+        echo "  • Priority"
+        echo "  • Context"
+        echo "  • Energy level"
+        echo "  • Project assignment"
+        echo ""
+        echo -n "Press Enter to open task editor, or 'q' to cancel: "
+        read edit_choice
+        if [[ "$edit_choice" != "q" && "$edit_choice" != "Q" ]]; then
+          if command -v gtd-task &>/dev/null; then
+            gtd-task update "$task_id"
+          else
+            # Fallback: open in editor
+            if [[ -n "$EDITOR" ]]; then
+              $EDITOR "$task_file"
+            else
+              gtd_feedback error "No editor configured. Set EDITOR environment variable."
+            fi
+          fi
+        fi
+        ;;
+      3)
+        clear
+        gtd_print_header "Complete Task: $task_name" "✅"
+        echo ""
+        echo -n "Are you sure you want to complete this task? (y/n): "
+        read confirm
+        if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+          if command -v gtd-task &>/dev/null; then
+            gtd-task complete "$task_id"
+            echo ""
+            gtd_action_success "completed" "task" "$task_name"
+            gtd_enter_to_continue
+            return 0
+          else
+            # Fallback: update status manually
+            if grep -q "^status:" "$task_file" 2>/dev/null; then
+              if [[ "$OSTYPE" == "darwin"* ]]; then
+                sed -i '' "s/^status:.*/status: completed/" "$task_file"
+              else
+                sed -i "s/^status:.*/status: completed/" "$task_file"
+              fi
+              echo ""
+              gtd_action_success "completed" "task" "$task_name"
+              gtd_enter_to_continue
+              return 0
+            fi
+          fi
+        fi
+        ;;
+      4)
+        clear
+        gtd_print_header "Add Note to Task: $task_name" "📝"
+        echo ""
+        if command -v gtd-task &>/dev/null; then
+          echo -n "Note title (or press Enter to be prompted): "
+          read note_title
+          if [[ -n "$note_title" ]]; then
+            gtd-task add-note "$task_id" "$note_title"
+          else
+            gtd-task add-note "$task_id"
+          fi
+        else
+          echo "Note: gtd-task command not available. Please use the task wizard to add notes."
+        fi
+        echo ""
+        gtd_enter_to_continue
+        ;;
+      *)
+        gtd_feedback error "Invalid choice"
+        gtd_enter_to_continue
+        ;;
+    esac
   done
 }
 
@@ -1173,6 +2850,7 @@ project_wizard() {
     echo "  12) 🌳 Show Goal → Project → Task Hierarchy"
     echo "  13) 💬 Restructure with natural language"
     echo "  14) 🤖 AI Planning Assistant"
+    echo "  15) ⭐ Favorite/Unfavorite Project"
     echo ""
     echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -1680,33 +3358,71 @@ project_wizard() {
           # List available goals
           echo ""
           echo "Available goals:"
+          local goal_files=()
+          local goal_names=()
+          local goal_count=0
           if [[ -d "$GOALS_DIR" ]]; then
-            local goal_count=0
             for goal_file in "$GOALS_DIR"/*.md; do
               [[ ! -f "$goal_file" ]] && continue
               local goal_name=$(grep "^name:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
               local goal_status=$(grep "^status:" "$goal_file" 2>/dev/null | cut -d':' -f2 | sed 's/^[[:space:]]*//')
               if [[ "$goal_status" == "active" ]]; then
                 ((goal_count++))
+                goal_files+=("$goal_file")
+                goal_names+=("$goal_name")
                 echo "  $goal_count) $goal_name"
               fi
             done
           fi
           
           echo ""
-          echo -n "Goal name to link (or press Enter to skip): "
-          read goal_name
+          echo -n "Goal number or name to link (or press Enter to skip): "
+          read goal_input
           
-          if [[ -n "$goal_name" ]]; then
-            ENHANCED_SCRIPT="$HOME/code/dotfiles/bin/gtd-project-enhanced.sh"
-            if [[ ! -f "$ENHANCED_SCRIPT" ]]; then
-              ENHANCED_SCRIPT="$HOME/code/personal/dotfiles/bin/gtd-project-enhanced.sh"
-            fi
-            if [[ -f "$ENHANCED_SCRIPT" ]]; then
-              source "$ENHANCED_SCRIPT"
-              link_project_to_goal "$project_slug" "$goal_name"
+          if [[ -n "$goal_input" ]]; then
+            local goal_name=""
+            # Check if input is a number
+            if [[ "$goal_input" =~ ^[0-9]+$ ]] && [[ "$goal_input" -ge 1 ]] && [[ "$goal_input" -le ${#goal_names[@]} ]]; then
+              # User entered a number, get the goal name
+              goal_name="${goal_names[$((goal_input - 1))]}"
             else
-              echo "Enhanced project features not available"
+              # User entered a name (or partial name), try to find it
+              goal_name="$goal_input"
+              # Try exact match first
+              local found=false
+              for i in "${!goal_names[@]}"; do
+                if [[ "${goal_names[$i]}" == "$goal_input" ]]; then
+                  goal_name="${goal_names[$i]}"
+                  found=true
+                  break
+                fi
+              done
+              # If not found, try partial match
+              if [[ "$found" != "true" ]]; then
+                for i in "${!goal_names[@]}"; do
+                  if [[ "${goal_names[$i]}" == *"$goal_input"* ]]; then
+                    goal_name="${goal_names[$i]}"
+                    found=true
+                    break
+                  fi
+                done
+              fi
+            fi
+            
+            if [[ -n "$goal_name" ]]; then
+              ENHANCED_SCRIPT="$HOME/code/dotfiles/bin/gtd-project-enhanced.sh"
+              if [[ ! -f "$ENHANCED_SCRIPT" ]]; then
+                ENHANCED_SCRIPT="$HOME/code/personal/dotfiles/bin/gtd-project-enhanced.sh"
+              fi
+              if [[ -f "$ENHANCED_SCRIPT" ]]; then
+                source "$ENHANCED_SCRIPT"
+                link_project_to_goal "$project_slug" "$goal_name"
+              else
+                echo "Enhanced project features not available"
+              fi
+            else
+              echo "Goal not found: $goal_input"
+              gtd_quick_pause
             fi
           fi
         fi
@@ -1723,8 +3439,11 @@ project_wizard() {
       if [[ -f "$ENHANCED_SCRIPT" ]]; then
         source "$ENHANCED_SCRIPT"
         show_goal_hierarchy
+        echo ""
+        gtd_enter_to_continue
       else
         echo "Enhanced project features not available"
+        gtd_quick_pause
       fi
       ;;
     13)
@@ -1795,6 +3514,109 @@ project_wizard() {
       fi
       echo ""
       gtd_quick_pause
+      ;;
+    15)
+      echo ""
+      echo -e "${BOLD}⭐ Favorite/Unfavorite Project${NC}"
+      echo ""
+      if [[ -d "$PROJECTS_PATH" ]] && [[ -n "$(find "$PROJECTS_PATH" -type d -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+        project_name=$(select_from_list "project" "$PROJECTS_PATH" "project")
+        if [[ -n "$project_name" ]]; then
+          # Convert to slug format
+          project_slug=$(echo "$project_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+          project_dir="${PROJECTS_PATH}/${project_slug}"
+          project_readme="${project_dir}/README.md"
+          
+          if [[ -f "$project_readme" ]]; then
+            # Check current favorite status
+            local current_favorite=$(gtd_get_frontmatter_value "$project_readme" "favorite" 2>/dev/null || echo "")
+            
+            if [[ "$current_favorite" == "true" ]]; then
+              # Unfavorite
+              if grep -q "^favorite:" "$project_readme" 2>/dev/null; then
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                  sed -i '' "s/^favorite:.*/favorite: false/" "$project_readme"
+                else
+                  sed -i "s/^favorite:.*/favorite: false/" "$project_readme"
+                fi
+                echo ""
+                echo -e "${GREEN}✓${NC} Project '$project_name' unfavorited"
+                echo "   You won't receive reminders about this project anymore."
+              fi
+            else
+              # Favorite
+              if grep -q "^favorite:" "$project_readme" 2>/dev/null; then
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                  sed -i '' "s/^favorite:.*/favorite: true/" "$project_readme"
+                else
+                  sed -i "s/^favorite:.*/favorite: true/" "$project_readme"
+                fi
+              else
+                # Add favorite field to frontmatter
+                # Check if file has frontmatter (starts with ---)
+                local has_frontmatter=false
+                if head -1 "$project_readme" 2>/dev/null | grep -q "^---"; then
+                  has_frontmatter=true
+                fi
+                
+                if [[ "$has_frontmatter" == "true" ]]; then
+                  # File has frontmatter - add favorite field
+                  if grep -q "^status:" "$project_readme" 2>/dev/null; then
+                    # Add after status field
+                    if [[ "$OSTYPE" == "darwin"* ]]; then
+                      sed -i '' "/^status:/a\\
+favorite: true
+" "$project_readme"
+                    else
+                      sed -i "/^status:/a\\favorite: true" "$project_readme"
+                    fi
+                  elif grep -q "^goal:" "$project_readme" 2>/dev/null; then
+                    # Add after goal field (common in projects)
+                    if [[ "$OSTYPE" == "darwin"* ]]; then
+                      sed -i '' "/^goal:/a\\
+favorite: true
+" "$project_readme"
+                    else
+                      sed -i "/^goal:/a\\favorite: true" "$project_readme"
+                    fi
+                  else
+                    # Add after first line of frontmatter (after ---)
+                    if [[ "$OSTYPE" == "darwin"* ]]; then
+                      sed -i '' "1a\\
+favorite: true
+" "$project_readme"
+                    else
+                      sed -i "1a\\favorite: true" "$project_readme"
+                    fi
+                  fi
+                else
+                  # File doesn't have frontmatter - add it at the beginning
+                  local temp_file=$(mktemp)
+                  echo "---" > "$temp_file"
+                  echo "favorite: true" >> "$temp_file"
+                  echo "---" >> "$temp_file"
+                  echo "" >> "$temp_file"
+                  cat "$project_readme" >> "$temp_file"
+                  mv "$temp_file" "$project_readme"
+                fi
+              fi
+              echo ""
+              echo -e "${GREEN}✓${NC} Project '$project_name' favorited"
+              echo "   You'll receive reminders about this project in smart suggestions!"
+            fi
+            echo ""
+            gtd_quick_pause
+          else
+            echo "❌ Project README not found: $project_readme"
+            echo ""
+            gtd_quick_pause
+          fi
+        fi
+      else
+        echo "No projects found."
+        echo ""
+        gtd_quick_pause
+      fi
       ;;
     0|"")
       pop_menu
@@ -3332,8 +5154,9 @@ review_project_tasks() {
     gtd_format_list_item "5" "Schedule to calendar"
     gtd_format_list_item "6" "Skip (next task)"
     gtd_format_list_item "7" "Back to project menu"
+    gtd_format_list_item "8" "⭐ Favorite/Unfavorite task"
     echo ""
-    echo -n "Choose (1-7): "
+    echo -n "Choose (1-8): "
     read action
     
     case "$action" in
@@ -3408,6 +5231,88 @@ review_project_tasks() {
       7)
         return 0
         ;;
+      8)
+        # Favorite/Unfavorite task
+        if [[ -f "$task_file" ]]; then
+          local current_favorite=$(gtd_get_frontmatter_value "$task_file" "favorite" 2>/dev/null || echo "")
+          local task_name_display=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+          
+          if [[ "$current_favorite" == "true" ]]; then
+            # Unfavorite
+            echo ""
+            echo -n "Are you sure you want to unfavorite this task? (y/n): "
+            read confirm
+            if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+              if grep -q "^favorite:" "$task_file" 2>/dev/null; then
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                  sed -i '' "s/^favorite:.*/favorite: false/" "$task_file"
+                else
+                  sed -i "s/^favorite:.*/favorite: false/" "$task_file"
+                fi
+                echo ""
+                gtd_action_success "unfavorited" "task" "$task_name_display"
+              else
+                gtd_feedback error "Task is not marked as favorite in frontmatter."
+              fi
+            fi
+          else
+            # Favorite
+            if grep -q "^favorite:" "$task_file" 2>/dev/null; then
+              if [[ "$OSTYPE" == "darwin"* ]]; then
+                sed -i '' "s/^favorite:.*/favorite: true/" "$task_file"
+              else
+                sed -i "s/^favorite:.*/favorite: true/" "$task_file"
+              fi
+            else
+              # Add favorite field to frontmatter
+              # Check if file has frontmatter (starts with ---)
+              local has_frontmatter=false
+              if head -1 "$task_file" 2>/dev/null | grep -q "^---"; then
+                has_frontmatter=true
+              fi
+              
+              if [[ "$has_frontmatter" == "true" ]]; then
+                # File has frontmatter - add favorite field
+                if grep -q "^status:" "$task_file" 2>/dev/null; then
+                  # Add after status field
+                  if [[ "$OSTYPE" == "darwin"* ]]; then
+                    sed -i '' "/^status:/a\\
+favorite: true
+" "$task_file"
+                  else
+                    sed -i "/^status:/a\\favorite: true" "$task_file"
+                  fi
+                else
+                  # Add after first line of frontmatter (after ---)
+                  if [[ "$OSTYPE" == "darwin"* ]]; then
+                    sed -i '' "1a\\
+favorite: true
+" "$task_file"
+                  else
+                    sed -i "1a\\favorite: true" "$task_file"
+                  fi
+                fi
+              else
+                # File doesn't have frontmatter - add it at the beginning
+                local temp_file=$(mktemp)
+                echo "---" > "$temp_file"
+                echo "favorite: true" >> "$temp_file"
+                echo "---" >> "$temp_file"
+                echo "" >> "$temp_file"
+                cat "$task_file" >> "$temp_file"
+                mv "$temp_file" "$task_file"
+              fi
+            fi
+            echo ""
+            gtd_action_success "favorited" "task" "$task_name_display"
+            echo "   You'll see quick access to this task in the main menu!"
+          fi
+          gtd_quick_pause
+        else
+          gtd_feedback error "Task file not found"
+          gtd_quick_pause
+        fi
+        ;;
       *)
         gtd_feedback error "Invalid choice"
         gtd_quick_pause
@@ -3451,9 +5356,109 @@ add_note_to_task_from_review() {
     return 1
   fi
   
-  if gtd-task add-note "$task_id" "$note_title" >/dev/null 2>&1; then
-    gtd_action_success "added" "note" "'$note_title' to task"
+  # Call gtd-task add-note and capture output to find the note file path
+  # Use tee to display output in real-time while also capturing it
+  local temp_output=$(mktemp)
+  local note_file=""
+  local note_created=false
+  
+  # Run the command and display output while capturing it
+  # This ensures user sees all output including any prompts
+  gtd-task add-note "$task_id" "$note_title" 2>&1 | tee "$temp_output"
+  local note_output=$(cat "$temp_output")
+  rm -f "$temp_output"
+  
+  # Check if note was created successfully
+  if echo "$note_output" | grep -q "Created note for task:" || echo "$note_output" | grep -q "✓ Created note"; then
+    note_created=true
+    # Extract note file path from output (format: "File: /path/to/note.md")
+    if echo "$note_output" | grep -q "File:"; then
+      note_file=$(echo "$note_output" | grep "File:" | sed 's/.*File: //' | sed 's/[[:space:]]*$//')
+    fi
+    # Also try alternative format: "File: /path/to/note.md" or just the path
+    if [[ -z "$note_file" ]]; then
+      # Try to find the note file by looking for the task's notes directory
+      local task_file=$(find_task_file "$task_id" 2>/dev/null || echo "")
+      if [[ -n "$task_file" && -f "$task_file" ]]; then
+        local task_base=$(basename "$task_file" .md)
+        local task_dir=$(dirname "$task_file")
+        local notes_dir="${task_dir}/${task_base}/notes"
+        # Find the most recently created note file
+        if [[ -d "$notes_dir" ]]; then
+          note_file=$(find "$notes_dir" -name "*${note_title}*" -type f 2>/dev/null | sort | tail -1)
+          # If not found by title, get the most recent note
+          if [[ -z "$note_file" ]]; then
+            note_file=$(find "$notes_dir" -name "*.md" -type f 2>/dev/null | sort | tail -1)
+          fi
+        fi
+      fi
+    fi
+  fi
+  
+  if [[ "$note_created" == "true" && -n "$note_file" && -f "$note_file" ]]; then
+    echo ""
+    echo "Note created successfully!"
+    echo ""
+    echo "Would you like to add content to the note now?"
+    echo ""
+    echo "  1) Open in editor (recommended - full editing)"
+    echo "  2) Add quick content (single prompt)"
+    echo "  3) Skip (add content later)"
+    echo ""
+    echo -n "Choose (1-3): "
+    read content_choice
+    
+    case "$content_choice" in
+      1)
+        if command -v ${EDITOR:-vim} &>/dev/null; then
+          ${EDITOR:-vim} "$note_file"
+        else
+          gtd_feedback error "No editor found. Set EDITOR environment variable."
+          echo ""
+          echo "Note file location: $note_file"
+        fi
+        ;;
+      2)
+        echo ""
+        echo "Enter note content (single line or short text):"
+        echo -n "Content: "
+        read note_content
+        
+        if [[ -n "$note_content" ]]; then
+          # Insert content into note file (after "## Content" line)
+          local temp_file=$(mktemp)
+          local content_section_found=false
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            echo "$line" >> "$temp_file"
+            if [[ "$line" == "## Content" ]]; then
+              content_section_found=true
+              echo "" >> "$temp_file"
+              echo "$note_content" >> "$temp_file"
+            fi
+          done < "$note_file"
+          
+          if [[ "$content_section_found" == "true" ]]; then
+            mv "$temp_file" "$note_file"
+            echo ""
+            gtd_action_success "added" "content" "to note"
+          else
+            rm -f "$temp_file"
+            gtd_feedback error "Could not find Content section in note file"
+          fi
+        else
+          echo ""
+          echo "No content added. You can edit the note later."
+        fi
+        ;;
+      3|*)
+        echo ""
+        echo "Note created. You can edit it later."
+        echo "  File: $note_file"
+        ;;
+    esac
   else
+    # Show the error output
+    echo "$note_output"
     gtd_feedback error "Failed to add note"
     gtd_quick_pause
     return 1

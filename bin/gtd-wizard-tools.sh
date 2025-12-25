@@ -98,8 +98,11 @@ handle_followup_questions() {
         if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1 && ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1; then
           echo "Starting advice worker..."
           if command -v gtd-advice-worker &>/dev/null; then
-            nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
-            echo "✓ Worker started (PID: $!)"
+            (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+            disown -a 2>/dev/null || true
+            sleep 1
+            local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
+            echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
             echo ""
           fi
         fi
@@ -851,8 +854,11 @@ advice_wizard() {
             # Start worker if not running
             if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
               echo "Starting advice worker..."
-              nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
-              echo "✓ Worker started (PID: $!)"
+              (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+              disown -a 2>/dev/null || true
+              sleep 1
+              local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
+              echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
               echo "   Logs: tail -f /tmp/advice-worker.log"
               echo ""
             fi
@@ -924,8 +930,11 @@ advice_wizard() {
             # Start worker if not running
             if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
               echo "Starting advice worker..."
-              nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
-              echo "✓ Worker started (PID: $!)"
+              (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+              disown -a 2>/dev/null || true
+              sleep 1
+              local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
+              echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
               echo "   Logs: tail -f /tmp/advice-worker.log"
               echo ""
             fi
@@ -1113,20 +1122,48 @@ advice_wizard() {
         echo -e "${YELLOW}⚠️  $queue_count advice request(s) pending in queue${NC}"
         echo ""
         
-        # Check if worker is running
-        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
-          echo -e "${YELLOW}⚠️  Advice worker is not running${NC}"
-          echo ""
-          echo -n "Start the worker now? (y/n): "
-          read start_worker
-          if [[ "$start_worker" == "y" || "$start_worker" == "Y" ]]; then
-            nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
-            echo "✓ Worker started (PID: $!)"
-            echo "   Logs: tail -f /tmp/advice-worker.log"
+        # Check if Python RabbitMQ worker is running (correct one)
+        if ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1; then
+          # Check if old bash worker is running (wrong one)
+          if pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+            echo -e "${YELLOW}⚠️  Old bash worker detected (doesn't connect to RabbitMQ)${NC}"
             echo ""
+            echo -n "Stop old worker and start Python RabbitMQ worker? (y/n): "
+            read start_worker
+            if [[ "$start_worker" == "y" || "$start_worker" == "Y" ]]; then
+              pkill -f "gtd-advice-worker.*daemon" 2>/dev/null || true
+              sleep 1
+              make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
+              sleep 2
+              local worker_pid=$(pgrep -f "gtd_advice_worker.py" | head -1 || echo "")
+              if [[ -n "$worker_pid" ]]; then
+                echo -e "${GREEN}✓ Python RabbitMQ worker started (PID: $worker_pid)${NC}"
+              else
+                echo -e "${YELLOW}⚠️  Worker may not have started. Check logs: tail -f /tmp/advice-worker.log${NC}"
+              fi
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+              echo ""
+            fi
+          else
+            echo -e "${YELLOW}⚠️  Advice worker is not running${NC}"
+            echo ""
+            echo -n "Start the Python RabbitMQ worker now? (y/n): "
+            read start_worker
+            if [[ "$start_worker" == "y" || "$start_worker" == "Y" ]]; then
+              make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
+              sleep 2
+              local worker_pid=$(pgrep -f "gtd_advice_worker.py" | head -1 || echo "")
+              if [[ -n "$worker_pid" ]]; then
+                echo -e "${GREEN}✓ Python RabbitMQ worker started (PID: $worker_pid)${NC}"
+              else
+                echo -e "${YELLOW}⚠️  Worker may not have started. Check logs: tail -f /tmp/advice-worker.log${NC}"
+              fi
+              echo "   Logs: tail -f /tmp/advice-worker.log"
+              echo ""
+            fi
           fi
         else
-          echo -e "${GREEN}✓ Advice worker is running${NC}"
+          echo -e "${GREEN}✓ Python RabbitMQ worker is running${NC}"
           echo ""
         fi
       fi
@@ -1468,8 +1505,11 @@ PYTHON_EOF
             if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1 && ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1; then
               echo "Starting advice worker..."
               if command -v gtd-advice-worker &>/dev/null; then
-                nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
-                echo "✓ Worker started (PID: $!)"
+                (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+                disown -a 2>/dev/null || true
+                sleep 1
+                local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
+                echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
                 echo ""
               fi
             fi
@@ -6262,6 +6302,7 @@ ai_suggestions_wizard() {
   echo "  17) 📚 Review Knowledge Organization Results"
   echo "  18) 📊 View Unified Learning Stats (All Suggestions)"
   echo "  19) 🤖 Auto-Suggest Controls (Autonomous Implementation)"
+  echo "  20) 🎛️  Manage Suggestion Thresholds (Show More/Less)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -6290,46 +6331,110 @@ ai_suggestions_wizard() {
       echo ""
       echo "Analyzing text for task suggestions..."
       
-      AUTO_SUGGEST_SCRIPT="$HOME/code/dotfiles/mcp/gtd_auto_suggest.py"
-      if [[ ! -f "$AUTO_SUGGEST_SCRIPT" ]]; then
-        AUTO_SUGGEST_SCRIPT="$HOME/code/personal/dotfiles/mcp/gtd_auto_suggest.py"
+      # Use MCP server's suggest_tasks_from_text tool
+      MCP_SERVER="$HOME/code/dotfiles/mcp/gtd_mcp_server.py"
+      if [[ ! -f "$MCP_SERVER" ]]; then
+        MCP_SERVER="$HOME/code/personal/dotfiles/mcp/gtd_mcp_server.py"
       fi
       
-      if [[ -f "$AUTO_SUGGEST_SCRIPT" ]]; then
-        # Get Python executable (prefer virtualenv if available)
-        MCP_PYTHON=$(gtd_get_mcp_python)
-        if [[ -z "$MCP_PYTHON" ]]; then
-          MCP_PYTHON="python3"
-        fi
+      MCP_PYTHON=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+      
+      if [[ -f "$MCP_SERVER" ]]; then
+        # Call the MCP tool via Python
+        result=$("$MCP_PYTHON" -c "
+import sys
+import json
+import asyncio
+from pathlib import Path
+
+sys.path.insert(0, '$(dirname "$MCP_SERVER")')
+
+try:
+    from gtd_mcp_server import handle_call_tool
+    
+    # Call suggest_tasks_from_text
+    result = asyncio.run(handle_call_tool('suggest_tasks_from_text', {
+        'text': '''$suggestion_text''',
+        'context': 'wizard',
+        'mode': 'review'
+    }))
+    
+    # Extract text content
+    if result and len(result) > 0:
+        for content in result:
+            if hasattr(content, 'text'):
+                print(content.text)
+            else:
+                print(str(content))
+    else:
+        print(json.dumps({'error': 'No response from tool'}))
         
-        result=$("$MCP_PYTHON" "$AUTO_SUGGEST_SCRIPT" entry "$suggestion_text" 2>&1)
-        # Try to parse and display nicely
+except Exception as e:
+    print(json.dumps({'error': f'Error calling tool: {str(e)}'}))
+" 2>&1)
+        
+        # Parse the result
         if echo "$result" | "$MCP_PYTHON" -c "import sys, json; json.load(sys.stdin)" 2>/dev/null; then
-          # Valid JSON - display formatted
+          # Valid JSON response
           echo ""
           echo "$result" | "$MCP_PYTHON" -c "
-import sys, json
-data = json.load(sys.stdin)
-if data.get('suggestion_count', 0) > 0:
-    print('✅ Found', data['suggestion_count'], 'suggestion(s):')
-    print('')
-    for i, sid in enumerate(data.get('suggestions', []), 1):
-        print(f'{i}. Suggestion ID: {sid}')
-    print('')
-if data.get('banter'):
-    print('💬', data['banter'])
-    print('')
-print('Use option 2 to review pending suggestions.')
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    
+    if 'error' in data:
+        print(f\"❌ Error: {data['error']}\")
+        sys.exit(1)
+    
+    suggestions = data.get('suggestions', [])
+    auto_created = data.get('auto_created', [])
+    saved_suggestions = data.get('saved_suggestions', [])
+    
+    if auto_created:
+        print(f\"✅ Auto-created {len(auto_created)} high-confidence task(s):\")
+        print('')
+        for task in auto_created:
+            print(f\"  • {task.get('title', 'Unknown')}\")
+        print('')
+    
+    if saved_suggestions:
+        print(f\"💡 Found {len(saved_suggestions)} suggestion(s) for review:\")
+        print('')
+        for i, sug in enumerate(saved_suggestions, 1):
+            title = sug.get('title', 'Unknown')
+            reason = sug.get('reason', '')
+            confidence = sug.get('confidence', 0)
+            print(f\"  {i}. {title}\")
+            print(f\"     Confidence: {confidence:.0%}\")
+            if reason:
+                print(f\"     Reason: {reason[:60]}...\" if len(reason) > 60 else f\"     Reason: {reason}\")
+            print('')
+        
+        print('Use option 2 to review and create tasks from these suggestions.')
+    elif not auto_created:
+        print('No actionable tasks found in the text.')
+        
+except Exception as e:
+    print(f\"Error parsing response: {e}\")
+    print('Raw response:')
+    sys.stdin.seek(0)
+    print(sys.stdin.read())
 " 2>/dev/null || echo "$result"
         else
-          # Not valid JSON, just show the output
+          # Not valid JSON, show raw output
+          echo ""
           echo "$result"
         fi
       else
-        echo "❌ Auto-suggest script not found: $AUTO_SUGGEST_SCRIPT"
+        echo "❌ MCP server not found: $MCP_SERVER"
         echo ""
         echo "Make sure MCP server is set up. See mcp/README.md for details."
       fi
+      
+      echo ""
+      gtd_quick_pause
       ;;
     2)
       # High-confidence suggestions (one-keystroke)
@@ -7623,6 +7728,248 @@ for suggestion_type in ['area_assignment', 'moc_creation', 'area_creation']:
           ;;
         8)
           # Go back
+          ;;
+      esac
+      ;;
+    20)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🎛️  Manage Suggestion Thresholds${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Thresholds control how many suggestions you see. Lower = more suggestions."
+      echo ""
+      
+      local python_cmd=$(gtd_get_mcp_python 2>/dev/null || echo "python3")
+      
+      # Show current thresholds
+      echo "Current Thresholds:"
+      echo ""
+      "$python_cmd" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import load_learning_data, SUGGESTION_TYPES
+
+data = load_learning_data()
+thresholds = data.get('thresholds', {})
+
+for stype, info in SUGGESTION_TYPES.items():
+    threshold = thresholds.get(stype, info['default_threshold'])
+    default = info['default_threshold']
+    name = info['name']
+    
+    status = ''
+    if threshold < default:
+        status = '${GREEN}(↓ showing more)${NC}'
+    elif threshold > default:
+        status = '${YELLOW}(↑ showing less)${NC}'
+    else:
+        status = '${CYAN}(default)${NC}'
+    
+    print(f\"  {name:40} {threshold:.0%} {status}\")
+" 2>/dev/null || echo "  Error loading thresholds"
+      
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) Show MORE of a suggestion type (lower threshold)"
+      echo "  2) Show LESS of a suggestion type (raise threshold)"
+      echo "  3) Set custom threshold for a type"
+      echo "  4) View explanation for a suggestion type"
+      echo "  5) Reset all thresholds to defaults"
+      echo "  6) Run diagnostic (see why suggestions aren't showing)"
+      echo "  7) Go back"
+      echo ""
+      echo -n "Choose (1-7): "
+      read threshold_choice
+      
+      case "$threshold_choice" in
+        1)
+          echo ""
+          echo "Show MORE of which suggestion type?"
+          echo ""
+          echo "  1) Task from Log"
+          echo "  2) Area Assignment"
+          echo "  3) MoC Creation"
+          echo "  4) Area Creation"
+          echo "  5) Project Suggestion"
+          echo "  6) Insight"
+          echo ""
+          echo -n "Choose (1-6): "
+          read type_choice
+          
+          type_map=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+          if [[ "$type_choice" =~ ^[1-6]$ ]]; then
+            selected_type="${type_map[$((type_choice - 1))]}"
+            echo ""
+            result=$("$python_cmd" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import adjust_threshold
+adjust_threshold('$selected_type', 'more')
+" 2>&1)
+            echo "$result"
+            echo ""
+            echo -e "${GREEN}✓ Threshold lowered - you'll see more suggestions of this type${NC}"
+          else
+            echo "Invalid choice"
+          fi
+          echo ""
+          gtd_quick_pause
+          ;;
+        2)
+          echo ""
+          echo "Show LESS of which suggestion type?"
+          echo ""
+          echo "  1) Task from Log"
+          echo "  2) Area Assignment"
+          echo "  3) MoC Creation"
+          echo "  4) Area Creation"
+          echo "  5) Project Suggestion"
+          echo "  6) Insight"
+          echo ""
+          echo -n "Choose (1-6): "
+          read type_choice
+          
+          type_map=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+          if [[ "$type_choice" =~ ^[1-6]$ ]]; then
+            selected_type="${type_map[$((type_choice - 1))]}"
+            echo ""
+            result=$("$python_cmd" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import adjust_threshold
+adjust_threshold('$selected_type', 'less')
+" 2>&1)
+            echo "$result"
+            echo ""
+            echo -e "${YELLOW}✓ Threshold raised - you'll see fewer, higher-quality suggestions${NC}"
+          else
+            echo "Invalid choice"
+          fi
+          echo ""
+          gtd_quick_pause
+          ;;
+        3)
+          echo ""
+          echo "Set custom threshold for which type?"
+          echo ""
+          echo "  1) Task from Log"
+          echo "  2) Area Assignment"
+          echo "  3) MoC Creation"
+          echo "  4) Area Creation"
+          echo "  5) Project Suggestion"
+          echo "  6) Insight"
+          echo ""
+          echo -n "Choose (1-6): "
+          read type_choice
+          
+          type_map=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+          if [[ "$type_choice" =~ ^[1-6]$ ]]; then
+            selected_type="${type_map[$((type_choice - 1))]}"
+            echo ""
+            echo -n "Enter new threshold (0-100%): "
+            read threshold_percent
+            
+            if [[ "$threshold_percent" =~ ^[0-9]+$ ]] && [[ $threshold_percent -ge 0 ]] && [[ $threshold_percent -le 100 ]]; then
+              # Convert to decimal
+              threshold=$(echo "scale=2; $threshold_percent / 100" | bc 2>/dev/null || echo "scale=2; $threshold_percent / 100" | awk '{printf "%.2f", $1/100}')
+              
+              result=$("$python_cmd" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import set_threshold
+if set_threshold('$selected_type', $threshold):
+    print('✓ Threshold set to ${threshold_percent}%')
+else:
+    print('✗ Failed to set threshold')
+" 2>&1)
+              echo ""
+              echo "$result"
+            else
+              echo "Invalid threshold. Must be 0-100."
+            fi
+          else
+            echo "Invalid choice"
+          fi
+          echo ""
+          gtd_quick_pause
+          ;;
+        4)
+          echo ""
+          echo "Explain which suggestion type?"
+          echo ""
+          echo "  1) Task from Log"
+          echo "  2) Area Assignment"
+          echo "  3) MoC Creation"
+          echo "  4) Area Creation"
+          echo "  5) Project Suggestion"
+          echo "  6) Insight"
+          echo ""
+          echo -n "Choose (1-6): "
+          read type_choice
+          
+          type_map=("task_from_log" "area_assignment" "moc_creation" "area_creation" "project_suggestion" "insight")
+          if [[ "$type_choice" =~ ^[1-6]$ ]]; then
+            selected_type="${type_map[$((type_choice - 1))]}"
+            echo ""
+            "$python_cmd" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_explain_suggestions import explain_threshold
+print(explain_threshold('$selected_type'))
+" 2>/dev/null || echo "Error loading explanation"
+          else
+            echo "Invalid choice"
+          fi
+          echo ""
+          gtd_quick_pause
+          ;;
+        5)
+          echo ""
+          echo -n "Reset ALL thresholds to defaults? (y/N): "
+          read confirm
+          
+          if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            result=$("$python_cmd" -c "
+import sys
+sys.path.insert(0, '$HOME/code/dotfiles/mcp')
+from gtd_unified_learning import load_learning_data, save_learning_data, SUGGESTION_TYPES
+
+data = load_learning_data()
+for stype, info in SUGGESTION_TYPES.items():
+    data['thresholds'][stype] = info['default_threshold']
+save_learning_data(data)
+print('✓ All thresholds reset to defaults')
+" 2>&1)
+            echo ""
+            echo "$result"
+          else
+            echo "Cancelled"
+          fi
+          echo ""
+          gtd_quick_pause
+          ;;
+        6)
+          echo ""
+          if [[ -f "$HOME/code/dotfiles/bin/gtd-diagnose-suggestions" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-diagnose-suggestions"
+          else
+            echo "Diagnostic script not found"
+            echo ""
+            gtd_quick_pause
+          fi
+          ;;
+        7)
+          # Go back
+          ;;
+        *)
+          echo "Invalid choice"
+          echo ""
+          gtd_quick_pause
           ;;
       esac
       ;;

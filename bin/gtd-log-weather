@@ -1,5 +1,5 @@
 #!/bin/bash
-# GTD Weather Logger - Log weather to daily log
+# GTD Weather Logger - Log weather to daily log with full day forecast
 # Usage: gtd-log-weather [condition] [temperature] [unit]
 # Or call without args to fetch automatically (requires Shortcuts or manual input)
 
@@ -41,6 +41,13 @@ get_date_cmd() {
 DATE_CMD=$(get_date_cmd)
 today=$($DATE_CMD +"%Y-%m-%d")
 current_time=$($DATE_CMD +"%H:%M")
+
+# Initialize forecast variables
+forecast_high=""
+forecast_low=""
+forecast_feels_like=""
+forecast_humidity=""
+forecast_wind=""
 
 # Parse arguments or fetch automatically
 if [[ -n "$1" && -n "$2" ]]; then
@@ -133,17 +140,63 @@ else
       location=""
     fi
     
-    # Fetch weather (wttr.in format: condition and temperature)
-    weather_response=$(curl -s --max-time 3 "wttr.in/${location}?format=%C+%t" 2>/dev/null || echo "")
+    # Fetch comprehensive weather data from wttr.in
+    # Format: condition, current temp, feels like, high, low, humidity, wind
+    # Using newline-separated format (wttr.in supports \n in format strings)
+    weather_response=$(curl -s --max-time 5 "wttr.in/${location}?format=%C%0A%t%0A%f%0A%h%0A%l%0A%H%0A%w" 2>/dev/null || echo "")
     if [[ -n "$weather_response" && ! "$weather_response" =~ "ERROR" && ! "$weather_response" =~ "Sorry" ]]; then
-      # Parse: "Sunny +72°F" or "Cloudy +68°F"
-      condition=$(echo "$weather_response" | sed 's/+[0-9]*°[CF].*//' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
-      temp_part=$(echo "$weather_response" | grep -oE '\+?[0-9]+°[CF]' | head -1)
+      # Parse newline-separated format
+      # Format: condition\ncurrent_temp\nfeels_like\nhigh\nlow\nhumidity\nwind
+      IFS=$'\n' read -r condition temp_part feels_like high_temp low_temp humidity wind <<< "$weather_response"
+      
+      # Clean up values
+      condition=$(echo "$condition" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      temp_part=$(echo "$temp_part" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      feels_like=$(echo "$feels_like" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      high_temp=$(echo "$high_temp" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      low_temp=$(echo "$low_temp" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      humidity=$(echo "$humidity" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      wind=$(echo "$wind" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      
+      # Extract temperature and unit
       if [[ -n "$temp_part" ]]; then
-        temperature=$(echo "$temp_part" | grep -oE '[0-9]+')
-        unit=$(echo "$temp_part" | grep -oE '°[CF]')
+        # Remove + sign if present
+        temp_clean=$(echo "$temp_part" | sed 's/^+//')
+        temperature=$(echo "$temp_clean" | grep -oE '[0-9]+' | head -1)
+        unit=$(echo "$temp_clean" | grep -oE '°[CF]')
+        
         if [[ -n "$condition" && -n "$temperature" ]]; then
           weather_fetched=true
+          # Store additional forecast data
+          forecast_high="$high_temp"
+          forecast_low="$low_temp"
+          forecast_feels_like="$feels_like"
+          forecast_humidity="$humidity"
+          forecast_wind="$wind"
+        fi
+      fi
+    fi
+    
+    # If pipe format didn't work, try simple format as fallback
+    if [[ "$weather_fetched" == "false" ]]; then
+      weather_response=$(curl -s --max-time 3 "wttr.in/${location}?format=%C+%t" 2>/dev/null || echo "")
+      if [[ -n "$weather_response" && ! "$weather_response" =~ "ERROR" && ! "$weather_response" =~ "Sorry" ]]; then
+        # Parse: "Sunny +72°F" or "Cloudy +68°F"
+        condition=$(echo "$weather_response" | sed 's/+[0-9]*°[CF].*//' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+        temp_part=$(echo "$weather_response" | grep -oE '\+?[0-9]+°[CF]' | head -1)
+        if [[ -n "$temp_part" ]]; then
+          temperature=$(echo "$temp_part" | grep -oE '[0-9]+')
+          unit=$(echo "$temp_part" | grep -oE '°[CF]')
+          if [[ -n "$condition" && -n "$temperature" ]]; then
+            weather_fetched=true
+            # Try to get high/low as well
+            forecast_data=$(curl -s --max-time 3 "wttr.in/${location}?format=%h%0A%l" 2>/dev/null || echo "")
+            if [[ -n "$forecast_data" && ! "$forecast_data" =~ "ERROR" ]]; then
+              IFS=$'\n' read -r forecast_high forecast_low <<< "$forecast_data"
+              forecast_high=$(echo "$forecast_high" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+              forecast_low=$(echo "$forecast_low" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+            fi
+          fi
         fi
       fi
     fi
@@ -157,20 +210,106 @@ else
     echo "Could not fetch weather automatically. Please enter manually:"
     echo ""
     read -p "Condition (e.g., Sunny, Cloudy): " condition
-    read -p "Temperature: " temperature
+    read -p "Current Temperature: " temperature
     read -p "Unit (F/C, default F): " unit_input
     unit="${unit_input:-°F}"
     if [[ ! "$unit" =~ ° ]]; then
       unit="°${unit}"
     fi
+    read -p "High Temperature (optional): " forecast_high
+    read -p "Low Temperature (optional): " forecast_low
     echo ""
   else
-    echo "🌤️  Fetched weather: ${condition}, ${temperature}${unit}"
+    # Display full forecast
+    echo ""
+    echo "🌤️  Today's Weather Forecast"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Current: ${condition}, ${temperature}${unit}"
+    current_temp_str="${temperature}${unit}"
+    if [[ -n "$forecast_feels_like" ]]; then
+      # Check if feels like is different from current temp
+      feels_temp=$(echo "$forecast_feels_like" | grep -oE '[0-9]+' | head -1)
+      if [[ -n "$feels_temp" && "$feels_temp" != "$temperature" ]]; then
+        echo "         Feels like: ${forecast_feels_like}"
+      fi
+    fi
+    if [[ -n "$forecast_high" && -n "$forecast_low" ]]; then
+      echo ""
+      echo "Today's Range:"
+      echo "  High: ${forecast_high}"
+      echo "  Low:  ${forecast_low}"
+    fi
+    if [[ -n "$forecast_humidity" ]]; then
+      echo "  Humidity: ${forecast_humidity}"
+    fi
+    if [[ -n "$forecast_wind" ]]; then
+      echo "  Wind: ${forecast_wind}"
+    fi
+    echo ""
+    
+    # Show current temp in context
+    if [[ -n "$forecast_high" && -n "$forecast_low" ]]; then
+      # Extract numeric values for comparison
+      high_num=$(echo "$forecast_high" | grep -oE '[0-9]+' | head -1)
+      low_num=$(echo "$forecast_low" | grep -oE '[0-9]+' | head -1)
+      if [[ -n "$high_num" && -n "$low_num" && -n "$temperature" ]]; then
+        range=$((high_num - low_num))
+        if [[ $range -gt 0 ]]; then
+          position=$((temperature - low_num))
+          percent=$((position * 100 / range))
+          if [[ $percent -lt 25 ]]; then
+            context="(cooler, near today's low)"
+          elif [[ $percent -gt 75 ]]; then
+            context="(warmer, near today's high)"
+          else
+            context="(mid-range for today)"
+          fi
+          echo "💡 Context: Current temp is ${context}"
+        fi
+      fi
+    fi
+    echo ""
   fi
 fi
 
-# Format entry
-entry="Weather: ${condition}, ${temperature}${unit}"
+# Format entry with full forecast
+if [[ -n "$forecast_high" && -n "$forecast_low" ]]; then
+  entry="Weather: ${condition}, ${temperature}${unit} (High: ${forecast_high}, Low: ${forecast_low}"
+  if [[ -n "$forecast_feels_like" ]]; then
+    # Check if feels like is different from current temp
+    feels_temp=$(echo "$forecast_feels_like" | grep -oE '[0-9]+' | head -1)
+    if [[ -n "$feels_temp" && "$feels_temp" != "$temperature" ]]; then
+      entry="${entry}, Feels: ${forecast_feels_like}"
+    fi
+  fi
+  if [[ -n "$forecast_humidity" ]]; then
+    entry="${entry}, Humidity: ${forecast_humidity}"
+  fi
+  if [[ -n "$forecast_wind" ]]; then
+    entry="${entry}, Wind: ${forecast_wind}"
+  fi
+  entry="${entry})"
+else
+  entry="Weather: ${condition}, ${temperature}${unit}"
+fi
+
+# Prompt for energy observation
+echo "💡 Energy Observation (optional)"
+echo "   How does the weather affect your energy right now?"
+echo ""
+read -p "Energy level (high/medium/low, or press Enter to skip): " energy_observation
+if [[ -n "$energy_observation" ]]; then
+  energy_lower=$(echo "$energy_observation" | tr '[:upper:]' '[:lower:]')
+  if [[ "$energy_lower" == "high" || "$energy_lower" == "medium" || "$energy_lower" == "low" ]]; then
+    entry="${entry} | Energy: ${energy_lower}"
+    read -p "Any notes about weather's impact? (optional): " energy_note
+    if [[ -n "$energy_note" ]]; then
+      entry="${entry} - ${energy_note}"
+    fi
+  fi
+fi
+echo ""
 
 # Use gtd-healthkit-log or gtd-daily-log
 if command -v gtd-healthkit-log &>/dev/null; then

@@ -86,6 +86,28 @@ get_date_cmd() {
 
 DATE_CMD=$(get_date_cmd)
 
+# Helper functions for associative array simulation (bash 3.2 compatible)
+# Sanitize key to be a valid variable name (convert spaces/special chars to underscores)
+_sanitize_key() {
+  local key="$1"
+  echo "$key" | sed 's/[^a-zA-Z0-9_]/_/g' | sed 's/^[0-9]/_&/'
+}
+
+_set_array_value() {
+  local prefix="$1"
+  local key="$2"
+  local value="$3"
+  local sanitized_key="$(_sanitize_key "$key")"
+  eval "${prefix}_${sanitized_key}=\"\$value\""
+}
+
+_get_array_value() {
+  local prefix="$1"
+  local key="$2"
+  local sanitized_key="$(_sanitize_key "$key")"
+  eval "echo \"\$${prefix}_${sanitized_key}\""
+}
+
 # Gather study data for critique
 gather_k8s_study_data() {
   local topic="$1"
@@ -101,7 +123,7 @@ gather_k8s_study_data() {
   local notes_count=$(find "${K8S_STUDY_DIR}/notes" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$notes_count" -gt 0 ]]; then
     study_data="${study_data}\nKubernetes Study Notes: ${notes_count} notes created"
-    local recent_topics=$(find "${K8S_STUDY_DIR}/notes" -type f -name "*.md" -exec basename {} \; 2>/dev/null | sed 's/^[0-9]*-//' | sed 's/\.md$//' | head -5 | tr '\n' ', ' | sed 's/, $//')
+    local recent_topics=$(find "${K8S_STUDY_DIR}/notes" -type f -name "*.md" -exec basename {} \; 2>/dev/null | sed 's/^[0-9]\{6,\}[-_ ]*//' | sed 's/\.md$//' | head -5 | tr '\n' ', ' | sed 's/, $//')
     if [[ -n "$recent_topics" ]]; then
       study_data="${study_data} (recent: ${recent_topics})"
     fi
@@ -582,9 +604,11 @@ main() {
           ((topic_index++))
           
           # Extract unique topics from note filenames
+          # Note filenames can be: YYYYMMDD-HHMMSS-topic.md, YYMMDD-topic.md, YYMMDD topic.md, YYMMDDtopic.md, etc.
+          # Strip date prefixes (6+ digits at start, optionally followed by separator)
           if [[ -d "${K8S_STUDY_DIR}/notes" ]]; then
             local found_topics=$(find "${K8S_STUDY_DIR}/notes" -type f -name "*.md" -exec basename {} \; 2>/dev/null | \
-              sed 's/^[0-9]*-//' | sed 's/\.md$//' | \
+              sed 's/^[0-9]\{6,\}[-_ ]*//' | sed 's/\.md$//' | \
               tr '[:upper:]' '[:lower:]' | \
               sed 's/-/ /g' | sed 's/_/ /g' | \
               awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1' | \

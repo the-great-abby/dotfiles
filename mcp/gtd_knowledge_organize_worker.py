@@ -290,7 +290,7 @@ Return JSON array:
 Return ONLY the JSON array."""
 
     try:
-        response = call_fast_ai(prompt, "You are a GTD organization assistant. Classify projects into areas of responsibility.")
+        response = call_fast_ai(prompt, "You are a GTD organization assistant. Classify projects into areas of responsibility.", use_instruct=True)
         
         # Extract JSON
         import re
@@ -358,7 +358,7 @@ Return JSON:
   }}
 ]"""
             
-            response = call_fast_ai(prompt, "You are a knowledge management assistant. Suggest MoCs to organize notes.")
+            response = call_fast_ai(prompt, "You are a knowledge management assistant. Suggest MoCs to organize notes.", use_instruct=True)
             
             import re
             json_match = re.search(r'\[.*?\]', response, re.DOTALL)
@@ -408,7 +408,7 @@ Return JSON:
 ]"""
     
     try:
-        response = call_fast_ai(prompt, "You are a GTD life management assistant. Suggest areas of responsibility.")
+        response = call_fast_ai(prompt, "You are a GTD life management assistant. Suggest areas of responsibility.", use_instruct=True)
         
         import re
         json_match = re.search(r'\[.*?\]', response, re.DOTALL)
