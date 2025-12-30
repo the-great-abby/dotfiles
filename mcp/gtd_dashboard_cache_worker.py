@@ -1005,6 +1005,7 @@ def get_gcalcli_status() -> Dict[str, Any]:
     """Check gcalcli connection status."""
     import subprocess
     import shutil
+    import os
     
     status_info = {
         "installed": False,
@@ -1013,36 +1014,107 @@ def get_gcalcli_status() -> Dict[str, Any]:
     }
     
     # Check if gcalcli is installed
-    if not shutil.which("gcalcli"):
+    # First try shutil.which (checks PATH)
+    gcalcli_path = shutil.which("gcalcli")
+    
+    # If not found in PATH, check common homebrew locations
+    if not gcalcli_path:
+        homebrew_paths = [
+            "/opt/homebrew/bin/gcalcli",  # Apple Silicon
+            "/usr/local/bin/gcalcli",     # Intel
+        ]
+        for path in homebrew_paths:
+            if os.path.exists(path) and os.access(path, os.X_OK):
+                gcalcli_path = path
+                break
+    
+    if not gcalcli_path:
         status_info["error"] = "not_installed"
         return status_info
     
     status_info["installed"] = True
     
     # Test connection by trying to list calendars (with timeout)
+    # Use the full path we found
+    # We test with 'list' first, then try 'agenda' as a more comprehensive auth test
     try:
+        # First test: list calendars (quick check)
         result = subprocess.run(
-            ["gcalcli", "list"],
+            [gcalcli_path, "list"],
             capture_output=True,
             text=True,
             timeout=5  # 5 second timeout
         )
         
-        if result.returncode == 0 and result.stdout.strip():
-            # Successfully connected and got calendar list
-            status_info["connected"] = True
+        # Check both stdout and stderr for errors (gcalcli sometimes outputs errors to stdout)
+        output_text = (result.stdout or "") + " " + (result.stderr or "")
+        output_lower = output_text.lower()
+        
+        # Check for authentication errors in list output
+        auth_error_keywords = [
+            "invalid_grant", "token has been expired", "token has been revoked",
+            "authentication", "oauth", "credentials", "refresherror", "401", "403",
+            "unauthorized", "access denied", "permission denied", "invalid_client",
+            "access_denied", "invalid_request", "httperror", "http error"
+        ]
+        
+        # Also check for Python tracebacks which might indicate auth issues
+        has_traceback = "traceback" in output_lower or "file \"" in output_lower
+        
+        has_auth_error = any(keyword in output_lower for keyword in auth_error_keywords)
+        
+        # If there's a traceback, it might be an auth issue - check more carefully
+        if has_traceback and not has_auth_error:
+            # Traceback without explicit auth error - could still be auth related
+            # Test with agenda to see if it's a real auth issue
+            pass
+        
+        if result.returncode == 0 and result.stdout.strip() and not has_auth_error and not has_traceback:
+            # List worked, but let's also test with agenda to be more thorough
+            # (agenda requires actual API access, not just cached data)
+            try:
+                agenda_result = subprocess.run(
+                    [gcalcli_path, "agenda", "today"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                agenda_output = (agenda_result.stdout or "") + " " + (agenda_result.stderr or "")
+                agenda_lower = agenda_output.lower()
+                
+                # Check for auth errors or tracebacks in agenda output
+                agenda_has_auth_error = any(keyword in agenda_lower for keyword in auth_error_keywords)
+                agenda_has_traceback = "traceback" in agenda_lower or "file \"" in agenda_lower
+                
+                if agenda_has_auth_error or (agenda_has_traceback and agenda_result.returncode != 0):
+                    # Authentication issue detected
+                    status_info["connected"] = False
+                    status_info["error"] = "not_authenticated"
+                elif agenda_result.returncode == 0:
+                    # Both list and agenda worked - fully authenticated
+                    status_info["connected"] = True
+                else:
+                    # Agenda failed but might be other reasons (no events, etc.)
+                    # If it's not an auth error, consider it connected
+                    status_info["connected"] = True
+            except (subprocess.TimeoutExpired, Exception):
+                # Agenda test failed/timed out, but list worked
+                # Assume connected (agenda might just be slow or have no events)
+                status_info["connected"] = True
+        elif has_auth_error:
+            # Authentication error detected
+            status_info["connected"] = False
+            status_info["error"] = "not_authenticated"
         else:
             # Command failed or returned no output
             status_info["connected"] = False
-            if result.stderr:
-                # Check for common error messages
-                stderr_lower = result.stderr.lower()
-                if "authentication" in stderr_lower or "oauth" in stderr_lower:
-                    status_info["error"] = "not_authenticated"
-                elif "network" in stderr_lower or "connection" in stderr_lower:
-                    status_info["error"] = "network_error"
-                else:
-                    status_info["error"] = "unknown_error"
+            # Check for authentication errors (comprehensive list)
+            if has_auth_error:
+                status_info["error"] = "not_authenticated"
+            elif "network" in output_lower or "connection" in output_lower or "timeout" in output_lower:
+                status_info["error"] = "network_error"
+            elif result.stderr or result.stdout:
+                status_info["error"] = "unknown_error"
             else:
                 status_info["error"] = "no_output"
     except subprocess.TimeoutExpired:
@@ -1053,6 +1125,175 @@ def get_gcalcli_status() -> Dict[str, Any]:
         status_info["error"] = f"error: {str(e)}"
     
     return status_info
+
+
+def get_configured_calendars() -> List[str]:
+    """Get list of configured calendar names."""
+    calendars = []
+    config = load_gtd_config()
+    
+    # Check for GTD_CALENDARS array in config file
+    config_paths = [
+        Path.home() / "code" / "dotfiles" / "zsh" / ".gtd_config_calendar",
+        Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".gtd_config_calendar",
+        Path.home() / ".gtd_config_calendar",
+    ]
+    
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        # Look for GTD_CALENDARS entries: "rw:CalendarName:Display Name" or "ro:CalendarName:Display Name"
+                        if line.startswith('"') and ("rw:" in line or "ro:" in line):
+                            # Extract calendar name (between rw:/ro: and next : or ")
+                            if "rw:" in line:
+                                cal_part = line.split("rw:")[1]
+                            else:
+                                cal_part = line.split("ro:")[1]
+                            # Get calendar name (before next : or ")
+                            cal_name = cal_part.split(":")[0].strip('"').strip()
+                            if cal_name:
+                                calendars.append(cal_name)
+            except Exception:
+                pass
+            break
+    
+    # Fallback to default calendar from config
+    if not calendars:
+        default_cal = config.get("GTD_GOOGLE_CALENDAR_NAME") or config.get("GOOGLE_CALENDAR_NAME")
+        if default_cal:
+            calendars.append(default_cal)
+    
+    # If still no calendars, use "GTD" as default
+    if not calendars:
+        calendars.append("GTD")
+    
+    return calendars
+
+
+def get_today_events_count() -> Dict[str, Any]:
+    """Get count of events for today across all configured calendars."""
+    import subprocess
+    import shutil
+    import os
+    import re
+    
+    events_info = {
+        "has_events": False,
+        "event_count": 0,
+        "error": None
+    }
+    
+    # Check if gcalcli is installed and connected first
+    gcalcli_status = get_gcalcli_status()
+    if not gcalcli_status.get("installed", False) or not gcalcli_status.get("connected", False):
+        # If not installed or not connected, return early
+        events_info["error"] = gcalcli_status.get("error", "not_connected")
+        return events_info
+    
+    # Find gcalcli path (same logic as get_gcalcli_status)
+    gcalcli_path = shutil.which("gcalcli")
+    if not gcalcli_path:
+        homebrew_paths = [
+            "/opt/homebrew/bin/gcalcli",
+            "/usr/local/bin/gcalcli",
+        ]
+        for path in homebrew_paths:
+            if os.path.exists(path) and os.access(path, os.X_OK):
+                gcalcli_path = path
+                break
+    
+    if not gcalcli_path:
+        events_info["error"] = "not_installed"
+        return events_info
+    
+    # Get events for today from ALL calendars
+    # Use "today" as start and calculate end of today
+    # Note: gcalcli agenda "today" "today" sometimes doesn't work correctly
+    # Better to use "today" as start and "tomorrow" as end, then filter to today only
+    from datetime import datetime, timedelta
+    today = datetime.now().strftime("%Y-%m-%d")
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    try:
+        result = subprocess.run(
+            [gcalcli_path, "agenda", today, tomorrow],
+            capture_output=True,
+            text=True,
+            timeout=8  # Increased timeout since checking all calendars
+        )
+        
+        if result.returncode == 0 and result.stdout:
+            # Strip ANSI color codes first
+            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            all_output_text = ansi_escape.sub('', result.stdout.strip())
+        else:
+            all_output_text = ""
+    except subprocess.TimeoutExpired:
+        events_info["error"] = "timeout"
+        return events_info
+    except Exception as e:
+        events_info["error"] = f"error: {str(e)}"
+        return events_info
+    
+    # Check if there are actual events (not just "No Events Found")
+    if all_output_text and "no events found" not in all_output_text.lower():
+        # Parse events and filter to today only
+        # gcalcli format:
+        #   "Mon Dec 30         Event name" (date header, may have all-day event name)
+        #   "            7:00           Timed event" (indented timed events)
+        today_dt = datetime.now()
+        today_day_name = today_dt.strftime("%a")  # e.g., "Tue"
+        today_month = today_dt.strftime("%b")  # e.g., "Dec"
+        today_day = today_dt.strftime("%d").lstrip("0") or "0"  # e.g., "30" or "1"
+        
+        # Pattern to match today's date header
+        date_header_pattern = rf'^{today_day_name} {today_month}\s+{today_day}\b'
+        
+        # Count events for today
+        total_event_count = 0
+        in_today_section = False
+        
+        for line in all_output_text.split('\n'):
+            line_stripped = line.strip()
+            
+            # Check if this is today's date header
+            if re.match(date_header_pattern, line_stripped):
+                in_today_section = True
+                # Count the date header line itself (for all-day events)
+                total_event_count += 1
+                log(f"  DEBUG: Found today's date header: {line_stripped[:60]}")
+                continue
+            
+            # If we're in today's section, count indented event lines
+            if in_today_section:
+                # Check if this is an indented event line
+                # Format: "            9:30           Event name" (has leading spaces)
+                # After strip: "9:30           Event name" (starts with time)
+                # Match either the original line (with spaces) or stripped line (starts with time)
+                if re.match(r'^\s+\d{1,2}:\d{2}', line) or (line_stripped and re.match(r'^\d{1,2}:\d{2}', line_stripped)):
+                    total_event_count += 1
+                    log(f"  DEBUG: Found event line: {line_stripped[:60]}")
+                # If we hit another date header, we've moved to a different day
+                elif line_stripped and re.match(r'^[A-Z][a-z]{2} [A-Z][a-z]{2}\s+\d', line_stripped):
+                    in_today_section = False
+                    log(f"  DEBUG: Moved to different day: {line_stripped[:60]}")
+        
+        if total_event_count > 0:
+            events_info["has_events"] = True
+            events_info["event_count"] = total_event_count
+            log(f"  DEBUG: Found {total_event_count} events for today")
+        else:
+            # Debug: log why no events were found
+            log(f"  DEBUG: No events found. Output length: {len(all_output_text)}")
+            log(f"  DEBUG: Pattern: {date_header_pattern}, Looking for: {today_day_name} {today_month} {today_day}")
+            log(f"  DEBUG: First 300 chars of output: {all_output_text[:300]}")
+    else:
+        log(f"  DEBUG: No output or 'no events found' message. Output length: {len(all_output_text) if all_output_text else 0}")
+    
+    return events_info
 
 
 def get_knowledge_org_results() -> List[Dict[str, Any]]:
@@ -1164,6 +1405,14 @@ def update_cache() -> Dict[str, Any]:
     log(f"  gcalcli_status: {elapsed:.3f}s")
     if elapsed > 2.0:
         log(f"  WARNING: gcalcli_status took {elapsed:.1f}s (unusually slow)")
+    
+    # Today's events count (only if gcalcli is connected, can be slow)
+    step_start = time.time()
+    cache["today_events"] = get_today_events_count()
+    elapsed = time.time() - step_start
+    log(f"  today_events: {elapsed:.3f}s")
+    if elapsed > 2.0:
+        log(f"  WARNING: today_events took {elapsed:.1f}s (unusually slow)")
     
     # Get stalled projects from comprehensive scan data
     step_start = time.time()

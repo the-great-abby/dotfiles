@@ -2949,7 +2949,11 @@ try:
         installed = gcalcli.get("installed", False)
         connected = gcalcli.get("connected", False)
         error = gcalcli.get("error", "")
-        print(f"{installed}|{connected}|{error}")
+        # Convert Python booleans to lowercase strings for bash
+        installed_str = "true" if installed else "false"
+        connected_str = "true" if connected else "false"
+        error_str = str(error) if error else ""
+        print(f"{installed_str}|{connected_str}|{error_str}")
 except Exception:
     pass
 PYTHON_EOF
@@ -2967,17 +2971,30 @@ PYTHON_EOF
     # Fallback to direct check if cache not available or invalid
     if [[ "$use_cache" == "false" ]]; then
       # Check if gcalcli is installed
+      # First try command -v (checks PATH)
+      local gcalcli_path=""
       if command -v gcalcli &>/dev/null; then
+        gcalcli_path="gcalcli"
+      else
+        # Check common homebrew locations
+        if [[ -x "/opt/homebrew/bin/gcalcli" ]]; then
+          gcalcli_path="/opt/homebrew/bin/gcalcli"
+        elif [[ -x "/usr/local/bin/gcalcli" ]]; then
+          gcalcli_path="/usr/local/bin/gcalcli"
+        fi
+      fi
+      
+      if [[ -n "$gcalcli_path" ]]; then
         gcalcli_installed=true
         
         # Test connection with timeout (5 seconds max)
         local test_output=""
         if command -v timeout &>/dev/null; then
-          test_output=$(timeout 5 gcalcli list 2>&1)
+          test_output=$(timeout 5 "$gcalcli_path" list 2>&1)
           local exit_code=$?
         else
           # Fallback: use gcalcli directly (may hang)
-          test_output=$(gcalcli list 2>&1)
+          test_output=$("$gcalcli_path" list 2>&1)
           local exit_code=$?
         fi
         
@@ -2985,10 +3002,10 @@ PYTHON_EOF
           gcalcli_connected=true
         else
           gcalcli_connected=false
-          # Try to determine error type
-          if echo "$test_output" | grep -qi "authentication\|oauth"; then
+          # Try to determine error type (check for comprehensive list of auth errors)
+          if echo "$test_output" | grep -qiE "invalid_grant|Token has been expired|Token has been revoked|authentication|oauth|credentials|RefreshError|401|403|unauthorized|access denied|permission denied"; then
             gcalcli_error="not_authenticated"
-          elif echo "$test_output" | grep -qi "network\|connection"; then
+          elif echo "$test_output" | grep -qi "network\|connection\|timeout"; then
             gcalcli_error="network_error"
           else
             gcalcli_error="unknown_error"
@@ -3040,7 +3057,7 @@ PYTHON_EOF
     if [[ "$gcalcli_installed" == "true" ]] && [[ "$gcalcli_connected" == "false" ]]; then
       case "$gcalcli_error" in
         "not_authenticated")
-          echo -e "    ${YELLOW}💡${NC} Run: ${BOLD}gcalcli init${NC} to authenticate" 2>/dev/null || echo "    💡 Run: gcalcli init to authenticate"
+          echo -e "    ${YELLOW}💡${NC} Authentication expired → Re-auth via ${BOLD}29${NC} → ${BOLD}12${NC} or run: ${BOLD}gcalcli init${NC}" 2>/dev/null || echo "    💡 Authentication expired → Re-auth via 29 → 12 or run: gcalcli init"
           ;;
         "network_error"|"timeout")
           echo -e "    ${YELLOW}💡${NC} Check network connection" 2>/dev/null || echo "    💡 Check network connection"
@@ -3054,6 +3071,121 @@ PYTHON_EOF
   # Add gcalcli status hint (with error handling)
   set +e
   check_gcalcli_hint 2>/dev/null || true
+  set -e
+  
+  # Check for events today (uses cache if available)
+  check_today_events_hint() {
+    local has_events_today=false
+    local event_count=0
+    local use_cache=false
+    
+    # Try to read from cache first
+    local cache_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/.dashboard_cache.json"
+    if [[ -f "$cache_file" ]]; then
+      local cache_age=0
+      if command -v stat &>/dev/null; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          cache_age=$(($(date +%s) - $(stat -f %m "$cache_file" 2>/dev/null || echo 0)))
+        else
+          cache_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+        fi
+      fi
+      
+      # Cache is valid if less than 30 seconds old
+      if [[ $cache_age -lt 30 ]]; then
+        # Try to read today's events from cache
+        local cache_events=$(python3 <<PYTHON_EOF 2>/dev/null
+import json
+import sys
+try:
+    with open("$cache_file", "r") as f:
+        cache = json.load(f)
+    today_events = cache.get("today_events", {})
+    if today_events:
+        has_events = today_events.get("has_events", False)
+        event_count = today_events.get("event_count", 0)
+        error = today_events.get("error")
+        # Convert Python booleans to lowercase strings for bash
+        has_events_str = "true" if has_events else "false"
+        event_count_str = str(event_count)
+        error_str = str(error) if error else ""
+        print(f"{has_events_str}|{event_count_str}|{error_str}")
+except Exception:
+    pass
+PYTHON_EOF
+        )
+        
+        if [[ -n "$cache_events" ]]; then
+          use_cache=true
+          local has_events_str=$(echo "$cache_events" | cut -d'|' -f1)
+          local event_count_str=$(echo "$cache_events" | cut -d'|' -f2)
+          local error_str=$(echo "$cache_events" | cut -d'|' -f3)
+          
+          if [[ "$has_events_str" == "true" ]]; then
+            has_events_today=true
+            event_count="$event_count_str"
+          fi
+        fi
+      fi
+    fi
+    
+    # Fallback to direct check if cache not available or invalid
+    if [[ "$use_cache" == "false" ]]; then
+      # Only check if gcalcli is installed and connected
+      local gcalcli_path=""
+      if command -v gcalcli &>/dev/null; then
+        gcalcli_path="gcalcli"
+      elif [[ -x "/opt/homebrew/bin/gcalcli" ]]; then
+        gcalcli_path="/opt/homebrew/bin/gcalcli"
+      elif [[ -x "/usr/local/bin/gcalcli" ]]; then
+        gcalcli_path="/usr/local/bin/gcalcli"
+      fi
+      
+      if [[ -n "$gcalcli_path" ]]; then
+        # Quick test to see if gcalcli is connected (with timeout)
+        local test_output=""
+        if command -v timeout &>/dev/null; then
+          test_output=$(timeout 3 "$gcalcli_path" list 2>&1)
+          local test_exit=$?
+        else
+          test_output=$("$gcalcli_path" list 2>&1)
+          local test_exit=$?
+        fi
+        
+        if [[ $test_exit -eq 0 ]] && [[ -n "$test_output" ]]; then
+          # Get events for today (with timeout)
+          local today_events=""
+          if command -v timeout &>/dev/null; then
+            today_events=$(timeout 5 "$gcalcli_path" agenda "today" "today" 2>/dev/null || echo "")
+          else
+            today_events=$("$gcalcli_path" agenda "today" "today" 2>/dev/null || echo "")
+          fi
+          
+          # Check if there are actual events (not just "No Events Found")
+          if [[ -n "$today_events" ]] && ! echo "$today_events" | grep -qiE "No Events Found|No events"; then
+            # Count events (rough count - lines that look like events)
+            event_count=$(echo "$today_events" | grep -cE "^[A-Z][a-z]{2} [A-Z][a-z]{2} +[0-9]" || echo "0")
+            if [[ $event_count -gt 0 ]]; then
+              has_events_today=true
+            fi
+          fi
+        fi
+      fi
+    fi
+    
+    # Display indicator if there are events today
+    if [[ "$has_events_today" == "true" ]]; then
+      if [[ $event_count -eq 1 ]]; then
+        echo -e "    ${YELLOW}📅${NC} You have ${BOLD}1 event${NC} today → View via ${BOLD}29${NC} → ${BOLD}13${NC} or ${BOLD}gtd-calendar view today${NC}" 2>/dev/null || echo "    📅 You have 1 event today → View via 29 → 13 or gtd-calendar view today"
+      else
+        echo -e "    ${YELLOW}📅${NC} You have ${BOLD}${event_count} events${NC} today → View via ${BOLD}29${NC} → ${BOLD}13${NC} or ${BOLD}gtd-calendar view today${NC}" 2>/dev/null || echo "    📅 You have ${event_count} events today → View via 29 → 13 or gtd-calendar view today"
+      fi
+    fi
+  }
+  
+  # Add today's events hint (with error handling)
+  set +e
+  check_today_events_hint 2>/dev/null || true
   set -e
   
   echo ""

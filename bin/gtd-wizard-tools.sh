@@ -10073,6 +10073,7 @@ calendar_wizard() {
     echo "  9) ⏰ Suggest time-blocking for tasks"
     echo "  10) ⚡ Energy pattern → calendar optimization"
     echo "  11) 📊 Calendar insights & analysis"
+    echo "  13) 📅 View calendar (today only)"
     echo ""
     echo -e "${BOLD}Settings:${NC}"
     echo "  12) 🔐 Re-authenticate Google Calendar (gcalcli)"
@@ -10148,16 +10149,108 @@ calendar_wizard() {
         echo ""
         echo "Sync a task to calendar"
         echo ""
-        gtd-task list
-        echo ""
-        echo "💡 Look at the task list above. Each task shows an 'ID:' line."
-        echo "   Copy the task ID (e.g., 20240101120000-task) and paste it below."
-        echo ""
-        echo -n "Task ID to sync: "
-        read task_id
+        
+        # Source select helper
+        SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+        if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
+          SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
+        fi
+        if [[ -f "$SELECT_HELPER" ]]; then
+          source "$SELECT_HELPER"
+        fi
+        
+        # Collect all active tasks (standalone + project tasks)
+        local task_files=()
+        local task_display_names=()
+        local task_ids=()
+        
+        # Get standalone tasks
+        if [[ -d "${TASKS_PATH:-}" ]]; then
+          while IFS= read -r task_file; do
+            [[ ! -f "$task_file" ]] && continue
+            local status=$(gtd_get_frontmatter_value "$task_file" "status" 2>/dev/null || echo "active")
+            [[ "$status" != "active" ]] && continue
+            
+            local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+            local task_id=$(basename "$task_file" .md)
+            local context=$(gtd_get_frontmatter_value "$task_file" "context" 2>/dev/null || echo "")
+            local priority=$(gtd_get_frontmatter_value "$task_file" "priority" 2>/dev/null || echo "")
+            local project=$(gtd_get_frontmatter_value "$task_file" "project" 2>/dev/null || echo "")
+            
+            # Build display name
+            local display_name="$task_name"
+            [[ -n "$context" ]] && display_name="$display_name [Context: $context]"
+            [[ -n "$priority" ]] && display_name="$display_name [Priority: $priority]"
+            [[ -n "$project" ]] && display_name="$display_name (Project: $project)"
+            
+            task_files+=("$task_file")
+            task_display_names+=("$display_name")
+            task_ids+=("$task_id")
+          done < <(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | sort)
+        fi
+        
+        # Get project tasks
+        if [[ -d "${PROJECTS_PATH:-}" ]]; then
+          while IFS= read -r task_file; do
+            [[ ! -f "$task_file" || "$task_file" == */README.md ]] && continue
+            local status=$(gtd_get_frontmatter_value "$task_file" "status" 2>/dev/null || echo "active")
+            [[ "$status" != "active" ]] && continue
+            
+            local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
+            local task_id=$(basename "$task_file" .md)
+            local context=$(gtd_get_frontmatter_value "$task_file" "context" 2>/dev/null || echo "")
+            local priority=$(gtd_get_frontmatter_value "$task_file" "priority" 2>/dev/null || echo "")
+            local project_dir=$(dirname "$task_file")
+            local project_slug=$(basename "$project_dir")
+            
+            # Get project display name
+            local project_name="$project_slug"
+            local project_readme="${project_dir}/README.md"
+            if [[ -f "$project_readme" ]]; then
+              project_name=$(gtd_get_frontmatter_value "$project_readme" "name" 2>/dev/null || echo "$project_slug")
+              [[ -z "$project_name" ]] && project_name=$(gtd_get_frontmatter_value "$project_readme" "project" 2>/dev/null || echo "$project_slug")
+            fi
+            
+            # Build display name
+            local display_name="$task_name"
+            [[ -n "$context" ]] && display_name="$display_name [Context: $context]"
+            [[ -n "$priority" ]] && display_name="$display_name [Priority: $priority]"
+            display_name="$display_name (Project: $project_name)"
+            
+            task_files+=("$task_file")
+            task_display_names+=("$display_name")
+            task_ids+=("$task_id")
+          done < <(find "${PROJECTS_PATH}" -name "*.md" -type f 2>/dev/null | sort)
+        fi
+        
+        if [[ ${#task_display_names[@]} -eq 0 ]]; then
+          echo "❌ No active tasks found"
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        # Use select_from_numbered_list to let user pick
+        local selected_display=$(select_from_numbered_list "${task_display_names[@]}")
+        
+        if [[ -z "$selected_display" ]]; then
+          echo "❌ No task selected"
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        # Find the index of the selected display name
+        local task_id=""
+        for i in "${!task_display_names[@]}"; do
+          if [[ "${task_display_names[$i]}" == "$selected_display" ]]; then
+            task_id="${task_ids[$i]}"
+            break
+          fi
+        done
         
         if [[ -z "$task_id" ]]; then
-          echo "❌ No task ID provided"
+          echo "❌ Could not find task ID for selected task"
           echo ""
           gtd_quick_pause
           continue
@@ -10369,6 +10462,22 @@ calendar_wizard() {
         "$HOME/code/dotfiles/bin/gtd-calendar" insights "$insight_date"
       elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-calendar" ]]; then
         "$HOME/code/personal/dotfiles/bin/gtd-calendar" insights "$insight_date"
+      else
+        echo "❌ gtd-calendar command not found"
+      fi
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    13)
+      echo ""
+      echo "View calendar (today only)"
+      echo ""
+      if command -v gtd-calendar &>/dev/null; then
+        gtd-calendar view today
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-calendar" view today
+      elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-calendar" ]]; then
+        "$HOME/code/personal/dotfiles/bin/gtd-calendar" view today
       else
         echo "❌ gtd-calendar command not found"
       fi

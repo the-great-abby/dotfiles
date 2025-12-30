@@ -402,16 +402,27 @@ for line in lines:
                     try:
                         # Try current year first
                         event_dt = datetime.strptime(f"{event_date_str} {current_year}", f"{fmt} %Y")
-                        # Determine correct year based on whether the date is in the past
-                        # If the event date (with current year) is in the past, it's likely next year
-                        if event_dt < now:
-                            # Event is in the past - check how far
-                            days_diff = (now - event_dt).days
-                            # If more than 30 days ago, it's definitely next year
-                            # If less than 30 days but still in past, it could be this year or next
-                            # For safety, if it's more than 7 days in the past, assume next year
-                            if days_diff > 7:
-                                event_dt = datetime.strptime(f"{event_date_str} {current_year + 1}", f"{fmt} %Y")
+                        # Determine correct year: try both current and next year, pick the one in range
+                        # Always try next year if current year is not in range
+                        event_dt_candidate = event_dt
+                        if not (start_dt <= event_dt <= end_dt):
+                            # Current year version is not in range, try next year
+                            try:
+                                event_dt_next = datetime.strptime(f"{event_date_str} {current_year + 1}", f"{fmt} %Y")
+                                # Use next year if it's in range, or if it's closer to range than current year
+                                if start_dt <= event_dt_next <= end_dt:
+                                    event_dt_candidate = event_dt_next
+                                elif event_dt < start_dt and event_dt_next < start_dt:
+                                    # Both are before start, use whichever is closer
+                                    if abs((event_dt_next - start_dt).days) < abs((event_dt - start_dt).days):
+                                        event_dt_candidate = event_dt_next
+                                elif event_dt > end_dt and event_dt_next > end_dt:
+                                    # Both are after end, use whichever is closer
+                                    if abs((event_dt_next - end_dt).days) < abs((event_dt - end_dt).days):
+                                        event_dt_candidate = event_dt_next
+                            except ValueError:
+                                pass  # Keep current year version
+                        event_dt = event_dt_candidate
                         parsed = True
                         break
                     except ValueError:
@@ -427,10 +438,12 @@ for line in lines:
                     if start_date_only <= event_date_only <= end_date_only:
                         filtered_lines.extend(current_event_lines)
                     # If outside range, don't include (don't extend current_event_lines)
-                # If parsing failed, don't include the event (it's better to be strict about date ranges)
-            except Exception:
-                # On any error, include the event (better to show than hide)
-                filtered_lines.extend(current_event_lines)
+                # If parsing failed, don't include the event (strict filtering)
+            except Exception as e:
+                # If we can't parse the date, exclude it from a date-filtered view
+                # But log to stderr for debugging (won't show in normal output)
+                sys.stderr.write(f"Warning: Could not parse event date '{current_event_date}': {e}\n")
+                pass
         
         # Start new event
         current_event_lines = [line]
@@ -453,16 +466,27 @@ if current_event_date is not None:
             try:
                 # Try current year first
                 event_dt = datetime.strptime(f"{event_date_str} {current_year}", f"{fmt} %Y")
-                # Determine correct year based on whether the date is in the past
-                # If the event date (with current year) is in the past, it's likely next year
-                if event_dt < now:
-                    # Event is in the past - check how far
-                    days_diff = (now - event_dt).days
-                    # If more than 30 days ago, it's definitely next year
-                    # If less than 30 days but still in past, it could be this year or next
-                    # For safety, if it's more than 7 days in the past, assume next year
-                    if days_diff > 7:
-                        event_dt = datetime.strptime(f"{event_date_str} {current_year + 1}", f"{fmt} %Y")
+                # Determine correct year: try both current and next year, pick the one in range
+                # Always try next year if current year is not in range
+                event_dt_candidate = event_dt
+                if not (start_dt <= event_dt <= end_dt):
+                    # Current year version is not in range, try next year
+                    try:
+                        event_dt_next = datetime.strptime(f"{event_date_str} {current_year + 1}", f"{fmt} %Y")
+                        # Use next year if it's in range, or if it's closer to range than current year
+                        if start_dt <= event_dt_next <= end_dt:
+                            event_dt_candidate = event_dt_next
+                        elif event_dt < start_dt and event_dt_next < start_dt:
+                            # Both are before start, use whichever is closer
+                            if abs((event_dt_next - start_dt).days) < abs((event_dt - start_dt).days):
+                                event_dt_candidate = event_dt_next
+                        elif event_dt > end_dt and event_dt_next > end_dt:
+                            # Both are after end, use whichever is closer
+                            if abs((event_dt_next - end_dt).days) < abs((event_dt - end_dt).days):
+                                event_dt_candidate = event_dt_next
+                    except ValueError:
+                        pass  # Keep current year version
+                event_dt = event_dt_candidate
                 parsed = True
                 break
             except ValueError:
@@ -478,9 +502,10 @@ if current_event_date is not None:
             if start_date_only <= event_date_only <= end_date_only:
                 filtered_lines.extend(current_event_lines)
             # If outside range, don't include
-        # If parsing failed, don't include the event (be strict about date ranges)
+        # If parsing failed, don't include the event (strict filtering)
     except Exception:
-        filtered_lines.extend(current_event_lines)
+        # If we can't parse the date, exclude it from a date-filtered view
+        pass
 
 # Print filtered events
 sys.stdout.write('\n'.join(filtered_lines))
@@ -502,6 +527,16 @@ get_google_events() {
   # Normalize dates
   local normalized_start=$(normalize_date "$start_date")
   local normalized_end=$(normalize_date "$end_date")
+  
+  # Special case: if both are "today", use "today" to "tomorrow" and filter
+  # gcalcli agenda "today" "today" doesn't work reliably with specific calendars
+  # Query a slightly wider range and filter to today only
+  local filter_to_today=false
+  if [[ "$normalized_start" == "today" && "$normalized_end" == "today" ]]; then
+    # Use "today" to "tomorrow" for the query, but filter to just today
+    normalized_end="tomorrow"
+    filter_to_today=true
+  fi
   
   # For date range queries, we might need to query a wider range and filter
   # because gcalcli sometimes doesn't strictly respect end dates
@@ -610,54 +645,54 @@ get_google_events() {
   
   rm -f "$error_output"
   
-  # Always filter events to the exact date range requested
-  # (gcalcli sometimes shows events beyond the end date)
-  # Use normalize_to_ymd to ensure we have YYYY-MM-DD for filtering
-  local filter_start=$(normalize_to_ymd "$normalized_start")
-  local filter_end=$(normalize_to_ymd "$normalized_end")
+  # Filter events to the requested date range
+  # Use a simpler approach: parse dates and only exclude events clearly outside range
+  # If we queried a wider range (today->tomorrow) to work around gcalcli limitations,
+  # filter to just the original requested date
+  local filter_start=$(normalize_to_ymd "$start_date")
+  local filter_end=$(normalize_to_ymd "$end_date")
   
-  if [[ -n "$events" ]] && [[ "$events" != *"No Events Found"* ]]; then
-    # Store original events in case filtering removes everything
-    local original_events="$events"
-    local has_events_before_filter=false
-    if echo "$events" | grep -qiE "([A-Z][a-z]{2} [A-Z][a-z]{2}|[0-9]{1,2}:[0-9]{2})"; then
-      has_events_before_filter=true
-    fi
+  # If filter_to_today is true, we queried today->tomorrow but want to filter to just today
+  if [[ "$filter_to_today" == "true" ]]; then
+    filter_end="$filter_start"
+  fi
+  
+  if [[ -n "$events" ]] && [[ "$events" != *"No Events Found"* ]] && \
+     [[ -n "$filter_start" ]] && [[ -n "$filter_end" ]] && \
+     echo "$filter_start" | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" && \
+     echo "$filter_end" | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"; then
     
-    # Only filter if we have valid YYYY-MM-DD dates
-    if [[ -n "$filter_start" ]] && [[ -n "$filter_end" ]] && \
-       echo "$filter_start" | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" && \
-       echo "$filter_end" | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"; then
-      # Filter events by date range
-      local filtered_events
-      filtered_events=$(filter_events_by_date "$events" "$filter_start" "$filter_end")
-      
-      # If we had events before filtering but none after, something went wrong
-      # Return original events (better to show too many than none)
-      if [[ "$has_events_before_filter" == "true" ]] && \
-         [[ -z "$filtered_events" ]] || ! echo "$filtered_events" | grep -qiE "([A-Z][a-z]{2} [A-Z][a-z]{2}|[0-9]{1,2}:[0-9]{2})"; then
+    # Use Python filter but with better error handling
+    # If filtering fails or removes everything, fall back to original events
+    local original_events="$events"
+    local filtered_events
+    filtered_events=$(filter_events_by_date "$events" "$filter_start" "$filter_end" 2>/dev/null)
+    
+    # Only use filtered events if the result looks valid (not empty and contains event-like content)
+    # If filtering removed everything suspiciously, use original as fallback
+    # When filter_to_today is true, prefer filtered events but fall back if filter seems broken
+    if [[ "$filter_to_today" == "true" ]]; then
+      # For "today" view, prefer filtered events to ensure we only show today's events
+      # But if filter returned empty and original has events, check if filter might be broken
+      if [[ -n "$filtered_events" ]] && echo "$filtered_events" | grep -qiE "([A-Z][a-z]{2} [A-Z][a-z]{2} [0-9]{1,2})"; then
+        events="$filtered_events"
+      elif [[ -z "$filtered_events" ]] && [[ -n "$original_events" ]] && echo "$original_events" | grep -qiE "([A-Z][a-z]{2} [A-Z][a-z]{2} [0-9]{1,2})"; then
+        # Filter returned empty but original has events - filter might be broken, use original
+        # This handles cases where the filter function has issues
         events="$original_events"
       else
+        # Use filtered (even if empty) to ensure we don't show past events incorrectly
         events="$filtered_events"
       fi
+    elif [[ -n "$filtered_events" ]] && echo "$filtered_events" | grep -qiE "([A-Z][a-z]{2} [A-Z][a-z]{2} [0-9]{1,2})"; then
+      events="$filtered_events"
+    elif [[ -n "$filtered_events" ]] && echo "$original_events" | grep -qiE "([A-Z][a-z]{2} [A-Z][a-z]{2} [0-9]{1,2})"; then
+      # Filtering returned something but it doesn't look like events
+      # Use original events as fallback
+      events="$original_events"
     else
-      # If we can't normalize dates properly, still try to filter with what we have
-      # This handles cases where dates are in relative format that gcalcli understands
-      # but we can't convert to YYYY-MM-DD
-      if [[ "$normalized_start" != "today" ]] || [[ "$normalized_end" != "tomorrow" ]]; then
-        # For non-default dates, try to filter even if dates aren't perfect YYYY-MM-DD
-        # The filter function will handle this gracefully
-        local filtered_events
-        filtered_events=$(filter_events_by_date "$events" "$normalized_start" "$normalized_end" 2>/dev/null || echo "$events")
-        
-        # Safety check: if filtering removed everything but we had events, use original
-        if [[ "$has_events_before_filter" == "true" ]] && \
-           [[ -z "$filtered_events" ]] || ! echo "$filtered_events" | grep -qiE "([A-Z][a-z]{2} [A-Z][a-z]{2}|[0-9]{1,2}:[0-9]{2})"; then
-          events="$original_events"
-        else
-          events="$filtered_events"
-        fi
-      fi
+      # Filtering failed or returned empty - use original
+      events="$original_events"
     fi
   fi
   
@@ -799,15 +834,32 @@ get_office365_events() {
 # View calendar (all configured calendars)
 view_calendar() {
   local days="${1:-7}"
+  local start_date="today"
   local end_date=""
   
-  if [[ "$(uname)" == "Darwin" ]]; then
-    end_date=$($DATE_CMD -v+${days}d +"%Y-%m-%d" 2>/dev/null || echo "")
+  # Handle "today" as a special case
+  if [[ "$days" == "today" ]]; then
+    days=1
+    start_date="today"
+    end_date="today"
   else
-    end_date=$($DATE_CMD -d "+${days} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    # Ensure days is numeric
+    if [[ ! "$days" =~ ^[0-9]+$ ]]; then
+      days=7
+    fi
+    
+    if [[ "$(uname)" == "Darwin" ]]; then
+      end_date=$($DATE_CMD -v+${days}d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      end_date=$($DATE_CMD -d "+${days} days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
   fi
   
-  echo "📅 Calendar View (Next $days days)"
+  if [[ "$start_date" == "today" && "$end_date" == "today" ]]; then
+    echo "📅 Calendar View (Today)"
+  else
+    echo "📅 Calendar View (Next $days days)"
+  fi
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
@@ -861,39 +913,16 @@ view_calendar() {
     echo ""
     
     # Fetch and display events for Google calendars
+    # Always use get_google_events which includes proper date range filtering
+    # (gcalcli sometimes returns events outside the requested date range)
     if check_gcalcli; then
       local events
       local error_output
       error_output=$(mktemp)
       
-      # Try calling gcalcli directly first with today and end_date in YYYY-MM-DD format
-      # gcalcli agenda works with: today, tomorrow, or YYYY-MM-DD dates
-      # Using YYYY-MM-DD for end_date should work fine
-      local start_date_str="today"
-      local end_date_str="$end_date"
-      
-      # Try direct gcalcli call with timeout (10 seconds) to prevent hanging
-      if command -v timeout &>/dev/null; then
-        events=$(timeout 10 gcalcli --calendar "$cal_name" agenda "$start_date_str" "$end_date_str" 2>"$error_output")
-        local exit_code=$?
-        # timeout returns 124 if command timed out
-        if [[ $exit_code -eq 124 ]]; then
-          echo "timeout" > "$error_output"
-          exit_code=1
-        fi
-      else
-        # Fallback: use gcalcli directly (may hang on some systems)
-        events=$(gcalcli --calendar "$cal_name" agenda "$start_date_str" "$end_date_str" 2>"$error_output")
-        local exit_code=$?
-      fi
-      
-      # If that didn't work or returned nothing, try via get_google_events which has more error handling
-      if [[ $exit_code -ne 0 ]] || [[ -z "$events" ]] || [[ "$events" == *"No Events Found"* ]]; then
-        # Clear error output and try via get_google_events
-        > "$error_output"
-        events=$(get_google_events "today" "$end_date" "$cal_name" 2>"$error_output")
-        exit_code=$?
-      fi
+      # Use get_google_events which handles date filtering properly
+      events=$(get_google_events "$start_date" "$end_date" "$cal_name" 2>"$error_output")
+      local exit_code=$?
       
       # Check for actual errors
       if [[ -s "$error_output" ]] || [[ $exit_code -ne 0 ]]; then
@@ -929,12 +958,18 @@ view_calendar() {
             echo "   💡 Update your calendar config to use an existing calendar name."
             echo ""
           else
-            # Generic error
-            local error_line=$(echo "$error_content" | grep -E "Error:|Exception:" | head -1 | sed 's/^[[:space:]]*//')
-            if [[ -n "$error_line" ]]; then
+            # Generic error - extract first meaningful error line
+            # Skip lines that are just code snippets (like "except ValueError:")
+            local error_line=$(echo "$error_content" | grep -E "^Error:|^Exception:|^SyntaxError:|^Traceback|^File " | head -1 | sed 's/^[[:space:]]*//' | sed 's/^File.*$//' | grep -v "^except " | grep -v "^[[:space:]]*$" | head -1)
+            if [[ -n "$error_line" ]] && [[ "$error_line" =~ (Error|Exception|SyntaxError|Traceback) ]]; then
               echo "  ⚠️  Error: ${error_line:0:100}"
             else
               echo "  ⚠️  Error accessing calendar (exit code: $exit_code)"
+              # Show first non-empty line of error for debugging
+              local first_error_line=$(echo "$error_content" | grep -v "^[[:space:]]*$" | grep -v "^except " | head -1 | sed 's/^[[:space:]]*//' | cut -c1-80)
+              if [[ -n "$first_error_line" ]] && [[ "$first_error_line" != *"except "* ]]; then
+                echo "   ($first_error_line)"
+              fi
             fi
             echo ""
             echo "   💡 Try: gtd-calendar authenticate (wizard menu option 12)"
