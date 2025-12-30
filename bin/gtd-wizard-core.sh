@@ -1703,8 +1703,40 @@ configure_mode_directories() {
   gtd_quick_pause
 }
 
+# Check if we're in a non-interactive environment (e.g., running tests)
+# Returns 0 (true) if interactive, 1 (false) if non-interactive
+is_interactive() {
+  # Check for explicit non-interactive flags first
+  if [[ -n "${CI:-}" ]] || [[ -n "${TEST_MODE:-}" ]] || [[ -n "${NON_INTERACTIVE:-}" ]] || [[ -n "${BATS_TEST_FILENAME:-}" ]]; then
+    return 1  # Non-interactive
+  fi
+  
+  # Check if any BASH_SOURCE contains "test" (we're being sourced/called from a test file)
+  local i=0
+  while [[ $i -lt ${#BASH_SOURCE[@]} ]]; do
+    if [[ -n "${BASH_SOURCE[$i]:-}" ]] && [[ "${BASH_SOURCE[$i]}" =~ /test.*\.sh$ ]] || [[ "${BASH_SOURCE[$i]}" =~ test_ ]]; then
+      return 1  # Non-interactive (sourced from test file)
+    fi
+    ((i++))
+  done
+  
+  # Check if stdin is a TTY (terminal)
+  # This catches most non-interactive scenarios (pipes, redirects, etc.)
+  if [[ -t 0 ]]; then
+    return 0  # Interactive
+  else
+    return 1  # Non-interactive (no TTY)
+  fi
+}
+
 # Test execution wizard
 test_execution_wizard() {
+  # Check if non-interactive (e.g., running in tests) - exit early
+  if ! is_interactive; then
+    echo "Skipping interactive wizard in non-interactive mode"
+    return 0
+  fi
+  
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1730,13 +1762,29 @@ test_execution_wizard() {
   echo -e "  ${GREEN}10)${NC} Test tool registry"
   echo -e "  ${GREEN}11)${NC} Test LM Studio helper"
   echo ""
+  echo -e "${BOLD}${CYAN}Vectorization Tests (split by memory usage):${NC}"
+  echo -e "  ${GREEN}13)${NC} Test vectorization basics (no dependencies)"
+  echo -e "  ${GREEN}14)${NC} Test vectorization config (lightweight)"
+  echo -e "  ${GREEN}15)${NC} Test vectorization database (memory-intensive)"
+  echo ""
   echo -e "${BOLD}${CYAN}All Tests:${NC}"
   echo -e "  ${GREEN}12)${NC} Run complete test suite (all bash + Python)"
   echo ""
   echo -e "  ${YELLOW}0)${NC} Back to Main Menu"
   echo ""
   echo -n "Choose: "
-  read choice
+  # Use timeout on read to prevent hanging in non-interactive environments
+  if ! is_interactive; then
+    echo ""
+    echo "Non-interactive mode detected, exiting..."
+    return 0
+  fi
+  read choice || {
+    # If read fails (EOF, broken pipe, etc.), exit gracefully
+    echo ""
+    echo "Input read failed, exiting..."
+    return 0
+  }
   
   # Get test directory
   local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1751,7 +1799,15 @@ test_execution_wizard() {
       echo -e "${CYAN}Running all bash tests...${NC}"
       echo ""
       if [[ -f "$tests_dir/run_tests.sh" ]]; then
-        bash "$tests_dir/run_tests.sh" 2>&1 | grep -E "(test_|Running:|Test|PASS|FAIL|Summary)" || bash "$tests_dir/run_tests.sh"
+        # Run tests but don't exit on failure - allow wizard to continue
+        set +e  # Don't exit on error
+        (bash "$tests_dir/run_tests.sh" 2>&1 | grep -E "(test_|Running:|Test|PASS|FAIL|Summary)") || bash "$tests_dir/run_tests.sh"
+        local test_exit_code=$?
+        set -e  # Re-enable exit on error
+        if [[ $test_exit_code -ne 0 ]]; then
+          echo ""
+          echo -e "${YELLOW}Note: Some tests failed, but continuing wizard...${NC}"
+        fi
       else
         echo -e "${RED}Test runner not found: $tests_dir/run_tests.sh${NC}"
       fi
@@ -1884,9 +1940,74 @@ test_execution_wizard() {
       echo -e "${CYAN}Running complete test suite...${NC}"
       echo ""
       if [[ -f "$tests_dir/run_tests.sh" ]]; then
+        # Run tests but don't exit on failure - allow wizard to continue
+        set +e  # Don't exit on error
         bash "$tests_dir/run_tests.sh"
+        local test_exit_code=$?
+        set -e  # Re-enable exit on error
+        if [[ $test_exit_code -ne 0 ]]; then
+          echo ""
+          echo -e "${YELLOW}Note: Some tests failed, but continuing wizard...${NC}"
+        fi
       else
         echo -e "${RED}Test runner not found: $tests_dir/run_tests.sh${NC}"
+      fi
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    13)
+      echo ""
+      echo -e "${CYAN}Testing vectorization basics (no dependencies)...${NC}"
+      echo ""
+      if [[ -f "$tests_dir/test_gtd_vectorization_basic.py" ]]; then
+        set +e  # Don't exit on error
+        python3 "$tests_dir/test_gtd_vectorization_basic.py" -v 2>&1
+        local test_exit_code=$?
+        set -e  # Re-enable exit on error
+        if [[ $test_exit_code -ne 0 ]]; then
+          echo ""
+          echo -e "${YELLOW}Note: Some tests failed, but continuing wizard...${NC}"
+        fi
+      else
+        echo -e "${RED}Test file not found: $tests_dir/test_gtd_vectorization_basic.py${NC}"
+      fi
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    14)
+      echo ""
+      echo -e "${CYAN}Testing vectorization config (lightweight)...${NC}"
+      echo ""
+      if [[ -f "$tests_dir/test_gtd_vectorization_config.py" ]]; then
+        set +e  # Don't exit on error
+        python3 "$tests_dir/test_gtd_vectorization_config.py" -v 2>&1
+        local test_exit_code=$?
+        set -e  # Re-enable exit on error
+        if [[ $test_exit_code -ne 0 ]]; then
+          echo ""
+          echo -e "${YELLOW}Note: Some tests failed, but continuing wizard...${NC}"
+        fi
+      else
+        echo -e "${RED}Test file not found: $tests_dir/test_gtd_vectorization_config.py${NC}"
+      fi
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    15)
+      echo ""
+      echo -e "${CYAN}Testing vectorization database (memory-intensive)...${NC}"
+      echo ""
+      if [[ -f "$tests_dir/test_gtd_vectorization_db.py" ]]; then
+        set +e  # Don't exit on error
+        python3 "$tests_dir/test_gtd_vectorization_db.py" -v 2>&1
+        local test_exit_code=$?
+        set -e  # Re-enable exit on error
+        if [[ $test_exit_code -ne 0 ]]; then
+          echo ""
+          echo -e "${YELLOW}Note: Some tests failed, but continuing wizard...${NC}"
+        fi
+      else
+        echo -e "${RED}Test file not found: $tests_dir/test_gtd_vectorization_db.py${NC}"
       fi
       echo ""
       gtd_enter_to_continue
@@ -1980,6 +2101,48 @@ show_process_reminders() {
   echo -e "  ${GREEN}18)${NC} Manage habits - Track daily/weekly habits"
   echo -e "  ${GREEN}8)${NC} Manage MOCs - When organizing knowledge"
   echo -e "  ${GREEN}9)${NC} Express Phase - When creating from notes"
+  
+  # Web Interface Hint
+  check_web_service_status_reminder() {
+    local web_running=false
+    local web_installed=false
+    
+    # Check if backend API is accessible (quick check with 1 second timeout)
+    if command -v curl &>/dev/null; then
+      if curl -s --max-time 1 http://localhost:8000/api/health >/dev/null 2>&1; then
+        web_running=true
+      fi
+    fi
+    
+    # Check if service is installed
+    if [[ "$(uname)" == "Darwin" ]]; then
+      if [[ -f "${HOME}/Library/LaunchAgents/com.gtd.wizard-api.plist" ]]; then
+        web_installed=true
+      fi
+    else
+      if [[ -f "/etc/systemd/system/gtd-wizard-api.service" ]]; then
+        web_installed=true
+      fi
+    fi
+    
+    # Show hint based on status (only if running or installed)
+    if [[ "$web_running" == "true" ]]; then
+      echo ""
+      echo -e "${BOLD}🌐 Web Interface:${NC}"
+      echo -e "  ${GREEN}✓ Running${NC} → http://localhost:8000 (or http://localhost if nginx configured)"
+      echo -e "  ${CYAN}💡${NC} Access the web UI in your browser for a modern interface"
+    elif [[ "$web_installed" == "true" ]]; then
+      echo ""
+      echo -e "${BOLD}🌐 Web Interface:${NC}"
+      echo -e "  ${YELLOW}⚠ Installed but not running${NC} → Start via ${BOLD}27${NC} → ${BOLD}16${NC}"
+    fi
+  }
+  
+  # Add web service hint (with error handling)
+  set +e
+  check_web_service_status_reminder 2>/dev/null || true
+  set -e
+  
   echo ""
   echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
@@ -2405,50 +2568,71 @@ show_dashboard() {
   echo -e "  ${CYAN}📊${NC} Full status → ${BOLD}17${NC}" 2>/dev/null || echo "  📊 Full status → 17"
   
   # Favorited Items Section - use cache if available
+  # Use timeout to prevent blocking if these operations are slow
   if [[ "$cache_used" != "true" ]]; then
     favorited_tasks=()
     favorited_projects=()
     # Get favorited tasks (limit to 3 for display)
     if declare -f get_favorited_tasks &>/dev/null; then
       local task_count=0
-      while IFS= read -r task_file && [[ $task_count -lt 3 ]]; do
-        [[ -n "$task_file" ]] && favorited_tasks+=("$task_file") && ((task_count++))
-      done < <(get_favorited_tasks 2>/dev/null)
+      if command -v timeout &>/dev/null; then
+        while IFS= read -r task_file && [[ $task_count -lt 3 ]]; do
+          [[ -n "$task_file" ]] && favorited_tasks+=("$task_file") && ((task_count++))
+        done < <(timeout 2 get_favorited_tasks 2>/dev/null || true)
+      else
+        while IFS= read -r task_file && [[ $task_count -lt 3 ]]; do
+          [[ -n "$task_file" ]] && favorited_tasks+=("$task_file") && ((task_count++))
+        done < <(get_favorited_tasks 2>/dev/null || true)
+      fi
     fi
     
     # Get favorited projects (limit to 2 for display)
     if declare -f get_favorited_projects &>/dev/null; then
       local project_count=0
-      while IFS= read -r project_dir && [[ $project_count -lt 2 ]]; do
-        [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir") && ((project_count++))
-      done < <(get_favorited_projects 2>/dev/null)
+      if command -v timeout &>/dev/null; then
+        while IFS= read -r project_dir && [[ $project_count -lt 2 ]]; do
+          [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir") && ((project_count++))
+        done < <(timeout 2 get_favorited_projects 2>/dev/null || true)
+      else
+        while IFS= read -r project_dir && [[ $project_count -lt 2 ]]; do
+          [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir") && ((project_count++))
+        done < <(get_favorited_projects 2>/dev/null || true)
+      fi
     fi
   fi
   
   # Display favorited items with quick access numbers
-  if [[ ${#favorited_tasks[@]} -gt 0 ]] || [[ ${#favorited_projects[@]} -gt 0 ]]; then
+  # Use safe array access to avoid unbound variable errors
+  local favorited_tasks_count=${#favorited_tasks[@]:-0}
+  local favorited_projects_count=${#favorited_projects[@]:-0}
+  if [[ $favorited_tasks_count -gt 0 ]] || [[ $favorited_projects_count -gt 0 ]]; then
     echo ""
     echo -e "  ${BOLD}${YELLOW}⭐ Favorited Items${NC}" 2>/dev/null || echo "  ⭐ Favorited Items"
     
     # Show favorited tasks (up to 3, matching main menu)
     local task_index=0
-    for task_file in "${favorited_tasks[@]}"; do
-      [[ ! -f "$task_file" ]] && continue
+    # Safely iterate over array (handle empty arrays)
+    if [[ $favorited_tasks_count -gt 0 ]]; then
+      for task_file in "${favorited_tasks[@]}"; do
+        [[ ! -f "$task_file" ]] && continue
       local task_name=$(head -20 "$task_file" 2>/dev/null | grep "^# " | head -1 | sed 's/^# //' || basename "$task_file" .md)
       if [[ ${#task_name} -gt 35 ]]; then
         task_name="${task_name:0:32}..."
       fi
       local menu_num=$((900 + task_index))  # Start at 900 to avoid conflicts and allow growth
       echo -e "    ${GREEN}${menu_num})${NC} ⭐ ${task_name}" 2>/dev/null || echo "    ${menu_num}) ⭐ ${task_name}"
-      ((task_index++))
-      if [[ $task_index -ge 3 ]]; then
-        break
-      fi
-    done
+        ((task_index++))
+        if [[ $task_index -ge 3 ]]; then
+          break
+        fi
+      done
+    fi
     
     # Show favorited projects (up to 2, matching main menu)
     local project_index=0
-    for project_dir in "${favorited_projects[@]}"; do
+    # Safely iterate over array (handle empty arrays)
+    if [[ $favorited_projects_count -gt 0 ]]; then
+      for project_dir in "${favorited_projects[@]}"; do
       [[ ! -d "$project_dir" ]] && continue
       local project_slug=$(basename "$project_dir")
       local project_readme="${project_dir}/README.md"
@@ -2473,14 +2657,404 @@ show_dashboard() {
       if [[ ${#project_name} -gt 35 ]]; then
         project_name="${project_name:0:32}..."
       fi
-      local menu_num=$((903 + project_index))  # Start at 903 to avoid conflicts and allow growth
-      echo -e "    ${GREEN}${menu_num})${NC} ⭐ ${project_name}" 2>/dev/null || echo "    ${menu_num}) ⭐ ${project_name}"
-      ((project_index++))
-      if [[ $project_index -ge 2 ]]; then
-        break
-      fi
-    done
+        local menu_num=$((903 + project_index))  # Start at 903 to avoid conflicts and allow growth
+        echo -e "    ${GREEN}${menu_num})${NC} ⭐ ${project_name}" 2>/dev/null || echo "    ${menu_num}) ⭐ ${project_name}"
+        ((project_index++))
+        if [[ $project_index -ge 2 ]]; then
+          break
+        fi
+      done
+    fi
   fi
+  
+  echo ""
+  
+  # Web Interface Hint - Check if web service is running
+  check_web_service_hint() {
+    local web_status=""
+    local web_running=false
+    local web_installed=false
+    
+    # Check if backend API is accessible
+    if curl -s --max-time 1 http://localhost:8000/api/health >/dev/null 2>&1; then
+      web_running=true
+    fi
+    
+    # Check if service is installed
+    if [[ "$(uname)" == "Darwin" ]]; then
+      if [[ -f "${HOME}/Library/LaunchAgents/com.gtd.wizard-api.plist" ]]; then
+        web_installed=true
+      fi
+    else
+      if [[ -f "/etc/systemd/system/gtd-wizard-api.service" ]]; then
+        web_installed=true
+      fi
+    fi
+    
+    # Show hint based on status
+    if [[ "$web_running" == "true" ]]; then
+      echo -e "  ${GREEN}🌐${NC} Web Interface: ${GREEN}Running${NC} → http://localhost:8000" 2>/dev/null || echo "  🌐 Web Interface: Running → http://localhost:8000"
+    elif [[ "$web_installed" == "true" ]]; then
+      echo -e "  ${YELLOW}🌐${NC} Web Interface: ${YELLOW}Installed but not running${NC} → Start via ${BOLD}27${NC} → ${BOLD}16${NC}" 2>/dev/null || echo "  🌐 Web Interface: Installed but not running → Start via 27 → 16"
+    else
+      # Only show hint occasionally to avoid being annoying
+      # Show hint ~20% of the time (using seconds as random seed)
+      local seconds=$(date +%S | sed 's/^0//')
+      if [[ $((seconds % 5)) -eq 0 ]]; then
+        echo -e "  ${CYAN}💡${NC} Web Interface available → Install via ${BOLD}27${NC} → ${BOLD}16${NC}" 2>/dev/null || echo "  💡 Web Interface available → Install via 27 → 16"
+      fi
+    fi
+  }
+  
+  # Add web service hint (with error handling)
+  set +e
+  check_web_service_hint 2>/dev/null || true
+  set -e
+  
+  # Background Worker Status - Check all workers with icons (uses cache if available)
+  check_background_worker_hint() {
+    local running_count=0
+    local not_running_count=0
+    local wrong_version_count=0
+    local workers_status=()
+    local wrong_version_workers=()
+    local use_cache=false
+    
+    # Try to read from cache first
+    local cache_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/.dashboard_cache.json"
+    if [[ -f "$cache_file" ]]; then
+      local cache_age=0
+      if command -v stat &>/dev/null; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          cache_age=$(($(date +%s) - $(stat -f %m "$cache_file" 2>/dev/null || echo 0)))
+        else
+          cache_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+        fi
+      fi
+      
+      # Cache is valid if less than 30 seconds old
+      if [[ $cache_age -lt 30 ]]; then
+        # Try to read worker status from cache
+        local cache_workers=$(python3 <<PYTHON_EOF 2>/dev/null
+import json
+import sys
+try:
+    with open("$cache_file", "r") as f:
+        cache = json.load(f)
+    workers = cache.get("background_workers", {})
+    if workers:
+        workers_data = workers.get("workers", {})
+        summary = workers.get("summary", {})
+        # Output as shell-friendly format
+        for name, status_info in workers_data.items():
+            status = status_info.get("status", "stopped")
+            is_wrong = status_info.get("is_wrong_version", False)
+            print(f"{name}|{status}|{is_wrong}")
+        print(f"SUMMARY|{summary.get('running', 0)}|{summary.get('stopped', 0)}|{summary.get('wrong_version', 0)}")
+except Exception:
+    pass
+PYTHON_EOF
+        )
+        
+        if [[ -n "$cache_workers" ]]; then
+          use_cache=true
+          # Parse summary line first
+          local summary_line=$(echo "$cache_workers" | grep "^SUMMARY|")
+          if [[ -n "$summary_line" ]]; then
+            running_count=$(echo "$summary_line" | cut -d'|' -f2)
+            not_running_count=$(echo "$summary_line" | cut -d'|' -f3)
+            wrong_version_count=$(echo "$summary_line" | cut -d'|' -f4)
+          fi
+          
+          # Parse cache data (skip summary line)
+          while IFS='|' read -r name status is_wrong_str; do
+            if [[ "$name" == "SUMMARY" ]]; then
+              continue
+            fi
+            
+            # Map worker names to icons
+            local worker_icon=""
+            case "$name" in
+              "Deep Analysis") worker_icon="🔍" ;;
+              "Vector") worker_icon="📊" ;;
+              "Advice") worker_icon="💬" ;;
+              "Task Org") worker_icon="✅" ;;
+              "Badge") worker_icon="🏅" ;;
+              "Brain Sync") worker_icon="🧠" ;;
+              "Dashboard Cache") worker_icon="📈" ;;
+              *) worker_icon="⚙️" ;;
+            esac
+            
+            local status_icon=""
+            local status_color=""
+            if [[ "$status" == "running" ]]; then
+              status_icon="✅"
+              status_color="${GREEN}"
+            elif [[ "$status" == "wrong_version" ]]; then
+              status_icon="⚠️"
+              status_color="${YELLOW}"
+              wrong_version_workers+=("$name")
+            else
+              status_icon="❌"
+              status_color="${CYAN}"
+            fi
+            
+            local worker_line="${worker_icon} ${name}: ${status_color}${status_icon}${NC}"
+            workers_status+=("$worker_line")
+          done <<< "$cache_workers"
+        fi
+      fi
+    fi
+    
+    # Fallback to direct check if cache not available or invalid
+    if [[ "$use_cache" == "false" ]]; then
+      # Define all workers to check (icon, name, pattern, wrong_pattern)
+      # Format: "Icon|Display Name|process_pattern|wrong_pattern"
+      local workers=(
+        "🔍|Deep Analysis|gtd_deep_analysis_worker.py|"
+        "📊|Vector|gtd_vector_worker.py|"
+        "💬|Advice|gtd_advice_worker.py|gtd-advice-worker.*daemon"
+        "✅|Task Org|gtd_task_organize_worker.py|"
+        "🏅|Badge|gtd_badge_suggestion_worker.py|"
+        "🧠|Brain Sync|gtd_second_brain_sync_worker.py|"
+        "📈|Dashboard Cache|gtd_dashboard_cache_worker.py|"
+      )
+      
+      # Check each worker and build status display
+      for worker_info in "${workers[@]}"; do
+        # Parse worker info (bash 3.2 compatible - no <<<)
+        local worker_icon=$(echo "$worker_info" | cut -d'|' -f1)
+        local worker_name=$(echo "$worker_info" | cut -d'|' -f2)
+        local worker_pattern=$(echo "$worker_info" | cut -d'|' -f3)
+        local wrong_pattern=$(echo "$worker_info" | cut -d'|' -f4)
+        local is_running=false
+        local is_wrong_version=false
+        local status_icon=""
+        local status_color=""
+        
+        # Check for correct worker first
+        if pgrep -f "$worker_pattern" >/dev/null 2>&1; then
+          local pid=$(pgrep -f "$worker_pattern" | head -1)
+          if ps -p "$pid" >/dev/null 2>&1; then
+            is_running=true
+            running_count=$((running_count + 1))
+            status_icon="✅"
+            status_color="${GREEN}"
+          fi
+        fi
+        
+        # Check for wrong version (if pattern specified)
+        if [[ -n "$wrong_pattern" ]] && pgrep -f "$wrong_pattern" >/dev/null 2>&1; then
+          local wrong_pid=$(pgrep -f "$wrong_pattern" | head -1)
+          if ps -p "$wrong_pid" >/dev/null 2>&1; then
+            is_wrong_version=true
+            wrong_version_count=$((wrong_version_count + 1))
+            wrong_version_workers+=("$worker_name")
+            status_icon="⚠️"
+            status_color="${YELLOW}"
+          fi
+        fi
+        
+        # Set status for not running
+        if [[ "$is_running" == "false" ]] && [[ "$is_wrong_version" == "false" ]]; then
+          not_running_count=$((not_running_count + 1))
+          status_icon="❌"
+          status_color="${CYAN}"
+        fi
+        
+        # Build worker status line
+        local worker_line="${worker_icon} ${worker_name}: ${status_color}${status_icon}${NC}"
+        workers_status+=("$worker_line")
+      done
+    fi
+    
+    # Display worker statuses
+    if [[ ${#workers_status[@]} -gt 0 ]]; then
+      echo -e "  ${GREEN}⚙️${NC} Background Workers:" 2>/dev/null || echo "  ⚙️ Background Workers:"
+      for worker_line in "${workers_status[@]}"; do
+        echo -e "    $worker_line" 2>/dev/null || echo "    $worker_line"
+      done
+      
+      # Show summary if there are issues
+      if [[ $wrong_version_count -gt 0 ]] || [[ $not_running_count -gt 0 ]]; then
+        local summary_parts=()
+        if [[ $running_count -gt 0 ]]; then
+          summary_parts+=("${GREEN}${running_count} running${NC}")
+        fi
+        if [[ $wrong_version_count -gt 0 ]]; then
+          summary_parts+=("${YELLOW}${wrong_version_count} wrong version${NC}")
+        fi
+        if [[ $not_running_count -gt 0 ]]; then
+          summary_parts+=("${CYAN}${not_running_count} stopped${NC}")
+        fi
+        
+        # Join summary parts
+        local summary_text=""
+        local first_summary=1
+        for part in "${summary_parts[@]}"; do
+          if [[ $first_summary -eq 1 ]]; then
+            summary_text="$part"
+            first_summary=0
+          else
+            summary_text="$summary_text, $part"
+          fi
+        done
+        echo -e "    Summary: $summary_text" 2>/dev/null || echo "    Summary: $summary_text"
+      fi
+    else
+      # Only show hint occasionally if no workers detected at all
+      local seconds=$(date +%S | sed 's/^0//')
+      if [[ $((seconds % 5)) -eq 0 ]]; then
+        echo -e "  ${CYAN}💡${NC} Background Workers available → Check status via ${BOLD}17${NC} → ${BOLD}3${NC}" 2>/dev/null || echo "  💡 Background Workers available → Check status via 17 → 3"
+      fi
+    fi
+  }
+  
+  # Add background worker status hint (with error handling)
+  set +e
+  check_background_worker_hint 2>/dev/null || true
+  set -e
+  
+  # GCalCLI Connection Status - Check connection status (uses cache if available)
+  check_gcalcli_hint() {
+    local gcalcli_status=""
+    local gcalcli_installed=false
+    local gcalcli_connected=false
+    local gcalcli_error=""
+    local use_cache=false
+    
+    # Try to read from cache first
+    local cache_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/.dashboard_cache.json"
+    if [[ -f "$cache_file" ]]; then
+      local cache_age=0
+      if command -v stat &>/dev/null; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          cache_age=$(($(date +%s) - $(stat -f %m "$cache_file" 2>/dev/null || echo 0)))
+        else
+          cache_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+        fi
+      fi
+      
+      # Cache is valid if less than 30 seconds old
+      if [[ $cache_age -lt 30 ]]; then
+        # Try to read gcalcli status from cache
+        local cache_gcalcli=$(python3 <<PYTHON_EOF 2>/dev/null
+import json
+import sys
+try:
+    with open("$cache_file", "r") as f:
+        cache = json.load(f)
+    gcalcli = cache.get("gcalcli_status", {})
+    if gcalcli:
+        installed = gcalcli.get("installed", False)
+        connected = gcalcli.get("connected", False)
+        error = gcalcli.get("error", "")
+        print(f"{installed}|{connected}|{error}")
+except Exception:
+    pass
+PYTHON_EOF
+        )
+        
+        if [[ -n "$cache_gcalcli" ]]; then
+          use_cache=true
+          gcalcli_installed=$(echo "$cache_gcalcli" | cut -d'|' -f1)
+          gcalcli_connected=$(echo "$cache_gcalcli" | cut -d'|' -f2)
+          gcalcli_error=$(echo "$cache_gcalcli" | cut -d'|' -f3)
+        fi
+      fi
+    fi
+    
+    # Fallback to direct check if cache not available or invalid
+    if [[ "$use_cache" == "false" ]]; then
+      # Check if gcalcli is installed
+      if command -v gcalcli &>/dev/null; then
+        gcalcli_installed=true
+        
+        # Test connection with timeout (5 seconds max)
+        local test_output=""
+        if command -v timeout &>/dev/null; then
+          test_output=$(timeout 5 gcalcli list 2>&1)
+          local exit_code=$?
+        else
+          # Fallback: use gcalcli directly (may hang)
+          test_output=$(gcalcli list 2>&1)
+          local exit_code=$?
+        fi
+        
+        if [[ $exit_code -eq 0 ]] && [[ -n "$test_output" ]]; then
+          gcalcli_connected=true
+        else
+          gcalcli_connected=false
+          # Try to determine error type
+          if echo "$test_output" | grep -qi "authentication\|oauth"; then
+            gcalcli_error="not_authenticated"
+          elif echo "$test_output" | grep -qi "network\|connection"; then
+            gcalcli_error="network_error"
+          else
+            gcalcli_error="unknown_error"
+          fi
+        fi
+      else
+        gcalcli_installed=false
+        gcalcli_error="not_installed"
+      fi
+    fi
+    
+    # Display gcalcli status
+    local status_icon=""
+    local status_color=""
+    local status_text=""
+    
+    if [[ "$gcalcli_installed" == "true" ]]; then
+      if [[ "$gcalcli_connected" == "true" ]]; then
+        status_icon="✅"
+        status_color="${GREEN}"
+        status_text="Connected"
+      else
+        status_icon="⚠️"
+        status_color="${YELLOW}"
+        case "$gcalcli_error" in
+          "not_authenticated")
+            status_text="Not authenticated"
+            ;;
+          "network_error")
+            status_text="Network error"
+            ;;
+          "timeout")
+            status_text="Connection timeout"
+            ;;
+          *)
+            status_text="Connection failed"
+            ;;
+        esac
+      fi
+    else
+      status_icon="❌"
+      status_color="${CYAN}"
+      status_text="Not installed"
+    fi
+    
+    echo -e "  ${CYAN}📅${NC} GCalCLI: ${status_color}${status_icon} ${status_text}${NC}" 2>/dev/null || echo "  📅 GCalCLI: ${status_icon} ${status_text}"
+    
+    # Show hint if not connected
+    if [[ "$gcalcli_installed" == "true" ]] && [[ "$gcalcli_connected" == "false" ]]; then
+      case "$gcalcli_error" in
+        "not_authenticated")
+          echo -e "    ${YELLOW}💡${NC} Run: ${BOLD}gcalcli init${NC} to authenticate" 2>/dev/null || echo "    💡 Run: gcalcli init to authenticate"
+          ;;
+        "network_error"|"timeout")
+          echo -e "    ${YELLOW}💡${NC} Check network connection" 2>/dev/null || echo "    💡 Check network connection"
+          ;;
+      esac
+    elif [[ "$gcalcli_installed" == "false" ]]; then
+      echo -e "    ${CYAN}💡${NC} Install with: ${BOLD}brew install gcalcli${NC}" 2>/dev/null || echo "    💡 Install with: brew install gcalcli"
+    fi
+  }
+  
+  # Add gcalcli status hint (with error handling)
+  set +e
+  check_gcalcli_hint 2>/dev/null || true
+  set -e
   
   echo ""
   
@@ -2493,39 +3067,126 @@ show_dashboard() {
 }
 
 # Compact dashboard - one-line status display
+# Load dashboard cache values (returns values via stdout for eval)
+get_dashboard_cache_values() {
+  local cache_file="${GTD_BASE_DIR:-$HOME/Documents/gtd}/.dashboard_cache.json"
+  local cache_age=0
+  
+  # Check if cache exists and is recent (within 60 seconds)
+  if [[ -f "$cache_file" ]]; then
+    if command -v stat &>/dev/null; then
+      # Get file modification time
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        cache_age=$(($(date +%s) - $(stat -f %m "$cache_file" 2>/dev/null || echo 0)))
+      else
+        cache_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+      fi
+    fi
+    
+    # Use cache if it's less than 60 seconds old
+    if [[ $cache_age -lt 60 ]]; then
+      # Parse JSON and output variable assignments
+      python3 2>/dev/null <<PYTHON_SCRIPT
+import json
+import sys
+import os
+
+try:
+    cache_file = "$cache_file"
+    if os.path.exists(cache_file):
+        with open(cache_file, 'r') as f:
+            cache = json.load(f)
+            
+        # Extract values and output as bash variable assignments
+        print(f"inbox_count={cache.get('inbox_count', 0)}")
+        print(f"tasks_count={cache.get('total_active_tasks', cache.get('active_tasks_count', 0) + cache.get('project_tasks_count', 0))}")
+        print(f"projects_count={cache.get('projects_count', 0)}")
+        print(f"areas_count={cache.get('areas_count', 0)}")
+        
+        # Suggestions
+        suggestions = cache.get('suggestions', {})
+        print(f"suggestions_count={suggestions.get('total', 0)}")
+        
+        # Ready for review total
+        review_counts = cache.get('ready_for_review_counts', {})
+        review_total = sum([
+            review_counts.get('inbox', 0),
+            review_counts.get('overdue', 0),
+            review_counts.get('blocked', 0),
+            review_counts.get('waiting', 0),
+            review_counts.get('stalled_projects', 0),
+            review_counts.get('ai_suggestions', 0),
+            review_counts.get('advice_results', 0),
+            review_counts.get('project_suggestions', 0),
+            review_counts.get('knowledge_org', 0)
+        ])
+        print(f"review_total={review_total}")
+        
+        sys.exit(0)
+except Exception as e:
+    sys.exit(1)
+PYTHON_SCRIPT
+      return $?
+    fi
+  fi
+  
+  return 1
+}
+
 show_compact_dashboard() {
   local current_date=$(gtd_get_today)
   local current_time=$(gtd_get_current_time)
   
-  # Get counts
-  local inbox_count=$(ls -1 "${INBOX_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  # Try to load from cache first
+  local inbox_count=0
   local tasks_count=0
-  if [[ -d "${TASKS_PATH}" ]]; then
-    tasks_count=$(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
-  fi
   local projects_count=0
-  if [[ -d "${PROJECTS_PATH}" ]]; then
-    projects_count=$(ls -1 "${PROJECTS_PATH}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
-  fi
   local areas_count=0
-  if [[ -d "${AREAS_PATH}" ]]; then
-    areas_count=$(ls -1 "${AREAS_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  local suggestions_count=0
+  local review_total=0
+  
+  # Load cache values if available
+  local cache_output
+  cache_output=$(get_dashboard_cache_values 2>/dev/null)
+  if [[ $? -eq 0 ]] && [[ -n "$cache_output" ]]; then
+    # Eval the variable assignments from cache
+    eval "$cache_output"
+  else
+    # Fallback to direct calculation if cache unavailable
+    inbox_count=$(ls -1 "${INBOX_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+    if [[ -d "${TASKS_PATH}" ]]; then
+      tasks_count=$(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    if [[ -d "${PROJECTS_PATH}" ]]; then
+      projects_count=$(ls -1 "${PROJECTS_PATH}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    if [[ -d "${AREAS_PATH}" ]]; then
+      areas_count=$(ls -1 "${AREAS_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    
+    local suggestions_dir="$HOME/Documents/gtd/suggestions"
+    if [[ -d "$suggestions_dir" ]]; then
+      while IFS= read -r suggestion_file; do
+        local status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$suggestion_file" 2>/dev/null | sed 's/.*"\([^"]*\)"/\1/')
+        if [[ "$status" == "pending" ]]; then
+          ((suggestions_count++))
+        fi
+      done < <(find "$suggestions_dir" -maxdepth 1 -name "*.json" -type f 2>/dev/null)
+    fi
   fi
   
-  # Smart Suggestions count
-  local suggestions_count=0
-  local suggestions_dir="$HOME/Documents/gtd/suggestions"
-  if [[ -d "$suggestions_dir" ]]; then
-    while IFS= read -r suggestion_file; do
-      local status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$suggestion_file" 2>/dev/null | sed 's/.*"\([^"]*\)"/\1/')
-      if [[ "$status" == "pending" ]]; then
-        ((suggestions_count++))
-      fi
-    done < <(find "$suggestions_dir" -maxdepth 1 -name "*.json" -type f 2>/dev/null)
+  # Highlight lightbulb if there are items ready for review
+  local lightbulb_icon="💡"
+  local lightbulb_color="${BOLD}"
+  if [[ ${review_total:-0} -gt 0 ]]; then
+    lightbulb_color="${BOLD}${YELLOW}"  # Yellow highlight when items need review
   fi
+  
+  # Show review_total count next to lightbulb (not suggestions_count)
+  local review_display=${review_total:-0}
   
   # One-line display
-  echo -e "${BOLD}${CYAN}🎯 GTD${NC} ${current_date} ${current_time} | ${RED}📥${NC} ${inbox_count} | ${CYAN}✅${NC} ${tasks_count} | ${CYAN}📁${NC} ${projects_count} | ${CYAN}🎯${NC} ${areas_count} | ${BOLD}💡${NC} ${suggestions_count}"
+  echo -e "${BOLD}${CYAN}🎯 GTD${NC} ${current_date} ${current_time} | ${RED}📥${NC} ${inbox_count} | ${CYAN}✅${NC} ${tasks_count} | ${CYAN}📁${NC} ${projects_count} | ${CYAN}🎯${NC} ${areas_count} | ${lightbulb_color}${lightbulb_icon}${NC} ${review_display}"
 }
 
 # Plain compact dashboard - no colors (for tmux status bar)
@@ -2533,35 +3194,55 @@ show_plain_dashboard() {
   local current_date=$(gtd_get_today)
   local current_time=$(gtd_get_current_time)
   
-  # Get counts
-  local inbox_count=$(ls -1 "${INBOX_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  # Try to load from cache first
+  local inbox_count=0
   local tasks_count=0
-  if [[ -d "${TASKS_PATH}" ]]; then
-    tasks_count=$(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
-  fi
   local projects_count=0
-  if [[ -d "${PROJECTS_PATH}" ]]; then
-    projects_count=$(ls -1 "${PROJECTS_PATH}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
-  fi
   local areas_count=0
-  if [[ -d "${AREAS_PATH}" ]]; then
-    areas_count=$(ls -1 "${AREAS_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  local suggestions_count=0
+  local review_total=0
+  
+  # Load cache values if available
+  local cache_output
+  cache_output=$(get_dashboard_cache_values 2>/dev/null)
+  if [[ $? -eq 0 ]] && [[ -n "$cache_output" ]]; then
+    # Eval the variable assignments from cache
+    eval "$cache_output"
+  else
+    # Fallback to direct calculation if cache unavailable
+    inbox_count=$(ls -1 "${INBOX_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+    if [[ -d "${TASKS_PATH}" ]]; then
+      tasks_count=$(find "${TASKS_PATH}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    if [[ -d "${PROJECTS_PATH}" ]]; then
+      projects_count=$(ls -1 "${PROJECTS_PATH}"/*/README.md 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    if [[ -d "${AREAS_PATH}" ]]; then
+      areas_count=$(ls -1 "${AREAS_PATH}"/*.md 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    
+    local suggestions_dir="$HOME/Documents/gtd/suggestions"
+    if [[ -d "$suggestions_dir" ]]; then
+      while IFS= read -r suggestion_file; do
+        local status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$suggestion_file" 2>/dev/null | sed 's/.*"\([^"]*\)"/\1/')
+        if [[ "$status" == "pending" ]]; then
+          ((suggestions_count++))
+        fi
+      done < <(find "$suggestions_dir" -maxdepth 1 -name "*.json" -type f 2>/dev/null)
+    fi
   fi
   
-  # Smart Suggestions count
-  local suggestions_count=0
-  local suggestions_dir="$HOME/Documents/gtd/suggestions"
-  if [[ -d "$suggestions_dir" ]]; then
-    while IFS= read -r suggestion_file; do
-      local status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$suggestion_file" 2>/dev/null | sed 's/.*"\([^"]*\)"/\1/')
-      if [[ "$status" == "pending" ]]; then
-        ((suggestions_count++))
-      fi
-    done < <(find "$suggestions_dir" -maxdepth 1 -name "*.json" -type f 2>/dev/null)
+  # Highlight lightbulb if there are items ready for review (use ! for emphasis in plain mode)
+  local lightbulb_icon="💡"
+  if [[ ${review_total:-0} -gt 0 ]]; then
+    lightbulb_icon="💡!"  # Add exclamation for emphasis in plain mode
   fi
+  
+  # Show review_total count next to lightbulb (not suggestions_count)
+  local review_display=${review_total:-0}
   
   # One-line display WITHOUT colors
-  echo "🎯 GTD ${current_date} ${current_time} | 📥 ${inbox_count} | ✅ ${tasks_count} | 📁 ${projects_count} | 🎯 ${areas_count} | 💡 ${suggestions_count}"
+  echo "🎯 GTD ${current_date} ${current_time} | 📥 ${inbox_count} | ✅ ${tasks_count} | 📁 ${projects_count} | 🎯 ${areas_count} | ${lightbulb_icon} ${review_display}"
 }
 
 # Show earned badges
@@ -2871,18 +3552,79 @@ external_ollama_controller_wizard() {
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${BOLD}${CYAN}🤖 Ollama Controller Configuration${NC}"
+  echo -e "${BOLD}${CYAN}🤖 Ollama Controller Management Wizard${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   
-  echo "This wizard will help you configure Ollama to use Kubernetes NodePort."
+  local ollama_wizard_dir="$HOME/code/external_services/ollama_controller"
+  
+  # Check if external wizard exists (similar to RabbitMQ pattern)
+  if [[ -d "$ollama_wizard_dir" ]] && [[ -f "$ollama_wizard_dir/Makefile" ]]; then
+    # Check if Makefile has a 'wizard' target
+    if grep -q "^wizard:" "$ollama_wizard_dir/Makefile" 2>/dev/null || grep -q "^wizard:" "$ollama_wizard_dir/Makefile" 2>/dev/null; then
+      echo "Entering Ollama Controller Management Wizard..."
+      echo "  (You can exit this wizard to return to the GTD wizard)"
+      echo ""
+      gtd_quick_pause
+      
+      # Change to the Ollama Controller wizard directory and run make wizard
+      # This will run in a subshell, so when it exits, we return here
+      (
+        cd "$ollama_wizard_dir" || exit 1
+        if [[ -f "Makefile" ]]; then
+          make wizard
+        else
+          gtd_feedback error "Makefile not found in $ollama_wizard_dir"
+          gtd_quick_pause
+        fi
+      )
+      
+      # When the external wizard exits, we return to the main wizard
+      echo ""
+      echo "Returning to GTD Wizard..."
+      gtd_quick_pause
+      return 0
+    fi
+  fi
+  
+  # Fallback to inline wizard if external wizard not available
+  echo "This wizard will help you configure Ollama Controller to use Kubernetes NodePort."
   echo ""
+  
+  # Check if Ollama Controller is deployed
+  local controller_deployed=false
+  if kubectl get deployment ollama-controller-api -n ollama-controller &>/dev/null 2>&1; then
+    local replicas=$(kubectl get deployment ollama-controller-api -n ollama-controller -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    local desired=$(kubectl get deployment ollama-controller-api -n ollama-controller -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    if [[ "$replicas" -gt 0 ]] && [[ "$replicas" == "$desired" ]]; then
+      controller_deployed=true
+    fi
+  fi
+  
+  # Check if endpoint is responding
+  local endpoint_working=false
+  if curl -s --max-time 3 "http://127.0.0.1:31080/v1/models" >/dev/null 2>&1; then
+    endpoint_working=true
+  fi
+  
   echo "What would you like to do?"
   echo ""
-  echo "  1) 🔧 Configure Ollama Kubernetes Connection"
-  echo "  2) 📋 Show Connection Information"
-  echo "  3) 🔌 Verify NodePort Service"
-  echo "  4) 🧪 Test Ollama Connection"
+  if [[ "$controller_deployed" == "true" ]] && [[ "$endpoint_working" == "true" ]]; then
+    echo -e "  ${GREEN}✅ Ollama Controller is deployed and responding${NC}"
+    echo ""
+  elif [[ "$controller_deployed" == "true" ]]; then
+    echo -e "  ${YELLOW}⚠️  Ollama Controller is deployed but endpoint not responding${NC}"
+    echo ""
+  else
+    echo -e "  ${RED}❌ Ollama Controller is not deployed${NC}"
+    echo ""
+  fi
+  
+  echo "  1) 🚀 Deploy/Enable Ollama Controller"
+  echo "  2) 🔧 Configure Ollama Kubernetes Connection"
+  echo "  3) 📋 Show Connection Information"
+  echo "  4) 🔌 Verify NodePort Service"
+  echo "  5) 🧪 Test Ollama Connection"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -2891,6 +3633,140 @@ external_ollama_controller_wizard() {
   
   case "$ollama_choice" in
     1)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}🚀 Deploy/Enable Ollama Controller${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      
+      local ollama_dir="$HOME/code/external_services/ollama_controller"
+      if [[ ! -d "$ollama_dir" ]]; then
+        echo -e "${RED}❌ Ollama Controller repository not found${NC}"
+        echo ""
+        echo "Expected location: $ollama_dir"
+        echo ""
+        echo "To download the repository:"
+        echo "  mkdir -p ~/code/external_services"
+        echo "  cd ~/code/external_services"
+        echo "  git clone git@github.com:the-great-abby/llm_proxy.git ollama_controller"
+        echo ""
+        gtd_enter_to_continue
+        return 1
+      fi
+      
+      cd "$ollama_dir" || return 1
+      
+      # Check if already deployed
+      if kubectl get deployment ollama-controller-api -n ollama-controller &>/dev/null 2>&1; then
+        local replicas=$(kubectl get deployment ollama-controller-api -n ollama-controller -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+        local desired=$(kubectl get deployment ollama-controller-api -n ollama-controller -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+        
+        if [[ "$replicas" -gt 0 ]] && [[ "$replicas" == "$desired" ]]; then
+          echo -e "${GREEN}✅ Ollama Controller is already deployed and running${NC}"
+          echo ""
+          echo "Replicas: $replicas/$desired"
+          echo ""
+          echo "Would you like to:"
+          echo "  1) Redeploy (rebuild and restart)"
+          echo "  2) Just restart the API"
+          echo "  3) Check status only"
+          echo ""
+          echo -n "Choose (1-3): "
+          read redeploy_choice
+          
+          case "$redeploy_choice" in
+            1)
+              echo ""
+              echo "Redeploying Ollama Controller..."
+              if make k8s-deploy 2>&1; then
+                echo ""
+                echo -e "${GREEN}✓ Redeployment initiated${NC}"
+                echo ""
+                echo "Waiting for deployment to be ready..."
+                if kubectl wait --for=condition=ready pod -l app=ollama-controller-api -n ollama-controller --timeout=120s 2>/dev/null; then
+                  echo -e "${GREEN}✓ Ollama Controller is ready!${NC}"
+                else
+                  echo -e "${YELLOW}⚠️  Still starting up...${NC}"
+                fi
+              else
+                echo -e "${RED}❌ Redeployment failed${NC}"
+              fi
+              ;;
+            2)
+              echo ""
+              echo "Restarting API deployment..."
+              kubectl rollout restart deployment ollama-controller-api -n ollama-controller
+              echo "Waiting for restart..."
+              kubectl rollout status deployment ollama-controller-api -n ollama-controller --timeout=120s 2>/dev/null || true
+              echo -e "${GREEN}✓ Restart complete${NC}"
+              ;;
+            3)
+              echo ""
+              echo "Current status:"
+              kubectl get pods -n ollama-controller -l app=ollama-controller-api
+              ;;
+          esac
+        else
+          echo -e "${YELLOW}⚠️  Ollama Controller is deployed but not fully ready${NC}"
+          echo "Replicas: $replicas/$desired"
+          echo ""
+          echo "Would you like to redeploy? (y/N): "
+          read confirm
+          if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+            echo ""
+            echo "Redeploying..."
+            make k8s-deploy 2>&1
+          fi
+        fi
+      else
+        echo "Ollama Controller is not deployed."
+        echo ""
+        echo "This will:"
+        echo "  • Build Docker images"
+        echo "  • Deploy to Kubernetes"
+        echo "  • Configure NodePort service (port 31080)"
+        echo ""
+        echo -n "Deploy now? (y/N): "
+        read confirm
+        
+        if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+          echo ""
+          echo "Deploying Ollama Controller..."
+          if make k8s-deploy 2>&1; then
+            echo ""
+            echo -e "${GREEN}✓ Deployment initiated${NC}"
+            echo ""
+            echo "Waiting for Ollama Controller to be ready (this may take 30-60 seconds)..."
+            if kubectl wait --for=condition=ready pod -l app=ollama-controller-api -n ollama-controller --timeout=120s 2>/dev/null; then
+              echo -e "${GREEN}✓ Ollama Controller is ready!${NC}"
+              echo ""
+              echo "Connection information:"
+              make connection-info 2>/dev/null || echo "  Run 'make connection-info' for details"
+            else
+              echo -e "${YELLOW}⚠️  Ollama Controller is still starting up${NC}"
+              echo "You can check status with: kubectl get pods -n ollama-controller"
+            fi
+          else
+            echo -e "${RED}❌ Deployment failed${NC}"
+            echo "You can try manually: cd ~/code/external_services/ollama_controller && make k8s-deploy"
+          fi
+        fi
+      fi
+      
+      echo ""
+      # Test endpoint
+      echo "Testing endpoint..."
+      sleep 2
+      if curl -s --max-time 5 "http://127.0.0.1:31080/v1/models" >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ Endpoint is responding!${NC}"
+      else
+        echo -e "${YELLOW}⚠️  Endpoint not responding yet (may need a moment)${NC}"
+        echo "Test manually: curl http://127.0.0.1:31080/v1/models"
+      fi
+      
+      gtd_enter_to_continue
+      ;;
+    2)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}🔧 Configure Ollama Kubernetes Connection${NC}"
@@ -2908,7 +3784,7 @@ external_ollama_controller_wizard() {
       
       gtd_enter_to_continue
       ;;
-    2)
+    3)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}📋 Ollama Connection Information${NC}"
@@ -2936,7 +3812,7 @@ external_ollama_controller_wizard() {
       
       gtd_enter_to_continue
       ;;
-    3)
+    4)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}🔌 Verify Ollama NodePort Service${NC}"
@@ -2954,7 +3830,7 @@ external_ollama_controller_wizard() {
       
       gtd_enter_to_continue
       ;;
-    4)
+    5)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}🧪 Test Ollama Connection${NC}"
@@ -3204,19 +4080,32 @@ PYTHON_EOF
   fi
   
   # Fallback to live calculation if cache not available or stale
+  # Use timeout to prevent blocking if these operations are slow
   if [[ "$cache_used" != "true" ]]; then
     # Check if function exists before calling
     if declare -f get_favorited_tasks &>/dev/null; then
-      while IFS= read -r task_file; do
-        [[ -n "$task_file" ]] && favorited_tasks+=("$task_file")
-      done < <(get_favorited_tasks 2>/dev/null)
+      if command -v timeout &>/dev/null; then
+        while IFS= read -r task_file; do
+          [[ -n "$task_file" ]] && favorited_tasks+=("$task_file")
+        done < <(timeout 2 get_favorited_tasks 2>/dev/null || true)
+      else
+        while IFS= read -r task_file; do
+          [[ -n "$task_file" ]] && favorited_tasks+=("$task_file")
+        done < <(get_favorited_tasks 2>/dev/null || true)
+      fi
     fi
     
     # Check if function exists before calling
     if declare -f get_favorited_projects &>/dev/null; then
-      while IFS= read -r project_dir; do
-        [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir")
-      done < <(get_favorited_projects 2>/dev/null)
+      if command -v timeout &>/dev/null; then
+        while IFS= read -r project_dir; do
+          [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir")
+        done < <(timeout 2 get_favorited_projects 2>/dev/null || true)
+      else
+        while IFS= read -r project_dir; do
+          [[ -n "$project_dir" ]] && favorited_projects+=("$project_dir")
+        done < <(get_favorited_projects 2>/dev/null || true)
+      fi
     fi
   fi
   
@@ -3375,19 +4264,54 @@ PYTHON_EOF
   
   # Show dashboard (command center) at the bottom
   # Wrap in comprehensive error handling to prevent wizard from crashing
+  # Use timeout to prevent blocking if dashboard cache processing is slow
   set +e  # Don't exit on errors
-  # Run dashboard with error isolation - if it fails, show fallback
-  show_dashboard 2>/dev/null || {
-    # Fallback: show minimal status if dashboard fails
+  
+  # Run dashboard with timeout using background process (functions can't use timeout command directly)
+  local dashboard_output=$(mktemp)
+  local dashboard_pid
+  (
+    show_dashboard 2>/dev/null > "$dashboard_output" 2>&1
+  ) &
+  dashboard_pid=$!
+  
+  # Wait up to 3 seconds for dashboard to complete (30 iterations of 0.1s = 3s)
+  local waited=0
+  while [[ $waited -lt 30 ]] && kill -0 "$dashboard_pid" 2>/dev/null; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  
+  # If still running, kill it
+  if kill -0 "$dashboard_pid" 2>/dev/null; then
+    kill "$dashboard_pid" 2>/dev/null || true
+    wait "$dashboard_pid" 2>/dev/null || true
+    # Show fallback if timed out
     echo ""
     echo "🎯 GTD Command Center"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo "⚠️  Status display unavailable"
+    echo "⚠️  Status display unavailable (timeout)"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-  }
+  else
+    # Dashboard completed - show output
+    cat "$dashboard_output" 2>/dev/null || {
+      # Fallback if output file doesn't exist or can't be read
+      echo ""
+      echo "🎯 GTD Command Center"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "⚠️  Status display unavailable"
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+    }
+  fi
+  
+  # Cleanup
+  rm -f "$dashboard_output" 2>/dev/null || true
   set -e  # Re-enable error handling
   
   echo -n "Choose: "
@@ -3395,6 +4319,12 @@ PYTHON_EOF
 
 # Main function - entry point for the wizard
 main() {
+  # Check if non-interactive (e.g., running in tests) - exit early
+  if ! is_interactive; then
+    echo "GTD Wizard requires an interactive terminal. Skipping in non-interactive mode."
+    return 0
+  fi
+  
   # Set up signal handlers to prevent crashes
   trap 'echo ""; echo "Exiting wizard..."; exit 0' INT TERM
   trap 'echo ""; echo "Error in wizard. Exiting..."; exit 1' ERR
@@ -3439,6 +4369,13 @@ main() {
     
     # Read user choice - use simple read without timeout to avoid issues
     # The timeout might be causing problems in some environments
+    # Check if still interactive before reading (in case stdin was closed)
+    if ! is_interactive; then
+      echo ""
+      echo "Exiting (non-interactive mode detected)..."
+      exit 0
+    fi
+    
     local choice=""
     set +e  # Don't exit if read fails
     # Flush any pending output before reading

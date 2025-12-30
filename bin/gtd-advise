@@ -374,22 +374,8 @@ get_progress_analysis() {
   
   # Get summary with timeout (5 seconds max) - don't block for too long
   # Progress analysis can be slow if it uses AI, so we timeout to avoid blocking
-  # On macOS, timeout might not be available, so we use a background process with kill
   local summary=""
-  if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
-    # Use timeout if available (Linux) or gtimeout (macOS with GNU coreutils)
-    local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
-    summary=$($timeout_cmd 5 $progress_python "$progress_analyzer" summary "$days" 2>/dev/null || echo "")
-  else
-    # Fallback: run in background and kill after 5 seconds
-    local temp_file=$(mktemp)
-    ($progress_python "$progress_analyzer" summary "$days" > "$temp_file" 2>/dev/null) &
-    local pid=$!
-    (sleep 5 && kill $pid 2>/dev/null) &
-    wait $pid 2>/dev/null || true
-    summary=$(cat "$temp_file" 2>/dev/null || echo "")
-    rm -f "$temp_file"
-  fi
+  summary=$(run_with_timeout 5 $progress_python "$progress_analyzer" summary "$days" 2>/dev/null || echo "")
   
   if [[ -n "$summary" ]]; then
     echo ""
@@ -794,6 +780,17 @@ advise_single() {
     shift
   fi
   
+  # Check for --priority flag (set request priority)
+  if [[ "$1" == "--priority" ]]; then
+    shift
+    if [[ -z "$1" ]]; then
+      echo "Error: --priority requires a value (e.g., --priority 30)" >&2
+      exit 1
+    fi
+    export GTD_REQUEST_PRIORITY="$1"
+    shift
+  fi
+  
   local content="$*"
   local use_daily_log=false
   local date_range="today"
@@ -928,6 +925,12 @@ advise_single() {
           content=$(printf "Here's my current status for context:\n%s\n\n%s" "$context_parts" "$content")
         fi
       fi
+  fi
+  
+  # Stop the preparation timer before doing MOC searches (they're slower)
+  if [[ -n "$prep_timer_pid" ]]; then
+    stop_thinking_timer "$prep_timer_pid" 2>/dev/null || true
+    prep_timer_pid=""
   fi
   
   # Check if question mentions a MOC or topic that might have session notes
@@ -1107,12 +1110,16 @@ advise_single() {
     # Use thinking timer for AI API calls (may take > 2 seconds)
     # Short label to avoid line wrapping issues
     local persona_name=$(show_persona_info "$persona" | cut -d' ' -f1-2)
+    # Print initial message before starting timer (so it shows even if command fails early)
+    echo "💬 Getting advice from $persona_name..." >&2
     run_with_thinking_timer "Getting advice from $persona_name" \
       "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content" "" "$flags"
   else
     # Use thinking timer for AI API calls (may take > 2 seconds)
     # Short label to avoid line wrapping issues
     local persona_name=$(show_persona_info "$persona" | cut -d' ' -f1-2)
+    # Print initial message before starting timer (so it shows even if command fails early)
+    echo "💬 Getting advice from $persona_name..." >&2
     run_with_thinking_timer "Getting advice from $persona_name" \
       "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content"
   fi
@@ -1339,9 +1346,15 @@ advise_review() {
 
 # Random persona with intelligent selection based on content
 advise_random() {
-  local content="$*"
+  local preview_content="$1"  # Content to use for keyword matching (may be truncated)
+  local full_content="$2"     # Full content to use for actual advice
   
-  if [[ -z "$content" ]]; then
+  # Handle backward compatibility - if only one arg or no args, collect all args
+  if [[ -z "$preview_content" && $# -gt 0 ]]; then
+    # Old style: all args are content
+    preview_content="$*"
+    full_content="$*"
+  elif [[ -z "$preview_content" ]]; then
     if [[ -t 0 ]]; then
       echo "Enter your question (press Ctrl+D when done):"
       content=$(cat)
@@ -1400,6 +1413,7 @@ advise_random() {
   
   # Score each persona based on keyword matches (simulated associative arrays)
   # persona_scores and persona_match_counts will be initialized as needed
+  echo "🔍 Analyzing content to select best persona..." >&2
   local max_score=0
   local best_personas=()
   
@@ -1417,16 +1431,20 @@ advise_random() {
   fi
   
   # Score fitness coaches first (they have priority for fitness topics)
+  echo "🔍 Checking fitness coaches..." >&2
   local fitness_coaches=("goggins" "dean" "bioneer")
+  # Limit keyword matching to first 2000 chars to avoid hanging on large content
+  local search_content="${preview_content:0:2000}"
   for persona in "${fitness_coaches[@]}"; do
     local score=0
     local match_count=0
     # Count actual keyword matches for confidence scoring
     local matches_output=""
+    local keywords="$(_get_array_value "persona_keywords" "$persona")"
     if [[ "$use_rg" == true ]]; then
-      matches_output=$(echo "$content" | "$search_cmd" -oiE "$(_get_array_value "persona_keywords" "$persona")" 2>/dev/null)
+      matches_output=$(echo "$search_content" | "$search_cmd" -oiE "$keywords" 2>/dev/null | head -20)
     else
-      matches_output=$(echo "$content" | "$search_cmd" -oiE "$(_get_array_value "persona_keywords" "$persona")" 2>/dev/null)
+      matches_output=$(echo "$search_content" | "$search_cmd" -oiE "$keywords" 2>/dev/null | head -20)
     fi
     if [[ -n "$matches_output" ]]; then
       match_count=$(echo "$matches_output" | wc -l | tr -d ' ')
@@ -1448,16 +1466,19 @@ advise_random() {
   done
   
   # Score other personas
+  echo "🔍 Checking other personas..." >&2
   local other_personas=("hank" "david" "cal" "james" "marie" "warren" "sheryl" "tim" "george" "john" "jon" "bob" "fred" "louiza" "spiderman" "ironman" "squirrelgirl" "harley" "deadpool" "rogue" "esther" "gottman" "gary" "brene" "romance" "kelsey" "kent" "charity" "rich" "sandy" "spongebob")
+  # Use same search_content (first 2000 chars) for all personas
   for persona in "${other_personas[@]}"; do
     local score=0
     local match_count=0
     # Count actual keyword matches
     local matches_output=""
+    local keywords="$(_get_array_value "persona_keywords" "$persona")"
     if [[ "$use_rg" == true ]]; then
-      matches_output=$(echo "$content" | "$search_cmd" -oiE "$(_get_array_value "persona_keywords" "$persona")" 2>/dev/null)
+      matches_output=$(echo "$search_content" | "$search_cmd" -oiE "$keywords" 2>/dev/null | head -20)
     else
-      matches_output=$(echo "$content" | "$search_cmd" -oiE "$(_get_array_value "persona_keywords" "$persona")" 2>/dev/null)
+      matches_output=$(echo "$search_content" | "$search_cmd" -oiE "$keywords" 2>/dev/null | head -20)
     fi
     if [[ -n "$matches_output" ]]; then
       match_count=$(echo "$matches_output" | wc -l | tr -d ' ')
@@ -1525,8 +1546,13 @@ advise_random() {
     selected_persona="${general_personas[$random_index]}"
   fi
   
-  echo "Randomly selected: $selected_persona"
-  advise_single "$selected_persona" "$content"
+  if [[ -z "$selected_persona" ]]; then
+    echo "❌ Error: No persona selected" >&2
+    return 1
+  fi
+  
+  echo "✅ Randomly selected: $selected_persona" >&2
+  advise_single "$selected_persona" "$full_content"
 }
 
 # Main
@@ -1556,8 +1582,10 @@ main() {
       shift
       local date_range="${1:-today}"
       # Get daily log(s) and review with random persona (single response)
+      echo "📋 Loading daily log..." >&2
       local log_content=$(get_daily_log_content "$date_range")
-      if [[ $? -eq 0 ]]; then
+      local log_exit_code=$?
+      if [[ $log_exit_code -eq 0 ]]; then
         # Filter log content for advice (remove EMOM sections, keep first 5 and last 10 lines)
         log_content=$(filter_log_for_advice "$log_content")
         local range_desc="today's"
@@ -1567,11 +1595,20 @@ main() {
           all) range_desc="all my" ;;
           *) range_desc="$date_range's" ;;
         esac
-        local content=$(printf "Review my %s daily log(s) and provide advice:\n\n%s" "$range_desc" "$log_content")
-        # Use random persona selection (intelligently selects based on content)
-        advise_random "$content"
+        # Create full content for advice
+        local full_content=$(printf "Review my %s daily log(s) and provide advice:\n\n%s" "$range_desc" "$log_content")
+        # Limit content size for persona selection (keep it reasonable for keyword matching)
+        local log_preview="${log_content:0:5000}"  # Use first 5000 chars for persona selection
+        local preview_content=$(printf "Review my %s daily log(s) and provide advice:\n\n%s" "$range_desc" "$log_preview")
+        # Use random persona selection (intelligently selects based on content preview)
+        echo "📋 Preparing daily log review..." >&2
+        # Pass full content as second arg so advise_random can use it after persona selection
+        advise_random "$preview_content" "$full_content"
       else
-        echo "❌ Could not load daily log"
+        echo "❌ Could not load daily log" >&2
+        if [[ -n "$log_content" ]]; then
+          echo "Error: $log_content" >&2
+        fi
         exit 1
       fi
       ;;
@@ -1582,9 +1619,22 @@ main() {
     --background|--queue|-b)
       shift
       # Queue advice request for background processing
+      local priority="${GTD_REQUEST_PRIORITY:-20}"  # Default priority 20 for background
+      
+      # Check if priority is specified as next argument
+      if [[ "$1" == "--priority" ]]; then
+        shift
+        if [[ -z "$1" ]]; then
+          echo "Error: --priority requires a value (e.g., --priority 30)" >&2
+          exit 1
+        fi
+        priority="$1"
+        shift
+      fi
+      
       if [[ $# -eq 0 ]]; then
-        echo "Usage: gtd-advise --background <persona> \"your question\""
-        echo "   Or: gtd-advise --queue <persona> \"your question\""
+        echo "Usage: gtd-advise --background [--priority <n>] <persona> \"your question\""
+        echo "   Or: gtd-advise --queue [--priority <n>] <persona> \"your question\""
         exit 1
       fi
       
@@ -1597,7 +1647,7 @@ main() {
           echo "Enter your question (press Ctrl+D when done):"
           question=$(cat)
         else
-          echo "Usage: gtd-advise --background <persona> \"your question\""
+          echo "Usage: gtd-advise --background [--priority <n>] <persona> \"your question\""
           exit 1
         fi
       fi
@@ -1605,8 +1655,8 @@ main() {
       if [[ " ${PERSONAS[@]} " =~ " ${persona} " ]]; then
         if declare -f queue_advice_request &>/dev/null; then
           echo ""
-          echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
-          local request_id=$(queue_advice_request "$persona" "$question" "normal" "false")
+          echo -e "${CYAN}📤 Queuing advice request for background processing (priority: $priority)...${NC}"
+          local request_id=$(queue_advice_request "$persona" "$question" "normal" "false" "" "$priority")
           echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
           echo ""
           echo "💡 The advice will be processed in the background with full context from your session notes."
@@ -1659,6 +1709,8 @@ main() {
       echo "  --random, -R                  Get advice from random persona"
       echo "  --simple, -s                  Ask a simple factual question (no GTD context)"
       echo "  --background, --queue, -b     Queue request for background processing (includes context)"
+      echo "  --priority <n>                Set request priority (higher = higher priority, default: 20)"
+      echo "                                Use 30+ for foreground/interactive, 20 for background (default)"
       echo "  <persona>                     Get advice from specific persona"
       echo ""
       echo "Personas:"

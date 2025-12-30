@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gtd.wizard-api</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>%VENV_PYTHON%</string>
+        <string>%GTD_BASE%/web/backend/main.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>%GTD_BASE%/web/backend</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/gtd-wizard-api.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gtd-wizard-api.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:%GTD_BASE%/bin</string>
+    </dict>
+</dict>
+</plist>
+

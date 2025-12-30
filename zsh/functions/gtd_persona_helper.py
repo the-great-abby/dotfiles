@@ -13,6 +13,19 @@ import urllib.error
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+# Import AI helpers for async response handling
+try:
+    from gtd_ai_helpers import handle_ai_response, poll_async_response
+    AI_HELPERS_AVAILABLE = True
+except ImportError:
+    AI_HELPERS_AVAILABLE = False
+    def handle_ai_response(result, base_url, max_poll_time=60.0, poll_interval=0.5):
+        # Fallback: return result as-is if helpers not available
+        return (result, None)
+    def poll_async_response(request_id, base_url, max_poll_time=60.0, poll_interval=0.5, timeout=5.0):
+        # Fallback: not available
+        return (None, "AI helpers not available")
+
 # Persona definitions
 # Note: max_tokens is now controlled by config (MAX_TOKENS setting)
 # Personas can override if needed, but default to config value
@@ -1025,6 +1038,9 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
     else:
         system_prompt = persona["system_prompt"]
     
+    # Add instruction to sign response with persona name
+    system_prompt += f"\n\nIMPORTANT: Always sign your response with your name ({persona['name']}) at the end. For example, end with \"— {persona['name']}\" or \"- {persona['name']}\" or similar. This helps the user know who is providing the advice."
+    
     if user_name:
         # CRITICAL: Make it absolutely clear who the user is and that other names in content are NOT the user
         system_prompt += f"\n\nCRITICAL: You are speaking to {user_name} (the person whose log/journal this is). ALWAYS address them as {user_name}. If the content mentions other people's names (like colleagues, friends, or recipients), those are OTHER PEOPLE - do NOT confuse them with {user_name}. {user_name} is the person writing the log, not anyone mentioned in it. Always use {user_name}'s name when addressing them directly."
@@ -1343,20 +1359,12 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
             response_data = response.read()
             result = json.loads(response_data.decode('utf-8'))
             
-            # Check if this is an async/queued response from Ollama Controller
+            # Handle async/queued responses from Ollama Controller
             if result.get('status') == 'queued' and result.get('request_id'):
-                # This is an async response - poll for completion
                 request_id = result['request_id']
                 base_url = config["url"].replace("/v1/chat/completions", "")
-                # Use OpenAI-compatible status endpoint
-                status_url = f"{base_url}/v1/chat/completions/{request_id}"
                 
-                # Poll for completion (max 60 seconds, check every 0.5 seconds)
-                import time
-                max_poll_time = 60
-                poll_interval = 0.5
-                start_poll_time = time.time()
-                
+                # Log async request
                 try:
                     log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
                     with open(log_file, "a", encoding="utf-8") as f:
@@ -1364,65 +1372,38 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
                 except Exception:
                     pass
                 
-                while time.time() - start_poll_time < max_poll_time:
-                    time.sleep(poll_interval)
-                    try:
-                        status_req = urllib.request.Request(status_url)
-                        with urllib.request.urlopen(status_req, timeout=5) as status_response:
-                            status_data = json.loads(status_response.read().decode('utf-8'))
-                            
-                            # Check if request is completed (has choices)
-                            if 'choices' in status_data and len(status_data.get('choices', [])) > 0:
-                                # Request completed - use the OpenAI format response directly
-                                result = status_data
-                                break
-                            elif 'error' in status_data:
-                                error_msg = status_data['error'].get('message', 'Request failed')
-                                return (f"⚠️  Request failed: {error_msg}", 1)
-                            # If still queued/processing, continue polling
-                    except urllib.error.HTTPError as e:
-                        if e.code == 400:
-                            # Request not completed yet (400 = "request_not_completed")
-                            # Read the error to check status
-                            try:
-                                error_data = json.loads(e.read().decode('utf-8'))
-                                error_detail = error_data.get('detail', {})
-                                if isinstance(error_detail, dict):
-                                    status = error_detail.get('status', 'unknown')
-                                    if status in ['failed', 'error']:
-                                        error_msg = error_detail.get('error', {}).get('message', 'Request failed')
-                                        return (f"⚠️  Request failed: {error_msg}", 1)
-                                    # Otherwise continue polling (queued/processing)
-                            except Exception:
-                                pass
-                            continue
-                        elif e.code == 404:
-                            # Request not found yet, continue polling
-                            continue
-                        else:
-                            # Other HTTP error - log but continue
-                            try:
-                                log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
-                                with open(log_file, "a", encoding="utf-8") as f:
-                                    f.write(f"  -> HTTP {e.code} while polling, continuing...\n")
-                            except Exception:
-                                pass
-                            continue
-                    except urllib.error.URLError:
-                        # Continue polling on connection errors
-                        continue
-                    except Exception as e:
-                        # Log but continue polling
-                        try:
-                            log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
-                            with open(log_file, "a", encoding="utf-8") as f:
-                                f.write(f"  -> Polling error: {e}\n")
-                        except Exception:
-                            pass
-                        continue
+                # For interactive persona requests, we need to wait for the response
+                # Use reasonable timeout for interactive use (5 minutes) - long enough for 
+                # most requests but not so long that users think it's hung
+                # Users can use background mode for very long requests
+                max_poll_time = 300.0  # 5 minutes for interactive requests (was 60 minutes)
+                poll_interval = 2.0  # Check every 2 seconds
+                
+                # Print progress message so user knows it's working
+                # Use newline to ensure it shows up (timer might overwrite single line)
+                print(f"\n⏳ Request queued (ID: {request_id[:8]}...), waiting for response...", file=sys.stderr, flush=True)
+                
+                polled_result, poll_error = poll_async_response(
+                    request_id, base_url, max_poll_time=max_poll_time, poll_interval=poll_interval, timeout=5.0
+                )
+                
+                if poll_error:
+                    return (f"⚠️  {poll_error}\n\nTip: For very long requests, use background mode with 'gtd-advise --background <persona> \"question\"'", 1)
+                
+                if polled_result:
+                    # Verify the polled result has the expected structure
+                    if 'choices' in polled_result and len(polled_result.get('choices', [])) > 0:
+                        result = polled_result
+                    elif 'error' in polled_result:
+                        error_msg = polled_result['error'].get('message', 'Unknown error')
+                        return (f"⚠️  Error: {error_msg}", 1)
+                    else:
+                        # Polled result doesn't have choices or error - unexpected state
+                        return (f"⚠️  Error: Received incomplete response from AI service. The request may still be processing.\n\nTip: For very long requests, use background mode with 'gtd-advise --background <persona> \"question\"'", 1)
                 else:
-                    # Timeout
-                    return (f"⚠️  Request timed out after {max_poll_time} seconds", 1)
+                    # Polling completed but no result - this shouldn't happen if poll_error is None
+                    # But handle it defensively
+                    return (f"⚠️  Error: Request completed but no response received.\n\nTip: For very long requests, use background mode with 'gtd-advise --background <persona> \"question\"'", 1)
             
             # Log full response for debugging with timing info
             log_file = Path.home() / ".gtd_logs" / "tool_calls.log"

@@ -57,9 +57,17 @@ calculate_streak() {
   local max_days_to_check=365  # Safety limit
   
   while [[ $days_checked -lt $max_days_to_check ]]; do
-    local log_file="${DAILY_LOG_DIR}/${check_date}.md"
+    # Try both .md and .txt extensions
+    local log_file=""
+    for ext in ".md" ".txt"; do
+      local test_file="${DAILY_LOG_DIR}/${check_date}${ext}"
+      if [[ -f "$test_file" ]]; then
+        log_file="$test_file"
+        break
+      fi
+    done
     
-    if [[ -f "$log_file" ]]; then
+    if [[ -n "$log_file" && -f "$log_file" ]]; then
       # Check if file has at least one entry (not just header)
       local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
       if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ $entry_count -gt 0 ]]; then
@@ -116,8 +124,8 @@ calculate_longest_streak() {
   local current_streak=0
   local today=$($DATE_CMD +"%Y-%m-%d")
   
-  # Get all log files, sorted by date (newest first)
-  local logs=($(find "$DAILY_LOG_DIR" -name "*.md" -type f | sort -r))
+  # Get all log files (.md and .txt), sorted by date (newest first)
+  local logs=($(find "$DAILY_LOG_DIR" \( -name "*.md" -o -name "*.txt" \) -type f | sort -r))
   
   for log_file in "${logs[@]}"; do
     local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
@@ -140,9 +148,17 @@ calculate_longest_streak() {
 # Get today's entry count
 get_todays_entry_count() {
   local today=$($DATE_CMD +"%Y-%m-%d")
-  local log_file="${DAILY_LOG_DIR}/${today}.md"
+  # Try both .md and .txt extensions
+  local log_file=""
+  for ext in ".md" ".txt"; do
+    local test_file="${DAILY_LOG_DIR}/${today}${ext}"
+    if [[ -f "$test_file" ]]; then
+      log_file="$test_file"
+      break
+    fi
+  done
   
-  if [[ -f "$log_file" ]]; then
+  if [[ -n "$log_file" && -f "$log_file" ]]; then
     grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0"
   else
     echo "0"
@@ -152,7 +168,7 @@ get_todays_entry_count() {
 # Get total days logged
 get_total_days_logged() {
   local count=0
-  local logs=($(find "$DAILY_LOG_DIR" -name "*.md" -type f))
+  local logs=($(find "$DAILY_LOG_DIR" \( -name "*.md" -o -name "*.txt" \) -type f))
   
   for log_file in "${logs[@]}"; do
     local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
@@ -200,8 +216,17 @@ get_weekly_stats() {
     fi
     
     if [[ -n "$check_date" ]]; then
-      local log_file="${DAILY_LOG_DIR}/${check_date}.md"
-      if [[ -f "$log_file" ]]; then
+      # Try both .md and .txt extensions
+      local log_file=""
+      for ext in ".md" ".txt"; do
+        local test_file="${DAILY_LOG_DIR}/${check_date}${ext}"
+        if [[ -f "$test_file" ]]; then
+          log_file="$test_file"
+          break
+        fi
+      done
+      
+      if [[ -n "$log_file" && -f "$log_file" ]]; then
         local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
         entry_count=${entry_count:-0}
         # Ensure entry_count is numeric

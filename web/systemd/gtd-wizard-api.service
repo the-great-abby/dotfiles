@@ -1,0 +1,18 @@
+[Unit]
+Description=GTD Wizard API
+After=network.target
+
+[Service]
+Type=simple
+User=%USER%
+WorkingDirectory=%GTD_BASE%/web/backend
+Environment="PATH=%GTD_BASE%/web/backend/venv/bin"
+ExecStart=%GTD_BASE%/web/backend/venv/bin/python main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

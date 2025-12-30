@@ -164,6 +164,33 @@
       "alwaysApply": false,
       "priority": 7,
       "categories": ["documentation", "architecture", "maintainability"]
+    },
+    {
+      "id": "ollama-controller-async",
+      "file": "ollama-controller-async.mdc",
+      "description": "Always handle async responses from Ollama Controller",
+      "filePatterns": [
+        "**/*.py",
+        "**/mcp/**",
+        "**/zsh/functions/**"
+      ],
+      "matchStrings": [
+        "urllib.request",
+        "requests.post",
+        "31080",
+        "OLLAMA_URL",
+        "DEEP_MODEL_URL",
+        "chat/completions",
+        "/v1/chat/completions",
+        "call.*ai",
+        "request.*ai",
+        "Ollama Controller",
+        "status.*queued",
+        "request_id"
+      ],
+      "alwaysApply": false,
+      "priority": 8,
+      "categories": ["python", "quality", "maintainability", "api"]
     }
   ],
   "categories": {

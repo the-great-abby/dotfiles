@@ -100,6 +100,17 @@ LM_CONFIG = read_config()
 FAST_MODEL_URL = LM_CONFIG.get("url", "http://localhost:1234/v1/chat/completions")
 FAST_MODEL_NAME = LM_CONFIG.get("chat_model", "google/gemma-3-1b")
 
+# Import AI helpers for async response handling
+try:
+    sys.path.insert(0, str(Path(__file__).parent.parent / "zsh" / "functions"))
+    from gtd_ai_helpers import handle_ai_response
+    AI_HELPERS_AVAILABLE = True
+except ImportError:
+    AI_HELPERS_AVAILABLE = False
+    def handle_ai_response(result, base_url, max_poll_time=60.0, poll_interval=0.5):
+        # Fallback: return result as-is if helpers not available
+        return (result, None)
+
 # Deep model also via LM Studio (can be same URL, different model name)
 # Read from config files first (like the worker does), then env vars, then default
 DEEP_MODEL_URL = os.getenv("GTD_DEEP_MODEL_URL", LM_CONFIG.get("url", "http://localhost:1234/v1/chat/completions"))
@@ -1458,6 +1469,17 @@ You have been provided with the context above. Use this information to provide m
             result = json.loads(response.read().decode('utf-8'))
             if 'error' in result:
                 return f"Error: {result['error'].get('message', 'Unknown error')}"
+            
+            # Handle async/queued responses from Ollama Controller
+            base_url = FAST_MODEL_URL.rsplit('/v1', 1)[0]
+            polled_result, poll_error = handle_ai_response(result, base_url, max_poll_time=timeout, poll_interval=0.5)
+            
+            if poll_error:
+                return f"Error: {poll_error}"
+            
+            if polled_result:
+                result = polled_result
+            
             if 'choices' in result and len(result['choices']) > 0:
                 content = result['choices'][0]['message']['content']
                 if not content or len(content.strip()) == 0:

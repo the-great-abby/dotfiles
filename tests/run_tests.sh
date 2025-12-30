@@ -64,9 +64,29 @@ else
 fi
 
 # Run Python test files
+# Skip memory-intensive database tests in full test suite - run them individually if needed
+SKIP_TESTS=("test_gtd_vectorization.py" "test_gtd_vectorization_db.py")
+
 for test_file in "$SCRIPT_DIR"/test_*.py; do
   if [[ -f "$test_file" ]]; then
-    echo -e "${YELLOW}Running: $(basename "$test_file")${NC}"
+    test_basename=$(basename "$test_file")
+    
+    # Skip memory-intensive tests
+    skip_test=false
+    for skip_pattern in "${SKIP_TESTS[@]}"; do
+      if [[ "$test_basename" == "$skip_pattern" ]]; then
+        skip_test=true
+        break
+      fi
+    done
+    
+    if [[ "$skip_test" == true ]]; then
+      echo -e "${YELLOW}Skipping: $test_basename${NC} (memory-intensive, run individually if needed)"
+      echo ""
+      continue
+    fi
+    
+    echo -e "${YELLOW}Running: $test_basename${NC}"
     echo -e "${GRAY}Using: $PYTHON_CMD${NC}"
     echo ""
     

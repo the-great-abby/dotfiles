@@ -31,31 +31,58 @@ DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 GTD_DAILY_REVIEW_TIME="${GTD_DAILY_REVIEW_TIME:-18:00}"  # 6:00 PM default
 GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
 
-# Use common date helpers (aliased for backward compatibility)
-alias get_date_cmd='gtd_get_date_cmd'
-alias get_current_time='gtd_get_current_time'
-alias get_today='gtd_get_today'
+# Get date command
+get_date_cmd() {
+  if [[ -x "/usr/bin/date" ]]; then
+    echo "/usr/bin/date"
+  elif [[ -x "/bin/date" ]]; then
+    echo "/bin/date"
+  else
+    echo "date"
+  fi
+}
+
+DATE_CMD=$(get_date_cmd)
+
+# Get today's date
+get_today() {
+  $DATE_CMD +"%Y-%m-%d"
+}
+
+# Get current time
+get_current_time() {
+  $DATE_CMD +"%H:%M"
+}
 
 # Get today's daily log content
 get_todays_log() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.md"
-  
-  if [[ -f "$log_file" ]]; then
-    cat "$log_file"
-    return 0
-  else
-    echo "No daily log found for today ($today)"
-    return 1
-  fi
+  # Try both .md and .txt extensions
+  for ext in ".md" ".txt"; do
+    local log_file="${DAILY_LOG_DIR}/${today}${ext}"
+    if [[ -f "$log_file" ]]; then
+      cat "$log_file"
+      return 0
+    fi
+  done
+  echo "No daily log found for today ($today)"
+  return 1
 }
 
 # Get daily log stats
 get_log_stats() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.md"
+  # Try both .md and .txt extensions
+  local log_file=""
+  for ext in ".md" ".txt"; do
+    local test_file="${DAILY_LOG_DIR}/${today}${ext}"
+    if [[ -f "$test_file" ]]; then
+      log_file="$test_file"
+      break
+    fi
+  done
   
-  if [[ ! -f "$log_file" ]]; then
+  if [[ -z "$log_file" || ! -f "$log_file" ]]; then
     echo "No log entries today"
     return
   fi
@@ -107,10 +134,18 @@ get_log_stats() {
 # Check for lack of progress (for evening)
 check_evening_progress() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.md"
+  # Try both .md and .txt extensions
+  local log_file=""
+  for ext in ".md" ".txt"; do
+    local test_file="${DAILY_LOG_DIR}/${today}${ext}"
+    if [[ -f "$test_file" ]]; then
+      log_file="$test_file"
+      break
+    fi
+  done
   
   # Check if no log exists
-  if [[ ! -f "$log_file" ]]; then
+  if [[ -z "$log_file" || ! -f "$log_file" ]]; then
     echo "no_log"
     return
   fi

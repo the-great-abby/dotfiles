@@ -1226,17 +1226,97 @@ stop_thinking_timer() {
   local timer_pid="$1"
   if [[ -n "$timer_pid" ]]; then
     # Kill the timer process and wait for it
-    kill "$timer_pid" 2>/dev/null
+    kill "$timer_pid" 2>/dev/null || true
     # Wait with timeout to avoid hanging
+    # Note: wait can return 143 (SIGTERM) when process is killed, so we ignore exit code
     (sleep 0.5; kill -9 "$timer_pid" 2>/dev/null) &
-    wait "$timer_pid" 2>/dev/null
-    kill %1 2>/dev/null  # Kill the timeout watcher
+    wait "$timer_pid" 2>/dev/null || true
+    kill %1 2>/dev/null || true  # Kill the timeout watcher
   fi
   # Clear the entire line and move cursor to beginning
   printf "\r\033[K" >&2
   echo -ne "\r\033[K" >&2
   # Also print a newline to ensure we're on a fresh line
   printf "\n" >&2
+  # Always return success to prevent scripts with set -e from exiting
+  return 0
+}
+
+# Run a command with timeout (macOS-compatible)
+# Usage:
+#   run_with_timeout 5 command arg1 arg2  # Run with 5 second timeout
+#   output=$(run_with_timeout 10 command arg1 arg2)  # Capture output
+#   exit_code=$?  # 124 = timeout, otherwise command's exit code
+# Returns: exit code (124 if timeout, otherwise command's exit code)
+# Output: command's stdout/stderr (unless redirected)
+run_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+  local command=("$@")
+  
+  if [[ -z "$timeout_seconds" || $timeout_seconds -le 0 ]]; then
+    # No timeout requested, just run the command
+    "${command[@]}"
+    return $?
+  fi
+  
+  # Try to use timeout/gtimeout if available (most reliable)
+  if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
+    local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+    $timeout_cmd "$timeout_seconds" "${command[@]}"
+    local exit_code=$?
+    # timeout returns 124 on timeout
+    return $exit_code
+  fi
+  
+  # Fallback for macOS without timeout: run in background with kill
+  local temp_file=$(mktemp)
+  local output_file="${temp_file}.out"
+  local done_file="${temp_file}.done"
+  
+  # Run command in background, write output and done marker
+  (
+    "${command[@]}" > "$output_file" 2>&1
+    echo "done" > "$done_file"
+  ) &
+  local pid=$!
+  
+  # Start killer process that will terminate after timeout
+  (
+    sleep "$timeout_seconds"
+    if [[ ! -f "$done_file" ]]; then
+      # Process still running - kill it
+      kill -TERM "$pid" 2>/dev/null || true
+      sleep 1
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  ) &
+  local killer_pid=$!
+  
+  # Wait for command to finish
+  wait "$pid" 2>/dev/null
+  local wait_exit=$?
+  
+  # Kill the killer process
+  kill "$killer_pid" 2>/dev/null || true
+  wait "$killer_pid" 2>/dev/null || true
+  
+  # Determine exit code
+  local exit_code=0
+  if [[ -f "$done_file" ]]; then
+    # Command finished normally
+    cat "$output_file" 2>/dev/null || true
+    exit_code=0
+  else
+    # Timeout occurred
+    cat "$output_file" 2>/dev/null || true
+    exit_code=124  # Standard timeout exit code
+  fi
+  
+  # Cleanup
+  rm -f "$output_file" "$done_file" 2>/dev/null || true
+  
+  return $exit_code
 }
 
 # Wrapper function to run a command with automatic thinking timer

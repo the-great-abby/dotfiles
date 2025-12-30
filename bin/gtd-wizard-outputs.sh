@@ -13,6 +13,15 @@ else
   echo "Warning: gtd-common.sh not found. Some features may not work." >&2
 fi
 
+# Source wizard tools to get robust follow-up question handling (DRY - reuse existing helpers)
+WIZARD_TOOLS="$HOME/code/dotfiles/bin/gtd-wizard-tools.sh"
+if [[ ! -f "$WIZARD_TOOLS" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh" ]]; then
+  WIZARD_TOOLS="$HOME/code/personal/dotfiles/bin/gtd-wizard-tools.sh"
+fi
+if [[ -f "$WIZARD_TOOLS" ]]; then
+  source "$WIZARD_TOOLS" 2>/dev/null || true
+fi
+
 # Load config (if load_gtd_config function exists)
 if type load_gtd_config &>/dev/null 2>&1; then
   load_gtd_config 2>/dev/null || true
@@ -518,7 +527,75 @@ discuss_analysis_with_ai() {
     
     # Display the response and capture it for context
     local ai_response_text=$(cat "$ai_output")
-    cat "$ai_output"
+    
+    # Check if we got valid advice output (even if exit code is non-zero)
+    # Use robust error handling from gtd-wizard-tools.sh
+    local has_valid_response=false
+    if type check_advice_output_valid &>/dev/null 2>&1; then
+      if check_advice_output_valid "$ai_response_text"; then
+        has_valid_response=true
+      fi
+    else
+      # Fallback if helper not available
+      if [[ -n "$ai_response_text" ]] && echo "$ai_response_text" | grep -qiE "💬.*Advice from|💬.*Answer from|━━━━━━━━━━"; then
+        has_valid_response=true
+      fi
+    fi
+    
+    # If we have valid response, show it (filter timer output)
+    if [[ "$has_valid_response" == "true" ]]; then
+      if type filter_timer_output &>/dev/null 2>&1; then
+        local filtered_response=$(filter_timer_output "$ai_response_text")
+        echo "$filtered_response"
+        ai_response_text="$filtered_response"
+      else
+        echo "$ai_response_text"
+      fi
+    elif [[ $ai_exit_code -ne 0 ]]; then
+      # Error occurred - show appropriate message
+      echo ""
+      if [[ $ai_exit_code -eq 124 ]]; then
+        echo -e "${RED}❌ Request timed out${NC}"
+        echo "The AI request took too long (>5 minutes). This might indicate a connection issue."
+      else
+        echo -e "${RED}❌ Error getting AI response${NC}"
+        echo "The AI command encountered an error (exit code: $ai_exit_code)."
+      fi
+      echo ""
+      
+      # Show error output (filtered to remove timer output)
+      if [[ -n "$ai_response_text" ]]; then
+        if type filter_error_output &>/dev/null 2>&1; then
+          local actual_errors=$(filter_error_output "$ai_response_text")
+        else
+          local actual_errors=$(echo "$ai_response_text" | grep -vE "🤔|Thinking|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|T\+[0-9:]|^[\r\b\033]|Preparing context|Getting advice" || echo "$ai_response_text")
+        fi
+        if [[ -n "$actual_errors" ]]; then
+          echo "Error output:"
+          echo "$actual_errors" | head -20 | sed 's/^/  /'
+          echo ""
+        fi
+      fi
+      
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Would you like to:"
+      echo "  1) Try asking the question again"
+      echo "  2) Continue to next question"
+      echo ""
+      read -p "Choice (1/2, default: 2): " retry_choice
+      retry_choice="${retry_choice:-2}"
+      if [[ "$retry_choice" == "1" ]]; then
+        continue  # Loop back to ask the question again
+      else
+        # Continue to next iteration (skip export options for this failed response)
+        continue
+      fi
+    else
+      # No error but also no valid response - show what we got
+      echo "$ai_response_text"
+    fi
+    
     rm -f "$ai_output"
     
     echo ""

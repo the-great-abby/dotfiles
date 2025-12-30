@@ -146,6 +146,7 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
     mode = message.get("mode", "normal")
     web_search = message.get("web_search", "false")
     thread_id = message.get("thread_id")
+    priority = message.get("priority", 20)  # Default priority 20 for background tasks
     
     if not request_id or not question:
         print(f"Error: Invalid message format - missing required fields")
@@ -254,11 +255,24 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
         # Thinking models can produce detailed responses
         max_tokens = 4000 if mode != "simple" else 2000
         
-        advice_output = call_deep_ai(
-            prompt=enhanced_prompt,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens
-        )
+        # Use longer timeout for advice requests (60 minutes) to handle queued requests
+        # Advice requests can take longer, especially when queued by Ollama Controller
+        # Set priority via environment variable for call_deep_ai
+        original_priority = os.getenv("GTD_REQUEST_PRIORITY")
+        os.environ["GTD_REQUEST_PRIORITY"] = str(priority)
+        try:
+            advice_output = call_deep_ai(
+                prompt=enhanced_prompt,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                max_poll_time=3600.0  # 60 minutes for async polling
+            )
+        finally:
+            # Restore original priority or remove if it wasn't set
+            if original_priority is not None:
+                os.environ["GTD_REQUEST_PRIORITY"] = original_priority
+            else:
+                os.environ.pop("GTD_REQUEST_PRIORITY", None)
         
         # Check if the response is an error message
         if advice_output.startswith("Error:"):
@@ -401,10 +415,10 @@ def process_rabbitmq_queue():
             params.retry_delay = 2
             params.socket_timeout = 10  # Increased from 5 to 10 seconds
             # Add heartbeat to keep connection alive during long operations
-            # For advice worker, processing can take 5-10 minutes, so use longer heartbeat
+            # For advice worker, processing can take up to 60 minutes with async queuing
             try:
-                params.heartbeat = 1800  # 30 minutes - extra long for advice processing
-                params.blocked_connection_timeout = 1800  # 30 minutes
+                params.heartbeat = 3600  # 60 minutes - extra long for advice processing
+                params.blocked_connection_timeout = 3600  # 60 minutes
             except:
                 # If heartbeat setting fails, continue without it
                 pass

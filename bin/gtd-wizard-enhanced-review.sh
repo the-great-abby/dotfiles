@@ -63,24 +63,28 @@ enhanced_review_wizard() {
     echo "  • Quick Daily: 5-10 min surface-level check"
     echo "  • Medium Weekly: 30-60 min comprehensive review"
     echo "  • Deep Monthly: 2-3 hour strategic review"
+    echo "  • Comprehensive Quarterly: 3-4 hour strategic deep-dive"
+    echo "  • Annual Yearly: 4-6 hour comprehensive annual review"
     echo ""
     echo "What would you like to do?"
     echo ""
     echo "  1) 🚀 Quick Daily Review (5-10 min)"
     echo "  2) 📅 Medium Weekly Review (30-60 min)"
     echo "  3) 🎯 Deep Monthly Review (2-3 hours)"
-    echo "  4) 📊 Comparison View (This week vs last week)"
-    echo "  5) 📝 Review Templates (Project/Energy/Goal reviews)"
-    echo "  6) 💬 View Review Summaries"
-    echo "  7) 📋 Save Review Conversation Summary"
-    echo "  8) ⚙️  Configure Review Settings"
+    echo "  4) 🔄 Comprehensive Quarterly Review (3-4 hours)"
+    echo "  5) 📆 Annual Yearly Review (4-6 hours)"
+    echo "  6) 📊 Comparison View (This week vs last week)"
+    echo "  7) 📝 Review Templates (Project/Energy/Goal reviews)"
+    echo "  8) 💬 View Review Summaries"
+    echo "  9) 📋 Save Review Conversation Summary"
+    echo "  10) ⚙️  Configure Review Settings"
     echo ""
     echo -e "${YELLOW}0)${NC} Back to Main Menu"
     echo ""
     echo -n "Choose: "
     read choice
     
-    case "$choice" in
+      case "$choice" in
       1)
         quick_daily_review
         ;;
@@ -91,18 +95,24 @@ enhanced_review_wizard() {
         deep_monthly_review
         ;;
       4)
-        comparison_view
+        deep_quarterly_review
         ;;
       5)
-        review_templates_menu
+        deep_yearly_review
         ;;
       6)
-        view_review_summaries
+        comparison_view
         ;;
       7)
-        save_review_summary
+        review_templates_menu
         ;;
       8)
+        view_review_summaries
+        ;;
+      9)
+        save_review_summary
+        ;;
+      10)
         configure_review_settings
         ;;
       0|"")
@@ -303,6 +313,109 @@ deep_monthly_review() {
   
   echo ""
         gtd_quick_pause
+}
+
+# Comprehensive Quarterly Review (3-4 hours)
+deep_quarterly_review() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🔄 Comprehensive Quarterly Review${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  echo "This is a comprehensive quarterly review (3-4 hours recommended)."
+  echo ""
+  echo "Review sections include:"
+  echo "  1) Complete system audit"
+  echo "  2) Project & area portfolio deep-dive"
+  echo "  3) Quarterly goals review"
+  echo "  4) Strategic planning for next quarter"
+  echo ""
+  
+  echo -n "Ready to begin? (y/n): "
+  read begin
+  if [[ "$begin" != "y" && "$begin" != "Y" ]]; then
+    return 0
+  fi
+  
+  echo ""
+  echo "Starting comprehensive quarterly review..."
+  echo ""
+  
+  # Run quarterly review
+  if command -v gtd-review &>/dev/null; then
+    gtd-review quarterly
+  else
+    echo "gtd-review command not found. Please install the GTD system."
+    echo ""
+        gtd_quick_pause
+    return 1
+  fi
+  
+  echo ""
+  echo "✓ Comprehensive quarterly review complete!"
+  echo ""
+  echo "Would you like to save a summary? (y/n): "
+  read save_summary
+  if [[ "$save_summary" == "y" || "$save_summary" == "Y" ]]; then
+    save_review_summary "quarterly" "Comprehensive Quarterly Review"
+  fi
+  
+  echo ""
+        gtd_enter_to_continue
+}
+
+# Annual Yearly Review (4-6 hours)
+deep_yearly_review() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}📆 Annual Yearly Review${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  echo "This is a comprehensive yearly review (4-6 hours recommended)."
+  echo "You can split this over multiple days if needed."
+  echo ""
+  echo "Review sections include:"
+  echo "  1) Comprehensive annual assessment"
+  echo "  2) Life vision review"
+  echo "  3) Set annual goals"
+  echo "  4) Plan for the year ahead"
+  echo ""
+  
+  echo -n "Ready to begin? (y/n): "
+  read begin
+  if [[ "$begin" != "y" && "$begin" != "Y" ]]; then
+    return 0
+  fi
+  
+  echo ""
+  echo "Starting annual yearly review..."
+  echo ""
+  
+  # Run yearly review
+  if command -v gtd-review &>/dev/null; then
+    gtd-review yearly
+  else
+    echo "gtd-review command not found. Please install the GTD system."
+    echo ""
+        gtd_quick_pause
+    return 1
+  fi
+  
+  echo ""
+  echo "✓ Annual yearly review complete!"
+  echo ""
+  echo "Would you like to save a summary? (y/n): "
+  read save_summary
+  if [[ "$save_summary" == "y" || "$save_summary" == "Y" ]]; then
+    save_review_summary "yearly" "Annual Yearly Review"
+  fi
+  
+  echo ""
+        gtd_enter_to_continue
 }
 
 # Comparison View: This week vs last week

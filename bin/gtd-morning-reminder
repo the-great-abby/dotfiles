@@ -73,23 +73,32 @@ get_today() {
 # Get today's daily log content (if exists)
 get_todays_log() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.md"
-  
-  if [[ -f "$log_file" ]]; then
-    cat "$log_file"
-    return 0
-  else
-    return 1
-  fi
+  # Try both .md and .txt extensions
+  for ext in ".md" ".txt"; do
+    local log_file="${DAILY_LOG_DIR}/${today}${ext}"
+    if [[ -f "$log_file" ]]; then
+      cat "$log_file"
+      return 0
+    fi
+  done
+  return 1
 }
 
 # Check for lack of progress
 check_lack_of_progress() {
   local today=$(get_today)
-  local log_file="${DAILY_LOG_DIR}/${today}.md"
+  # Try both .md and .txt extensions
+  local log_file=""
+  for ext in ".md" ".txt"; do
+    local test_file="${DAILY_LOG_DIR}/${today}${ext}"
+    if [[ -f "$test_file" ]]; then
+      log_file="$test_file"
+      break
+    fi
+  done
   
   # Check if no log exists
-  if [[ ! -f "$log_file" ]]; then
+  if [[ -z "$log_file" || ! -f "$log_file" ]]; then
     echo "no_log"
     return
   fi
@@ -230,8 +239,16 @@ get_louiza_morning_message() {
       else
         # Fallback: try to get stats manually
         local today=$(get_today)
-        local log_file="${DAILY_LOG_DIR}/${today}.md"
-        if [[ -f "$log_file" ]]; then
+        # Try both .md and .txt extensions
+        local log_file=""
+        for ext in ".md" ".txt"; do
+          local test_file="${DAILY_LOG_DIR}/${today}${ext}"
+          if [[ -f "$test_file" ]]; then
+            log_file="$test_file"
+            break
+          fi
+        done
+        if [[ -n "$log_file" && -f "$log_file" ]]; then
           local entry_count=$(grep -c "^[0-9][0-9]:[0-9][0-9] -" "$log_file" 2>/dev/null || echo "0")
           if [[ "$entry_count" == "0" ]]; then
             entry_count=$(grep -cE "^[0-9]{1,2}:[0-9]{2}[[:space:]]*-" "$log_file" 2>/dev/null || echo "0")

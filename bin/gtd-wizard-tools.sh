@@ -1,6 +1,28 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GTD Wizard Tools Functions
 # Tools wizards for advice, config, learning, integrations
+
+# Helper function to check if advice output is valid (reusable)
+# Returns 0 if valid, 1 if invalid
+check_advice_output_valid() {
+  local output="$1"
+  if [[ -n "$output" ]] && echo "$output" | grep -qiE "💬.*Advice from|💬.*Answer from|━━━━━━━━━━"; then
+    return 0  # Valid
+  fi
+  return 1  # Invalid
+}
+
+# Helper function to filter timer output from advice/error messages (reusable)
+filter_timer_output() {
+  local output="$1"
+  echo "$output" | grep -vE "🤔|Thinking|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|T\+[0-9:]|^[\r\b\033]|Preparing context|Getting advice" || echo "$output"
+}
+
+# Helper function to filter error output (reusable)
+filter_error_output() {
+  local output="$1"
+  echo "$output" | grep -vE "🤔|Thinking|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|T\+[0-9:]|^[\r\b\033]|Preparing context|Getting advice" || echo "$output"
+}
 
 # Helper function to handle follow-up questions
 handle_followup_questions() {
@@ -79,14 +101,45 @@ handle_followup_questions() {
       # Add to conversation
       conversation_questions+=("$followup_question")
       
+      # Ask if user wants to run this question in background (after question is entered)
+      echo ""
+      echo "How would you like to process this question?"
+      echo -e "${GREEN}1${NC} - Process now (foreground, priority 30)"
+      echo -e "${GREEN}2${NC} - Run in background (default priority 20)"
+      echo -e "${GREEN}3${NC} - Run in background with custom priority"
+      echo ""
+      read -p "Choice (1/2/3, default: 1): " process_choice
+      process_choice="${process_choice:-1}"
+      
+      local use_background=false
+      local request_priority=""
+      
+      if [[ "$process_choice" == "2" || "$process_choice" == "3" ]]; then
+        use_background=true
+        if [[ "$process_choice" == "3" ]]; then
+          echo ""
+          echo "Enter priority (higher = higher priority, default: 20):"
+          echo "  • 30+ = High priority (foreground/interactive)"
+          echo "  • 20 = Normal priority (background, default)"
+          echo "  • 10 = Low priority (background, can wait)"
+          echo ""
+          read -p "Priority (default: 20): " request_priority
+          request_priority="${request_priority:-20}"
+        else
+          request_priority="20"  # Default background priority
+        fi
+      else
+        request_priority="30"  # Default foreground priority
+      fi
+      
       # Check if we should queue in background or process immediately
       if [[ "$use_background" == "true" ]]; then
         # Queue in background
         echo ""
         echo -e "${CYAN}📤 Queuing follow-up question for background processing...${NC}"
         
-        # Add follow-up to thread and queue
-        local request_id=$(add_followup_to_thread "$thread_id" "$followup_question" "$persona" "${use_simple_mode:+simple}" "$use_web_search")
+        # Add follow-up to thread and queue (with priority)
+        local request_id=$(add_followup_to_thread "$thread_id" "$followup_question" "$persona" "${use_simple_mode:+simple}" "$use_web_search" "$request_priority")
         
         echo -e "${GREEN}✓ Follow-up queued (Thread: $thread_id, Request: $request_id)${NC}"
         echo ""
@@ -129,12 +182,18 @@ handle_followup_questions() {
       fi
       echo ""
       
-      # Build follow-up prompt with context
-      local followup_prompt="Context: We were discussing: ${initial_question}\n\nFollow-up question: ${followup_question}\n\nAnswer this follow-up question about the same topic. Be specific and accurate."
+      # Build follow-up prompt with context (use printf to handle newlines properly)
+      local followup_prompt=$(printf "Context: We were discussing: %s\n\nFollow-up question: %s\n\nAnswer this follow-up question about the same topic. Be specific and accurate." "${initial_question}" "${followup_question}")
       
       local followup_answer=""
       local advise_exit_code=0
       local temp_output=$(mktemp)
+      # Ensure temp file exists and is writable
+      touch "$temp_output"
+      
+      # Set priority environment variable for foreground requests
+      local original_priority="${GTD_REQUEST_PRIORITY:-}"
+      export GTD_REQUEST_PRIORITY="$request_priority"
       
       # Disable exit on error temporarily to handle gtd-advise failures gracefully
       set +e
@@ -145,26 +204,105 @@ handle_followup_questions() {
           echo "🔍 Performing web search for follow-up question..."
           echo ""
           # Use timeout to prevent hanging (5 minutes max)
-          timeout 300 gtd-advise --simple --web-search "$persona" "$search_query" > "$temp_output" 2>&1
-          advise_exit_code=$?
+          # macOS-compatible timeout handling
+          if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
+            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+            $timeout_cmd 300 gtd-advise --simple --web-search "$persona" "$search_query" > "$temp_output" 2>&1
+            advise_exit_code=$?
+          else
+            # Fallback for macOS without timeout: run in background with kill
+            gtd-advise --simple --web-search "$persona" "$search_query" > "$temp_output" 2>&1 &
+            local pid=$!
+            (sleep 300 && kill $pid 2>/dev/null) &
+            local killer_pid=$!
+            wait $pid 2>/dev/null
+            advise_exit_code=$?
+            # If process was killed (timeout), exit code is 128+signal, normalize to 124
+            if [[ $advise_exit_code -gt 128 ]]; then
+              advise_exit_code=124
+            fi
+            kill $killer_pid 2>/dev/null
+            wait $killer_pid 2>/dev/null
+          fi
         else
           # Use timeout to prevent hanging (5 minutes max)
-          timeout 300 gtd-advise --simple "$persona" "$followup_prompt" > "$temp_output" 2>&1
-          advise_exit_code=$?
+          # macOS-compatible timeout handling
+          if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
+            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+            $timeout_cmd 300 gtd-advise --simple "$persona" "$followup_prompt" > "$temp_output" 2>&1
+            advise_exit_code=$?
+          else
+            # Fallback for macOS without timeout: run in background with kill
+            gtd-advise --simple "$persona" "$followup_prompt" > "$temp_output" 2>&1 &
+            local pid=$!
+            (sleep 300 && kill $pid 2>/dev/null) &
+            local killer_pid=$!
+            wait $pid 2>/dev/null
+            advise_exit_code=$?
+            # If process was killed (timeout), exit code is 128+signal, normalize to 124
+            if [[ $advise_exit_code -gt 128 ]]; then
+              advise_exit_code=124
+            fi
+            kill $killer_pid 2>/dev/null
+            wait $killer_pid 2>/dev/null
+          fi
         fi
       else
         # Regular mode - include context from original question
         if [[ "$persona" == "random" ]]; then
           # Use timeout to prevent hanging (5 minutes max)
-          timeout 300 gtd-advise --random "$followup_prompt" > "$temp_output" 2>&1
-          advise_exit_code=$?
+          # macOS-compatible timeout handling
+          if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
+            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+            $timeout_cmd 300 gtd-advise --random "$followup_prompt" > "$temp_output" 2>&1
+            advise_exit_code=$?
+          else
+            # Fallback for macOS without timeout: run in background with kill
+            gtd-advise --random "$followup_prompt" > "$temp_output" 2>&1 &
+            local pid=$!
+            (sleep 300 && kill $pid 2>/dev/null) &
+            local killer_pid=$!
+            wait $pid 2>/dev/null
+            advise_exit_code=$?
+            # If process was killed (timeout), exit code is 128+signal, normalize to 124
+            if [[ $advise_exit_code -gt 128 ]]; then
+              advise_exit_code=124
+            fi
+            kill $killer_pid 2>/dev/null
+            wait $killer_pid 2>/dev/null
+          fi
         else
           # Use timeout to prevent hanging (5 minutes max)
-          timeout 300 gtd-advise "$persona" "$followup_prompt" > "$temp_output" 2>&1
-          advise_exit_code=$?
+          # macOS-compatible timeout handling
+          if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
+            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+            $timeout_cmd 300 gtd-advise "$persona" "$followup_prompt" > "$temp_output" 2>&1
+            advise_exit_code=$?
+          else
+            # Fallback for macOS without timeout: run in background with kill
+            gtd-advise "$persona" "$followup_prompt" > "$temp_output" 2>&1 &
+            local pid=$!
+            (sleep 300 && kill $pid 2>/dev/null) &
+            local killer_pid=$!
+            wait $pid 2>/dev/null
+            advise_exit_code=$?
+            # If process was killed (timeout), exit code is 128+signal, normalize to 124
+            if [[ $advise_exit_code -gt 128 ]]; then
+              advise_exit_code=124
+            fi
+            kill $killer_pid 2>/dev/null
+            wait $killer_pid 2>/dev/null
+          fi
         fi
       fi
       set -e
+      
+      # Restore original priority or unset if it wasn't set
+      if [[ -n "$original_priority" ]]; then
+        export GTD_REQUEST_PRIORITY="$original_priority"
+      else
+        unset GTD_REQUEST_PRIORITY
+      fi
       
       # Read output from temp file
       if [[ -f "$temp_output" ]]; then
@@ -172,7 +310,61 @@ handle_followup_questions() {
         rm -f "$temp_output"
       fi
       
-      # Check if gtd-advise failed or timed out
+      # Check if we got valid advice output (even if exit code is non-zero)
+      # Valid advice typically contains "💬 Advice from" or "━━━━━━━━━━" markers
+      local has_valid_advice=false
+      if check_advice_output_valid "$followup_answer"; then
+        has_valid_advice=true
+      fi
+      
+      # If we have valid advice, treat as success (even if exit code is non-zero)
+      # This handles cases where the command succeeds but returns a non-zero code
+      if [[ "$has_valid_advice" == "true" ]]; then
+        # Success! Show the advice (filter out timer output)
+        local filtered_answer=$(filter_timer_output "$followup_answer")
+        echo "$filtered_answer"
+        conversation_answers+=("$filtered_answer")
+        
+        # Update thread with completed answer
+        python3 <<PYTHON_EOF
+import json
+from pathlib import Path
+from datetime import datetime
+
+thread_id = """$thread_id"""
+followup_question = """$followup_question"""
+followup_answer = """$filtered_answer"""
+
+# Update thread file
+thread_file = Path("${HOME}/Documents/gtd/advice_threads/${thread_id}.json")
+if thread_file.exists():
+    with open(thread_file, 'r') as f:
+        thread = json.load(f)
+    
+    # Add this Q&A pair to thread
+    if "questions" not in thread:
+        thread["questions"] = []
+    if "answers" not in thread:
+        thread["answers"] = []
+    
+    thread["questions"].append({
+        "question": followup_question,
+        "timestamp": datetime.now().isoformat() + "Z"
+    })
+    thread["answers"].append({
+        "answer": followup_answer,
+        "timestamp": datetime.now().isoformat() + "Z",
+        "status": "completed"
+    })
+    thread["updated_at"] = datetime.now().isoformat() + "Z"
+    
+    with open(thread_file, 'w') as f:
+        json.dump(thread, f, indent=2)
+PYTHON_EOF
+        continue  # Continue to ask if they want to ask another follow-up
+      fi
+      
+      # No valid advice - check exit code and show appropriate error
       if [[ $advise_exit_code -ne 0 ]]; then
         echo ""
         if [[ $advise_exit_code -eq 124 ]]; then
@@ -183,11 +375,17 @@ handle_followup_questions() {
           echo "The advice command encountered an error (exit code: $advise_exit_code)."
         fi
         echo ""
+        
+        # Show error output (filtered to remove timer output)
         if [[ -n "$followup_answer" ]]; then
-          echo "Error output:"
-          echo "$followup_answer"
-          echo ""
+          local actual_errors=$(filter_error_output "$followup_answer")
+          if [[ -n "$actual_errors" ]]; then
+            echo "Error output:"
+            echo "$actual_errors" | head -20 | sed 's/^/  /'
+            echo ""
+          fi
         fi
+        
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
         # Ask if user wants to try again or continue
@@ -219,6 +417,7 @@ handle_followup_questions() {
         fi
       fi
       
+      # If we get here, we have output but it's not valid advice - show it anyway
       echo "$followup_answer"
       conversation_answers+=("$followup_answer")
       
@@ -346,6 +545,7 @@ add_followup_to_thread() {
   local persona="$3"
   local mode="${4:-normal}"
   local web_search="${5:-false}"
+  local priority="${6:-20}"  # Default priority 20 for background tasks
   
   THREADS_DIR="${HOME}/Documents/gtd/advice_threads"
   local thread_file="${THREADS_DIR}/${thread_id}.json"
@@ -407,11 +607,11 @@ print(context)
 PYTHON_EOF
 )
   
-  # Build prompt with full conversation context
-  local full_prompt="Context: We were discussing:\n\n${context}\n\nFollow-up question: ${followup_question}\n\nAnswer this follow-up question about the same topic. Be specific and accurate."
+  # Build prompt with full conversation context (use printf to handle newlines properly)
+  local full_prompt=$(printf "Context: We were discussing:\n\n%s\n\nFollow-up question: %s\n\nAnswer this follow-up question about the same topic. Be specific and accurate." "${context}" "${followup_question}")
   
-  # Queue with thread_id
-  queue_advice_request "$persona" "$full_prompt" "$mode" "$web_search" "$thread_id"
+  # Queue with thread_id and priority
+  queue_advice_request "$persona" "$full_prompt" "$mode" "$web_search" "$thread_id" "$priority"
 }
 
 # Helper function to update thread with completed answer
@@ -463,6 +663,7 @@ queue_advice_request() {
   local mode="${3:-normal}"
   local web_search="${4:-false}"
   local thread_id="${5:-}"
+  local priority="${6:-20}"  # Default priority 20 (NORMAL) if not provided
   
   QUEUE_FILE="${HOME}/Documents/gtd/advice_queue.jsonl"
   mkdir -p "$(dirname "$QUEUE_FILE")"
@@ -504,6 +705,7 @@ request = {
     "question": question,
     "mode": "$mode",
     "web_search": "$web_search",
+    "priority": int("$priority"),
     "created_at": datetime.now().isoformat() + "Z"
 }
 
@@ -1001,36 +1203,408 @@ advice_wizard() {
       ;;
     4)
       echo ""
-      echo "Reviewing your daily log..."
-      # Run gtd-advise - timer writes to /dev/tty (displays), advice to stdout (save to file)
-      # When done, display the saved output
-      local temp_output=$(mktemp)
-      gtd-advise --daily-log > "$temp_output"
-      local advice_output=$(cat "$temp_output")
-      rm -f "$temp_output"
+      echo -e "${BOLD}📋 Review Daily Log${NC}"
+      echo ""
+      echo "How would you like to review your daily log?"
+      echo ""
+      echo "  1) Random persona (intelligently selected based on content)"
+      echo "  2) Choose a specific persona"
+      echo "  3) All personas (get advice from everyone)"
+      echo ""
+      echo -n "Choose (default: 1): "
+      read review_mode
+      review_mode="${review_mode:-1}"
+      
+      # Source select helper if we need persona selection
+      if [[ "$review_mode" == "2" ]]; then
+        SELECT_HELPER="$HOME/code/dotfiles/bin/gtd-select-helper.sh"
+        if [[ ! -f "$SELECT_HELPER" && -f "$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh" ]]; then
+          SELECT_HELPER="$HOME/code/personal/dotfiles/bin/gtd-select-helper.sh"
+        fi
+        if [[ -f "$SELECT_HELPER" ]]; then
+          source "$SELECT_HELPER"
+        fi
+      fi
+      
+      local selected_persona=""
+      local use_all=false
+      
+      case "$review_mode" in
+        1)
+          # Random persona - use --daily-log flag
+          echo ""
+          echo "Reviewing your daily log with a randomly selected persona..."
+          
+          # First, verify the log file exists
+          local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+          local today=$(date +"%Y-%m-%d")
+          local log_file="${log_dir}/${today}.md"
+          
+          if [[ ! -f "$log_file" ]]; then
+            echo ""
+            echo "❌ Error: No daily log found for today ($today)"
+            echo ""
+            echo "Expected location: $log_file"
+            echo ""
+            echo "💡 Try:"
+            echo "  • Check if you have logged entries today: gtd-log view"
+            echo "  • Review a specific date: gtd-advise --daily-log YYYY-MM-DD"
+            echo "  • Check your daily log directory: ls -la ${log_dir}"
+            echo ""
+            gtd_enter_to_continue
+            return 1
+          fi
+          
+          # Run gtd-advise and capture both output and exit code
+          # Note: The thinking timer writes to stderr, so we need to capture everything
+          local temp_output=$(mktemp)
+          local temp_error=$(mktemp)
+          local exit_code=0
+          
+          # Run the command - capture stdout and stderr separately
+          # Set +e to prevent script from exiting on error
+          set +e
+          gtd-advise --daily-log > "$temp_output" 2> "$temp_error"
+          exit_code=$?
+          set -e
+          
+          local advice_output=$(cat "$temp_output" 2>/dev/null || echo "")
+          local error_output=$(cat "$temp_error" 2>/dev/null || echo "")
+          rm -f "$temp_output" "$temp_error"
+          
+          # Check exit code
+          if [[ $exit_code -ne 0 ]]; then
+            echo ""
+            echo "❌ Error: Could not review daily log (exit code: $exit_code)"
+            echo ""
+            
+            # Show stderr (errors and timer output)
+            if [[ -n "$error_output" ]]; then
+              # Filter out timer output (lines with spinner characters or "T+")
+              local actual_errors=$(echo "$error_output" | grep -vE "🤔|Thinking|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|T\+[0-9:]|^[\r\b\033]" || echo "$error_output")
+              if [[ -n "$actual_errors" ]]; then
+                echo "Error details:"
+                echo "$actual_errors" | head -20 | sed 's/^/  /'
+                echo ""
+              fi
+            fi
+            
+            # Show stdout (command output)
+            if [[ -n "$advice_output" ]]; then
+              echo "Output:"
+              echo "$advice_output" | head -20 | sed 's/^/  /'
+              echo ""
+            fi
+            
+            if [[ -z "$error_output" ]] && [[ -z "$advice_output" ]]; then
+              echo "  No output received from command (exit code: $exit_code)."
+              echo ""
+              echo "This usually means:"
+              echo "  • The command failed before producing any output"
+              echo "  • Python script exited with an error"
+              echo "  • AI service connection failed"
+              echo ""
+            fi
+            
+            echo "Possible issues:"
+            echo "  • AI service not responding"
+            echo "  • Network timeout"
+            echo "  • Error in persona selection or advice generation"
+            echo "  • Python helper script error"
+            echo ""
+            echo "💡 Try:"
+            echo "  • Check AI service status"
+            echo "  • Check if persona helper is accessible: ls -la $HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+            echo "  • Try running directly: gtd-advise --daily-log"
+            echo "  • Review a specific date: gtd-advise --daily-log YYYY-MM-DD"
+            echo ""
+            gtd_enter_to_continue
+            return 1
+          fi
+          
+          # Check if output is empty or contains error messages
+          if [[ -z "$advice_output" ]] || echo "$advice_output" | grep -qiE "^❌|^Error:|^error:|failed|could not|not found|Exception|Traceback"; then
+            echo ""
+            echo "❌ Error: Could not review daily log"
+            echo ""
+            if [[ -n "$advice_output" ]]; then
+              echo "Output:"
+              echo "$advice_output" | head -20 | sed 's/^/  /'
+              echo ""
+            else
+              echo "  No output received."
+              echo ""
+            fi
+            echo "💡 Try:"
+            echo "  • Check AI service status"
+            echo "  • Try again in a moment"
+            echo "  • Try running directly: gtd-advise --daily-log"
+            echo ""
+            gtd_enter_to_continue
+            return 1
+          fi
+          
+          selected_persona="random"
+          ;;
+        2)
+          # Specific persona
+          echo ""
+          selected_persona=$(select_persona)
+          if [[ -z "$selected_persona" ]]; then
+            echo "No persona selected. Cancelling review."
+            return 0
+          fi
+          
+          echo ""
+          echo "Reviewing your daily log with ${selected_persona}..."
+          
+          # Use a prompt that triggers automatic daily log loading in advise_single
+          # The advise_single function automatically detects "daily log" in the prompt
+          # and loads the log content along with habit tracker, goals, badges, and progress
+          local review_prompt="Review my daily log and provide advice. Include insights about patterns, accomplishments, areas for improvement, and suggestions for the future."
+          
+          # First, verify the log file exists (same check as random mode)
+          local log_dir="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+          local today=$(date +"%Y-%m-%d")
+          local log_file="${log_dir}/${today}.md"
+          
+          if [[ ! -f "$log_file" ]]; then
+            echo ""
+            echo "❌ Error: No daily log found for today ($today)"
+            echo ""
+            echo "Expected location: $log_file"
+            echo ""
+            echo "💡 Try:"
+            echo "  • Check if you have logged entries today: gtd-log view"
+            echo "  • Review a specific date: gtd-advise ${selected_persona} \"Review my YYYY-MM-DD daily log...\""
+            echo "  • Check your daily log directory: ls -la ${log_dir}"
+            echo ""
+            gtd_enter_to_continue
+            return 1
+          fi
+          
+          # Run gtd-advise with timeout (5 minutes max) and capture both output and exit code
+          local temp_output=$(mktemp)
+          local temp_error=$(mktemp)
+          local exit_code=0
+          
+          # Source gtd-common.sh to get run_with_timeout function
+          local GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+          if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+            GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+          fi
+          if [[ -f "$GTD_COMMON" ]]; then
+            source "$GTD_COMMON" 2>/dev/null || true
+          fi
+          
+          # Set +e to prevent script from exiting on error
+          set +e
+          
+          # Use timeout to prevent hanging (5 minutes max)
+          if command -v run_with_timeout &>/dev/null; then
+            # Use the common timeout function
+            run_with_timeout 300 gtd-advise "$selected_persona" "$review_prompt" > "$temp_output" 2> "$temp_error"
+            exit_code=$?
+          elif command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
+            # Use timeout/gtimeout if available
+            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+            $timeout_cmd 300 gtd-advise "$selected_persona" "$review_prompt" > "$temp_output" 2> "$temp_error"
+            exit_code=$?
+          else
+            # Fallback: run without timeout (may hang)
+            gtd-advise "$selected_persona" "$review_prompt" > "$temp_output" 2> "$temp_error"
+            exit_code=$?
+          fi
+          set -e
+          
+          local advice_output=$(cat "$temp_output" 2>/dev/null || echo "")
+          local error_output=$(cat "$temp_error" 2>/dev/null || echo "")
+          rm -f "$temp_output" "$temp_error"
+          
+          # Check if we got valid advice output (even if exit code is non-zero)
+          # Valid advice typically contains "💬 Advice from" or advice content
+          local has_valid_advice=false
+          if [[ -n "$advice_output" ]] && echo "$advice_output" | grep -qiE "💬.*Advice from|━━━━━━━━━━"; then
+            has_valid_advice=true
+          fi
+          
+          # If we have valid advice, treat as success (even if exit code is non-zero)
+          # This handles cases where the command succeeds but returns a non-zero code
+          if [[ "$has_valid_advice" == "true" ]]; then
+            # Success! Show the advice
+            echo ""
+            echo "$advice_output"
+            echo ""
+            gtd_enter_to_continue
+            return 0
+          fi
+          
+          # No valid advice - check exit code and show appropriate error
+          if [[ $exit_code -ne 0 ]]; then
+            echo ""
+            
+            # Check for timeout specifically
+            if [[ $exit_code -eq 124 ]]; then
+              echo "❌ Request timed out"
+              echo "The advice request took too long (>5 minutes). This might indicate a connection issue."
+              echo ""
+              
+              # But still show any output we got (might be partial advice)
+              if [[ -n "$advice_output" ]]; then
+                echo "Partial output received:"
+                echo "$advice_output"
+                echo ""
+              fi
+              
+              # Show error output (filtered)
+              if [[ -n "$error_output" ]]; then
+                local actual_errors=$(echo "$error_output" | grep -vE "🤔|Thinking|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|T\+[0-9:]|^[\r\b\033]|Preparing context|Getting advice" || echo "$error_output")
+                if [[ -n "$actual_errors" ]]; then
+                  echo "Error output:"
+                  echo "$actual_errors" | head -20 | sed 's/^/  /'
+                  echo ""
+                fi
+              fi
+            else
+              # Other error
+              echo "❌ Error: Could not get advice from ${selected_persona} (exit code: $exit_code)"
+              echo ""
+              
+              # Show error output (filter out timer output)
+              if [[ -n "$error_output" ]]; then
+                local actual_errors=$(echo "$error_output" | grep -vE "🤔|Thinking|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|T\+[0-9:]|^[\r\b\033]|Preparing context|Getting advice" || echo "$error_output")
+                if [[ -n "$actual_errors" ]]; then
+                  echo "Error details:"
+                  echo "$actual_errors" | head -20 | sed 's/^/  /'
+                  echo ""
+                fi
+              fi
+              
+              # Show output (might contain error messages)
+              if [[ -n "$advice_output" ]]; then
+                echo "Output:"
+                echo "$advice_output" | head -20 | sed 's/^/  /'
+                echo ""
+              elif [[ -z "$error_output" ]]; then
+                echo "  No output received from command."
+                echo ""
+              fi
+            fi
+            
+            echo "Possible issues:"
+            echo "  • AI service not responding or taking too long"
+            echo "  • Network timeout"
+            echo "  • Error in advice generation"
+            echo ""
+            echo "💡 Try:"
+            echo "  • Check AI service status"
+            echo "  • Try again in a moment"
+            echo "  • Try running directly: gtd-advise ${selected_persona} \"Review my daily log...\""
+            echo ""
+            gtd_enter_to_continue
+            return 1
+          fi
+          
+          # Exit code is 0 but no valid advice - check for error messages
+          if [[ -z "$advice_output" ]] || echo "$advice_output" | grep -qiE "^❌|^Error:|^error:|failed|could not|not found|Exception|Traceback"; then
+            echo ""
+            echo "❌ Error: Could not get advice from ${selected_persona}"
+            echo ""
+            if [[ -n "$advice_output" ]]; then
+              echo "Output:"
+              echo "$advice_output" | head -20 | sed 's/^/  /'
+              echo ""
+            fi
+            gtd_enter_to_continue
+            return 1
+          fi
+          
+          # Success - show the advice
+          echo ""
+          echo "$advice_output"
+          echo ""
+          ;;
+        3)
+          # All personas
+          use_all=true
+          echo ""
+          echo "Reviewing your daily log with all personas..."
+          echo "This may take a while..."
+          
+          # Use a prompt that triggers automatic daily log loading in advise_all
+          # The advise_all function automatically detects "daily log" in the prompt
+          # and loads the log content along with habit tracker, goals, badges, and progress
+          local review_prompt="Review my daily log and provide advice. Include insights about patterns, accomplishments, areas for improvement, and suggestions for the future."
+          
+          local temp_output=$(mktemp)
+          if ! gtd-advise --all "$review_prompt" > "$temp_output" 2>&1; then
+            rm -f "$temp_output"
+            echo ""
+            echo "❌ Error: Could not get advice from all personas"
+            echo ""
+            echo "Possible issues:"
+            echo "  • No daily log file found for today"
+            echo "  • Error calling AI service"
+            echo ""
+            gtd_enter_to_continue
+            return 1
+          fi
+          
+          local advice_output=$(cat "$temp_output")
+          rm -f "$temp_output"
+          selected_persona="all"
+          ;;
+        *)
+          echo "Invalid choice. Using random persona."
+          local temp_output=$(mktemp)
+          if ! gtd-advise --daily-log > "$temp_output" 2>&1; then
+            rm -f "$temp_output"
+            echo ""
+            echo "❌ Error: Could not review daily log"
+            echo ""
+            gtd_enter_to_continue
+            return 1
+          fi
+          local advice_output=$(cat "$temp_output")
+          rm -f "$temp_output"
+          selected_persona="random"
+          ;;
+      esac
+      
       echo ""
       echo "$advice_output"
       
-      # Handle follow-up questions (extract persona from output or use random)
-      # Note: advise_random prints "Randomly selected: <persona>", but for simplicity
-      # we'll use random selection for follow-ups too to maintain variety
-      local followup_persona="random"
-      handle_followup_questions "$followup_persona" "Daily log review" "$advice_output" "false" "false"
-      
-      # Save conversation if there were follow-ups, or ask to save if no follow-ups
-      if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
-        echo ""
-        echo -e "${BOLD}Save this conversation? (y/n):${NC} "
-        read save_advice
-        if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-          save_advice_conversation "Daily log review" "$followup_persona" "$FOLLOWUP_CONVERSATION"
+      # Handle follow-up questions (only for single persona reviews, not all)
+      if [[ "$use_all" != "true" ]]; then
+        handle_followup_questions "$selected_persona" "Daily log review" "$advice_output" "false" "false"
+        
+        # Save conversation if there were follow-ups, or ask to save if no follow-ups
+        if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
+          echo ""
+          echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+          read save_advice
+          if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+            save_advice_conversation "Daily log review" "$selected_persona" "$FOLLOWUP_CONVERSATION"
+          fi
+        else
+          echo ""
+          echo -e "${BOLD}Save this review? (y/n):${NC} "
+          read save_advice
+          if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
+            local persona_desc="${selected_persona}"
+            if [[ "$selected_persona" == "random" ]]; then
+              persona_desc="random persona"
+            fi
+            save_advice_conversation "Daily log review" "$persona_desc" "$advice_output"
+          fi
         fi
       else
+        # For all personas, just offer to save
         echo ""
         echo -e "${BOLD}Save this review? (y/n):${NC} "
         read save_advice
         if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-          save_advice_conversation "Daily log review" "random persona" "$advice_output"
+          save_advice_conversation "Daily log review" "all personas" "$advice_output"
         fi
       fi
       ;;
@@ -1263,7 +1837,21 @@ advice_wizard() {
         saved_answer=$(cat "$answer_file")
         echo "$saved_answer"
       else
-        echo "Answer file not found: $answer_file"
+        # Fallback: try to read answer from JSON file (RabbitMQ worker stores it there)
+        local json_status=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+        saved_answer=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('answer', ''))" 2>/dev/null || echo "")
+        
+        if [[ -n "$saved_answer" ]]; then
+          echo -e "${BOLD}Answer:${NC}"
+          echo ""
+          echo "$saved_answer"
+        elif [[ "$json_status" == "error" ]]; then
+          local error_msg=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('error', 'Unknown error'))" 2>/dev/null || echo "Unknown error")
+          echo -e "${RED}Error:${NC} $error_msg"
+        else
+          echo "Answer file not found: $answer_file"
+          echo "Note: The answer may not have been generated yet, or the worker may have encountered an error."
+        fi
       fi
       
       echo ""
@@ -1314,7 +1902,12 @@ advice_wizard() {
         local saved_persona="$persona"
         local answer_to_save="$saved_answer"
         if [[ -z "$answer_to_save" ]]; then
-          [[ -f "$answer_file" ]] && answer_to_save=$(cat "$answer_file")
+          if [[ -f "$answer_file" ]]; then
+            answer_to_save=$(cat "$answer_file")
+          else
+            # Fallback: try to read answer from JSON file
+            answer_to_save=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('answer', ''))" 2>/dev/null || echo "")
+          fi
         fi
         if [[ -n "$answer_to_save" ]]; then
           # If we have a conversation, save that; otherwise save the original answer
@@ -2051,9 +2644,10 @@ config_wizard() {
   echo "  13) 🚀 Deploy External Services (RabbitMQ, Database)"
   echo "  14) 👷 Manage Background Workers (Start/Stop/Restart)"
   echo "  15) ☸️  Switch Kubernetes Context (Docker Desktop ↔ Rancher Desktop)"
+  echo "  16) 🌐 Manage Web Interface Service (Install/Start/Stop/Uninstall)"
   echo ""
   echo -e "${BOLD}${GREEN}Guided Setup:${NC}"
-  echo "  16) 🚀 Complete Guided Setup (Walk through entire setup process)"
+  echo "  17) 🚀 Complete Guided Setup (Walk through entire setup process)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -4892,6 +5486,10 @@ except:
       gtd_enter_to_continue
       ;;
     16)
+      # Manage Web Interface Service
+      manage_web_service
+      ;;
+    17)
       guided_setup_wizard
       ;;
     0|"")
@@ -4904,6 +5502,423 @@ except:
   
   echo ""
   gtd_quick_pause
+}
+
+# Manage Web Interface Service (systemd)
+manage_web_service() {
+  clear
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}🌐 Manage Web Interface Service${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  # Find GTD base directory
+  GTD_BASE="${HOME}/code/dotfiles"
+  if [[ ! -d "$GTD_BASE" ]]; then
+    GTD_BASE="${HOME}/code/personal/dotfiles"
+  fi
+  
+  if [[ ! -d "$GTD_BASE" ]]; then
+    echo -e "${RED}❌ GTD base directory not found${NC}"
+    echo "Expected: ${HOME}/code/dotfiles or ${HOME}/code/personal/dotfiles"
+    echo ""
+    gtd_quick_pause
+    return 1
+  fi
+  
+  # Detect OS and set service management variables
+  IS_MACOS=false
+  if [[ "$(uname)" == "Darwin" ]]; then
+    IS_MACOS=true
+    PLIST_LABEL="com.gtd.wizard-api"
+    PLIST_FILE="${HOME}/Library/LaunchAgents/${PLIST_LABEL}.plist"
+    DEPLOY_SCRIPT="${GTD_BASE}/web/deploy-launchd.sh"
+  else
+    SERVICE_NAME="gtd-wizard-api"
+    SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+    DEPLOY_SCRIPT="${GTD_BASE}/web/deploy-systemd.sh"
+    
+    # Check if systemd is available
+    if ! command -v systemctl &>/dev/null; then
+      echo -e "${RED}❌ systemctl not found${NC}"
+      echo ""
+      echo "This feature requires systemd (Linux) or launchd (macOS)."
+      echo ""
+      gtd_quick_pause
+      return 1
+    fi
+  fi
+  
+  # Check if launchd is available on macOS
+  if [[ "$IS_MACOS" == "true" ]] && ! command -v launchctl &>/dev/null; then
+    echo -e "${RED}❌ launchctl not found${NC}"
+    echo ""
+    echo "This feature requires launchd (macOS)."
+    echo ""
+    gtd_quick_pause
+    return 1
+  fi
+  
+  # Check service status
+  echo -e "${BOLD}Service Status:${NC}"
+  echo ""
+  
+  if [[ "$IS_MACOS" == "true" ]]; then
+    # macOS launchd status
+    if [[ -f "$PLIST_FILE" ]]; then
+      echo -e "${GREEN}✓${NC} Service file installed: $PLIST_FILE"
+      
+      # Check if service is loaded
+      if launchctl list | grep -q "$PLIST_LABEL" 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} Service is loaded and running"
+      else
+        echo -e "${YELLOW}⚠${NC}  Service is not loaded (not running)"
+      fi
+    else
+      echo -e "${YELLOW}⚠${NC}  Service file not found: $PLIST_FILE"
+      echo -e "${CYAN}ℹ${NC}  Service is not installed"
+    fi
+  else
+    # Linux systemd status
+    if [[ -f "$SERVICE_FILE" ]]; then
+      echo -e "${GREEN}✓${NC} Service file installed: $SERVICE_FILE"
+      
+      # Check if service is enabled
+      if systemctl is-enabled "$SERVICE_NAME" &>/dev/null; then
+        echo -e "${GREEN}✓${NC} Service is enabled (will start on boot)"
+      else
+        echo -e "${YELLOW}⚠${NC}  Service is not enabled (will not start on boot)"
+      fi
+      
+      # Check if service is running
+      if systemctl is-active "$SERVICE_NAME" &>/dev/null; then
+        echo -e "${GREEN}✓${NC} Service is ${GREEN}running${NC}"
+        # Show service status
+        echo ""
+        systemctl status "$SERVICE_NAME" --no-pager -l | head -n 5
+      else
+        echo -e "${YELLOW}⚠${NC}  Service is ${YELLOW}not running${NC}"
+      fi
+    else
+      echo -e "${YELLOW}⚠${NC}  Service file not found: $SERVICE_FILE"
+      echo -e "${CYAN}ℹ${NC}  Service is not installed"
+    fi
+  fi
+  
+  # Check nginx status
+  echo ""
+  echo -e "${BOLD}Nginx Status:${NC}"
+  if command -v nginx &>/dev/null; then
+    if [[ "$IS_MACOS" == "true" ]]; then
+      # macOS: Check if nginx process is running
+      if pgrep -x nginx >/dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Nginx is running"
+      else
+        echo -e "${YELLOW}⚠${NC}  Nginx is not running"
+      fi
+    else
+      # Linux: Check systemd or process
+      if systemctl is-active nginx &>/dev/null 2>&1 || pgrep -x nginx >/dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Nginx is running"
+        
+        # Check if nginx config exists
+        NGINX_CONFIG="/etc/nginx/sites-enabled/gtd-wizard"
+        if [[ -f "$NGINX_CONFIG" ]] || [[ -L "$NGINX_CONFIG" ]]; then
+          echo -e "${GREEN}✓${NC} Nginx configuration exists"
+        else
+          echo -e "${YELLOW}⚠${NC}  Nginx configuration not found"
+        fi
+      else
+        echo -e "${YELLOW}⚠${NC}  Nginx is not running"
+      fi
+    fi
+  else
+    echo -e "${YELLOW}⚠${NC}  Nginx not installed"
+  fi
+  
+  echo ""
+  echo "What would you like to do?"
+  echo ""
+  echo "  1) 📦 Install/Deploy Service (Run deployment script)"
+  echo "  2) ▶️  Start Service"
+  echo "  3) ⏹️  Stop Service"
+  echo "  4) 🔄 Restart Service"
+  echo "  5) 📊 View Service Status"
+  echo "  6) 📋 View Service Logs"
+  echo "  7) 🔧 Enable Service (start on boot)"
+  echo "  8) 🔧 Disable Service (don't start on boot)"
+  echo "  9) 🗑️  Uninstall Service"
+  echo ""
+  echo -e "${YELLOW}0)${NC} Back"
+  echo ""
+  echo -n "Choose: "
+  read service_action
+  
+  case "$service_action" in
+    1)
+      # Install/Deploy
+      echo ""
+      echo -e "${CYAN}Running deployment script...${NC}"
+      echo ""
+      if [[ ! -f "$DEPLOY_SCRIPT" ]]; then
+        echo -e "${RED}❌ Deployment script not found: $DEPLOY_SCRIPT${NC}"
+        echo ""
+        gtd_quick_pause
+        return 1
+      fi
+      
+      if [[ ! -x "$DEPLOY_SCRIPT" ]]; then
+        echo "Making deployment script executable..."
+        chmod +x "$DEPLOY_SCRIPT"
+      fi
+      
+      # Run deployment script
+      "$DEPLOY_SCRIPT"
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    2)
+      # Start
+      echo ""
+      echo -e "${CYAN}Starting service...${NC}"
+      if [[ "$IS_MACOS" == "true" ]]; then
+        if launchctl load "$PLIST_FILE" 2>/dev/null; then
+          launchctl start "$PLIST_LABEL" 2>/dev/null || true
+          echo -e "${GREEN}✓ Service started${NC}"
+        else
+          echo -e "${RED}❌ Failed to start service${NC}"
+          echo "Check logs: tail -f /tmp/gtd-wizard-api.log"
+        fi
+      else
+        if sudo systemctl start "$SERVICE_NAME" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service started${NC}"
+          sleep 1
+          systemctl status "$SERVICE_NAME" --no-pager -l | head -n 5
+        else
+          echo -e "${RED}❌ Failed to start service${NC}"
+          echo "Check logs: sudo journalctl -u $SERVICE_NAME -n 20"
+        fi
+      fi
+      echo ""
+      gtd_quick_pause
+      ;;
+    3)
+      # Stop
+      echo ""
+      echo -e "${CYAN}Stopping service...${NC}"
+      if [[ "$IS_MACOS" == "true" ]]; then
+        if launchctl stop "$PLIST_LABEL" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service stopped${NC}"
+        else
+          echo -e "${RED}❌ Failed to stop service${NC}"
+        fi
+      else
+        if sudo systemctl stop "$SERVICE_NAME" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service stopped${NC}"
+        else
+          echo -e "${RED}❌ Failed to stop service${NC}"
+        fi
+      fi
+      echo ""
+      gtd_quick_pause
+      ;;
+    4)
+      # Restart
+      echo ""
+      echo -e "${CYAN}Restarting service...${NC}"
+      if [[ "$IS_MACOS" == "true" ]]; then
+        launchctl stop "$PLIST_LABEL" 2>/dev/null || true
+        sleep 1
+        if launchctl start "$PLIST_LABEL" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service restarted${NC}"
+        else
+          echo -e "${RED}❌ Failed to restart service${NC}"
+          echo "Check logs: tail -f /tmp/gtd-wizard-api.log"
+        fi
+      else
+        if sudo systemctl restart "$SERVICE_NAME" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service restarted${NC}"
+          sleep 1
+          systemctl status "$SERVICE_NAME" --no-pager -l | head -n 5
+        else
+          echo -e "${RED}❌ Failed to restart service${NC}"
+          echo "Check logs: sudo journalctl -u $SERVICE_NAME -n 20"
+        fi
+      fi
+      echo ""
+      gtd_quick_pause
+      ;;
+    5)
+      # Status
+      echo ""
+      if [[ "$IS_MACOS" == "true" ]]; then
+        if launchctl list | grep "$PLIST_LABEL" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service is loaded and running${NC}"
+        else
+          echo -e "${YELLOW}⚠ Service is not running${NC}"
+        fi
+        echo ""
+        echo "View logs: tail -f /tmp/gtd-wizard-api.log"
+      else
+        systemctl status "$SERVICE_NAME" --no-pager -l
+      fi
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    6)
+      # Logs
+      echo ""
+      echo -e "${CYAN}Recent service logs (last 30 lines):${NC}"
+      echo ""
+      if [[ "$IS_MACOS" == "true" ]]; then
+        if [[ -f "/tmp/gtd-wizard-api.log" ]]; then
+          tail -n 30 /tmp/gtd-wizard-api.log
+        else
+          echo "Log file not found: /tmp/gtd-wizard-api.log"
+        fi
+        echo ""
+        echo "View live logs: tail -f /tmp/gtd-wizard-api.log"
+        echo "View error logs: tail -f /tmp/gtd-wizard-api.error.log"
+      else
+        sudo journalctl -u "$SERVICE_NAME" -n 30 --no-pager
+        echo ""
+        echo "View live logs: sudo journalctl -u $SERVICE_NAME -f"
+      fi
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    7)
+      # Enable (launchd always runs at load, systemd needs enable)
+      echo ""
+      if [[ "$IS_MACOS" == "true" ]]; then
+        echo -e "${CYAN}Loading service (will start on boot)...${NC}"
+        if launchctl load "$PLIST_FILE" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service loaded${NC}"
+          echo ""
+          echo "Note: launchd services with RunAtLoad=true start automatically"
+        else
+          echo -e "${RED}❌ Failed to load service${NC}"
+        fi
+      else
+        echo -e "${CYAN}Enabling service (start on boot)...${NC}"
+        if sudo systemctl enable "$SERVICE_NAME" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service enabled${NC}"
+        else
+          echo -e "${RED}❌ Failed to enable service${NC}"
+        fi
+      fi
+      echo ""
+      gtd_quick_pause
+      ;;
+    8)
+      # Disable
+      echo ""
+      if [[ "$IS_MACOS" == "true" ]]; then
+        echo -e "${CYAN}Unloading service (don't start on boot)...${NC}"
+        if launchctl unload "$PLIST_FILE" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service unloaded${NC}"
+        else
+          echo -e "${RED}❌ Failed to unload service${NC}"
+        fi
+      else
+        echo -e "${CYAN}Disabling service (don't start on boot)...${NC}"
+        if sudo systemctl disable "$SERVICE_NAME" 2>/dev/null; then
+          echo -e "${GREEN}✓ Service disabled${NC}"
+        else
+          echo -e "${RED}❌ Failed to disable service${NC}"
+        fi
+      fi
+      echo ""
+      gtd_quick_pause
+      ;;
+    9)
+      # Uninstall
+      echo ""
+      echo -e "${YELLOW}⚠️  This will uninstall the web service${NC}"
+      echo ""
+      echo "This will:"
+      if [[ "$IS_MACOS" == "true" ]]; then
+        echo "  • Stop and unload the launchd service"
+        echo "  • Remove the launchd plist file"
+      else
+        echo "  • Stop and disable the systemd service"
+        echo "  • Remove the systemd service file"
+        echo "  • Remove nginx configuration (if deployed)"
+      fi
+      echo ""
+      echo -n "Are you sure? (yes/no): "
+      read confirm
+      
+      if [[ "$confirm" != "yes" ]]; then
+        echo "Cancelled"
+        echo ""
+        gtd_quick_pause
+        return 0
+      fi
+      
+      echo ""
+      echo -e "${CYAN}Uninstalling service...${NC}"
+      
+      if [[ "$IS_MACOS" == "true" ]]; then
+        # macOS: Stop and unload launchd service
+        if [[ -f "$PLIST_FILE" ]]; then
+          launchctl stop "$PLIST_LABEL" 2>/dev/null || true
+          launchctl unload "$PLIST_FILE" 2>/dev/null || true
+          rm -f "$PLIST_FILE"
+          echo -e "${GREEN}✓ Launchd service removed${NC}"
+        fi
+      else
+        # Linux: Stop and disable systemd service
+        if [[ -f "$SERVICE_FILE" ]]; then
+          sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+          sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+          sudo rm -f "$SERVICE_FILE"
+          sudo systemctl daemon-reload
+          echo -e "${GREEN}✓ Systemd service removed${NC}"
+        fi
+        
+        # Remove nginx config (Linux only)
+        NGINX_AVAILABLE="/etc/nginx/sites-available/gtd-wizard"
+        NGINX_ENABLED="/etc/nginx/sites-enabled/gtd-wizard"
+        if [[ -f "$NGINX_ENABLED" ]] || [[ -L "$NGINX_ENABLED" ]]; then
+          sudo rm -f "$NGINX_ENABLED"
+          echo -e "${GREEN}✓ Nginx enabled config removed${NC}"
+        fi
+        if [[ -f "$NGINX_AVAILABLE" ]]; then
+          echo ""
+          echo -n "Remove nginx available config? (y/n): "
+          read remove_nginx
+          if [[ "$remove_nginx" == "y" || "$remove_nginx" == "Y" ]]; then
+            sudo rm -f "$NGINX_AVAILABLE"
+            echo -e "${GREEN}✓ Nginx available config removed${NC}"
+          fi
+        fi
+        
+        # Reload nginx if config was removed
+        if [[ ! -f "$NGINX_ENABLED" ]] && [[ ! -L "$NGINX_ENABLED" ]]; then
+          echo "Reloading nginx..."
+          sudo nginx -t && sudo systemctl reload nginx 2>/dev/null || true
+        fi
+      fi
+      
+      echo ""
+      echo -e "${GREEN}✓ Service uninstalled${NC}"
+      echo ""
+      echo "Note: Frontend files and backend code are not removed."
+      echo "      To reinstall, run option 1) Install/Deploy Service"
+      echo ""
+      gtd_quick_pause
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      echo "Invalid choice"
+      echo ""
+      gtd_quick_pause
+      ;;
+  esac
 }
 
 # Guided setup wizard - walks through complete setup process

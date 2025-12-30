@@ -54,13 +54,14 @@ WORK_DEEP_MODEL_NAME="${WORK_DEEP_MODEL_NAME:-gpt-oss:20b}"
 # Home Mode Configuration (when GTD_COMPUTER_MODE="home")
 # Example: Use Ollama with instruct models for home
 HOME_AI_BACKEND="${HOME_AI_BACKEND:-ollama}"
+HOME_OLLAMA_URL="http://127.0.0.1:31080/v1/chat/completions"
 HOME_LM_STUDIO_CHAT_MODEL="${HOME_LM_STUDIO_CHAT_MODEL:-qwen/qwen3-1.7b}"
 HOME_LM_STUDIO_INSTRUCT_MODEL="${HOME_LM_STUDIO_INSTRUCT_MODEL:-qwen2.5-7b-instruct-mlx}"
 HOME_LM_STUDIO_EMBEDDING_MODEL="${HOME_LM_STUDIO_EMBEDDING_MODEL:-nomic-embed-text-v2-moe-GGUF}"
 HOME_OLLAMA_CHAT_MODEL="${HOME_OLLAMA_CHAT_MODEL:-gemma3:1b}"
 HOME_OLLAMA_INSTRUCT_MODEL="${HOME_OLLAMA_INSTRUCT_MODEL:-ministral-3:3b}"
 HOME_OLLAMA_EMBEDDING_MODEL="${HOME_OLLAMA_EMBEDDING_MODEL:-nomic-embed-text-v2-moe}"
-HOME_DEEP_MODEL_NAME="${HOME_DEEP_MODEL_NAME:-smallthinker:3b}"
+HOME_DEEP_MODEL_NAME="${HOME_DEEP_MODEL_NAME:-qwen3:4b}"
 
 # ============================================================================
 # Personas/Characters for different types of advice

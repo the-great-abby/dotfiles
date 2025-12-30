@@ -11,6 +11,16 @@ import urllib.error
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
+# Import AI helpers for async response handling
+try:
+    from gtd_ai_helpers import handle_ai_response
+    AI_HELPERS_AVAILABLE = True
+except ImportError:
+    AI_HELPERS_AVAILABLE = False
+    def handle_ai_response(result, base_url, max_poll_time=60.0, poll_interval=0.5):
+        # Fallback: return result as-is if helpers not available
+        return (result, None)
+
 
 class EnhancedSearchSystem:
     """
@@ -85,6 +95,16 @@ class EnhancedSearchSystem:
                 if 'error' in result:
                     error_msg = result['error'].get('message', 'Unknown error')
                     raise Exception(f"LLM error: {error_msg}")
+                
+                # Handle async/queued responses from Ollama Controller
+                base_url = self.url.rsplit('/v1', 1)[0]
+                polled_result, poll_error = handle_ai_response(result, base_url, max_poll_time=self.timeout, poll_interval=0.5)
+                
+                if poll_error:
+                    raise Exception(f"LLM async error: {poll_error}")
+                
+                if polled_result:
+                    result = polled_result
                 
                 if 'choices' in result and len(result['choices']) > 0:
                     content = result['choices'][0].get('message', {}).get('content', '')

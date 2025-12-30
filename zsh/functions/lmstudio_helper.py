@@ -8,6 +8,16 @@ import sys
 import os
 from pathlib import Path
 
+# Import AI helpers for async response handling
+try:
+    from gtd_ai_helpers import handle_ai_response
+    AI_HELPERS_AVAILABLE = True
+except ImportError:
+    AI_HELPERS_AVAILABLE = False
+    def handle_ai_response(result, base_url, max_poll_time=60.0, poll_interval=0.5):
+        # Fallback: return result as-is if helpers not available
+        return (result, None)
+
 def read_config():
     """Read configuration from .daily_log_config file."""
     config_path = Path.home() / ".daily_log_config"
@@ -192,6 +202,17 @@ I haven't clearly defined my goal for today yet. Can you ask me what I'd like to
                     else:
                         return (f"⚠️  Model not loaded in LM Studio.\n\nError: {error_msg}\n\nTo fix this:\n1. Open LM Studio\n2. Go to the 'Chat' or 'Models' tab\n3. Click on a model and click 'Load' to load it\n4. Wait for the model to finish loading\n5. Try again", 1)
                 return (f"⚠️  {backend_name} returned an error: {error_msg}", 1)
+            
+            # Handle async/queued responses from Ollama Controller
+            base_url = config["url"].replace("/v1/chat/completions", "")
+            polled_result, poll_error = handle_ai_response(result, base_url, max_poll_time=30.0, poll_interval=0.5)
+            
+            if poll_error:
+                return (f"⚠️  {poll_error}", 1)
+            
+            if polled_result:
+                result = polled_result
+            
             if 'choices' in result and len(result['choices']) > 0:
                 return (result['choices'][0]['message']['content'], 0)
             else:

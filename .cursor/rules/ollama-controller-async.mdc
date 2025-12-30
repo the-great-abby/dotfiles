@@ -1,0 +1,129 @@
+---
+description: Always handle async responses from Ollama Controller
+globs: ["**/*.py", "**/mcp/**", "**/zsh/functions/**"]
+alwaysApply: false
+---
+
+# Ollama Controller Async Response Handling Rule
+
+**CRITICAL**: All code that makes requests to Ollama Controller (port 31080) **MUST** handle async responses.
+
+## The Problem
+
+Ollama Controller supports async request processing. When a request is queued (instead of processed immediately), the controller returns:
+
+```json
+{
+  "status": "queued",
+  "request_id": "abc123-def456-ghi789"
+}
+```
+
+Code that doesn't handle this will see **"No response from AI"** errors.
+
+## The Solution
+
+**Always use the shared helper** from `gtd_ai_helpers.py`:
+
+```python
+from gtd_ai_helpers import handle_ai_response
+
+# After making the initial request
+result = json.loads(response.read().decode('utf-8'))
+
+# Handle async responses automatically
+base_url = url.rsplit('/v1', 1)[0]
+polled_result, poll_error = handle_ai_response(result, base_url, max_poll_time=timeout)
+
+if poll_error:
+    return f"Error: {poll_error}"
+
+if polled_result:
+    result = polled_result
+
+# Now use result['choices'] as normal
+```
+
+## Functions That Must Handle Async
+
+All AI-calling functions must handle async:
+
+1. ✅ `call_deep_ai()` - `mcp/gtd_deep_analysis_worker.py`
+2. ✅ `call_fast_ai()` - `mcp/gtd_mcp_server.py`
+3. ✅ `call_persona()` - `zsh/functions/gtd_persona_helper.py`
+4. ✅ `_call_llm()` - `zsh/functions/gtd_enhanced_search.py`
+5. ✅ `call_lm_studio()` - `zsh/functions/lmstudio_helper.py`
+
+## When Adding New AI Functions
+
+**Always**:
+
+1. Import `handle_ai_response` from `gtd_ai_helpers`
+2. Check for async responses after initial request
+3. Poll if needed using the helper
+4. Use the polled result
+
+**Never**:
+
+- ❌ Assume responses are always immediate
+- ❌ Skip async handling "because it's fast"
+- ❌ Duplicate polling logic
+- ❌ Return "No response" without checking for queued status
+
+## Detection
+
+This rule applies when:
+- File contains `urllib.request` or `requests.post`
+- File contains `31080` (Ollama Controller port)
+- File contains `OLLAMA_URL` or `DEEP_MODEL_URL`
+- File contains `chat/completions` or `/v1/chat/completions`
+- File contains `call.*ai` or `request.*ai` function names
+
+## DRY Principle
+
+**All async handling is centralized** in `gtd_ai_helpers.py`:
+
+- ✅ Single source of truth for polling logic
+- ✅ Consistent error handling across all functions
+- ✅ Easy to update if Ollama Controller API changes
+- ✅ Fallback handling if helpers not available
+
+## Example: Before (Incorrect)
+
+```python
+# ❌ BAD - Doesn't handle async
+with urllib.request.urlopen(req, timeout=timeout) as response:
+    result = json.loads(response.read().decode('utf-8'))
+    if 'choices' in result:
+        return result['choices'][0]['message']['content']
+    return "No response from AI"  # ← This happens when queued!
+```
+
+## Example: After (Correct)
+
+```python
+# ✅ GOOD - Handles async
+from gtd_ai_helpers import handle_ai_response
+
+with urllib.request.urlopen(req, timeout=timeout) as response:
+    result = json.loads(response.read().decode('utf-8'))
+    
+    # Handle async responses
+    base_url = url.rsplit('/v1', 1)[0]
+    polled_result, poll_error = handle_ai_response(result, base_url, max_poll_time=timeout)
+    
+    if poll_error:
+        return f"Error: {poll_error}"
+    
+    if polled_result:
+        result = polled_result
+    
+    if 'choices' in result:
+        return result['choices'][0]['message']['content']
+    return "No response from AI"
+```
+
+## Related Documentation
+
+- `docs/OLLAMA_CONTROLLER_ASYNC_RESPONSES.md` - Detailed guide
+- `zsh/functions/gtd_ai_helpers.py` - Implementation

@@ -26,6 +26,7 @@ except ImportError:
 try:
     sys.path.insert(0, str(Path(__file__).parent.parent / "zsh" / "functions"))
     from gtd_persona_helper import read_config as read_gtd_config
+    from gtd_ai_helpers import handle_ai_response
     GTD_CONFIG = read_gtd_config()
     # Map the config to expected keys
     if "url" not in GTD_CONFIG and "lmstudio_url" in GTD_CONFIG:
@@ -56,8 +57,16 @@ for config_path in config_paths:
                         value = value.split(":-", 1)[1].rstrip("}")
                     
                     # Process the key-value pair
-                    if key == "LM_STUDIO_URL" and "url" not in GTD_CONFIG:
+                    if key == "GTD_COMPUTER_MODE":
+                        GTD_CONFIG["computer_mode"] = value.strip('"').strip("'").lower()
+                    elif key == "GTD_DEEP_MODEL_URL":
+                        GTD_CONFIG["deep_model_url"] = value
+                    elif key == "LM_STUDIO_URL" and "url" not in GTD_CONFIG and "deep_model_url" not in GTD_CONFIG:
                         GTD_CONFIG["url"] = value
+                    elif key == "OLLAMA_URL" and "ollama_url" not in GTD_CONFIG:
+                        GTD_CONFIG["ollama_url"] = value
+                    elif key == "AI_BACKEND":
+                        GTD_CONFIG["ai_backend"] = value.strip('"').strip("'").lower()
                     elif key == "GTD_DEEP_MODEL_NAME" and "deep_model_name" not in GTD_CONFIG:
                         GTD_CONFIG["deep_model_name"] = value
                     elif key == "DEEP_MODEL_TIMEOUT" or key == "LM_STUDIO_TIMEOUT":
@@ -83,9 +92,110 @@ for config_path in config_paths:
                             pass
         # Don't break - read from all config files, later ones override earlier ones
 
-DEEP_MODEL_URL = os.getenv("GTD_DEEP_MODEL_URL", GTD_CONFIG.get("url", "http://localhost:1234/v1/chat/completions"))
+# Second pass: Check for mode-specific settings (WORK_* or HOME_*)
+computer_mode = GTD_CONFIG.get("computer_mode", os.getenv("GTD_COMPUTER_MODE", "home")).lower()
+mode_prefix = "WORK_" if computer_mode == "work" else "HOME_"
+
+# Re-read config files to get mode-specific settings
+for config_path in config_paths:
+    if config_path.exists():
+        with open(config_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    # Remove variable expansion syntax
+                    if value.startswith("${") and ":-" in value:
+                        value = value.split(":-", 1)[1].rstrip("}")
+                    
+                    # Check for mode-specific settings
+                    if key.startswith(mode_prefix):
+                        mode_key = key[len(mode_prefix):]  # Remove prefix
+                        if mode_key == "AI_BACKEND" and value:
+                            GTD_CONFIG["ai_backend"] = value.lower()
+                        elif mode_key == "OLLAMA_URL" and value:
+                            GTD_CONFIG["ollama_url"] = value
+                        elif mode_key == "LM_STUDIO_URL" and value:
+                            GTD_CONFIG["url"] = value
+                        elif mode_key == "DEEP_MODEL_NAME" and value:
+                            GTD_CONFIG["deep_model_name"] = value
+                        elif mode_key == "GTD_DEEP_MODEL_URL" and value:
+                            GTD_CONFIG["deep_model_url"] = value
+
+# Determine deep model URL based on AI backend and available config
+# Priority: GTD_DEEP_MODEL_URL env var > GTD_DEEP_MODEL_URL config > AI_BACKEND-based selection > default
+deep_model_url_from_env = os.getenv("GTD_DEEP_MODEL_URL")
+if deep_model_url_from_env:
+    DEEP_MODEL_URL = deep_model_url_from_env
+elif "deep_model_url" in GTD_CONFIG:
+    DEEP_MODEL_URL = GTD_CONFIG["deep_model_url"]
+else:
+    # Check AI backend to determine which URL to use
+    ai_backend = GTD_CONFIG.get("ai_backend", os.getenv("AI_BACKEND", "lmstudio")).lower()
+    
+    # If OLLAMA_URL is set and contains :31080 (Ollama Controller), use it
+    if "ollama_url" in GTD_CONFIG and ":31080" in GTD_CONFIG["ollama_url"]:
+        DEEP_MODEL_URL = GTD_CONFIG["ollama_url"]
+    elif ai_backend == "ollama" and "ollama_url" in GTD_CONFIG:
+        DEEP_MODEL_URL = GTD_CONFIG["ollama_url"]
+    elif "url" in GTD_CONFIG and ":31080" in GTD_CONFIG["url"]:
+        # Using Ollama Controller (port 31080) - auto-detect even if AI_BACKEND isn't "ollama"
+        DEEP_MODEL_URL = GTD_CONFIG["url"]
+    else:
+        # Default to LM Studio URL or fallback
+        DEEP_MODEL_URL = GTD_CONFIG.get("url", "http://localhost:1234/v1/chat/completions")
 # Get model name from env var, then config, then default
 DEEP_MODEL_NAME = os.getenv("GTD_DEEP_MODEL_NAME") or os.getenv("GTD_DEEP_MODEL") or GTD_CONFIG.get("deep_model_name") or "gpt-oss-20b"
+
+
+def _check_ollama_controller_ready(url: str) -> tuple[bool, str]:
+    """Check if Ollama Controller is ready and responding.
+    
+    Uses /v1/models endpoint (GET request) to avoid queuing test requests.
+    
+    Returns:
+        (is_ready, message) tuple
+    """
+    import urllib.request
+    import urllib.error
+    import json
+    
+    if ":31080" not in url:
+        return True, ""  # Not using Ollama Controller
+    
+    try:
+        # Use /v1/models endpoint (GET request) to check readiness without queuing
+        # This is a read-only endpoint that doesn't create queue entries
+        base_url = url.replace("/v1/chat/completions", "")
+        models_url = f"{base_url}/v1/models"
+        
+        test_req = urllib.request.Request(models_url)
+        with urllib.request.urlopen(test_req, timeout=3) as test_response:
+            if test_response.status == 200:
+                # Try to parse response to ensure it's valid
+                try:
+                    models_data = json.loads(test_response.read().decode('utf-8'))
+                    # Response can be a list or dict with 'data' key
+                    if isinstance(models_data, list) or (isinstance(models_data, dict) and 'data' in models_data):
+                        return True, ""
+                    else:
+                        return True, ""  # Still consider it ready if we get 200
+                except (json.JSONDecodeError, ValueError):
+                    # If we can't parse, but got 200, consider it ready
+                    return True, ""
+            else:
+                return False, f"Endpoint returned status {test_response.status}"
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False, "Endpoint not found (404) - controller may need redeploy"
+        else:
+            return False, f"HTTP error {e.code}"
+    except urllib.error.URLError as e:
+        return False, f"Connection error: {e}"
+    except Exception as e:
+        return False, f"Error: {e}"
 
 # Debug: Print config values (remove in production)
 if os.getenv("GTD_DEBUG"):
@@ -163,10 +273,123 @@ if not GTD_DISCORD_WEBHOOK_URL:
                 break
 
 
-def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000) -> str:
-    """Call the deep AI model (GPT-OSS 20b) for comprehensive analysis."""
+def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000, use_async: bool = False, callback=None, result_file: str = None, max_poll_time: float = None) -> str:
+    """
+    Call the deep AI model (GPT-OSS 20b) for comprehensive analysis.
+    
+    Args:
+        prompt: The prompt to send to the AI
+        system_prompt: Optional system prompt
+        max_tokens: Maximum tokens for response
+        use_async: If True, use non-blocking async submission (returns request_id immediately)
+        callback: Optional callback(result, error) for async mode
+        result_file: Optional file path to save result when complete (async mode)
+        max_poll_time: Optional maximum time to poll for async responses (in seconds). 
+                      If None, uses the configured timeout. For long-running requests 
+                      (like advice), use 3600 (60 minutes) or higher.
+    
+    Returns:
+        - If use_async=False: Result string (blocking)
+        - If use_async=True: Request ID string (non-blocking, callback handles result)
+    """
     import urllib.request
     import urllib.error
+    
+    # If using async and Ollama Controller, use the async system
+    if use_async and ":31080" in DEEP_MODEL_URL:
+        try:
+            sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+            from gtd_ai_async import submit_ai_request_async
+            
+            if system_prompt is None:
+                system_prompt = f"You are {USER_NAME}'s deep thinking GTD analyst. You provide comprehensive, thoughtful analysis."
+            
+            # Get model name
+            actual_model_name = DEEP_MODEL_NAME
+            is_thinking_model = "thinking" in actual_model_name.lower()
+            
+            # Get timeout
+            base_timeout = 120
+            if os.getenv("DEEP_MODEL_TIMEOUT"):
+                try:
+                    base_timeout = int(os.getenv("DEEP_MODEL_TIMEOUT"))
+                except (ValueError, TypeError):
+                    pass
+            elif GTD_CONFIG.get("deep_model_timeout"):
+                try:
+                    base_timeout = int(GTD_CONFIG.get("deep_model_timeout"))
+                except (ValueError, TypeError):
+                    pass
+            
+            if is_thinking_model and base_timeout < 300:
+                max_poll_time = 300
+            else:
+                max_poll_time = base_timeout
+            
+            # Use longer timeout for async (60 minutes default)
+            # Always use at least 3600s (60 min) for Ollama Controller async requests
+            # to handle long-running requests like morning reviews, advice, etc.
+            if max_poll_time < 3600:
+                max_poll_time = 3600
+                if os.getenv("GTD_DEBUG"):
+                    print(f"DEBUG: Increased max_poll_time to 3600s for async request (was {base_timeout}s)", file=sys.stderr)
+            
+            payload = {
+                "model": actual_model_name,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": max_tokens,
+                "priority": 20,  # NORMAL priority for background tasks
+            }
+            
+            # Submit async request
+            request_id, error = submit_ai_request_async(
+                url=DEEP_MODEL_URL,
+                payload=payload,
+                callback=callback,
+                max_poll_time=max_poll_time,
+                poll_interval=2.0,
+                result_file=result_file
+            )
+            
+            if error:
+                return f"Error: {error}"
+            
+            if request_id:
+                # Check if it's an immediate response (JSON string) or request_id
+                try:
+                    result_data = json.loads(request_id)
+                    if 'choices' in result_data:
+                        # Immediate response
+                        content = result_data['choices'][0]['message']['content']
+                        finish_reason = result_data['choices'][0].get('finish_reason', '')
+                        if finish_reason == 'length':
+                            content += "\n\n[Note: Response was truncated due to token limit.]"
+                        return content
+                except (json.JSONDecodeError, KeyError):
+                    # It's a request_id
+                    return f"Request submitted: {request_id}"
+            
+            return "No response from AI"
+        except ImportError:
+            # Fall back to blocking mode if async module not available
+            print("⚠️  Async module not available, falling back to blocking mode", file=sys.stderr)
+            use_async = False
+        except Exception as e:
+            # Fall back to blocking mode on error
+            print(f"⚠️  Error using async mode: {e}, falling back to blocking mode", file=sys.stderr)
+            use_async = False
+    
+    # Continue with blocking mode (original implementation)
+    
+    # Check if Ollama Controller is ready (if using it)
+    if ":31080" in DEEP_MODEL_URL:
+        is_ready, ready_msg = _check_ollama_controller_ready(DEEP_MODEL_URL)
+        if not is_ready:
+            return f"Error: Ollama Controller is not ready at {DEEP_MODEL_URL}.\n\n{ready_msg}\n\nThis usually means:\n1. The controller was just restarted and needs time to start\n2. The controller needs to be redeployed (not just restarted)\n3. The NodePort service isn't configured\n\nTo fix:\n  gtd-wizard → Infrastructure → External Services → Ollama Controller → Deploy/Enable\n\nOr manually:\n  cd ~/code/external_services/ollama_controller && make k8s-deploy"
     
     if system_prompt is None:
         system_prompt = f"You are {USER_NAME}'s deep thinking GTD analyst. You provide comprehensive, thoughtful analysis."
@@ -201,8 +424,34 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
                 
                 if not matched:
                     return f"Error: Model '{DEEP_MODEL_NAME}' not found in LM Studio. Available models: {', '.join(available_models[:5])}"
+    except urllib.error.HTTPError as e:
+        # Check if this is a 404 from Ollama Controller
+        if e.code == 404 and (":31080" in DEEP_MODEL_URL or "31080" in str(DEEP_MODEL_URL)):
+            return f"Error: Ollama Controller endpoint not found at {DEEP_MODEL_URL}. The controller may not be fully deployed or the endpoint isn't ready yet.\n\nThis usually means:\n1. The controller was just restarted and needs time to start\n2. The controller needs to be redeployed (not just restarted)\n3. The NodePort service isn't configured\n\nTo fix:\n  gtd-wizard → Infrastructure → External Services → Ollama Controller → Deploy/Enable\n\nOr manually:\n  cd ~/code/external_services/ollama_controller && make k8s-deploy"
+        else:
+            error_msg = str(e)
+            if ":31080" in DEEP_MODEL_URL or "31080" in error_msg:
+                return f"Error: Cannot connect to Ollama Controller at {DEEP_MODEL_URL} (HTTP {e.code}). Make sure the controller is deployed and running. Error: {e}\n\nTo enable: gtd-wizard → Infrastructure → External Services → Ollama Controller → Deploy/Enable"
+            else:
+                return f"Error: Cannot connect to AI service at {DEEP_MODEL_URL} (HTTP {e.code}). Make sure the service is running and a model is loaded. Error: {e}"
     except Exception as e:
-        return f"Error: Cannot connect to LM Studio at {DEEP_MODEL_URL}. Make sure LM Studio is running and a model is loaded. Error: {e}"
+        error_msg = str(e)
+        # Check if this is an Ollama Controller connection issue
+        if ":31080" in DEEP_MODEL_URL or "31080" in error_msg:
+            if "404" in error_msg or "Not Found" in error_msg:
+                return f"Error: Ollama Controller endpoint not found at {DEEP_MODEL_URL}. The controller may not be deployed or needs to be redeployed.\n\nTo enable: gtd-wizard → Infrastructure → External Services → Ollama Controller → Deploy/Enable"
+            else:
+                return f"Error: Cannot connect to Ollama Controller at {DEEP_MODEL_URL}. Make sure the controller is deployed and running. Error: {e}\n\nTo enable: gtd-wizard → Infrastructure → External Services → Ollama Controller → Deploy/Enable"
+        else:
+            return f"Error: Cannot connect to AI service at {DEEP_MODEL_URL}. Make sure the service is running and a model is loaded. Error: {e}"
+    
+    # Get priority from environment variable or default to 20 (NORMAL for background)
+    request_priority = 20  # Default priority for background tasks
+    if os.getenv("GTD_REQUEST_PRIORITY"):
+        try:
+            request_priority = int(os.getenv("GTD_REQUEST_PRIORITY"))
+        except (ValueError, TypeError):
+            request_priority = 20  # Fallback to default if invalid
     
     payload = {
         "model": actual_model_name,
@@ -212,7 +461,7 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
         ],
         "temperature": 0.7,
         "max_tokens": max_tokens,
-        "priority": 20,  # NORMAL priority for background tasks (deep analysis worker)
+        "priority": request_priority,  # Use priority from environment or default to 20
     }
     
     data = json.dumps(payload).encode('utf-8')
@@ -310,6 +559,28 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
                 if 'insufficient system resources' in error_msg.lower() or 'model loading' in error_msg.lower():
                     return _try_fallback_models(prompt, system_prompt, max_tokens, available_models, actual_model_name, error_msg)
                 return f"Error from AI: [{error_type}] {error_msg}"
+            
+            # Handle async/queued responses from Ollama Controller
+            base_url = DEEP_MODEL_URL.rsplit('/v1', 1)[0]
+            # Use provided max_poll_time if given, otherwise use timeout
+            # For long-running requests (like advice), use longer polling time
+            # When using Ollama Controller, use longer timeout for async polling (at least 60 minutes)
+            if max_poll_time is not None:
+                poll_timeout = max_poll_time
+            elif ":31080" in DEEP_MODEL_URL:
+                # Using Ollama Controller - use longer timeout for async polling
+                # Default to 3600s (60 min) for long-running requests, or use configured timeout if longer
+                poll_timeout = max(timeout, 3600)
+            else:
+                poll_timeout = timeout
+            polled_result, poll_error = handle_ai_response(result, base_url, max_poll_time=poll_timeout, poll_interval=0.5)
+            
+            if poll_error:
+                return f"Error: {poll_error}"
+            
+            if polled_result:
+                result = polled_result
+            
             if 'choices' in result and len(result['choices']) > 0:
                 content = result['choices'][0]['message']['content']
                 # Check if response was truncated (common indicators)
@@ -347,7 +618,12 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000)
                 return _try_fallback_models(prompt, system_prompt, max_tokens, available_models, actual_model_name, error_msg)
         except:
             error_msg = error_body or str(e)
-        return f"Error calling deep AI (HTTP {e.code}): {error_msg}. Model: {actual_model_name}, URL: {DEEP_MODEL_URL}"
+        
+        # Check if this is a 404 from Ollama Controller
+        if e.code == 404 and (":31080" in DEEP_MODEL_URL or "31080" in str(DEEP_MODEL_URL)):
+            return f"Error: Ollama Controller endpoint not found (HTTP 404) at {DEEP_MODEL_URL}.\n\nThe controller may not be fully deployed or the endpoint isn't ready yet.\n\nTo fix:\n  gtd-wizard → Infrastructure → External Services → Ollama Controller → Deploy/Enable\n\nOr manually:\n  cd ~/code/external_services/ollama_controller && make k8s-deploy\n\nNote: If you just restarted the controller, it may need a full redeploy (not just restart) to enable the /v1 endpoints."
+        else:
+            return f"Error calling deep AI (HTTP {e.code}): {error_msg}. Model: {actual_model_name}, URL: {DEEP_MODEL_URL}"
     except urllib.error.URLError as e:
         # Check if it's a timeout error
         if "timed out" in str(e).lower() or "timeout" in str(e).lower():
@@ -574,6 +850,49 @@ def find_task_files() -> List[Path]:
     return tasks
 
 
+def _call_deep_ai_with_async(prompt: str, system_prompt: str, max_tokens: int, analysis_type: str, result_data: Dict[str, Any]) -> str:
+    """
+    Helper to call deep AI with async support for background tasks.
+    
+    Returns the analysis result (blocking) or request_id (async).
+    If async, the callback handles saving the result.
+    """
+    use_async = os.getenv("DEEP_ANALYSIS_USE_ASYNC", "true").lower() == "true" and ":31080" in DEEP_MODEL_URL
+    
+    if use_async:
+        result_file = f"{analysis_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        def on_complete(result_str, error):
+            if error:
+                error_result = {
+                    **result_data,
+                    "error": error,
+                    "timestamp": datetime.now().isoformat()
+                }
+                result_path = RESULT_DIR / f"error_{result_file}"
+                with open(result_path, 'w') as f:
+                    json.dump(error_result, f, indent=2)
+            else:
+                result_json = json.loads(result_str)
+                content = result_json['choices'][0]['message']['content']
+                result = {
+                    **result_data,
+                    "analysis": content,
+                    "timestamp": datetime.now().isoformat()
+                }
+                result_path = RESULT_DIR / result_file
+                with open(result_path, 'w') as f:
+                    json.dump(result, f, indent=2)
+                send_discord_notification_for_result(analysis_type, result, result_path)
+                send_local_notification_for_result(analysis_type, result, result_path)
+        
+        request_id = call_deep_ai(prompt, system_prompt, max_tokens, use_async=True, callback=on_complete, result_file=result_file)
+        return request_id.replace("Request submitted: ", "") if "Request submitted: " in request_id else request_id
+    else:
+        # Blocking mode
+        return call_deep_ai(prompt, system_prompt, max_tokens, use_async=False)
+
+
 def analyze_weekly_review(context: Dict[str, Any]) -> Dict[str, Any]:
     """Perform weekly review analysis."""
     week_start = context.get("week_start", (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"))
@@ -617,7 +936,21 @@ Provide a structured, comprehensive analysis. Be specific, reference actual entr
         except (ValueError, TypeError):
             pass
     
-    analysis = call_deep_ai(prompt, system_prompt, max_tokens=weekly_max_tokens)
+    analysis = _call_deep_ai_with_async(
+        prompt, system_prompt, weekly_max_tokens, "weekly_review",
+        {"type": "weekly_review", "week_start": week_start}
+    )
+    
+    # If async, return placeholder
+    if analysis.startswith("Request submitted: ") or (len(analysis) > 20 and not analysis.startswith("Error:")):
+        return {
+            "type": "weekly_review",
+            "week_start": week_start,
+            "status": "queued",
+            "request_id": analysis.replace("Request submitted: ", ""),
+            "message": "Weekly review analysis queued for background processing",
+            "timestamp": datetime.now().isoformat()
+        }
     
     result = {
         "type": "weekly_review",
@@ -653,7 +986,21 @@ Provide detailed analysis with specific examples from the logs."""
     
     system_prompt = f"You are an energy management analyst helping {USER_NAME} optimize their energy levels."
     
-    analysis = call_deep_ai(prompt, system_prompt, max_tokens=2500)
+    analysis = _call_deep_ai_with_async(
+        prompt, system_prompt, 2500, "energy_analysis",
+        {"type": "energy_analysis", "days": days}
+    )
+    
+    # If async, return placeholder
+    if analysis.startswith("Request submitted: ") or (len(analysis) > 20 and not analysis.startswith("Error:")):
+        return {
+            "type": "energy_analysis",
+            "days": days,
+            "status": "queued",
+            "request_id": analysis.replace("Request submitted: ", ""),
+            "message": f"Energy analysis for {days} days queued for background processing",
+            "timestamp": datetime.now().isoformat()
+        }
     
     result = {
         "type": "energy_analysis",
@@ -703,7 +1050,21 @@ Provide detailed analysis with specific examples."""
     
     system_prompt = f"You are a systems thinking analyst helping {USER_NAME} see connections in their work."
     
-    analysis = call_deep_ai(prompt, system_prompt, max_tokens=2500)
+    analysis = _call_deep_ai_with_async(
+        prompt, system_prompt, 2500, "connections",
+        {"type": "connections", "scope": scope}
+    )
+    
+    # If async, return placeholder
+    if analysis.startswith("Request submitted: ") or (len(analysis) > 20 and not analysis.startswith("Error:")):
+        return {
+            "type": "connections",
+            "scope": scope,
+            "status": "queued",
+            "request_id": analysis.replace("Request submitted: ", ""),
+            "message": f"Connection analysis for {scope} queued for background processing",
+            "timestamp": datetime.now().isoformat()
+        }
     
     result = {
         "type": "connections",
@@ -745,7 +1106,21 @@ Be specific, reference actual data, and provide thoughtful analysis."""
     
     # Generate insights with higher token limit for comprehensive analysis
     # Thinking models can produce very detailed responses, so we need more tokens
-    insights = call_deep_ai(prompt, system_prompt, max_tokens=4000)
+    insights = _call_deep_ai_with_async(
+        prompt, system_prompt, 4000, "insights",
+        {"type": "insights", "scope": focus}
+    )
+    
+    # If async, return placeholder
+    if insights.startswith("Request submitted: ") or (len(insights) > 20 and not insights.startswith("Error:")):
+        return {
+            "type": "insights",
+            "scope": focus,
+            "status": "queued",
+            "request_id": insights.replace("Request submitted: ", ""),
+            "message": f"Insights generation for {focus} queued for background processing",
+            "timestamp": datetime.now().isoformat()
+        }
     
     # Check if response was cut off (common indicators)
     if insights and len(insights) > 100:
@@ -1029,7 +1404,21 @@ Be supportive, practical, and specific. Reference their actual check-in content.
     
     system_prompt = f"You are a morning coach helping {USER_NAME} start their day with intention and awareness."
     
-    analysis = call_deep_ai(prompt, system_prompt, max_tokens=2500)
+    analysis = _call_deep_ai_with_async(
+        prompt, system_prompt, 2500, "morning_review",
+        {"type": "morning_review", "date": check_in_date}
+    )
+    
+    # If async, return placeholder
+    if analysis.startswith("Request submitted: ") or (len(analysis) > 20 and not analysis.startswith("Error:")):
+        return {
+            "type": "morning_review",
+            "date": check_in_date,
+            "status": "queued",
+            "request_id": analysis.replace("Request submitted: ", ""),
+            "message": "Morning review analysis queued for background processing",
+            "timestamp": datetime.now().isoformat()
+        }
     
     result = {
         "type": "morning_review",
@@ -1263,16 +1652,65 @@ Be supportive, reflective, and constructive. Reference their actual check-in con
     
     system_prompt = f"You are an evening reflection coach helping {USER_NAME} learn from their day and prepare for tomorrow."
     
-    analysis = call_deep_ai(prompt, system_prompt, max_tokens=2500)
+    # Use async mode for background tasks (non-blocking)
+    use_async = os.getenv("DEEP_ANALYSIS_USE_ASYNC", "true").lower() == "true"
     
-    result = {
-        "type": "evening_review",
-        "date": check_in_date,
-        "analysis": analysis,
-        "log_content_length": len(today_log) if today_log else 0,
-        "recent_logs_context": len(recent_logs),
-        "timestamp": datetime.now().isoformat()
-    }
+    if use_async and ":31080" in DEEP_MODEL_URL:
+        # Async mode: submit request and return request_id
+        # Result will be saved via callback
+        result_file = f"evening_review_{check_in_date}_{datetime.now().strftime('%H%M%S')}.json"
+        
+        def on_complete(result_str, error):
+            if error:
+                error_result = {
+                    "type": "evening_review",
+                    "date": check_in_date,
+                    "error": error,
+                    "timestamp": datetime.now().isoformat()
+                }
+                result_path = RESULT_DIR / f"error_{result_file}"
+                with open(result_path, 'w') as f:
+                    json.dump(error_result, f, indent=2)
+            else:
+                result_data = json.loads(result_str)
+                content = result_data['choices'][0]['message']['content']
+                result = {
+                    "type": "evening_review",
+                    "date": check_in_date,
+                    "analysis": content,
+                    "log_content_length": len(today_log) if today_log else 0,
+                    "recent_logs_context": len(recent_logs),
+                    "timestamp": datetime.now().isoformat()
+                }
+                result_path = RESULT_DIR / result_file
+                with open(result_path, 'w') as f:
+                    json.dump(result, f, indent=2)
+                send_discord_notification_for_result("evening_review", result, result_path)
+                send_local_notification_for_result("evening_review", result, result_path)
+        
+        request_id = call_deep_ai(prompt, system_prompt, max_tokens=2500, use_async=True, callback=on_complete, result_file=result_file)
+        
+        # Return placeholder result with request_id
+        return {
+            "type": "evening_review",
+            "date": check_in_date,
+            "status": "queued",
+            "request_id": request_id.replace("Request submitted: ", ""),
+            "message": "Analysis queued for background processing",
+            "timestamp": datetime.now().isoformat()
+        }
+    else:
+        # Blocking mode (original behavior)
+        analysis = call_deep_ai(prompt, system_prompt, max_tokens=2500, use_async=False)
+        
+        result = {
+            "type": "evening_review",
+            "date": check_in_date,
+            "analysis": analysis,
+            "log_content_length": len(today_log) if today_log else 0,
+            "recent_logs_context": len(recent_logs),
+            "timestamp": datetime.now().isoformat()
+        }
     
     return result
 
