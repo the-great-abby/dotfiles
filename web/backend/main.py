@@ -29,6 +29,8 @@ app = FastAPI(
 
 # CORS middleware for frontend
 # Allow both development (Vite) and production (nginx) origins
+# Read Tailscale domain from environment or config
+TAILSCALE_DOMAIN = os.getenv("GTD_TAILSCALE_DOMAIN", "")
 cors_origins = [
     "http://localhost:5173",  # Vite dev server
     "http://localhost:3000",  # Alternative dev port
@@ -36,6 +38,12 @@ cors_origins = [
     "http://localhost",  # Production nginx
     "http://gtd-wizard.local",  # Production domain
 ]
+# Add Tailscale domain if configured
+if TAILSCALE_DOMAIN:
+    cors_origins.extend([
+        f"http://{TAILSCALE_DOMAIN}",
+        f"https://{TAILSCALE_DOMAIN}",
+    ])
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -81,6 +89,8 @@ if gtd_config_file.exists():
 INBOX_PATH = GTD_DATA_BASE / "0-inbox"
 TASKS_PATH = GTD_DATA_BASE / "tasks"
 PROJECTS_PATH = GTD_DATA_BASE / "1-projects"
+WEEKLY_REVIEWS_PATH = GTD_DATA_BASE / "weekly-reviews"
+HABITS_PATH = GTD_DATA_BASE / "habits"
 
 if not GTD_DATA_BASE.exists():
     logger.warning(f"GTD data directory not found. Expected: {GTD_DATA_BASE}")
@@ -109,6 +119,20 @@ class SystemStatus(BaseModel):
     completed_today: int
     advice_results_pending: int = 0
     status: str = "ok"
+
+class DailyReview(BaseModel):
+    type: str  # morning or evening
+    priority1: Optional[str] = None
+    priority2: Optional[str] = None
+    priority3: Optional[str] = None
+    accomplishments: Optional[str] = None
+    blockers: Optional[str] = None
+    attention_items: Optional[str] = None
+    what_went_well: Optional[str] = None
+    morning_feeling: Optional[str] = None  # How am I feeling (energy, mood, readiness)
+    today_goals: Optional[str] = None  # What do I need to accomplish today
+    gratitude: Optional[str] = None  # What am I grateful for
+    log_weather: Optional[bool] = False  # Whether to log weather
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -479,10 +503,12 @@ async def get_menu():
             {
                 "title": "📤 OUTPUTS - Reviews & Creation",
                 "items": [
-                    {"id": 10, "title": "📊 Review (Daily/Weekly/Monthly)", "route": "/reviews"},
-                    {"id": 11, "title": "🧠 Sync with Second Brain", "route": "/sync"},
-                    {"id": 12, "title": "✍️ Express Phase (Create Content)", "route": "/express"},
-                    {"id": 13, "title": "📋 Use Templates", "route": "/templates"},
+                    {"id": 10, "title": "🌅 Morning Review", "route": "/review/morning"},
+                    {"id": 11, "title": "🌙 Evening Review", "route": "/review/evening"},
+                    {"id": 12, "title": "📊 Other Reviews (Weekly/Monthly)", "route": "/reviews"},
+                    {"id": 13, "title": "🧠 Sync with Second Brain", "route": "/sync"},
+                    {"id": 14, "title": "✍️ Express Phase (Create Content)", "route": "/express"},
+                    {"id": 15, "title": "📋 Use Templates", "route": "/templates"},
                     {"id": 14, "title": "🎨 Create Diagrams & Mindmaps", "route": "/diagrams"}
                 ]
             },
@@ -609,19 +635,60 @@ async def get_inbox():
         items = []
         if INBOX_PATH.exists():
             for i, file in enumerate(sorted(INBOX_PATH.glob("*.md")), 1):
-                # Read first line as description
+                # Read full file content, handling frontmatter
                 try:
-                    with open(file, 'r') as f:
-                        first_line = f.readline().strip()
-                        description = first_line.replace("#", "").strip()
-                        if not description:
-                            description = file.stem
-                except:
+                    with open(file, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                    
+                    # Check if file has frontmatter (starts with ---)
+                    content_lines = []
+                    in_frontmatter = False
+                    frontmatter_end = False
+                    first_line_title = file.stem  # Fallback title
+                    
+                    for line in lines:
+                        if line.strip() == "---":
+                            if not in_frontmatter:
+                                # First --- marks start of frontmatter
+                                in_frontmatter = True
+                                continue  # Skip the opening ---
+                            else:
+                                # Second --- marks end of frontmatter
+                                frontmatter_end = True
+                                continue  # Skip the closing ---
+                        
+                        if in_frontmatter and not frontmatter_end:
+                            # We're in frontmatter, skip this line
+                            continue
+                        
+                        # This line should be included in content
+                        content_lines.append(line)
+                        # Extract title from first content line if it's a heading
+                        if len(content_lines) == 1:
+                            stripped = line.strip()
+                            if stripped.startswith("# "):
+                                first_line_title = stripped[2:].strip()
+                            elif stripped:
+                                first_line_title = stripped
+                    
+                    # Get full content (everything after frontmatter, or entire file if no frontmatter)
+                    content = "".join(content_lines).strip()
+                    
+                    # If content is empty, use filename as fallback
+                    if not content:
+                        content = first_line_title
+                    
+                    # Use first non-empty line as title for reference
+                    description = content
+                    
+                except Exception as e:
+                    logger.warning(f"Error reading inbox file {file}: {e}")
                     description = file.stem
+                    content = ""
                 
                 items.append({
                     "id": i,
-                    "description": description,
+                    "description": description,  # Full content
                     "type": "unknown",
                     "file": str(file.name)
                 })
@@ -634,6 +701,16 @@ async def get_inbox():
 async def process_inbox_item(item_id: int, action: InboxProcess):
     """Process an inbox item"""
     try:
+        # Find the inbox file corresponding to this item_id
+        inbox_file = None
+        if INBOX_PATH.exists():
+            sorted_files = sorted(INBOX_PATH.glob("*.md"))
+            if 1 <= item_id <= len(sorted_files):
+                inbox_file = sorted_files[item_id - 1]  # item_id is 1-indexed
+        
+        if not inbox_file or not inbox_file.exists():
+            raise HTTPException(status_code=404, detail=f"Inbox item {item_id} not found")
+        
         # Capture as the specified type
         args = [action.type, action.description]
         if action.priority:
@@ -642,6 +719,14 @@ async def process_inbox_item(item_id: int, action: InboxProcess):
         result = execute_gtd_command("gtd-capture", *args)
         
         if result["success"]:
+            # Delete the inbox file after successful processing
+            try:
+                inbox_file.unlink()
+                logger.info(f"Deleted processed inbox file: {inbox_file}")
+            except Exception as e:
+                logger.warning(f"Failed to delete inbox file {inbox_file}: {e}")
+                # Don't fail the request if deletion fails, item was still processed
+            
             # Broadcast update
             await manager.broadcast({
                 "type": "status_update",
@@ -660,6 +745,488 @@ async def process_inbox_item(item_id: int, action: InboxProcess):
         raise
     except Exception as e:
         logger.error(f"Error processing inbox item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/inbox/{item_id}")
+async def delete_inbox_item(item_id: int):
+    """Delete an inbox item without processing it"""
+    try:
+        # Find the inbox file corresponding to this item_id
+        inbox_file = None
+        if INBOX_PATH.exists():
+            sorted_files = sorted(INBOX_PATH.glob("*.md"))
+            if 1 <= item_id <= len(sorted_files):
+                inbox_file = sorted_files[item_id - 1]  # item_id is 1-indexed
+        
+        if not inbox_file or not inbox_file.exists():
+            raise HTTPException(status_code=404, detail=f"Inbox item {item_id} not found")
+        
+        # Delete the file
+        try:
+            inbox_file.unlink()
+            logger.info(f"Deleted inbox file: {inbox_file}")
+            
+            # Broadcast update
+            await manager.broadcast({
+                "type": "status_update",
+                "message": "Inbox item deleted"
+            })
+            
+            return {
+                "success": True,
+                "message": "Item deleted successfully"
+            }
+        except Exception as e:
+            logger.error(f"Failed to delete inbox file {inbox_file}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting inbox item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reviews/daily")
+async def get_daily_review_data(review_type: Optional[str] = None):
+    """Get data for daily review (morning or evening)"""
+    try:
+        from datetime import datetime
+        
+        # Auto-detect time of day if not specified
+        if not review_type:
+            current_hour = datetime.now().hour
+            review_type = "morning" if current_hour < 12 else "evening"
+        
+        if review_type not in ["morning", "evening"]:
+            raise HTTPException(status_code=400, detail="review_type must be 'morning' or 'evening'")
+        
+        # Get system stats
+        inbox_count = count_files(INBOX_PATH, "*.md")
+        
+        # Count active tasks
+        active_tasks = 0
+        if TASKS_PATH.exists():
+            for task_file in TASKS_PATH.glob("*.md"):
+                try:
+                    with open(task_file, 'r') as f:
+                        content = f.read()
+                        if "status: active" in content:
+                            active_tasks += 1
+                except:
+                    pass
+        
+        # Count active projects
+        active_projects = 0
+        if PROJECTS_PATH.exists():
+            active_projects = len([d for d in PROJECTS_PATH.iterdir() if d.is_dir()])
+        
+        # Get habits due today (for morning check-in)
+        habits_due = []
+        if review_type == "morning" and HABITS_PATH.exists():
+            today = datetime.now().strftime("%Y-%m-%d")
+            for habit_file in HABITS_PATH.glob("*.md"):
+                try:
+                    with open(habit_file, 'r') as f:
+                        content = f.read()
+                        # Check if habit is active
+                        if "status: active" in content or "status:" not in content:
+                            # Check frequency and last completed
+                            frequency = ""
+                            last_completed = ""
+                            for line in content.split('\n'):
+                                if line.startswith("frequency:"):
+                                    frequency = line.split(":", 1)[1].strip()
+                                elif line.startswith("last_completed:"):
+                                    last_completed = line.split(":", 1)[1].strip()
+                            
+                            # Get habit name
+                            habit_name = habit_file.stem
+                            for line in content.split('\n'):
+                                if line.startswith("name:"):
+                                    habit_name = line.split(":", 1)[1].strip()
+                                    break
+                            
+                            # Check if due today
+                            if frequency == "daily" and last_completed != today:
+                                # Check time_of_day
+                                time_of_day = ""
+                                for line in content.split('\n'):
+                                    if line.startswith("time_of_day:"):
+                                        time_of_day = line.split(":", 1)[1].strip()
+                                        break
+                                
+                                if time_of_day == "morning" or not time_of_day:
+                                    habits_due.append(habit_name)
+                except:
+                    pass
+        
+        # Get AI suggestions (pre-generated morning suggestions)
+        ai_suggestions = None
+        if review_type == "morning":
+            try:
+                suggestions_dir = GTD_DATA_BASE / "checkin_suggestions"
+                morning_suggestions_file = suggestions_dir / f"morning_{datetime.now().strftime('%Y-%m-%d')}.txt"
+                if morning_suggestions_file.exists():
+                    with open(morning_suggestions_file, 'r', encoding='utf-8') as f:
+                        ai_suggestions = f.read().strip()
+            except Exception as e:
+                logger.debug(f"Could not get AI suggestions: {e}")
+        
+        # Get calendar info if available
+        calendar_info = None
+        try:
+            calendar_cmd = Path.home() / "code" / "dotfiles" / "bin" / "gtd-calendar-info"
+            if calendar_cmd.exists() and calendar_cmd.is_file():
+                import subprocess
+                if review_type == "morning":
+                    result = subprocess.run(
+                        [str(calendar_cmd), "overview", "today", "brief"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                else:
+                    # Evening - show tomorrow
+                    from datetime import timedelta
+                    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+                    result = subprocess.run(
+                        [str(calendar_cmd), "overview", tomorrow, "brief"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                if result.returncode == 0:
+                    calendar_info = result.stdout.strip()
+        except Exception as e:
+            logger.debug(f"Could not get calendar info: {e}")
+        
+        # Check if review already exists for today
+        today = datetime.now().strftime("%Y-%m-%d")
+        review_file = WEEKLY_REVIEWS_PATH / f"daily-{today}-{review_type}.md"
+        existing_review = None
+        if review_file.exists():
+            try:
+                with open(review_file, 'r', encoding='utf-8') as f:
+                    existing_review = f.read()
+            except:
+                pass
+        
+        return {
+            "type": review_type,
+            "date": today,
+            "inbox_count": inbox_count,
+            "active_tasks": active_tasks,
+            "active_projects": active_projects,
+            "habits_due": habits_due,
+            "ai_suggestions": ai_suggestions,
+            "calendar_info": calendar_info,
+            "existing_review": existing_review is not None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting daily review data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/reviews/daily")
+async def submit_daily_review(review: DailyReview):
+    """Submit a daily review"""
+    try:
+        from datetime import datetime
+        
+        if review.type not in ["morning", "evening"]:
+            raise HTTPException(status_code=400, detail="type must be 'morning' or 'evening'")
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%H:%M")
+        
+        # Ensure directory exists
+        WEEKLY_REVIEWS_PATH.mkdir(parents=True, exist_ok=True)
+        
+        # Create review file
+        review_file = WEEKLY_REVIEWS_PATH / f"daily-{today}-{review.type}.md"
+        
+        if review.type == "morning":
+            content = f"""---
+type: daily_review
+time: morning
+date: {today}
+created: {today}T{now}
+---
+
+# Daily Morning Review - {today} 🌅
+
+## How I'm Feeling
+{review.morning_feeling or ''}
+
+## Priorities Today
+1. {review.priority1 or ''}
+2. {review.priority2 or ''}
+3. {review.priority3 or ''}
+
+## Today's Goals
+{review.today_goals or ''}
+
+## Potential Blockers
+{review.blockers or ''}
+
+## Gratitude
+{review.gratitude or ''}
+
+## Yesterday's Accomplishments
+{review.accomplishments or ''}
+
+## Needs Attention
+{review.attention_items or ''}
+"""
+        else:
+            content = f"""---
+type: daily_review
+time: evening
+date: {today}
+created: {today}T{now}
+---
+
+# Daily Evening Review - {today} 🌙
+
+## Today's Accomplishments
+{review.accomplishments or ''}
+
+## What Went Well
+{review.what_went_well or ''}
+
+## Blockers
+{review.blockers or ''}
+
+## Priorities Tomorrow
+1. {review.priority1 or ''}
+2. {review.priority2 or ''}
+3. {review.priority3 or ''}
+
+## Needs Attention
+{review.attention_items or ''}
+"""
+        
+        with open(review_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        # Also write a marker to the daily log so CLI recognizes it
+        # Find daily log directory from config
+        daily_log_dir = Path.home() / "Documents" / "daily_logs"
+        daily_log_config = Path.home() / ".daily_log_config"
+        if not daily_log_config.exists():
+            for path in [
+                Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".daily_log_config",
+                Path.home() / "code" / "dotfiles" / "zsh" / ".daily_log_config",
+            ]:
+                if path.exists():
+                    daily_log_config = path
+                    break
+        
+        if daily_log_config.exists():
+            try:
+                with open(daily_log_config, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("DAILY_LOG_DIR="):
+                            value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            value = value.replace("$HOME", str(Path.home()))
+                            if value:
+                                daily_log_dir = Path(value)
+                                break
+            except Exception as e:
+                logger.debug(f"Could not read daily log config: {e}")
+        
+        # Write full check-in to daily log (matching CLI format)
+        daily_log_file = daily_log_dir / f"{today}.md"
+        try:
+            daily_log_dir.mkdir(parents=True, exist_ok=True)
+            # Create file with header if it doesn't exist
+            if not daily_log_file.exists():
+                with open(daily_log_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# Daily Log - {today}\n\n")
+            
+            # Write full check-in entry (matching CLI format)
+            time_icon = "🌅" if review.type == "morning" else "🌙"
+            checkin_entry = f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{time_icon} {review.type.capitalize()} Check-In - {now}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"""
+            
+            if review.type == "morning":
+                if review.morning_feeling:
+                    checkin_entry += f"How I'm feeling: {review.morning_feeling}\n\n"
+                if review.priority1 or review.priority2 or review.priority3:
+                    checkin_entry += "Top 3 Priorities:\n"
+                    if review.priority1:
+                        checkin_entry += f"1. {review.priority1}\n"
+                    if review.priority2:
+                        checkin_entry += f"2. {review.priority2}\n"
+                    if review.priority3:
+                        checkin_entry += f"3. {review.priority3}\n"
+                    checkin_entry += "\n"
+                if review.today_goals:
+                    checkin_entry += f"Today's Goals: {review.today_goals}\n\n"
+                if review.blockers:
+                    checkin_entry += f"Potential Blockers: {review.blockers}\n\n"
+                if review.gratitude:
+                    checkin_entry += f"Gratitude: {review.gratitude}\n\n"
+            else:
+                if review.accomplishments:
+                    checkin_entry += f"Today's Accomplishments: {review.accomplishments}\n\n"
+                if review.what_went_well:
+                    checkin_entry += f"What Went Well: {review.what_went_well}\n\n"
+                if review.blockers:
+                    checkin_entry += f"Blockers: {review.blockers}\n\n"
+                if review.priority1 or review.priority2 or review.priority3:
+                    checkin_entry += "Priorities Tomorrow:\n"
+                    if review.priority1:
+                        checkin_entry += f"1. {review.priority1}\n"
+                    if review.priority2:
+                        checkin_entry += f"2. {review.priority2}\n"
+                    if review.priority3:
+                        checkin_entry += f"3. {review.priority3}\n"
+                    checkin_entry += "\n"
+            
+            checkin_entry += "\n"
+            
+            with open(daily_log_file, 'a', encoding='utf-8') as f:
+                f.write(checkin_entry)
+            logger.info(f"Added check-in to daily log: {daily_log_file}")
+            
+            # Also log weather if requested
+            if review.log_weather and review.type == "morning":
+                try:
+                    weather_cmd = Path.home() / "code" / "dotfiles" / "bin" / "gtd-log-weather"
+                    if weather_cmd.exists() and weather_cmd.is_file():
+                        import subprocess
+                        # Run weather logging (non-interactive mode if possible)
+                        subprocess.run([str(weather_cmd)], timeout=30, capture_output=True)
+                except Exception as e:
+                    logger.debug(f"Could not log weather: {e}")
+        except Exception as e:
+            logger.warning(f"Could not write to daily log {daily_log_file}: {e}")
+            # Don't fail the request if daily log write fails
+        
+        # Broadcast update
+        await manager.broadcast({
+            "type": "status_update",
+            "message": f"{review.type.capitalize()} review saved successfully"
+        })
+        
+        return {
+            "success": True,
+            "message": f"{review.type.capitalize()} review saved successfully",
+            "file": str(review_file.name)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving daily review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/habits/{habit_name}/complete")
+async def complete_habit(habit_name: str):
+    """Complete a habit (log it for today)"""
+    try:
+        from datetime import datetime
+        
+        # Find habit file
+        habit_slug = habit_name.lower().replace(' ', '-')
+        # Remove special characters
+        import re
+        habit_slug = re.sub(r'[^a-z0-9-]', '', habit_slug)
+        habit_file = HABITS_PATH / f"{habit_slug}.md"
+        
+        if not habit_file.exists():
+            # Try to find by name in habit files
+            found = False
+            if HABITS_PATH.exists():
+                for h_file in HABITS_PATH.glob("*.md"):
+                    try:
+                        with open(h_file, 'r') as f:
+                            content = f.read()
+                            # Check if name matches
+                            for line in content.split('\n'):
+                                if line.startswith('name:'):
+                                    file_name = line.split(':', 1)[1].strip()
+                                    if file_name.lower() == habit_name.lower():
+                                        habit_file = h_file
+                                        found = True
+                                        break
+                        if found:
+                            break
+                    except:
+                        continue
+            
+            if not found:
+                raise HTTPException(status_code=404, detail=f"Habit '{habit_name}' not found")
+        
+        # Read habit file
+        with open(habit_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse habit data
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%H:%M")
+        
+        # Check if already completed today
+        for line in content.split('\n'):
+            if line.startswith('last_completed:'):
+                last_completed = line.split(':', 1)[1].strip()
+                if last_completed == today:
+                    return {"success": True, "message": f"Habit '{habit_name}' already logged for today"}
+        
+        # Update habit file using gtd-habit command
+        try:
+            import subprocess
+            gtd_habit_cmd = Path.home() / "code" / "dotfiles" / "bin" / "gtd-habit"
+            if not gtd_habit_cmd.exists():
+                gtd_habit_cmd = Path.home() / "code" / "personal" / "dotfiles" / "bin" / "gtd-habit"
+            
+            if gtd_habit_cmd.exists():
+                result = subprocess.run(
+                    [str(gtd_habit_cmd), "log", habit_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                if result.returncode == 0:
+                    return {"success": True, "message": f"Habit '{habit_name}' completed successfully"}
+                else:
+                    logger.warning(f"gtd-habit command failed: {result.stderr}")
+            else:
+                # Fallback: update file directly
+                logger.warning("gtd-habit command not found, updating file directly")
+                # This is a simplified version - full logic is in gtd-habit script
+                # For now, just update last_completed
+                updated_content = content
+                if 'last_completed:' in content:
+                    import re
+                    updated_content = re.sub(
+                        r'^last_completed:.*$',
+                        f'last_completed: {today}',
+                        updated_content,
+                        flags=re.MULTILINE
+                    )
+                else:
+                    # Add last_completed after frontmatter
+                    if '---' in updated_content:
+                        parts = updated_content.split('---', 2)
+                        if len(parts) >= 3:
+                            updated_content = f"{parts[0]}---{parts[1]}---\nlast_completed: {today}\n{parts[2]}"
+                
+                with open(habit_file, 'w', encoding='utf-8') as f:
+                    f.write(updated_content)
+                
+                return {"success": True, "message": f"Habit '{habit_name}' completed successfully"}
+        except Exception as e:
+            logger.error(f"Error completing habit: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to complete habit: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error completing habit: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/tasks")
@@ -930,8 +1497,12 @@ async def get_advice_results(status_filter: Optional[str] = None):
         if not ADVICE_RESULTS_DIR.exists():
             return {"results": [], "count": 0}
         
-        # Get all JSON result files
+        # Get all JSON result files (exclude archived directory)
+        archived_dir = ADVICE_RESULTS_DIR / "archived"
         for result_file in sorted(ADVICE_RESULTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            # Skip if file is in archived directory (shouldn't happen with glob, but double-check)
+            if archived_dir in result_file.parents:
+                continue
             try:
                 with open(result_file, 'r') as f:
                     data = json.load(f)
@@ -1096,4 +1667,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Allow binding to all interfaces if TAILSCALE_DOMAIN is set (for direct access)
+    # Otherwise, bind to localhost only (nginx will proxy)
+    host = os.getenv("GTD_BIND_HOST", "127.0.0.1")
+    port = int(os.getenv("GTD_BIND_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port)

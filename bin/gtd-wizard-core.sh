@@ -845,8 +845,8 @@ get_smart_defaults() {
   local completed_advice_count=0
   local advice_results_dir="$HOME/Documents/gtd/advice_results"
   if [[ -d "$advice_results_dir" ]]; then
-    # Count JSON files with status "completed" (not error)
-    completed_advice_count=$(find "$advice_results_dir" -name "*.json" -type f 2>/dev/null | while read -r file; do
+    # Count JSON files with status "completed" (not error), excluding archived directory
+    completed_advice_count=$(find "$advice_results_dir" -name "*.json" -type f -not -path "*/archived/*" 2>/dev/null | while read -r file; do
       if grep -q '"status":\s*"completed"' "$file" 2>/dev/null; then
         echo "1"
       fi

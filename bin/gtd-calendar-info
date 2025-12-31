@@ -1,0 +1,672 @@
+#!/bin/bash
+# GTD Calendar Info - Display calendar information and provide planning assistance
+# Compatible with bash 3.2 (macOS default)
+
+# Load GTD common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# Initialize GTD paths
+init_gtd_paths
+
+# Calendar cache configuration
+CALENDAR_CACHE_DIR="${GTD_BASE_DIR}/calendar"
+CALENDAR_CACHE_FILE="${CALENDAR_CACHE_DIR}/cache.json"
+
+# Load calendar cache
+load_calendar_cache() {
+  if [[ ! -f "$CALENDAR_CACHE_FILE" ]]; then
+    # Fetch if cache doesn't exist
+    if command -v gtd-calendar-fetch &>/dev/null; then
+      gtd-calendar-fetch >/dev/null 2>&1
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar-fetch" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-calendar-fetch" >/dev/null 2>&1
+    fi
+  fi
+  
+  if [[ -f "$CALENDAR_CACHE_FILE" ]]; then
+    cat "$CALENDAR_CACHE_FILE"
+  else
+    echo '{"metadata": {}, "events": []}'
+  fi
+}
+
+# Format time for display
+format_time() {
+  local time_str="$1"
+  python3 <<PYTHON_EOF
+from datetime import datetime
+import sys
+
+time_str = "$time_str"
+try:
+    dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+    # Format as 12-hour time
+    print(dt.strftime("%-I:%M %p"))
+except:
+    print(time_str)
+PYTHON_EOF
+}
+
+# Format date for display
+format_date() {
+  local date_str="$1"
+  python3 <<PYTHON_EOF
+from datetime import datetime
+import sys
+
+date_str = "$date_str"
+try:
+    dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+    print(dt.strftime("%A, %B %-d, %Y"))
+except:
+    print(date_str)
+PYTHON_EOF
+}
+
+# Get events for a specific date
+get_events_for_date() {
+  local target_date="$1"
+  local cache_data="$2"
+  
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime, date
+
+target_date = "$target_date"
+cache_data = '''$cache_data'''
+
+try:
+    cache = json.loads(cache_data)
+    events = cache.get("events", [])
+    
+    # Parse target date
+    if target_date == "today":
+        target = date.today()
+    elif target_date == "tomorrow":
+        from datetime import timedelta
+        target = date.today() + timedelta(days=1)
+    else:
+        try:
+            target = datetime.strptime(target_date, "%Y-%m-%d").date()
+        except:
+            target = date.today()
+    
+    # Filter events for target date
+    matching_events = []
+    for event in events:
+        try:
+            event_start = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            if event_start.date() == target:
+                matching_events.append(event)
+        except:
+            continue
+    
+    # Sort by start time
+    matching_events.sort(key=lambda e: e.get("start", ""))
+    
+    print(json.dumps(matching_events, indent=2))
+except Exception as e:
+    print("[]")
+PYTHON_EOF
+}
+
+# Display daily overview
+show_daily_overview() {
+  local target_date="${1:-today}"
+  local brief="${2:-false}"
+  local cache_data
+  cache_data=$(load_calendar_cache)
+  
+  # Get events for target date
+  local events_json
+  events_json=$(get_events_for_date "$target_date" "$cache_data")
+  
+  # Display overview
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime, timedelta, date
+
+events_json = '''$events_json'''
+target_date = "$target_date"
+brief = "$brief" == "true"
+
+try:
+    events = json.loads(events_json)
+    
+    if target_date == "today":
+        date_display = datetime.now().strftime("%A, %B %-d, %Y")
+    else:
+        try:
+            dt = datetime.strptime(target_date, "%Y-%m-%d")
+            date_display = dt.strftime("%A, %B %-d, %Y")
+        except:
+            date_display = target_date
+    
+    print(f"📅 {date_display}")
+    print("")
+    
+    if not events:
+        print("  No events scheduled")
+        return
+    
+    # Group by time of day
+    morning_events = []
+    afternoon_events = []
+    evening_events = []
+    
+    for event in events:
+        try:
+            start_dt = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            hour = start_dt.hour
+            
+            if hour < 12:
+                morning_events.append(event)
+            elif hour < 17:
+                afternoon_events.append(event)
+            else:
+                evening_events.append(event)
+        except:
+            continue
+    
+    # Display morning events
+    if morning_events:
+        print("Morning (9:00 AM - 12:00 PM):")
+        for event in morning_events:
+            start_dt = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(event["end"].replace('Z', '+00:00'))
+            duration = (end_dt - start_dt).total_seconds() / 3600
+            
+            time_str = start_dt.strftime("%-I:%M %p")
+            end_str = end_dt.strftime("%-I:%M %p")
+            cal_display = event.get("calendar_display", event.get("calendar", ""))
+            
+            print(f"  {time_str} - {end_str}  [{cal_display}] {event.get('title', 'Untitled')}")
+            
+            if not brief:
+                if event.get("location"):
+                    print(f"                      Location: {event['location']}")
+                if event.get("description") and len(event.get("description", "")) < 100:
+                    desc = event["description"].replace("\n", " ")
+                    print(f"                      {desc}")
+            
+            duration_str = f"{int(duration)} hour"
+            if duration != 1:
+                duration_str += "s"
+            print(f"                      Duration: {duration_str}")
+            print("")
+    
+    # Display afternoon events
+    if afternoon_events:
+        print("Afternoon (12:00 PM - 5:00 PM):")
+        for event in afternoon_events:
+            start_dt = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(event["end"].replace('Z', '+00:00'))
+            duration = (end_dt - start_dt).total_seconds() / 3600
+            
+            time_str = start_dt.strftime("%-I:%M %p")
+            end_str = end_dt.strftime("%-I:%M %p")
+            cal_display = event.get("calendar_display", event.get("calendar", ""))
+            
+            print(f"  {time_str} - {end_str}  [{cal_display}] {event.get('title', 'Untitled')}")
+            
+            if not brief:
+                if event.get("location"):
+                    print(f"                      Location: {event['location']}")
+                if event.get("description") and len(event.get("description", "")) < 100:
+                    desc = event["description"].replace("\n", " ")
+                    print(f"                      {desc}")
+            
+            duration_str = f"{int(duration)} hour"
+            if duration != 1:
+                duration_str += "s"
+            print(f"                      Duration: {duration_str}")
+            print("")
+    
+    # Display evening events
+    if evening_events:
+        print("Evening (5:00 PM - 9:00 PM):")
+        for event in evening_events:
+            start_dt = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(event["end"].replace('Z', '+00:00'))
+            duration = (end_dt - start_dt).total_seconds() / 3600
+            
+            time_str = start_dt.strftime("%-I:%M %p")
+            end_str = end_dt.strftime("%-I:%M %p")
+            cal_display = event.get("calendar_display", event.get("calendar", ""))
+            
+            print(f"  {time_str} - {end_str}  [{cal_display}] {event.get('title', 'Untitled')}")
+            
+            if not brief:
+                if event.get("location"):
+                    print(f"                      Location: {event['location']}")
+                if event.get("description") and len(event.get("description", "")) < 100:
+                    desc = event["description"].replace("\n", " ")
+                    print(f"                      {desc}")
+            
+            duration_str = f"{int(duration)} hour"
+            if duration != 1:
+                duration_str += "s"
+            print(f"                      Duration: {duration_str}")
+            print("")
+    
+    # Summary
+    total_events = len(events)
+    total_hours = sum([
+        (datetime.fromisoformat(e["end"].replace('Z', '+00:00')) - 
+         datetime.fromisoformat(e["start"].replace('Z', '+00:00'))).total_seconds() / 3600
+        for e in events
+    ])
+    
+    print("📊 Summary:")
+    print(f"  • Total events: {total_events}")
+    print(f"  • Busy time: {int(total_hours)} hours")
+    
+    # Find next meeting
+    now = datetime.now()
+    next_meeting = None
+    for event in events:
+        try:
+            start_dt = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            if start_dt > now:
+                if next_meeting is None or start_dt < datetime.fromisoformat(next_meeting["start"].replace('Z', '+00:00')):
+                    next_meeting = event
+        except:
+            continue
+    
+    if next_meeting:
+        next_start = datetime.fromisoformat(next_meeting["start"].replace('Z', '+00:00'))
+        time_until = next_start - now
+        hours = int(time_until.total_seconds() / 3600)
+        minutes = int((time_until.total_seconds() % 3600) / 60)
+        
+        if hours > 0:
+            time_str = f"{hours} hour"
+            if hours > 1:
+                time_str += "s"
+            if minutes > 0:
+                time_str += f" {minutes} minute"
+                if minutes > 1:
+                    time_str += "s"
+        else:
+            time_str = f"{minutes} minute"
+            if minutes != 1:
+                time_str += "s"
+        
+        next_time = next_start.strftime("%-I:%M %p")
+        print(f"  • Next meeting: {next_meeting.get('title', 'Untitled')} at {next_time} (in {time_str})")
+    
+except Exception as e:
+    print(f"Error displaying overview: {e}")
+PYTHON_EOF
+}
+
+# Get time blocking suggestions with specific task recommendations
+suggest_time_blocks() {
+  local target_date="${1:-today}"
+  local cache_data
+  cache_data=$(load_calendar_cache)
+  
+  # Get events and tasks
+  local events_json
+  events_json=$(get_events_for_date "$target_date" "$cache_data")
+  
+  # Get tasks from GTD system with more details
+  local tasks_json="[]"
+  if [[ -d "$TASKS_PATH" ]]; then
+    # Find active tasks with priority and context
+    tasks_json=$(find "$TASKS_PATH" -name "*.md" -type f -exec grep -l "^status: active" {} \; 2>/dev/null | head -30 | python3 <<PYTHON_EOF
+import json
+import sys
+import os
+import re
+
+tasks = []
+for line in sys.stdin:
+    task_file = line.strip()
+    try:
+        with open(task_file, 'r') as f:
+            content = f.read()
+            # Extract title (first line or after #)
+            title_match = re.search(r'^# (.+)$', content, re.MULTILINE)
+            title = title_match.group(1) if title_match else os.path.basename(task_file).replace('.md', '')
+            
+            # Extract priority
+            priority_match = re.search(r'^priority: (.+)$', content, re.MULTILINE)
+            priority = priority_match.group(1) if priority_match else "medium"
+            
+            # Extract context (for time estimation)
+            context_match = re.search(r'^context: (.+)$', content, re.MULTILINE)
+            context = context_match.group(1) if context_match else ""
+            
+            # Estimate duration (simplified - could be improved)
+            # Look for duration hints in description
+            duration_hint = 60  # Default 1 hour
+            if "quick" in content.lower() or "5 min" in content.lower():
+                duration_hint = 15
+            elif "30 min" in content.lower() or "half hour" in content.lower():
+                duration_hint = 30
+            elif "2 hour" in content.lower() or "2h" in content.lower():
+                duration_hint = 120
+            elif "deep work" in content.lower() or "focus" in content.lower():
+                duration_hint = 90
+            
+            tasks.append({
+                "title": title,
+                "priority": priority.lower(),
+                "context": context,
+                "estimated_duration_minutes": duration_hint,
+                "file": task_file
+            })
+    except:
+        continue
+
+print(json.dumps(tasks))
+PYTHON_EOF
+    )
+  fi
+  
+  # Generate suggestions
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime, timedelta
+
+events_json = '''$events_json'''
+tasks_json = '''$tasks_json'''
+target_date = "$target_date"
+
+try:
+    events = json.loads(events_json)
+    tasks = json.loads(tasks_json)
+    
+    # Parse target date
+    if target_date == "today":
+        target = datetime.now().date()
+        now = datetime.now()
+    else:
+        try:
+            target = datetime.strptime(target_date, "%Y-%m-%d").date()
+            now = datetime.combine(target, datetime.min.time())
+        except:
+            now = datetime.now()
+            target = now.date()
+    
+    # Build time slots for the day (9 AM to 5 PM)
+    day_start = datetime.combine(target, datetime.strptime("09:00", "%H:%M").time())
+    day_end = datetime.combine(target, datetime.strptime("17:00", "%H:%M").time())
+    
+    # Create busy slots from events
+    busy_slots = []
+    for event in events:
+        try:
+            start_dt = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(event["end"].replace('Z', '+00:00'))
+            if start_dt.date() == target:
+                busy_slots.append((start_dt, end_dt))
+        except:
+            continue
+    
+    # Find available blocks
+    available_blocks = []
+    current_time = day_start
+    
+    # Sort busy slots
+    busy_slots.sort(key=lambda x: x[0])
+    
+    for busy_start, busy_end in busy_slots:
+        if current_time < busy_start:
+            # Found an available block
+            block_duration = (busy_start - current_time).total_seconds() / 3600
+            if block_duration >= 0.5:  # At least 30 minutes
+                available_blocks.append({
+                    "start": current_time,
+                    "end": busy_start,
+                    "duration_hours": block_duration
+                })
+        current_time = max(current_time, busy_end)
+    
+    # Check for block after last event
+    if current_time < day_end:
+        block_duration = (day_end - current_time).total_seconds() / 3600
+        if block_duration >= 0.5:
+            available_blocks.append({
+                "start": current_time,
+                "end": day_end,
+                "duration_hours": block_duration
+            })
+    
+    # Display suggestions
+    print("💡 Time Blocking Suggestions")
+    print("")
+    
+    if available_blocks:
+        print("Available blocks:")
+        for block in available_blocks:
+            start_str = block["start"].strftime("%-I:%M %p")
+            end_str = block["end"].strftime("%-I:%M %p")
+            hours = int(block["duration_hours"])
+            minutes = int((block["duration_hours"] - hours) * 60)
+            
+            duration_str = ""
+            if hours > 0:
+                duration_str = f"{hours} hour"
+                if hours > 1:
+                    duration_str += "s"
+            if minutes > 0:
+                if duration_str:
+                    duration_str += " "
+                duration_str += f"{minutes} minute"
+                if minutes > 1:
+                    duration_str += "s"
+            
+            print(f"  • {start_str} - {end_str} ({duration_str})")
+        
+        print("")
+        
+        # Match tasks to blocks with specific recommendations
+        if tasks:
+            print("Recommended tasks:")
+            # Sort tasks by priority
+            high_priority = [t for t in tasks if t.get("priority", "").lower() == "high"]
+            medium_priority = [t for t in tasks if t.get("priority", "").lower() == "medium"]
+            low_priority = [t for t in tasks if t.get("priority", "").lower() == "low"]
+            all_tasks = high_priority + medium_priority + low_priority
+            
+            # Match tasks to available blocks
+            matched_tasks = []
+            used_blocks = set()
+            
+            # First, try to match high priority tasks
+            for task in high_priority[:5]:
+                task_duration = task.get("estimated_duration_minutes", 60) / 60.0  # Convert to hours
+                
+                # Find best matching block
+                best_block = None
+                best_block_idx = -1
+                for idx, block in enumerate(available_blocks):
+                    if idx in used_blocks:
+                        continue
+                    if block["duration_hours"] >= task_duration:
+                        if best_block is None or block["duration_hours"] < best_block["duration_hours"]:
+                            best_block = block
+                            best_block_idx = idx
+                
+                if best_block:
+                    matched_tasks.append({
+                        "task": task,
+                        "block": best_block,
+                        "block_idx": best_block_idx
+                    })
+                    used_blocks.add(best_block_idx)
+            
+            # Then medium priority
+            for task in medium_priority[:5]:
+                if len(matched_tasks) >= 5:
+                    break
+                task_duration = task.get("estimated_duration_minutes", 60) / 60.0
+                
+                best_block = None
+                best_block_idx = -1
+                for idx, block in enumerate(available_blocks):
+                    if idx in used_blocks:
+                        continue
+                    if block["duration_hours"] >= task_duration:
+                        if best_block is None or block["duration_hours"] < best_block["duration_hours"]:
+                            best_block = block
+                            best_block_idx = idx
+                
+                if best_block:
+                    matched_tasks.append({
+                        "task": task,
+                        "block": best_block,
+                        "block_idx": best_block_idx
+                    })
+                    used_blocks.add(best_block_idx)
+            
+            # Display matched tasks
+            for match in matched_tasks[:5]:
+                task = match["task"]
+                block = match["block"]
+                task_title = task.get("title", "Untitled")
+                priority = task.get("priority", "medium").upper()
+                start_str = block["start"].strftime("%-I:%M %p")
+                end_str = block["end"].strftime("%-I:%M %p")
+                duration_str = f"{int(task.get('estimated_duration_minutes', 60))} min"
+                
+                print(f"  • [{priority}] {task_title}")
+                print(f"    → Schedule: {start_str} - {end_str} ({duration_str})")
+                
+                if task.get("context"):
+                    print(f"    → Context: {task['context']}")
+                print("")
+    else:
+        print("  No significant free blocks available today")
+        print("  Consider rescheduling some tasks or meetings")
+    
+except Exception as e:
+    print(f"Error generating suggestions: {e}")
+PYTHON_EOF
+}
+
+# Check for conflicts
+check_conflicts() {
+  local task_title="$1"
+  local proposed_time="$2"
+  local duration="${3:-60}"
+  
+  local cache_data
+  cache_data=$(load_calendar_cache)
+  
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime, timedelta
+
+cache_data = '''$cache_data'''
+task_title = "$task_title"
+proposed_time = "$proposed_time"
+duration_minutes = int("$duration")
+
+try:
+    cache = json.loads(cache_data)
+    events = cache.get("events", [])
+    
+    # Parse proposed time
+    try:
+        proposed_dt = datetime.fromisoformat(proposed_time.replace('Z', '+00:00'))
+    except:
+        # Try other formats
+        try:
+            proposed_dt = datetime.strptime(proposed_time, "%Y-%m-%d %H:%M")
+        except:
+            proposed_dt = datetime.strptime(proposed_time, "%Y-%m-%dT%H:%M")
+    
+    proposed_end = proposed_dt + timedelta(minutes=duration_minutes)
+    
+    # Check for conflicts
+    conflicts = []
+    for event in events:
+        try:
+            event_start = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            event_end = datetime.fromisoformat(event["end"].replace('Z', '+00:00'))
+            
+            # Check for overlap
+            if not (proposed_end <= event_start or proposed_dt >= event_end):
+                conflicts.append({
+                    "title": event.get("title", "Untitled"),
+                    "start": event_start,
+                    "end": event_end,
+                    "calendar": event.get("calendar_display", event.get("calendar", ""))
+                })
+        except:
+            continue
+    
+    if conflicts:
+        print(f"⚠️  Conflict detected:")
+        print(f"   Task: {task_title}")
+        print(f"   Proposed time: {proposed_dt.strftime('%-I:%M %p')} - {proposed_end.strftime('%-I:%M %p')}")
+        print("")
+        print(f"   Conflicts with:")
+        for conflict in conflicts:
+            print(f"   • {conflict['title']} ({conflict['start'].strftime('%-I:%M %p')} - {conflict['end'].strftime('%-I:%M %p')}) - {conflict['calendar']}")
+    else:
+        print(f"✅ No conflicts found for {task_title} at {proposed_dt.strftime('%-I:%M %p')}")
+    
+except Exception as e:
+    print(f"Error checking conflicts: {e}")
+PYTHON_EOF
+}
+
+# Main function
+main() {
+  local command="${1:-overview}"
+  
+  case "$command" in
+    overview|today)
+      local target_date="${2:-today}"
+      local brief="${3:-false}"
+      show_daily_overview "$target_date" "$brief"
+      ;;
+    suggest-blocks|suggest)
+      local target_date="${2:-today}"
+      suggest_time_blocks "$target_date"
+      ;;
+    conflicts|conflict)
+      local task_title="$2"
+      local proposed_time="$3"
+      local duration="${4:-60}"
+      
+      if [[ -z "$task_title" ]] || [[ -z "$proposed_time" ]]; then
+        echo "Usage: $0 conflicts <task_title> <proposed_time> [duration_minutes]" >&2
+        echo "  Example: $0 conflicts 'Review report' '2024-12-02 10:00' 60" >&2
+        exit 1
+      fi
+      
+      check_conflicts "$task_title" "$proposed_time" "$duration"
+      ;;
+    *)
+      echo "Usage: $0 <command> [options]" >&2
+      echo "" >&2
+      echo "Commands:" >&2
+      echo "  overview [date] [brief]  Show daily calendar overview" >&2
+      echo "  suggest-blocks [date]     Suggest time blocks for tasks" >&2
+      echo "  conflicts <task> <time> [duration]  Check for scheduling conflicts" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# Run main if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

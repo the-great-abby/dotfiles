@@ -76,16 +76,20 @@ elif [[ "$1" == "--interactive" ]]; then
 fi
 
 # Get content
-if [[ -z "$1" ]]; then
-  if [[ -t 0 ]]; then
-    # Interactive mode
-    echo "Enter your capture (press Ctrl+D when done, or Enter twice):"
-    CONTENT=$(cat)
-  else
-    echo "Usage: gtd-capture [--type=TYPE] [--interactive] \"Your capture text\""
-    exit 1
+# Check if stdin is available (piped input)
+if [[ ! -t 0 ]]; then
+  # Read from stdin (piped content)
+  CONTENT=$(cat)
+  # If there are also command-line arguments, use first one as title/prefix
+  if [[ -n "$1" ]]; then
+    TITLE_PREFIX="$1"
   fi
+elif [[ -z "$1" ]]; then
+  # Interactive mode - no arguments and stdin is a terminal
+  echo "Enter your capture (press Ctrl+D when done, or Enter twice):"
+  CONTENT=$(cat)
 else
+  # Use command-line arguments as content
   CONTENT="$*"
 fi
 
@@ -104,7 +108,29 @@ FILEPATH="${INBOX_PATH}/${FILENAME}"
 CAPTURE_TYPE_TITLE=$(echo "${CAPTURE_TYPE}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
 
 # Create file with template
-cat > "$FILEPATH" <<EOF
+# If we have a title prefix (from piped input with argument), use it in the header
+if [[ -n "$TITLE_PREFIX" ]]; then
+  cat > "$FILEPATH" <<EOF
+---
+type: ${CAPTURE_TYPE}
+status: unprocessed
+created: ${TODAY}T${NOW}
+tags: []
+---
+
+# ${CAPTURE_TYPE_TITLE}: ${TITLE_PREFIX}
+
+${CONTENT}
+
+## Details
+
+
+## Next Steps
+
+
+EOF
+else
+  cat > "$FILEPATH" <<EOF
 ---
 type: ${CAPTURE_TYPE}
 status: unprocessed
@@ -121,10 +147,16 @@ tags: []
 
 
 EOF
+fi
 
 echo "✓ Captured to inbox: ${FILEPATH}"
 echo "  Type: ${CAPTURE_TYPE}"
-echo "  Content: ${CONTENT}"
+if [[ -n "$TITLE_PREFIX" ]]; then
+  echo "  Title: ${TITLE_PREFIX}"
+  echo "  Content length: $(echo "$CONTENT" | wc -c | tr -d ' ') characters"
+else
+  echo "  Content: ${CONTENT}"
+fi
 
 # If this is a link capture OR if content contains a URL, try to generate a summary
 # This allows summaries even if user forgot to use --type=link

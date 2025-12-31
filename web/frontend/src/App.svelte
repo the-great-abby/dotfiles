@@ -7,6 +7,7 @@
   import InboxProcessor from './components/InboxProcessor.svelte'
   import ProjectsList from './components/ProjectsList.svelte'
   import AdviceReview from './components/AdviceReview.svelte'
+  import DailyReview from './components/DailyReview.svelte'
   import StatusBar from './components/StatusBar.svelte'
   import { api } from './services/api.js'
 
@@ -141,6 +142,10 @@
       <ProjectsList on:close={() => currentView = 'dashboard'} />
     {:else if currentView === 'advice-review'}
       <AdviceReview on:close={() => currentView = 'dashboard'} />
+    {:else if currentView === 'review-morning'}
+      <DailyReview reviewType="morning" on:close={() => currentView = 'dashboard'} on:saved={refreshStatus} />
+    {:else if currentView === 'review-evening'}
+      <DailyReview reviewType="evening" on:close={() => currentView = 'dashboard'} on:saved={refreshStatus} />
     {:else}
       <div class="coming-soon">
         <h2>Coming Soon</h2>

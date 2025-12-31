@@ -1,0 +1,51 @@
+#!/bin/bash
+# GTD Calendar Reminder Worker Wrapper
+# Starts the background worker that checks for meeting reminders
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Get Python path
+MCP_PYTHON=$(command -v python3)
+if [[ -z "$MCP_PYTHON" ]]; then
+    echo "Error: python3 not found" >&2
+    exit 1
+fi
+
+# Worker script path
+WORKER_SCRIPT="$DOTFILES_DIR/mcp/gtd_calendar_reminder_worker.py"
+
+if [[ ! -f "$WORKER_SCRIPT" ]]; then
+    echo "Error: Worker script not found: $WORKER_SCRIPT" >&2
+    exit 1
+fi
+
+# Log file
+LOG_FILE="/tmp/calendar-reminder-worker.log"
+
+# Check if already running
+if pgrep -f "gtd_calendar_reminder_worker.py" >/dev/null; then
+    echo "Calendar reminder worker is already running"
+    exit 0
+fi
+
+# Start worker
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Calendar Reminder Worker" >> "$LOG_FILE"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Calendar cache: $HOME/Documents/gtd/calendar/cache.json" >> "$LOG_FILE"
+
+# Run worker in background
+nohup "$MCP_PYTHON" "$WORKER_SCRIPT" >> "$LOG_FILE" 2>&1 &
+
+sleep 1
+
+if pgrep -f "gtd_calendar_reminder_worker.py" >/dev/null; then
+    echo "✓ Calendar reminder worker started"
+    echo "  Log: $LOG_FILE"
+    echo "  Checks reminders every 1 minute"
+    echo "  Updates calendar cache every 5 minutes"
+else
+    echo "✗ Failed to start calendar reminder worker"
+    echo "  Check log: $LOG_FILE"
+    exit 1
+fi

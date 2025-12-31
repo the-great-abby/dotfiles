@@ -104,35 +104,30 @@ handle_followup_questions() {
       # Ask if user wants to run this question in background (after question is entered)
       echo ""
       echo "How would you like to process this question?"
-      echo -e "${GREEN}1${NC} - Process now (foreground, priority 30)"
       echo -e "${GREEN}2${NC} - Run in background (default priority 20)"
       echo -e "${GREEN}3${NC} - Run in background with custom priority"
       echo ""
-      read -p "Choice (1/2/3, default: 1): " process_choice
-      process_choice="${process_choice:-1}"
+      read -p "Choice (2/3, default: 2): " process_choice
+      process_choice="${process_choice:-2}"
       
-      local use_background=false
+      local use_background=true
       local request_priority=""
       
-      if [[ "$process_choice" == "2" || "$process_choice" == "3" ]]; then
-        use_background=true
-        if [[ "$process_choice" == "3" ]]; then
-          echo ""
-          echo "Enter priority (higher = higher priority, default: 20):"
-          echo "  • 30+ = High priority (foreground/interactive)"
-          echo "  • 20 = Normal priority (background, default)"
-          echo "  • 10 = Low priority (background, can wait)"
-          echo ""
-          read -p "Priority (default: 20): " request_priority
-          request_priority="${request_priority:-20}"
-        else
-          request_priority="20"  # Default background priority
-        fi
+      if [[ "$process_choice" == "3" ]]; then
+        echo ""
+        echo "Enter priority (higher = higher priority, default: 20):"
+        echo "  • 30+ = High priority (foreground/interactive)"
+        echo "  • 20 = Normal priority (background, default)"
+        echo "  • 10 = Low priority (background, can wait)"
+        echo ""
+        read -p "Priority (default: 20): " request_priority
+        request_priority="${request_priority:-20}"
       else
-        request_priority="30"  # Default foreground priority
+        # Default to option 2 (background with default priority)
+        request_priority="20"  # Default background priority
       fi
       
-      # Check if we should queue in background or process immediately
+      # Queue in background (all follow-up questions are processed in background)
       if [[ "$use_background" == "true" ]]; then
         # Queue in background
         echo ""
@@ -168,289 +163,6 @@ handle_followup_questions() {
         fi
         continue
       fi
-      
-      # Process immediately (existing code)
-      echo ""
-      if [[ "$persona" == "random" ]]; then
-        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${BOLD}${CYAN}💬 Answer${NC}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      else
-        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${BOLD}${CYAN}💬 Answer from ${persona}${NC}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      fi
-      echo ""
-      
-      # Build follow-up prompt with context (use printf to handle newlines properly)
-      local followup_prompt=$(printf "Context: We were discussing: %s\n\nFollow-up question: %s\n\nAnswer this follow-up question about the same topic. Be specific and accurate." "${initial_question}" "${followup_question}")
-      
-      local followup_answer=""
-      local advise_exit_code=0
-      local temp_output=$(mktemp)
-      # Ensure temp file exists and is writable
-      touch "$temp_output"
-      
-      # Set priority environment variable for foreground requests
-      local original_priority="${GTD_REQUEST_PRIORITY:-}"
-      export GTD_REQUEST_PRIORITY="$request_priority"
-      
-      # Disable exit on error temporarily to handle gtd-advise failures gracefully
-      set +e
-      if [[ "$use_simple_mode" == "true" ]]; then
-        if [[ "$use_web_search" == "true" ]]; then
-          # Build contextual search query
-          local search_query="${initial_question} ${followup_question}"
-          echo "🔍 Performing web search for follow-up question..."
-          echo ""
-          # Use timeout to prevent hanging (5 minutes max)
-          # macOS-compatible timeout handling
-          if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
-            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
-            $timeout_cmd 300 gtd-advise --simple --web-search "$persona" "$search_query" > "$temp_output" 2>&1
-            advise_exit_code=$?
-          else
-            # Fallback for macOS without timeout: run in background with kill
-            gtd-advise --simple --web-search "$persona" "$search_query" > "$temp_output" 2>&1 &
-            local pid=$!
-            (sleep 300 && kill $pid 2>/dev/null) &
-            local killer_pid=$!
-            wait $pid 2>/dev/null
-            advise_exit_code=$?
-            # If process was killed (timeout), exit code is 128+signal, normalize to 124
-            if [[ $advise_exit_code -gt 128 ]]; then
-              advise_exit_code=124
-            fi
-            kill $killer_pid 2>/dev/null
-            wait $killer_pid 2>/dev/null
-          fi
-        else
-          # Use timeout to prevent hanging (5 minutes max)
-          # macOS-compatible timeout handling
-          if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
-            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
-            $timeout_cmd 300 gtd-advise --simple "$persona" "$followup_prompt" > "$temp_output" 2>&1
-            advise_exit_code=$?
-          else
-            # Fallback for macOS without timeout: run in background with kill
-            gtd-advise --simple "$persona" "$followup_prompt" > "$temp_output" 2>&1 &
-            local pid=$!
-            (sleep 300 && kill $pid 2>/dev/null) &
-            local killer_pid=$!
-            wait $pid 2>/dev/null
-            advise_exit_code=$?
-            # If process was killed (timeout), exit code is 128+signal, normalize to 124
-            if [[ $advise_exit_code -gt 128 ]]; then
-              advise_exit_code=124
-            fi
-            kill $killer_pid 2>/dev/null
-            wait $killer_pid 2>/dev/null
-          fi
-        fi
-      else
-        # Regular mode - include context from original question
-        if [[ "$persona" == "random" ]]; then
-          # Use timeout to prevent hanging (5 minutes max)
-          # macOS-compatible timeout handling
-          if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
-            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
-            $timeout_cmd 300 gtd-advise --random "$followup_prompt" > "$temp_output" 2>&1
-            advise_exit_code=$?
-          else
-            # Fallback for macOS without timeout: run in background with kill
-            gtd-advise --random "$followup_prompt" > "$temp_output" 2>&1 &
-            local pid=$!
-            (sleep 300 && kill $pid 2>/dev/null) &
-            local killer_pid=$!
-            wait $pid 2>/dev/null
-            advise_exit_code=$?
-            # If process was killed (timeout), exit code is 128+signal, normalize to 124
-            if [[ $advise_exit_code -gt 128 ]]; then
-              advise_exit_code=124
-            fi
-            kill $killer_pid 2>/dev/null
-            wait $killer_pid 2>/dev/null
-          fi
-        else
-          # Use timeout to prevent hanging (5 minutes max)
-          # macOS-compatible timeout handling
-          if command -v timeout &>/dev/null || command -v gtimeout &>/dev/null; then
-            local timeout_cmd=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
-            $timeout_cmd 300 gtd-advise "$persona" "$followup_prompt" > "$temp_output" 2>&1
-            advise_exit_code=$?
-          else
-            # Fallback for macOS without timeout: run in background with kill
-            gtd-advise "$persona" "$followup_prompt" > "$temp_output" 2>&1 &
-            local pid=$!
-            (sleep 300 && kill $pid 2>/dev/null) &
-            local killer_pid=$!
-            wait $pid 2>/dev/null
-            advise_exit_code=$?
-            # If process was killed (timeout), exit code is 128+signal, normalize to 124
-            if [[ $advise_exit_code -gt 128 ]]; then
-              advise_exit_code=124
-            fi
-            kill $killer_pid 2>/dev/null
-            wait $killer_pid 2>/dev/null
-          fi
-        fi
-      fi
-      set -e
-      
-      # Restore original priority or unset if it wasn't set
-      if [[ -n "$original_priority" ]]; then
-        export GTD_REQUEST_PRIORITY="$original_priority"
-      else
-        unset GTD_REQUEST_PRIORITY
-      fi
-      
-      # Read output from temp file
-      if [[ -f "$temp_output" ]]; then
-        followup_answer=$(cat "$temp_output")
-        rm -f "$temp_output"
-      fi
-      
-      # Check if we got valid advice output (even if exit code is non-zero)
-      # Valid advice typically contains "💬 Advice from" or "━━━━━━━━━━" markers
-      local has_valid_advice=false
-      if check_advice_output_valid "$followup_answer"; then
-        has_valid_advice=true
-      fi
-      
-      # If we have valid advice, treat as success (even if exit code is non-zero)
-      # This handles cases where the command succeeds but returns a non-zero code
-      if [[ "$has_valid_advice" == "true" ]]; then
-        # Success! Show the advice (filter out timer output)
-        local filtered_answer=$(filter_timer_output "$followup_answer")
-        echo "$filtered_answer"
-        conversation_answers+=("$filtered_answer")
-        
-        # Update thread with completed answer
-        python3 <<PYTHON_EOF
-import json
-from pathlib import Path
-from datetime import datetime
-
-thread_id = """$thread_id"""
-followup_question = """$followup_question"""
-followup_answer = """$filtered_answer"""
-
-# Update thread file
-thread_file = Path("${HOME}/Documents/gtd/advice_threads/${thread_id}.json")
-if thread_file.exists():
-    with open(thread_file, 'r') as f:
-        thread = json.load(f)
-    
-    # Add this Q&A pair to thread
-    if "questions" not in thread:
-        thread["questions"] = []
-    if "answers" not in thread:
-        thread["answers"] = []
-    
-    thread["questions"].append({
-        "question": followup_question,
-        "timestamp": datetime.now().isoformat() + "Z"
-    })
-    thread["answers"].append({
-        "answer": followup_answer,
-        "timestamp": datetime.now().isoformat() + "Z",
-        "status": "completed"
-    })
-    thread["updated_at"] = datetime.now().isoformat() + "Z"
-    
-    with open(thread_file, 'w') as f:
-        json.dump(thread, f, indent=2)
-PYTHON_EOF
-        continue  # Continue to ask if they want to ask another follow-up
-      fi
-      
-      # No valid advice - check exit code and show appropriate error
-      if [[ $advise_exit_code -ne 0 ]]; then
-        echo ""
-        if [[ $advise_exit_code -eq 124 ]]; then
-          echo -e "${RED}❌ Request timed out${NC}"
-          echo "The advice request took too long (>5 minutes). This might indicate a connection issue."
-        else
-          echo -e "${RED}❌ Error getting advice response${NC}"
-          echo "The advice command encountered an error (exit code: $advise_exit_code)."
-        fi
-        echo ""
-        
-        # Show error output (filtered to remove timer output)
-        if [[ -n "$followup_answer" ]]; then
-          local actual_errors=$(filter_error_output "$followup_answer")
-          if [[ -n "$actual_errors" ]]; then
-            echo "Error output:"
-            echo "$actual_errors" | head -20 | sed 's/^/  /'
-            echo ""
-          fi
-        fi
-        
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        # Ask if user wants to try again or continue
-        echo "Would you like to:"
-        echo "  1) Try asking the question again"
-        echo "  2) Skip this question and continue"
-        echo ""
-        read -p "Choice (1/2, default: 2): " retry_choice
-        retry_choice="${retry_choice:-2}"
-        if [[ "$retry_choice" == "1" ]]; then
-          continue  # Loop back to ask the question again
-        else
-          break  # Exit the follow-up loop
-        fi
-      fi
-      
-      # Check if we got an empty answer
-      if [[ -z "$followup_answer" ]]; then
-        echo ""
-        echo -e "${YELLOW}⚠️  No response received${NC}"
-        echo "The advice command returned empty output. Would you like to try again?"
-        echo ""
-        read -p "Try again? (y/n, default: n): " retry_empty
-        retry_empty="${retry_empty:-n}"
-        if [[ "$retry_empty" == "y" || "$retry_empty" == "Y" ]]; then
-          continue  # Loop back to ask the question again
-        else
-          break  # Exit the follow-up loop
-        fi
-      fi
-      
-      # If we get here, we have output but it's not valid advice - show it anyway
-      echo "$followup_answer"
-      conversation_answers+=("$followup_answer")
-      
-      # Update thread with completed answer
-      python3 <<PYTHON_EOF
-import json
-from pathlib import Path
-from datetime import datetime
-
-thread_file = Path("${HOME}/Documents/gtd/advice_threads/${thread_id}.json")
-if thread_file.exists():
-    with open(thread_file, 'r') as f:
-        thread = json.load(f)
-    
-    # Add this Q&A pair to thread
-    thread["questions"].append({
-        "question": """$followup_question""",
-        "timestamp": datetime.now().isoformat() + "Z"
-    })
-    thread["answers"].append({
-        "answer": """$followup_answer""",
-        "timestamp": datetime.now().isoformat() + "Z",
-        "status": "completed"
-    })
-    thread["updated_at"] = datetime.now().isoformat() + "Z"
-    
-    with open(thread_file, 'w') as f:
-        json.dump(thread, f, indent=2)
-PYTHON_EOF
-      
-      echo ""
-      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo ""
     done
   fi
   
@@ -989,7 +701,7 @@ advice_wizard() {
   local pending_queue=0
   
   if [[ -d "$RESULTS_DIR" ]]; then
-    pending_results=$(find "$RESULTS_DIR" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+    pending_results=$(find "$RESULTS_DIR" -name "*.json" -type f -not -path "*/archived/*" 2>/dev/null | wc -l | tr -d ' ')
   fi
   if [[ -f "$QUEUE_FILE" ]]; then
     pending_queue=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
@@ -1743,7 +1455,7 @@ advice_wizard() {
       fi
       
       RESULTS_DIR="${HOME}/Documents/gtd/advice_results"
-      if [[ ! -d "$RESULTS_DIR" ]] || [[ -z "$(find "$RESULTS_DIR" -name "*.json" -type f 2>/dev/null)" ]]; then
+      if [[ ! -d "$RESULTS_DIR" ]] || [[ -z "$(find "$RESULTS_DIR" -name "*.json" -type f -not -path "*/archived/*" 2>/dev/null)" ]]; then
         echo "No background advice results found."
         echo ""
         echo "Results are stored in: $RESULTS_DIR"
@@ -1755,186 +1467,230 @@ advice_wizard() {
         return 0
       fi
       
-      # List all results
-      echo "Available advice results:"
-      echo ""
-      
-      local results=()
-      while IFS= read -r result_file; do
-        [[ -f "$result_file" ]] && results+=("$result_file")
-      done < <(find "$RESULTS_DIR" -name "*.json" -type f -exec ls -t {} + 2>/dev/null | head -20)
-      
-      if [[ ${#results[@]} -eq 0 ]]; then
-        echo "No results found."
+      # Loop to allow reviewing multiple results
+      while true; do
+        clear
         echo ""
-        gtd_quick_pause
-        return 0
-      fi
-      
-      # Display list
-      local i=1
-      for result_file in "${results[@]}"; do
-        local result_id=$(basename "$result_file" .json)
-        local persona=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('persona', 'unknown'))" 2>/dev/null || echo "unknown")
-        local question=$(python3 -c "import sys, json; q=json.load(open('$result_file')).get('question', ''); print(q[:60] + '...' if len(q) > 60 else q)" 2>/dev/null || echo "")
-        local status=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('status', 'unknown'))" 2>/dev/null || echo "unknown")
-        local completed_at=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('completed_at', '')[:10])" 2>/dev/null || echo "")
-        
-        local status_color="${GREEN}"
-        [[ "$status" == "error" ]] && status_color="${RED}"
-        
-        echo -e "  ${i}) [${status_color}${status}${NC}] ${persona} - ${completed_at}"
-        echo "     ${question}"
-        i=$((i + 1))
-      done
-      
-      echo ""
-      echo -n "Select result to view (number) or 0 to go back: "
-      read selection
-      
-      if [[ "$selection" == "0" ]] || [[ -z "$selection" ]]; then
-        return 0
-      fi
-      
-      # Validate selection
-      if ! [[ "$selection" =~ ^[0-9]+$ ]] || [[ "$selection" -lt 1 ]] || [[ "$selection" -gt ${#results[@]} ]]; then
-        echo "Invalid selection"
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${CYAN}📋 Review Background Advice Results${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        gtd_quick_pause
-        return 0
-      fi
-      
-      # Get selected result
-      local selected_file="${results[$((selection - 1))]}"
-      local answer_file="${selected_file%.json}_answer.txt"
-      
-      clear
-      echo ""
-      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo -e "${BOLD}${CYAN}📋 Advice Result${NC}"
-      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-      echo ""
-      
-      # Show metadata
-      local persona=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('persona', 'unknown'))" 2>/dev/null || echo "unknown")
-      local question=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('question', ''))" 2>/dev/null || echo "")
-      local completed_at=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('completed_at', ''))" 2>/dev/null || echo "")
-      local duration=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('duration_seconds', 0))" 2>/dev/null || echo "0")
-      
-      echo -e "${BOLD}Persona:${NC} $persona"
-      echo -e "${BOLD}Question:${NC} $question"
-      echo -e "${BOLD}Completed:${NC} $completed_at"
-      echo -e "${BOLD}Duration:${NC} ${duration}s"
-      echo ""
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo ""
-      
-      # Show answer
-      local saved_answer=""
-      if [[ -f "$answer_file" ]]; then
-        echo -e "${BOLD}Answer:${NC}"
-        echo ""
-        saved_answer=$(cat "$answer_file")
-        echo "$saved_answer"
-      else
-        # Fallback: try to read answer from JSON file (RabbitMQ worker stores it there)
-        local json_status=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('status', 'unknown'))" 2>/dev/null || echo "unknown")
-        saved_answer=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('answer', ''))" 2>/dev/null || echo "")
         
-        if [[ -n "$saved_answer" ]]; then
+        # List all results
+        echo "Available advice results:"
+        echo ""
+        
+        local results=()
+        while IFS= read -r result_file; do
+          [[ -f "$result_file" ]] && results+=("$result_file")
+        done < <(find "$RESULTS_DIR" -name "*.json" -type f -not -path "*/archived/*" -exec ls -t {} + 2>/dev/null | head -20)
+        
+        if [[ ${#results[@]} -eq 0 ]]; then
+          echo "No results found."
+          echo ""
+          gtd_quick_pause
+          return 0
+        fi
+        
+        # Display list
+        local i=1
+        for result_file in "${results[@]}"; do
+          local result_id=$(basename "$result_file" .json)
+          local persona=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('persona', 'unknown'))" 2>/dev/null || echo "unknown")
+          local question=$(python3 -c "import sys, json; q=json.load(open('$result_file')).get('question', ''); print(q[:60] + '...' if len(q) > 60 else q)" 2>/dev/null || echo "")
+          local status=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+          local completed_at=$(python3 -c "import sys, json; print(json.load(open('$result_file')).get('completed_at', '')[:10])" 2>/dev/null || echo "")
+          
+          local status_color="${GREEN}"
+          [[ "$status" == "error" ]] && status_color="${RED}"
+          
+          echo -e "  ${i}) [${status_color}${status}${NC}] ${persona} - ${completed_at}"
+          echo "     ${question}"
+          i=$((i + 1))
+        done
+        
+        echo ""
+        echo -n "Select result to view (number) or 0 to go back: "
+        read selection
+        
+        if [[ "$selection" == "0" ]] || [[ -z "$selection" ]]; then
+          return 0
+        fi
+        
+        # Validate selection
+        if ! [[ "$selection" =~ ^[0-9]+$ ]] || [[ "$selection" -lt 1 ]] || [[ "$selection" -gt ${#results[@]} ]]; then
+          echo "Invalid selection"
+          echo ""
+          gtd_quick_pause
+          continue
+        fi
+        
+        # Get selected result
+        local selected_file="${results[$((selection - 1))]}"
+        local answer_file="${selected_file%.json}_answer.txt"
+        
+        clear
+        echo ""
+        echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}${CYAN}📋 Advice Result${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        
+        # Show metadata
+        local persona=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('persona', 'unknown'))" 2>/dev/null || echo "unknown")
+        local question=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('question', ''))" 2>/dev/null || echo "")
+        local completed_at=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('completed_at', ''))" 2>/dev/null || echo "")
+        local duration=$(python3 -c "import sys, json; print(json.load(open('$selected_file')).get('duration_seconds', 0))" 2>/dev/null || echo "0")
+        
+        echo -e "${BOLD}Persona:${NC} $persona"
+        echo -e "${BOLD}Question:${NC} $question"
+        echo -e "${BOLD}Completed:${NC} $completed_at"
+        echo -e "${BOLD}Duration:${NC} ${duration}s"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        
+        # Show answer
+        local saved_answer=""
+        if [[ -f "$answer_file" ]]; then
           echo -e "${BOLD}Answer:${NC}"
           echo ""
+          saved_answer=$(cat "$answer_file")
           echo "$saved_answer"
-        elif [[ "$json_status" == "error" ]]; then
-          local error_msg=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('error', 'Unknown error'))" 2>/dev/null || echo "Unknown error")
-          echo -e "${RED}Error:${NC} $error_msg"
         else
-          echo "Answer file not found: $answer_file"
-          echo "Note: The answer may not have been generated yet, or the worker may have encountered an error."
+          # Fallback: try to read answer from JSON file (RabbitMQ worker stores it there)
+          local json_status=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+          saved_answer=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('answer', ''))" 2>/dev/null || echo "")
+          
+          if [[ -n "$saved_answer" ]]; then
+            echo -e "${BOLD}Answer:${NC}"
+            echo ""
+            echo "$saved_answer"
+          elif [[ "$json_status" == "error" ]]; then
+            local error_msg=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('error', 'Unknown error'))" 2>/dev/null || echo "Unknown error")
+            echo -e "${RED}Error:${NC} $error_msg"
+          else
+            echo "Answer file not found: $answer_file"
+            echo "Note: The answer may not have been generated yet, or the worker may have encountered an error."
+          fi
         fi
-      fi
-      
-      echo ""
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo ""
-      
-      # Ask if user wants to discuss this advice (conversation feature)
-      if [[ -n "$saved_answer" ]]; then
-        echo -e "${BOLD}Do you have any follow-up questions about this advice?${NC}"
-        echo -e "${GREEN}y${NC} - Ask more questions"
-        echo -e "${GREEN}n${NC} - Continue to options"
+        
         echo ""
-        read -p "Choice: " discuss_choice
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         
-        if [[ "$discuss_choice" == "y" || "$discuss_choice" == "Y" ]]; then
-          # Use conversation feature - skip the prompt since user already said yes
-          handle_followup_questions "$persona" "$question" "$saved_answer" "false" "false" "" "true"
+        # Ask if user wants to discuss this advice (conversation feature)
+        if [[ -n "$saved_answer" ]]; then
+          echo -e "${BOLD}Do you have any follow-up questions about this advice?${NC}"
+          echo -e "${GREEN}y${NC} - Ask more questions"
+          echo -e "${GREEN}n${NC} - Continue to options"
+          echo ""
+          read -p "Choice: " discuss_choice
+          echo ""
           
-          # Save conversation if there were follow-ups
-          if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
-            echo ""
-            echo -e "${BOLD}Save this conversation? (y/n):${NC} "
-            read save_conv
-            if [[ "$save_conv" == "y" || "$save_conv" == "Y" ]]; then
-              save_advice_conversation "$question" "$persona" "$FOLLOWUP_CONVERSATION"
+          if [[ "$discuss_choice" == "y" || "$discuss_choice" == "Y" ]]; then
+            # Use conversation feature - skip the prompt since user already said yes
+            handle_followup_questions "$persona" "$question" "$saved_answer" "false" "false" "" "true"
+            
+            # Save conversation if there were follow-ups
+            if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
               echo ""
-              echo "✓ Conversation saved!"
+              echo -e "${BOLD}Save this conversation? (y/n):${NC} "
+              read save_conv
+              if [[ "$save_conv" == "y" || "$save_conv" == "Y" ]]; then
+                save_advice_conversation "$question" "$persona" "$FOLLOWUP_CONVERSATION"
+                echo ""
+                echo "✓ Conversation saved!"
+              fi
             fi
           fi
         fi
-      fi
-      
-      echo ""
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo ""
-      echo "Options:"
-      echo "  1) Save this advice"
-      echo "  2) Delete this result"
-      echo "  0) Back to list"
-      echo ""
-      echo -n "Choose: "
-      read action
-      
-      case "$action" in
-        1)
-        local saved_question="$question"
-        local saved_persona="$persona"
-        local answer_to_save="$saved_answer"
-        if [[ -z "$answer_to_save" ]]; then
-          if [[ -f "$answer_file" ]]; then
-            answer_to_save=$(cat "$answer_file")
+        
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Options:"
+        echo "  1) Save this advice (to GTD system: note/task/project)"
+        echo "  2) Archive this result (move to archived folder)"
+        echo "  3) Delete this result (permanently remove)"
+        echo "  0) Back to list"
+        echo ""
+        echo -n "Choose: "
+        read action
+        
+        case "$action" in
+          1)
+          local saved_question="$question"
+          local saved_persona="$persona"
+          local answer_to_save="$saved_answer"
+          if [[ -z "$answer_to_save" ]]; then
+            if [[ -f "$answer_file" ]]; then
+              answer_to_save=$(cat "$answer_file")
+            else
+              # Fallback: try to read answer from JSON file
+              answer_to_save=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('answer', ''))" 2>/dev/null || echo "")
+            fi
+          fi
+          if [[ -n "$answer_to_save" ]]; then
+            # If we have a conversation, save that; otherwise save the original answer
+            if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]] && [[ -n "$FOLLOWUP_CONVERSATION" ]]; then
+              save_advice_conversation "$saved_question" "$saved_persona" "$FOLLOWUP_CONVERSATION"
+            else
+              save_advice_conversation "$saved_question" "$saved_persona" "$answer_to_save"
+            fi
+            echo ""
+            echo "✓ Advice saved to GTD system!"
+            echo ""
+            gtd_quick_pause
           else
-            # Fallback: try to read answer from JSON file
-            answer_to_save=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('answer', ''))" 2>/dev/null || echo "")
+            echo "Error: No answer to save"
+            echo ""
+            gtd_quick_pause
           fi
-        fi
-        if [[ -n "$answer_to_save" ]]; then
-          # If we have a conversation, save that; otherwise save the original answer
-          if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]] && [[ -n "$FOLLOWUP_CONVERSATION" ]]; then
-            save_advice_conversation "$saved_question" "$saved_persona" "$FOLLOWUP_CONVERSATION"
-          else
-            save_advice_conversation "$saved_question" "$saved_persona" "$answer_to_save"
-          fi
-          echo ""
-          echo "✓ Advice saved!"
-        else
-          echo "Error: No answer to save"
-        fi
+          # Continue loop to show list again
           ;;
-        2)
-          echo -n "Delete this result? (y/n): "
-          read confirm
-          if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-            rm -f "$selected_file" "$answer_file"
-            echo "✓ Result deleted"
-          fi
-          ;;
-      esac
-      
-      echo ""
-      # No auto-continue - user can read and press Enter when ready
-      read -p "Press Enter to continue..."
+          2)
+            echo -n "Archive this result? (y/n): "
+            read confirm
+            if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+              # Move to archive directory (matching web interface behavior)
+              archive_dir="$RESULTS_DIR/archived"
+              mkdir -p "$archive_dir"
+              if [[ -f "$selected_file" ]]; then
+                mv "$selected_file" "$archive_dir/"
+              fi
+              if [[ -f "$answer_file" ]]; then
+                mv "$answer_file" "$archive_dir/"
+              fi
+              echo "✓ Result archived"
+              echo ""
+              gtd_quick_pause
+            fi
+            # Continue loop to show list again
+            ;;
+          3)
+            echo -n "⚠️  Permanently delete this result? This cannot be undone. (y/n): "
+            read confirm
+            if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+              rm -f "$selected_file" "$answer_file"
+              echo "✓ Result permanently deleted"
+              echo ""
+              gtd_quick_pause
+            fi
+            # Continue loop to show list again
+            ;;
+          0)
+            # Break out of loop to go back to list (which will then return to menu)
+            continue
+            ;;
+          *)
+            echo "Invalid choice"
+            echo ""
+            gtd_quick_pause
+            # Continue loop to show list again
+            ;;
+        esac
+      done
       ;;
     7)
       # View Conversation Threads

@@ -47,17 +47,18 @@
         description: description.trim()
       })
       
-      // Move to next item
-      if (currentIndex < inboxItems.length - 1) {
-        currentIndex++
-        description = inboxItems[currentIndex].description
+      // Reload inbox to get updated list (file was deleted)
+      await loadInbox()
+      
+      // Stay at current index (which now points to the next item)
+      // If we were at the last item, currentIndex will be at the new last item
+      if (currentIndex >= inboxItems.length && inboxItems.length > 0) {
+        currentIndex = inboxItems.length - 1
+      }
+      if (inboxItems.length > 0) {
+        description = inboxItems[currentIndex].description || ''
       } else {
-        // All items processed
-        await loadInbox()
-        currentIndex = 0
-        if (inboxItems.length > 0) {
-          description = inboxItems[0].description
-        }
+        description = ''
       }
       dispatch('processed')
     } catch (error) {
@@ -71,19 +72,38 @@
   const skip = () => {
     if (currentIndex < inboxItems.length - 1) {
       currentIndex++
-      description = inboxItems[currentIndex].description
+      description = inboxItems[currentIndex].description || ''
     }
   }
 
-  const deleteItem = () => {
-    if (inboxItems.length > 0) {
+  const deleteItem = async () => {
+    if (inboxItems.length === 0 || processing) return
+    
+    if (!confirm('Are you sure you want to delete this inbox item?')) {
+      return
+    }
+    
+    processing = true
+    try {
+      await api.deleteInboxItem(inboxItems[currentIndex].id)
+      
+      // Remove from local list
       inboxItems = inboxItems.filter((_, i) => i !== currentIndex)
       if (currentIndex >= inboxItems.length) {
         currentIndex = Math.max(0, inboxItems.length - 1)
       }
       if (inboxItems.length > 0) {
         description = inboxItems[currentIndex].description
+      } else {
+        // Reload inbox if empty
+        await loadInbox()
       }
+      dispatch('processed')
+    } catch (error) {
+      console.error('Failed to delete item:', error)
+      alert('Failed to delete item. Please try again.')
+    } finally {
+      processing = false
     }
   }
 

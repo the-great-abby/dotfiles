@@ -917,6 +917,7 @@ def get_background_worker_status() -> Dict[str, Any]:
         ("Task Org", "gtd_task_organize_worker.py", ""),
         ("Badge", "gtd_badge_suggestion_worker.py", ""),
         ("Brain Sync", "gtd_second_brain_sync_worker.py", ""),
+        ("Calendar Reminder", "gtd_calendar_reminder_worker.py", ""),
         ("Dashboard Cache", "gtd_dashboard_cache_worker.py", ""),
     ]
     

@@ -1,0 +1,361 @@
+#!/bin/bash
+# GTD Calendar Fetcher - Fetches calendar events from gcalcli and caches in JSON format
+# Compatible with bash 3.2 (macOS default)
+
+# Load GTD common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# Initialize GTD paths
+init_gtd_paths
+
+# Load calendar config
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config_calendar" ]]; then
+  source "$HOME/code/dotfiles/zsh/.gtd_config_calendar"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config_calendar" ]]; then
+  source "$HOME/code/personal/dotfiles/zsh/.gtd_config_calendar"
+fi
+
+# Calendar cache configuration
+CALENDAR_CACHE_DIR="${GTD_BASE_DIR}/calendar"
+CALENDAR_CACHE_FILE="${CALENDAR_CACHE_DIR}/cache.json"
+CACHE_TTL_MINUTES="${GTD_CALENDAR_CACHE_TTL_MINUTES:-15}"
+
+# Check if gcalcli is installed
+check_gcalcli() {
+  if command -v gcalcli &>/dev/null; then
+    return 0
+  else
+    echo "Error: gcalcli not found. Install with: brew install gcalcli" >&2
+    return 1
+  fi
+}
+
+# Parse calendar config entry
+# Format: "type:calendar_name:display_name" or "type:calendar_name"
+parse_calendar_config() {
+  local config_entry="$1"
+  local part="${config_entry%%:*}"
+  local remaining="${config_entry#*:}"
+  
+  if [[ "$config_entry" != *:* ]]; then
+    return 1
+  fi
+  
+  local type="$part"
+  if [[ "$type" != "rw" && "$type" != "ro" ]]; then
+    return 1
+  fi
+  
+  local calendar_name="${remaining%%:*}"
+  local display_name="${remaining#*:}"
+  
+  if [[ "$display_name" == "$calendar_name" ]]; then
+    display_name="$calendar_name"
+  fi
+  
+  echo "$type|$calendar_name|$display_name"
+}
+
+# Get list of all configured calendars
+get_configured_calendars() {
+  declare -a calendars
+  
+  if [[ -n "${GTD_CALENDARS:-}" ]] && [[ ${#GTD_CALENDARS[@]} -gt 0 ]]; then
+    for entry in "${GTD_CALENDARS[@]}"; do
+      local parsed=$(parse_calendar_config "$entry")
+      if [[ -n "$parsed" ]]; then
+        calendars+=("$parsed")
+      fi
+    done
+  else
+    # Backwards compatibility
+    if [[ -n "${GTD_GOOGLE_CALENDAR_NAME:-}" ]]; then
+      calendars+=("rw|${GTD_GOOGLE_CALENDAR_NAME}|${GTD_GOOGLE_CALENDAR_NAME}")
+    fi
+  fi
+  
+  for cal in "${calendars[@]}"; do
+    echo "$cal"
+  done
+}
+
+# Check if cache is valid (not expired)
+is_cache_valid() {
+  if [[ ! -f "$CALENDAR_CACHE_FILE" ]]; then
+    return 1
+  fi
+  
+  # Check cache age
+  local cache_age=0
+  if command -v stat &>/dev/null; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      cache_age=$(($(date +%s) - $(stat -f %m "$CALENDAR_CACHE_FILE" 2>/dev/null || echo 0)))
+    else
+      cache_age=$(($(date +%s) - $(stat -c %Y "$CALENDAR_CACHE_FILE" 2>/dev/null || echo 0)))
+    fi
+  fi
+  
+  local cache_age_minutes=$((cache_age / 60))
+  
+  if [[ $cache_age_minutes -lt $CACHE_TTL_MINUTES ]]; then
+    return 0
+  fi
+  
+  return 1
+}
+
+# Parse gcalcli agenda output and convert to JSON
+# This is a simplified parser - gcalcli output format:
+# Mon Dec 02  9:00 AM  Event Title
+#                Location: Somewhere
+#                Description text
+parse_gcalcli_events() {
+  local calendar_name="$1"
+  local calendar_display="$2"
+  local start_date="${3:-today}"
+  local end_date="${4:-+7d}"
+  
+  # Fetch events using gcalcli
+  local events_output
+  events_output=$(gcalcli --calendar "$calendar_name" agenda "$start_date" "$end_date" 2>/dev/null)
+  
+  if [[ -z "$events_output" ]] || echo "$events_output" | grep -qi "no events found"; then
+    echo "[]"
+    return 0
+  fi
+  
+  # Use Python to parse gcalcli output and convert to JSON
+  python3 <<PYTHON_EOF
+import json
+import re
+import sys
+from datetime import datetime, timedelta
+from dateutil import parser as date_parser
+
+events_output = """$events_output"""
+
+events = []
+current_event = None
+current_field = None
+
+# Pattern to match date/time line: "Mon Dec 02  9:00 AM  Event Title"
+date_time_pattern = re.compile(r'^([A-Z][a-z]{2} [A-Z][a-z]{2} [0-9]{1,2})\s+([0-9]{1,2}:[0-9]{2} (?:AM|PM))\s+(.+)$')
+
+lines = events_output.split('\n')
+for line in lines:
+    line = line.rstrip()
+    if not line:
+        continue
+    
+    # Check if this is a date/time line (starts with day name)
+    match = date_time_pattern.match(line)
+    if match:
+        # Save previous event if exists
+        if current_event:
+            events.append(current_event)
+        
+        # Start new event
+        date_str = match.group(1)
+        time_str = match.group(2)
+        title = match.group(3).strip()
+        
+        # Parse date and time
+        try:
+            # Combine date and time
+            datetime_str = f"{date_str} {time_str}"
+            # Try to parse - handle year (assume current year if not present)
+            dt = date_parser.parse(datetime_str, default=datetime.now().replace(month=1, day=1))
+            # If year seems wrong (too old), assume current year
+            if dt.year < datetime.now().year - 1:
+                dt = dt.replace(year=datetime.now().year)
+            
+            # Create event
+            current_event = {
+                "id": f"event_{len(events)}_{int(dt.timestamp())}",
+                "title": title,
+                "start": dt.isoformat(),
+                "end": (dt + timedelta(hours=1)).isoformat(),  # Default 1 hour
+                "calendar": calendar_name,
+                "calendar_display": calendar_display,
+                "location": "",
+                "description": "",
+                "attendees": [],
+                "is_all_day": False
+            }
+            current_field = None
+        except Exception as e:
+            # Skip if we can't parse the date
+            continue
+    elif current_event:
+        # This is a continuation line (location, description, etc.)
+        line_lower = line.lower().strip()
+        
+        # Check for common fields
+        if line_lower.startswith("location:"):
+            current_event["location"] = line[9:].strip()
+        elif line_lower.startswith("description:"):
+            current_event["description"] = line[12:].strip()
+            current_field = "description"
+        elif line_lower.startswith("attendees:"):
+            # Parse attendees (comma-separated)
+            attendees_str = line[10:].strip()
+            current_event["attendees"] = [a.strip() for a in attendees_str.split(",") if a.strip()]
+        elif current_field == "description":
+            # Continuation of description
+            if current_event["description"]:
+                current_event["description"] += "\n" + line
+            else:
+                current_event["description"] = line
+        else:
+            # Generic continuation - add to description
+            if not current_event["description"]:
+                current_event["description"] = line
+            else:
+                current_event["description"] += "\n" + line
+
+# Add last event
+if current_event:
+    events.append(current_event)
+
+# Output as JSON
+print(json.dumps(events, indent=2))
+PYTHON_EOF
+}
+
+# Fetch events from all configured calendars
+fetch_all_events() {
+  local start_date="${1:-today}"
+  local end_date="${2:-+7d}"
+  local force="${3:-false}"
+  
+  if ! check_gcalcli; then
+    return 1
+  fi
+  
+  # Create cache directory
+  mkdir -p "$CALENDAR_CACHE_DIR"
+  
+  # Check if cache is valid (unless forced)
+  if [[ "$force" != "true" ]] && is_cache_valid; then
+    # Return cached data
+    cat "$CALENDAR_CACHE_FILE"
+    return 0
+  fi
+  
+  # Fetch from all calendars
+  local all_events="[]"
+  local calendars_fetched=()
+  local fetch_start=$(date +%s)
+  
+  local calendars
+  calendars=$(get_configured_calendars)
+  
+  while IFS= read -r cal_entry; do
+    if [[ -z "$cal_entry" ]]; then
+      continue
+    fi
+    
+    local cal_name="${cal_entry#*|}"
+    cal_name="${cal_name%%|*}"
+    local display_name="${cal_entry##*|}"
+    
+    # Fetch events for this calendar
+    local calendar_events
+    calendar_events=$(parse_gcalcli_events "$cal_name" "$display_name" "$start_date" "$end_date" 2>/dev/null)
+    
+    if [[ -n "$calendar_events" ]] && [[ "$calendar_events" != "[]" ]]; then
+      # Merge events (using Python to merge JSON arrays)
+      all_events=$(python3 <<PYTHON_EOF
+import json
+import sys
+
+existing = json.loads('''$all_events''')
+new_events = json.loads('''$calendar_events''')
+combined = existing + new_events
+print(json.dumps(combined))
+PYTHON_EOF
+      )
+      calendars_fetched+=("$cal_name")
+    fi
+  done <<< "$calendars"
+  
+  local fetch_end=$(date +%s)
+  local fetch_duration=$((fetch_end - fetch_start))
+  
+  # Create cache structure
+  local cache_data
+  cache_data=$(python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime
+
+events = json.loads('''$all_events''')
+calendars_list = '''${calendars_fetched[*]}'''.split()
+
+cache = {
+    "metadata": {
+        "last_fetch": datetime.now().isoformat(),
+        "fetch_duration_ms": $fetch_duration * 1000,
+        "calendars_fetched": calendars_list,
+        "cache_ttl_minutes": $CACHE_TTL_MINUTES
+    },
+    "events": events
+}
+
+print(json.dumps(cache, indent=2))
+PYTHON_EOF
+  )
+  
+  # Save to cache
+  echo "$cache_data" > "$CALENDAR_CACHE_FILE"
+  
+  # Return cache data
+  echo "$cache_data"
+}
+
+# Main function
+main() {
+  local force=false
+  local start_date="today"
+  local end_date="+7d"
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force|-f)
+        force=true
+        shift
+        ;;
+      --start)
+        start_date="$2"
+        shift 2
+        ;;
+      --end)
+        end_date="$2"
+        shift 2
+        ;;
+      *)
+        echo "Usage: $0 [--force] [--start DATE] [--end DATE]" >&2
+        echo "  --force    Force refresh (ignore cache)" >&2
+        echo "  --start    Start date (default: today)" >&2
+        echo "  --end      End date (default: +7d)" >&2
+        exit 1
+        ;;
+    esac
+  done
+  
+  fetch_all_events "$start_date" "$end_date" "$force"
+}
+
+# Run main if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

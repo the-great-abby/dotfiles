@@ -242,12 +242,19 @@ if command -v nginx &>/dev/null; then
             echo -e "${YELLOW}⚠ Note:${NC} Config file created but you may need to include it in ${NGINX_MAIN_CONF}"
         fi
         
+        # Check for Tailscale domain configuration
+        TAILSCALE_DOMAIN="${GTD_TAILSCALE_DOMAIN:-abbys-macbook-air.tailf0befd.ts.net}"
+        SERVER_NAMES="localhost"
+        if [[ -n "$TAILSCALE_DOMAIN" ]]; then
+            SERVER_NAMES="localhost $TAILSCALE_DOMAIN"
+        fi
+        
         # Create nginx config
         cat > "$NGINX_CONFIG" <<EOF
 server {
     listen 8080;
     listen [::]:8080;
-    server_name localhost;
+    server_name ${SERVER_NAMES};
 
     # Frontend static files
     location / {

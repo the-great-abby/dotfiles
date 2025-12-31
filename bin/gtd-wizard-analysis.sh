@@ -283,6 +283,18 @@ status_wizard() {
         fi
         echo ""
         
+        # Calendar Reminder Worker
+        echo -e "${CYAN}Calendar Reminder Worker:${NC}"
+        if pgrep -f "gtd_calendar_reminder_worker.py" >/dev/null; then
+          pid=$(pgrep -f "gtd_calendar_reminder_worker.py" | head -1)
+          echo -e "  ${GREEN}✅ Running (PID: $pid)${NC}"
+          CALENDAR_REMINDER_WORKER_RUNNING=true
+        else
+          echo -e "  ${CYAN}ℹ️  Not running${NC}"
+          CALENDAR_REMINDER_WORKER_RUNNING=false
+        fi
+        echo ""
+        
         # Show RabbitMQ Queue Status inline
         echo -e "${BOLD}RabbitMQ Queue Status:${NC}"
         # Check NodePort first (preferred), then fallback to port-forward
@@ -563,12 +575,13 @@ status_wizard() {
         echo "  5) Manage Second Brain Sync Worker"
         echo "  6) Manage Badge Suggestion Worker"
         echo "  7) Manage Dashboard Cache Worker"
-        echo "  8) Start All Workers"
-        echo "  9) Stop All Workers"
-            echo " 10) View RabbitMQ Queue Status"
-            echo " 11) 🔍 Diagnose RabbitMQ Connection Issues"
-            echo " 12) Restart All Workers (Reconnect to RabbitMQ)"
-            echo " 13) 📦 Migrate File Queue to RabbitMQ"
+        echo "  8) Manage Calendar Reminder Worker"
+        echo "  9) Start All Workers"
+        echo " 10) Stop All Workers"
+            echo " 11) View RabbitMQ Queue Status"
+            echo " 12) 🔍 Diagnose RabbitMQ Connection Issues"
+            echo " 13) Restart All Workers (Reconnect to RabbitMQ)"
+            echo " 14) 📦 Migrate File Queue to RabbitMQ"
         echo "  0) Back"
         echo ""
         echo -n "Choose: "
@@ -603,6 +616,10 @@ status_wizard() {
             manage_worker "gtd_dashboard_cache_worker.py" "Dashboard Cache"
             ;;
           8)
+            # Manage Calendar Reminder Worker
+            manage_worker "gtd_calendar_reminder_worker.py" "Calendar Reminder"
+            ;;
+          9)
             # Start all workers
             echo ""
             echo "Starting all workers..."
@@ -617,10 +634,15 @@ status_wizard() {
             elif [[ -f "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" ]]; then
               "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" 2>/dev/null || true
             fi
+            if command -v gtd-calendar-reminder-worker &>/dev/null; then
+              gtd-calendar-reminder-worker 2>/dev/null || true
+            elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar-reminder-worker" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-calendar-reminder-worker" 2>/dev/null || true
+            fi
             echo ""
             gtd_quick_pause
             ;;
-          9)
+         10)
             # Stop all workers
             echo ""
             echo "Stopping all workers..."
@@ -638,7 +660,7 @@ status_wizard() {
             echo -e "${GREEN}✓ All workers stopped${NC}"
             gtd_quick_pause
             ;;
-          10)
+          11)
             # View RabbitMQ Queue Status
             echo ""
             # Check NodePort first (preferred), then fallback to port-forward
@@ -682,7 +704,7 @@ status_wizard() {
             echo ""
             gtd_quick_pause
             ;;
-          11)
+          12)
             # Diagnose RabbitMQ Connection Issues
             echo ""
             if [[ -f "$HOME/code/dotfiles/bin/gtd-rabbitmq-diagnose" ]]; then
@@ -2765,6 +2787,12 @@ manage_worker() {
           elif [[ -f "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" ]]; then
             "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" 2>/dev/null || true
           fi
+        elif [[ "$worker_script" == "gtd_calendar_reminder_worker.py" ]]; then
+          if command -v gtd-calendar-reminder-worker &>/dev/null; then
+            gtd-calendar-reminder-worker 2>/dev/null || true
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar-reminder-worker" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-calendar-reminder-worker" 2>/dev/null || true
+          fi
         elif [[ "$worker_script" == "gtd_badge_suggestion_worker.py" ]]; then
           gtd-badge-suggestion-worker daemon 2>/dev/null || true
         fi
@@ -2797,6 +2825,8 @@ manage_worker() {
           LOG_FILE="/tmp/badge-suggestion-worker.log"
         elif [[ "$worker_script" == "gtd_dashboard_cache_worker.py" ]]; then
           LOG_FILE="/tmp/dashboard-cache-worker.log"
+        elif [[ "$worker_script" == "gtd_calendar_reminder_worker.py" ]]; then
+          LOG_FILE="/tmp/calendar-reminder-worker.log"
         else
           LOG_FILE="/tmp/${worker_script%.py}.log"
         fi
@@ -2906,6 +2936,12 @@ manage_worker() {
             gtd-dashboard-cache-worker 2>/dev/null || true
           elif [[ -f "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" ]]; then
             "$HOME/code/dotfiles/bin/gtd-dashboard-cache-worker" 2>/dev/null || true
+          fi
+        elif [[ "$worker_script" == "gtd_calendar_reminder_worker.py" ]]; then
+          if command -v gtd-calendar-reminder-worker &>/dev/null; then
+            gtd-calendar-reminder-worker 2>/dev/null || true
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar-reminder-worker" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-calendar-reminder-worker" 2>/dev/null || true
           fi
         fi
         sleep 2

@@ -56,3 +56,17 @@ GTD_CALENDARS=(
 # Should match one of the "rw" calendars in GTD_CALENDARS or GTD_GOOGLE_CALENDAR_NAME
 GTD_PRIMARY_WRITE_CALENDAR="${GTD_PRIMARY_WRITE_CALENDAR:-${GTD_GOOGLE_CALENDAR_NAME}}"
 
+# ============================================================================
+# Calendar Information System Configuration
+# ============================================================================
+# Cache TTL in minutes (how long to cache calendar data before refreshing)
+GTD_CALENDAR_CACHE_TTL_MINUTES="${GTD_CALENDAR_CACHE_TTL_MINUTES:-15}"
+
+# Reminder times (comma-separated minutes before meeting)
+# Default: 15 minutes
+# Examples:
+#   "15" - Only 15 minutes before
+#   "60,15" - 1 hour and 15 minutes before
+#   "120,60,15" - 2 hours, 1 hour, and 15 minutes before
+GTD_CALENDAR_REMINDER_TIMES="${GTD_CALENDAR_REMINDER_TIMES:-15}"
+

@@ -23,6 +23,8 @@
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:%GTD_BASE%/bin</string>
+        <key>GTD_TAILSCALE_DOMAIN</key>
+        <string>abbys-macbook-air.tailf0befd.ts.net</string>
     </dict>
 </dict>
 </plist>

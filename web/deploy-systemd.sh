@@ -143,11 +143,19 @@ if [[ ! -f "$NGINX_TEMPLATE" ]]; then
     exit 1
 fi
 
+# Check for Tailscale domain configuration
+TAILSCALE_DOMAIN="${GTD_TAILSCALE_DOMAIN:-}"
+SERVER_NAMES="gtd-wizard.local localhost"
+if [[ -n "$TAILSCALE_DOMAIN" ]]; then
+    SERVER_NAMES="${SERVER_NAMES} ${TAILSCALE_DOMAIN}"
+fi
+
 # Create nginx config with variable substitution
 sudo tee "$NGINX_AVAILABLE" > /dev/null <<EOF
 server {
     listen 80;
-    server_name gtd-wizard.local localhost;
+    listen [::]:80;
+    server_name ${SERVER_NAMES};
 
     # Frontend static files
     location / {

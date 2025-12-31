@@ -7,6 +7,7 @@ Type=simple
 User=%USER%
 WorkingDirectory=%GTD_BASE%/web/backend
 Environment="PATH=%GTD_BASE%/web/backend/venv/bin"
+Environment="GTD_TAILSCALE_DOMAIN=abbys-macbook-air.tailf0befd.ts.net"
 ExecStart=%GTD_BASE%/web/backend/venv/bin/python main.py
 Restart=always
 RestartSec=10

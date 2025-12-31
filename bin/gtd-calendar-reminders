@@ -1,0 +1,414 @@
+#!/bin/bash
+# GTD Calendar Reminders - Check for upcoming meetings and display reminders
+# Compatible with bash 3.2 (macOS default)
+
+# Load GTD common helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+# Initialize GTD paths
+init_gtd_paths
+
+# Load calendar config
+if [[ -f "$HOME/code/dotfiles/zsh/.gtd_config_calendar" ]]; then
+  source "$HOME/code/dotfiles/zsh/.gtd_config_calendar"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.gtd_config_calendar" ]]; then
+  source "$HOME/code/personal/dotfiles/zsh/.gtd_config_calendar"
+fi
+
+# Calendar cache configuration
+CALENDAR_CACHE_DIR="${GTD_BASE_DIR}/calendar"
+CALENDAR_CACHE_FILE="${CALENDAR_CACHE_DIR}/cache.json"
+REMINDERS_SENT_FILE="${CALENDAR_CACHE_DIR}/reminders_sent.json"
+
+# Reminder configuration
+REMINDER_TIMES="${GTD_CALENDAR_REMINDER_TIMES:-15}"
+# Parse reminder times (comma-separated minutes before meeting)
+parse_reminder_times() {
+  echo "$REMINDER_TIMES" | tr ',' ' '
+}
+
+# Load calendar cache
+load_calendar_cache() {
+  if [[ ! -f "$CALENDAR_CACHE_FILE" ]]; then
+    # Fetch if cache doesn't exist
+    if command -v gtd-calendar-fetch &>/dev/null; then
+      gtd-calendar-fetch >/dev/null 2>&1
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar-fetch" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-calendar-fetch" >/dev/null 2>&1
+    fi
+  fi
+  
+  if [[ -f "$CALENDAR_CACHE_FILE" ]]; then
+    cat "$CALENDAR_CACHE_FILE"
+  else
+    echo '{"metadata": {}, "events": []}'
+  fi
+}
+
+# Load reminders sent tracking
+load_reminders_sent() {
+  if [[ -f "$REMINDERS_SENT_FILE" ]]; then
+    cat "$REMINDERS_SENT_FILE"
+  else
+    echo '{"reminders": []}'
+  fi
+}
+
+# Save reminders sent tracking
+save_reminders_sent() {
+  local reminders_data="$1"
+  mkdir -p "$CALENDAR_CACHE_DIR"
+  echo "$reminders_data" > "$REMINDERS_SENT_FILE"
+}
+
+# Check if reminder was already sent
+was_reminder_sent() {
+  local event_id="$1"
+  local reminder_time_minutes="$2"
+  local reminders_data
+  reminders_data=$(load_reminders_sent)
+  
+  python3 <<PYTHON_EOF
+import json
+import sys
+
+reminders_data = '''$reminders_data'''
+event_id = "$event_id"
+reminder_time_minutes = int("$reminder_time_minutes")
+
+try:
+    reminders = json.loads(reminders_data)
+    reminder_list = reminders.get("reminders", [])
+    
+    for reminder in reminder_list:
+        if (reminder.get("event_id") == event_id and 
+            reminder.get("reminder_time_minutes") == reminder_time_minutes):
+            print("true")
+            sys.exit(0)
+    
+    print("false")
+except:
+    print("false")
+PYTHON_EOF
+}
+
+# Mark reminder as sent
+mark_reminder_sent() {
+  local event_id="$1"
+  local reminder_time_minutes="$2"
+  local reminders_data
+  reminders_data=$(load_reminders_sent)
+  
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime
+
+reminders_data = '''$reminders_data'''
+event_id = "$event_id"
+reminder_time_minutes = int("$reminder_time_minutes")
+
+try:
+    reminders = json.loads(reminders_data)
+    reminder_list = reminders.get("reminders", [])
+    
+    # Check if already exists
+    found = False
+    for reminder in reminder_list:
+        if (reminder.get("event_id") == event_id and 
+            reminder.get("reminder_time_minutes") == reminder_time_minutes):
+            found = True
+            reminder["sent_at"] = datetime.now().isoformat()
+            break
+    
+    if not found:
+        reminder_list.append({
+            "event_id": event_id,
+            "reminder_time_minutes": reminder_time_minutes,
+            "sent_at": datetime.now().isoformat()
+        })
+    
+    reminders["reminders"] = reminder_list
+    print(json.dumps(reminders, indent=2))
+except Exception as e:
+    print('{"reminders": []}')
+PYTHON_EOF
+}
+
+# Check for upcoming meetings and display reminders
+check_reminders() {
+  local cache_data
+  cache_data=$(load_calendar_cache)
+  local reminder_times
+  reminder_times=$(parse_reminder_times)
+  
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime, timedelta
+
+cache_data = '''$cache_data'''
+reminder_times_str = '''$reminder_times'''
+
+try:
+    cache = json.loads(cache_data)
+    events = cache.get("events", [])
+    
+    # Parse reminder times
+    reminder_minutes = [int(t.strip()) for t in reminder_times_str.split() if t.strip().isdigit()]
+    if not reminder_minutes:
+        reminder_minutes = [15]  # Default to 15 minutes
+    
+    now = datetime.now()
+    reminders_to_show = []
+    
+    for event in events:
+        try:
+            event_start = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            
+            # Check each reminder time
+            for reminder_minutes_before in reminder_minutes:
+                reminder_time = event_start - timedelta(minutes=reminder_minutes_before)
+                
+                # Check if we're within the reminder window (within 1 minute of reminder time)
+                time_diff = (reminder_time - now).total_seconds()
+                
+                if 0 <= time_diff <= 60:  # Within 1 minute window
+                    reminders_to_show.append({
+                        "event": event,
+                        "reminder_minutes": reminder_minutes_before,
+                        "event_start": event_start,
+                        "time_until": (event_start - now).total_seconds() / 60
+                    })
+        except:
+            continue
+    
+    # Display reminders
+    if reminders_to_show:
+        for reminder_info in reminders_to_show:
+            event = reminder_info["event"]
+            reminder_minutes = reminder_info["reminder_minutes"]
+            event_start = reminder_info["event_start"]
+            time_until = int(reminder_info["time_until"])
+            
+            # Check if already sent (using event ID and reminder time)
+            event_id = event.get("id", "")
+            
+            # Output reminder (will be checked by shell script if already sent)
+            print(f"{event_id}|{reminder_minutes}|{json.dumps(event)}")
+    
+except Exception as e:
+    pass  # Silently fail if there's an error
+PYTHON_EOF
+}
+
+# Display a reminder
+display_reminder() {
+  local event_json="$1"
+  local reminder_minutes="$2"
+  local time_until="$3"
+  
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime
+
+event_json = '''$event_json'''
+reminder_minutes = int("$reminder_minutes")
+time_until = int("$time_until")
+
+try:
+    event = json.loads(event_json)
+    
+    title = event.get("title", "Untitled")
+    event_start = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+    start_str = event_start.strftime("%-I:%M %p")
+    location = event.get("location", "")
+    calendar = event.get("calendar_display", event.get("calendar", ""))
+    description = event.get("description", "")
+    
+    print("🔔 Meeting Reminder")
+    print(f"   {title}")
+    print(f"   Starts in: {time_until} minute")
+    if time_until != 1:
+        print("s")
+    print(f"   Time: {start_str}")
+    
+    if location:
+        print(f"   Location: {location}")
+    
+    print(f"   Calendar: {calendar}")
+    print("")
+    
+    if description:
+        # Show first few lines of description
+        desc_lines = description.split("\n")[:3]
+        print("   Notes:")
+        for line in desc_lines:
+            if line.strip():
+                print(f"   {line}")
+        if len(description.split("\n")) > 3:
+            print("   ...")
+        print("")
+    
+    # Show attendees if available
+    attendees = event.get("attendees", [])
+    if attendees:
+        print(f"   Attendees: {', '.join(attendees[:3])}")
+        if len(attendees) > 3:
+            print(f"   ... and {len(attendees) - 3} more")
+        print("")
+    
+except Exception as e:
+    print(f"Error displaying reminder: {e}")
+PYTHON_EOF
+}
+
+# Update dashboard cache with reminder info
+update_dashboard_cache() {
+  local cache_data
+  cache_data=$(load_calendar_cache)
+  
+  # Get upcoming reminders for dashboard
+  python3 <<PYTHON_EOF
+import json
+import sys
+from datetime import datetime, timedelta
+
+cache_data = '''$cache_data'''
+
+try:
+    cache = json.loads(cache_data)
+    events = cache.get("events", [])
+    
+    now = datetime.now()
+    upcoming_reminders = []
+    
+    # Check for events in next 2 hours
+    for event in events:
+        try:
+            event_start = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+            time_until = (event_start - now).total_seconds() / 60  # minutes
+            
+            # Events in next 2 hours
+            if 0 <= time_until <= 120:
+                upcoming_reminders.append({
+                    "title": event.get("title", "Untitled"),
+                    "start": event_start.isoformat(),
+                    "time_until_minutes": int(time_until),
+                    "location": event.get("location", ""),
+                    "calendar": event.get("calendar_display", event.get("calendar", ""))
+                })
+        except:
+            continue
+    
+    # Sort by time
+    upcoming_reminders.sort(key=lambda x: x["time_until_minutes"])
+    
+    # Update dashboard cache
+    dashboard_cache_file = "${GTD_BASE_DIR}/.dashboard_cache.json"
+    try:
+        with open(dashboard_cache_file, 'r') as f:
+            dashboard_cache = json.load(f)
+    except:
+        dashboard_cache = {}
+    
+    dashboard_cache["calendar_reminders"] = {
+        "upcoming": upcoming_reminders[:5],  # Top 5 upcoming
+        "next_meeting": upcoming_reminders[0] if upcoming_reminders else None,
+        "last_updated": datetime.now().isoformat()
+    }
+    
+    with open(dashboard_cache_file, 'w') as f:
+        json.dump(dashboard_cache, f, indent=2)
+    
+except Exception as e:
+    pass  # Silently fail
+PYTHON_EOF
+}
+
+# Main function
+main() {
+  local command="${1:-check}"
+  
+  case "$command" in
+    check)
+      # Check for reminders and display them
+      local reminders
+      reminders=$(check_reminders)
+      
+      if [[ -z "$reminders" ]]; then
+        # No reminders, but update dashboard cache
+        update_dashboard_cache
+        return 0
+      fi
+      
+      # Process each reminder
+      while IFS= read -r reminder_line; do
+        if [[ -z "$reminder_line" ]]; then
+          continue
+        fi
+        
+        local event_id="${reminder_line%%|*}"
+        local remaining="${reminder_line#*|}"
+        local reminder_minutes="${remaining%%|*}"
+        local event_json="${remaining#*|}"
+        
+        # Check if already sent
+        local was_sent
+        was_sent=$(was_reminder_sent "$event_id" "$reminder_minutes")
+        
+        if [[ "$was_sent" != "true" ]]; then
+          # Calculate time until meeting
+          local time_until
+          time_until=$(python3 <<PYTHON_EOF
+import json
+from datetime import datetime
+
+event_json = '''$event_json'''
+try:
+    event = json.loads(event_json)
+    event_start = datetime.fromisoformat(event["start"].replace('Z', '+00:00'))
+    now = datetime.now()
+    time_until = int((event_start - now).total_seconds() / 60)
+    print(time_until)
+except:
+    print("0")
+PYTHON_EOF
+          )
+          
+          # Display reminder
+          display_reminder "$event_json" "$reminder_minutes" "$time_until"
+          
+          # Mark as sent
+          local updated_reminders
+          updated_reminders=$(mark_reminder_sent "$event_id" "$reminder_minutes")
+          save_reminders_sent "$updated_reminders"
+        fi
+      done <<< "$reminders"
+      
+      # Update dashboard cache
+      update_dashboard_cache
+      ;;
+    update-dashboard)
+      update_dashboard_cache
+      ;;
+    *)
+      echo "Usage: $0 [check|update-dashboard]" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# Run main if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

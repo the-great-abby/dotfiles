@@ -61,8 +61,23 @@ WEEKLY_REVIEWS_PATH="${GTD_BASE_DIR}/${GTD_WEEKLY_REVIEWS_DIR}"
 
 mkdir -p "$WEEKLY_REVIEWS_PATH"
 
+# Load daily log config (for daily_review function)
+DAILY_LOG_CONFIG="$HOME/.daily_log_config"
+if [[ -f "$HOME/code/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/dotfiles/zsh/.daily_log_config"
+elif [[ -f "$HOME/code/personal/dotfiles/zsh/.daily_log_config" ]]; then
+  DAILY_LOG_CONFIG="$HOME/code/personal/dotfiles/zsh/.daily_log_config"
+fi
+
+if [[ -f "$DAILY_LOG_CONFIG" ]]; then
+  source "$DAILY_LOG_CONFIG"
+fi
+
+DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
+
 TODAY=$(date +"%Y-%m-%d")
 NOW=$(date +"%H:%M")
+DATE_CMD=$(gtd_get_date_cmd 2>/dev/null || echo "date")
 
 # Count items
 count_items() {
@@ -100,187 +115,112 @@ daily_review() {
     gtd-preferences-learn track-review "daily" 2>/dev/null || true
   fi
   
+  # Use gtd-checkin internally - it's more comprehensive and saves to daily log
+  # This ensures consistency between gtd-review daily and gtd-checkin
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📅 Daily ${time_label} Review - $TODAY ${time_icon}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  
-  # Inbox count
-  local inbox_count=$(count_items "$INBOX_PATH")
-  echo "📥 Inbox: $inbox_count item(s)"
-  if [[ $inbox_count -gt 0 ]]; then
-    echo "   → Run 'gtd-process' to process items"
-  fi
+  echo "💡 Using check-in process for comprehensive review..."
   echo ""
   
-  # Active tasks count
-  local active_tasks=$(find "$TASKS_PATH" -type f -name "*.md" 2>/dev/null | while read f; do
-    grep -q "^status: active" "$f" 2>/dev/null && echo "$f"
-  done | wc -l | tr -d ' ')
-  echo "📋 Active tasks: $active_tasks"
-  echo ""
-  
-  # Daily review questions - different for morning vs evening
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "💭 Daily ${time_label} Review Questions"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-  
-  local priority1=""
-  local priority2=""
-  local priority3=""
-  local accomplishments=""
-  local blockers=""
-  local attention_items=""
-  local what_went_well=""
-  local tomorrow_priorities=""
-  
-  if [[ "$review_type" == "morning" ]]; then
-    # Morning review - plan for today
-    echo "1. What are my top 3 priorities for today?"
-    read -p "   Priority 1: " priority1
-    read -p "   Priority 2: " priority2
-    read -p "   Priority 3: " priority3
-    echo ""
-    
-    echo "2. What did I accomplish yesterday?"
-    read -p "   " accomplishments
-    echo ""
-    
-    echo "3. What's blocking me?"
-    read -p "   " blockers
-    echo ""
-    
-    echo "4. What needs my attention?"
-    read -p "   " attention_items
-    echo ""
+  if command -v gtd-checkin &>/dev/null; then
+    gtd-checkin "$review_type"
+  elif [[ -f "$HOME/code/dotfiles/bin/gtd-checkin" ]]; then
+    "$HOME/code/dotfiles/bin/gtd-checkin" "$review_type"
+  elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-checkin" ]]; then
+    "$HOME/code/personal/dotfiles/bin/gtd-checkin" "$review_type"
   else
-    # Evening review - reflect on today, plan for tomorrow
-    echo "1. What did I accomplish today?"
-    read -p "   " accomplishments
-    echo ""
-    
-    echo "2. What went well today?"
-    read -p "   " what_went_well
-    echo ""
-    
-    echo "3. What's blocking me?"
-    read -p "   " blockers
-    echo ""
-    
-    echo "4. What are my top 3 priorities for tomorrow?"
-    read -p "   Priority 1: " priority1
-    read -p "   Priority 2: " priority2
-    read -p "   Priority 3: " priority3
-    echo ""
-    
-    echo "5. What needs my attention?"
-    read -p "   " attention_items
-    echo ""
+    echo "Error: gtd-checkin command not found. Please install it."
+    exit 1
   fi
   
-  # Save review
+  # Also save a summary to weekly-reviews for historical tracking
+  # (gtd-checkin already saves to daily log, this is just for review files)
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 Creating review summary file..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  # Extract check-in data from daily log to create review summary
+  local log_file="${DAILY_LOG_DIR}/${TODAY}.md"
   local review_file="${WEEKLY_REVIEWS_PATH}/daily-${TODAY}-${review_type}.md"
-  if [[ "$review_type" == "morning" ]]; then
-    cat > "$review_file" <<EOF
+  
+  if [[ -f "$log_file" ]]; then
+    # Extract the check-in section from daily log
+    local checkin_section=""
+    if [[ "$review_type" == "morning" ]]; then
+      # Extract morning check-in from log (between Morning Check-In markers)
+      checkin_section=$(awk '/🌅.*Morning Check-In/,/^━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$/' "$log_file" 2>/dev/null || grep -A 50 "🌅.*Morning Check-In" "$log_file" 2>/dev/null | head -50)
+    else
+      # Extract evening check-in from log (between Evening Check-In markers)
+      checkin_section=$(awk '/🌙.*Evening Check-In/,/^━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$/' "$log_file" 2>/dev/null || grep -A 50 "🌙.*Evening Check-In" "$log_file" 2>/dev/null | head -50)
+    fi
+    
+    if [[ -n "$checkin_section" ]]; then
+      # Create review summary file
+      cat > "$review_file" <<EOF
 ---
 type: daily_review
-time: morning
+time: ${review_type}
 date: ${TODAY}
 created: ${TODAY}T${NOW}
+source: gtd-checkin
 ---
 
-# Daily Morning Review - ${TODAY} 🌅
+# Daily ${time_label} Review - ${TODAY} ${time_icon}
 
-## Priorities Today
-1. ${priority1}
-2. ${priority2}
-3. ${priority3}
+${checkin_section}
 
-## Yesterday's Accomplishments
-${accomplishments}
-
-## Blockers
-${blockers}
-
-## Needs Attention
-${attention_items}
-
-## Stats
-- Inbox items: ${inbox_count}
-- Active tasks: ${active_tasks}
-
+---
+*This review was created from your check-in. Full details are in your daily log.*
 EOF
+      echo "✓ Review summary saved: $review_file"
+    else
+      echo "⚠️  Could not extract check-in data from daily log"
+      echo "   Check-in was saved to daily log, but review summary not created"
+    fi
   else
-    cat > "$review_file" <<EOF
----
-type: daily_review
-time: evening
-date: ${TODAY}
-created: ${TODAY}T${NOW}
----
-
-# Daily Evening Review - ${TODAY} 🌙
-
-## Today's Accomplishments
-${accomplishments}
-
-## What Went Well
-${what_went_well}
-
-## Priorities Tomorrow
-1. ${priority1}
-2. ${priority2}
-3. ${priority3}
-
-## Blockers
-${blockers}
-
-## Needs Attention
-${attention_items}
-
-## Stats
-- Inbox items: ${inbox_count}
-- Active tasks: ${active_tasks}
-
-EOF
+    echo "⚠️  Daily log file not found: $log_file"
+    echo "   Check-in may not have been saved properly"
   fi
   
-  echo "✓ Daily ${time_label} review saved: $review_file"
   echo ""
   
-  # Offer AI advice (backgrounded)
+  # Offer AI advice (backgrounded) - same as before
   read -p "Get AI advice on your ${review_type} review? (y/n) " -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]; then
-    local review_content=$(cat "$review_file")
-    if declare -f queue_advice_request &>/dev/null; then
-      echo ""
-      echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
-      local request_id=$(queue_advice_request "david" "Here's my ${time_label} daily review:\n\n${review_content}\n\nPlease provide feedback and suggestions." "normal" "false")
-      echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
-      echo ""
-      echo "💡 You'll receive a Discord notification when the advice is ready."
-      echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice"
-      echo ""
-      # Start worker if not running
-      if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
-        echo "Starting advice worker..."
-        nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
-        echo "✓ Worker started (PID: $!)"
-        echo "   Logs: tail -f /tmp/advice-worker.log"
+    if [[ -f "$review_file" ]]; then
+      local review_content=$(cat "$review_file")
+      if declare -f queue_advice_request &>/dev/null; then
         echo ""
-      fi
-    else
-      # Fallback to direct call if queue_advice_request not available
-      if command -v python3 &>/dev/null; then
-        local persona_helper="$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-        if [[ ! -f "$persona_helper" ]]; then
-          persona_helper="$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+        echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
+        local request_id=$(queue_advice_request "david" "Here's my ${time_label} daily review:\n\n${review_content}\n\nPlease provide feedback and suggestions." "normal" "false")
+        echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+        echo ""
+        echo "💡 You'll receive a Discord notification when the advice is ready."
+        echo "   Review results: gtd-wizard → 11) Get Advice → 6) Review Background Advice"
+        echo ""
+        # Start worker if not running
+        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+          echo "Starting advice worker..."
+          nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &
+          echo "✓ Worker started (PID: $!)"
+          echo "   Logs: tail -f /tmp/advice-worker.log"
+          echo ""
         fi
-        if [[ -f "$persona_helper" ]]; then
-          python3 "$persona_helper" "david" "$review_content" "daily_review"
+      else
+        # Fallback to direct call if queue_advice_request not available
+        if command -v python3 &>/dev/null; then
+          local persona_helper="$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
+          if [[ ! -f "$persona_helper" ]]; then
+            persona_helper="$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+          fi
+          if [[ -f "$persona_helper" ]]; then
+            python3 "$persona_helper" "david" "$review_content" "daily_review"
+          fi
         fi
       fi
     fi

@@ -45,6 +45,17 @@ export const api = {
     return response.json()
   },
 
+  async deleteInboxItem(itemId) {
+    const response = await fetch(`${API_BASE}/inbox/${itemId}`, {
+      method: 'DELETE'
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to delete item')
+    }
+    return response.json()
+  },
+
   async getTasks(priority, status) {
     const params = new URLSearchParams()
     if (priority) params.append('priority', priority)
@@ -116,6 +127,41 @@ export const api = {
     if (!response.ok) {
       const error = await response.json()
       throw new Error(error.detail || 'Failed to delete advice result')
+    }
+    return response.json()
+  },
+
+  async getDailyReviewData(reviewType) {
+    const params = new URLSearchParams()
+    if (reviewType) params.append('review_type', reviewType)
+    const response = await fetch(`${API_BASE}/reviews/daily?${params}`)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to fetch review data')
+    }
+    return response.json()
+  },
+
+  async submitDailyReview(review) {
+    const response = await fetch(`${API_BASE}/reviews/daily`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(review)
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to submit review')
+    }
+    return response.json()
+  },
+
+  async completeHabit(habitName) {
+    const response = await fetch(`${API_BASE}/habits/${encodeURIComponent(habitName)}/complete`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to complete habit')
     }
     return response.json()
   }
