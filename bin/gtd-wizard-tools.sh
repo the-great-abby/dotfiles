@@ -743,73 +743,28 @@ advice_wizard() {
       echo ""
       echo -n "What do you need advice about? "
       read question
-        if [[ -n "$question" ]]; then
-          echo ""
-          echo "How would you like to process this request?"
-          echo ""
-          echo "  1) Process now (wait for response)"
-          echo "  2) Process in background (get Discord notification when ready)"
-          echo ""
-          echo -n "Choose (default: 1): "
-          read process_mode
-          process_mode="${process_mode:-1}"
-          
-          if [[ "$process_mode" == "2" ]]; then
-            # Queue for background processing
-            echo ""
-            echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
-            local request_id=$(queue_advice_request "random" "$question" "random" "false")
-            echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
-            echo ""
-            echo "💡 You'll receive a Discord notification when the advice is ready."
-            echo "   Review results: Option 6) Review Background Advice Results"
-            echo ""
-            
-            # Start worker if not running
-            if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
-              echo "Starting advice worker..."
-              (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
-              disown -a 2>/dev/null || true
-              sleep 1
-              local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
-              echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
-              echo "   Logs: tail -f /tmp/advice-worker.log"
-              echo ""
-            fi
-          else
-            # Process immediately
-            # Run gtd-advise - it uses run_with_thinking_timer internally
-            # Timer writes to stderr, advice to stdout
-            # Capture stdout while stderr (timer) displays to terminal
-            local temp_output=$(mktemp)
-            # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
-            # When done, display the saved output
-            gtd-advise --random "$question" > "$temp_output"
-            local advice_output=$(cat "$temp_output")
-            rm -f "$temp_output"
-            echo ""
-            echo "$advice_output"
+      if [[ -n "$question" ]]; then
+        # Queue for background processing
+        echo ""
+        echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
+        local request_id=$(queue_advice_request "random" "$question" "random" "false")
+        echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+        echo ""
+        echo "💡 You'll receive a Discord notification when the advice is ready."
+        echo "   Review results: Option 6) Review Background Advice Results"
+        echo ""
         
-            # Handle follow-up questions
-            handle_followup_questions "random" "$question" "$advice_output" "false" "false"
-            
-            # Save conversation if there were follow-ups, or ask to save if no follow-ups
-            if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
-              echo ""
-              echo -e "${BOLD}Save this conversation? (y/n):${NC} "
-              read save_advice
-              if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-                save_advice_conversation "$question" "random" "$FOLLOWUP_CONVERSATION"
-              fi
-            else
-              echo ""
-              echo -e "${BOLD}Save this advice? (y/n):${NC} "
-              read save_advice
-              if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-                save_advice_conversation "$question" "random" "$advice_output"
-              fi
-            fi
-          fi
+        # Start worker if not running
+        if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+          echo "Starting advice worker..."
+          (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+          disown -a 2>/dev/null || true
+          sleep 1
+          local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
+          echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
+          echo "   Logs: tail -f /tmp/advice-worker.log"
+          echo ""
+        fi
       fi
       ;;
     2)
@@ -820,69 +775,26 @@ advice_wizard() {
         echo -n "Your question: "
         read question
         if [[ -n "$question" ]]; then
+          # Queue for background processing
           echo ""
-          echo "How would you like to process this request?"
+          echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
+          local request_id=$(queue_advice_request "$persona" "$question" "normal" "false")
+          echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
           echo ""
-          echo "  1) Process now (wait for response)"
-          echo "  2) Process in background (get Discord notification when ready)"
+          echo "💡 You'll receive a Discord notification when the advice is ready."
+          echo "   Review results: Option 6) Review Background Advice Results"
           echo ""
-          echo -n "Choose (default: 1): "
-          read process_mode
-          process_mode="${process_mode:-1}"
           
-          if [[ "$process_mode" == "2" ]]; then
-            # Queue for background processing
+          # Start worker if not running
+          if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+            echo "Starting advice worker..."
+            (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+            disown -a 2>/dev/null || true
+            sleep 1
+            local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
+            echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
+            echo "   Logs: tail -f /tmp/advice-worker.log"
             echo ""
-            echo -e "${CYAN}📤 Queuing advice request for background processing...${NC}"
-            local request_id=$(queue_advice_request "$persona" "$question" "normal" "false")
-            echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
-            echo ""
-            echo "💡 You'll receive a Discord notification when the advice is ready."
-            echo "   Review results: Option 6) Review Background Advice Results"
-            echo ""
-            
-            # Start worker if not running
-            if ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
-              echo "Starting advice worker..."
-              (nohup gtd-advice-worker daemon >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
-              disown -a 2>/dev/null || true
-              sleep 1
-              local worker_pid=$(pgrep -f "gtd-advice-worker.*daemon" | head -1 || echo "")
-              echo "✓ Worker started${worker_pid:+ (PID: $worker_pid)}"
-              echo "   Logs: tail -f /tmp/advice-worker.log"
-              echo ""
-            fi
-          else
-            # Process immediately
-            # Run gtd-advise - timer writes to stderr (displays), advice to stdout (save to file)
-            # When done, display the saved output
-            # IMPORTANT: Only redirect stdout, NOT stderr, so timer can display
-            local temp_output=$(mktemp)
-            gtd-advise "$persona" "$question" > "$temp_output"
-            local advice_output=$(cat "$temp_output")
-            rm -f "$temp_output"
-            echo ""
-            echo "$advice_output"
-            
-            # Handle follow-up questions
-            handle_followup_questions "$persona" "$question" "$advice_output" "false" "false"
-            
-            # Save conversation if there were follow-ups, or ask to save if no follow-ups
-            if [[ "$FOLLOWUP_HAS_FOLLOWUPS" -eq 1 ]]; then
-              echo ""
-              echo -e "${BOLD}Save this conversation? (y/n):${NC} "
-              read save_advice
-              if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-                save_advice_conversation "$question" "$persona" "$FOLLOWUP_CONVERSATION"
-              fi
-            else
-              echo ""
-              echo -e "${BOLD}Save this advice? (y/n):${NC} "
-              read save_advice
-              if [[ "$save_advice" == "y" || "$save_advice" == "Y" ]]; then
-                save_advice_conversation "$question" "$persona" "$advice_output"
-              fi
-            fi
           fi
         fi
       fi
@@ -1573,6 +1485,31 @@ advice_wizard() {
             echo "Answer file not found: $answer_file"
             echo "Note: The answer may not have been generated yet, or the worker may have encountered an error."
           fi
+        fi
+        
+        # Show thinking content if available
+        local thinking_content=""
+        local thinking_file_path=""
+        
+        # Try to read thinking from JSON first
+        thinking_content=$(python3 -c "import sys, json; data=json.load(open('$selected_file')); print(data.get('thinking', ''))" 2>/dev/null || echo "")
+        
+        # If not in JSON, try to read from thinking file
+        if [[ -z "$thinking_content" ]]; then
+          local result_id=$(basename "$selected_file" .json)
+          thinking_file_path="${selected_file%.json}_thinking.txt"
+          if [[ -f "$thinking_file_path" ]]; then
+            thinking_content=$(cat "$thinking_file_path" 2>/dev/null || echo "")
+          fi
+        fi
+        
+        if [[ -n "$thinking_content" ]]; then
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo -e "${BOLD}Thought:${NC}"
+          echo ""
+          echo "$thinking_content"
         fi
         
         echo ""
@@ -2906,7 +2843,8 @@ EOF
         echo -e "  ${RED}❌ Not found${NC}"
       fi
       ;;
-    5)
+    6)
+      # Installation Instructions (menu option 6)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -2979,7 +2917,7 @@ EOF
       echo ""
       gtd_enter_to_continue
       ;;
-    6)
+    7)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

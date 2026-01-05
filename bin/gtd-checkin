@@ -325,14 +325,14 @@ morning_checkin() {
   echo "  📁 Active projects: ${active_projects}"
   echo ""
   
-  # Show calendar overview for today
+  # Show calendar overview for today (full details for review)
   if command -v gtd-calendar-info &>/dev/null; then
     echo -e "${BOLD}📅 Today's Calendar${NC}"
-    gtd-calendar-info overview today brief 2>/dev/null || true
+    gtd-calendar-info overview today 2>/dev/null || true
     echo ""
   elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar-info" ]]; then
     echo -e "${BOLD}📅 Today's Calendar${NC}"
-    "$HOME/code/dotfiles/bin/gtd-calendar-info" overview today brief 2>/dev/null || true
+    "$HOME/code/dotfiles/bin/gtd-calendar-info" overview today 2>/dev/null || true
     echo ""
   fi
   

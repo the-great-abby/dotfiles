@@ -1,6 +1,7 @@
 #!/bin/bash
 # Start GTD Advice Worker (Python version)
 # Processes advice requests from RabbitMQ or file queue
+# Supports multiple worker instances via GTD_ADVICE_WORKER_COUNT environment variable
 
 # Find Python executable (check virtualenv first)
 MCP_DIR="$HOME/code/dotfiles/mcp"
@@ -36,9 +37,17 @@ if [[ -z "$GTD_RABBITMQ_URL" ]]; then
     fi
 fi
 
+# Get number of worker instances (default: 1)
+WORKER_COUNT="${GTD_ADVICE_WORKER_COUNT:-1}"
+if ! [[ "$WORKER_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Warning: Invalid GTD_ADVICE_WORKER_COUNT '$WORKER_COUNT', using 1" >&2
+    WORKER_COUNT=1
+fi
+
 # Log startup info
 LOG_FILE="/tmp/advice-worker.log"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting advice worker..." >> "$LOG_FILE"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting advice worker(s)..." >> "$LOG_FILE"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Worker instances: $WORKER_COUNT" >> "$LOG_FILE"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Queue: gtd_advice" >> "$LOG_FILE"
 if [[ -n "$GTD_RABBITMQ_URL" ]]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] RabbitMQ URL: $GTD_RABBITMQ_URL" >> "$LOG_FILE"
@@ -49,7 +58,8 @@ if [[ "$1" == "file" ]]; then
     echo "Processing file queue..."
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Processing file queue..." >> "$LOG_FILE"
     exec "$PYTHON_CMD" "$WORKER_SCRIPT" file
-else
+elif [[ "$WORKER_COUNT" -eq 1 ]]; then
+    # Single worker instance (default behavior)
     echo "Starting advice worker..."
     echo "Queue: gtd_advice"
     if [[ -n "$GTD_RABBITMQ_URL" ]]; then
@@ -60,4 +70,34 @@ else
     echo ""
     
     exec "$PYTHON_CMD" "$WORKER_SCRIPT" 2>&1
+else
+    # Multiple worker instances
+    echo "Starting $WORKER_COUNT advice worker instance(s)..."
+    echo "Queue: gtd_advice"
+    if [[ -n "$GTD_RABBITMQ_URL" ]]; then
+        echo "RabbitMQ URL: $GTD_RABBITMQ_URL"
+    fi
+    echo "Worker instances: $WORKER_COUNT"
+    echo "Press Ctrl+C to stop all workers"
+    echo "Logs: $LOG_FILE (each worker writes to the same log)"
+    echo ""
+    
+    # Start worker instances in background
+    PIDS=()
+    for ((i=1; i<=WORKER_COUNT; i++)); do
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting worker instance $i/$WORKER_COUNT" >> "$LOG_FILE"
+        "$PYTHON_CMD" "$WORKER_SCRIPT" >> "$LOG_FILE" 2>&1 &
+        PIDS+=($!)
+        echo "Started worker instance $i/$WORKER_COUNT (PID: ${PIDS[$((i-1))]})"
+        sleep 0.5  # Small delay between starting workers
+    done
+    
+    echo ""
+    echo "All workers started. Monitoring processes..."
+    
+    # Wait for all workers (or Ctrl+C)
+    trap "echo ''; echo 'Stopping all workers...'; kill ${PIDS[@]} 2>/dev/null; exit 0" INT TERM
+    
+    # Wait for all processes
+    wait ${PIDS[@]}
 fi

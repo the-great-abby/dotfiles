@@ -103,11 +103,11 @@ get_food_reminder() {
   local food_status="$1"
   local recent_entries="${2:-}"
   
-  # Find persona helper
+  # Find persona helper (use deep model version)
   local persona_helper=""
   local possible_paths=(
-    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
   )
   
   for path in "${possible_paths[@]}"; do

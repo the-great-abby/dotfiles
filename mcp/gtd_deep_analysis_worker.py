@@ -334,6 +334,15 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
                 if os.getenv("GTD_DEBUG"):
                     print(f"DEBUG: Increased max_poll_time to 3600s for async request (was {base_timeout}s)", file=sys.stderr)
             
+            # Calculate poll_timeout for followup requests (same logic as blocking mode)
+            if max_poll_time is not None:
+                poll_timeout = max_poll_time
+            elif ":31080" in DEEP_MODEL_URL:
+                poll_timeout = max(base_timeout, 3600)
+            else:
+                poll_timeout = base_timeout
+            timeout = base_timeout  # For urllib.request.urlopen timeout
+            
             payload = {
                 "model": actual_model_name,
                 "messages": [
@@ -344,6 +353,103 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
                 "max_tokens": max_tokens,
                 "priority": 20,  # NORMAL priority for background tasks
             }
+            
+            # Add tools if using Ollama Controller (controller supports tools regardless of model)
+            is_ollama_controller = ":31080" in DEEP_MODEL_URL or "31080" in DEEP_MODEL_URL
+            
+            # Log to tool_calls.log for debugging
+            log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+            try:
+                from datetime import datetime
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now().isoformat()}] call_deep_ai (async) - Model: {actual_model_name}, URL: {DEEP_MODEL_URL}\n")
+                    f.write(f"  -> Ollama Controller: {is_ollama_controller}\n")
+            except Exception:
+                pass
+            
+            if is_ollama_controller:
+                try:
+                    # Import tool registry
+                    functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+                    if not functions_dir.exists():
+                        functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+                    if functions_dir.exists() and str(functions_dir) not in sys.path:
+                        sys.path.insert(0, str(functions_dir))
+                    from gtd_tool_registry import get_tool_definitions
+                    
+                    # Include GTD tools by default for deep analysis (comprehensive advice)
+                    tools_to_include = []
+                    gtd_tools = get_tool_definitions(categories=["gtd"])
+                    tools_to_include.extend(gtd_tools)
+                    
+                    if tools_to_include:
+                        payload["tools"] = tools_to_include
+                        payload["tool_choice"] = "auto"
+                        
+                        # Update system prompt to mention available tools
+                        tool_names = [tool.get("function", {}).get("name", "unknown") for tool in tools_to_include]
+                        tool_description = ""
+                        if "gtd_read_daily_log" in tool_names:
+                            tool_description += " You have access to read the user's daily logs to understand their activities and patterns. "
+                        if "gtd_list_tasks" in tool_names:
+                            tool_description += " You can list tasks to see what the user is working on. "
+                        if "gtd_create_task" in tool_names:
+                            tool_description += " You can create tasks when needed. "
+                        if "gtd_list_projects" in tool_names:
+                            tool_description += " You can list projects to understand the user's work. "
+                        if "gtd_get_datetime" in tool_names:
+                            tool_description += " You can get date/time information using gtd_get_datetime. Call it with relative date strings like '3 days ago', 'yesterday', or 'today' to get calculated dates automatically. "
+                        
+                        if tool_description:
+                            # Update the system message in the payload
+                            if payload.get("messages") and len(payload["messages"]) > 0:
+                                payload["messages"][0]["content"] = system_prompt + "\n\nCRITICAL: You have access to tools/functions to interact with the user's GTD system." + tool_description + "\n\nIMPORTANT RULES FOR TOOL USAGE:\n1. When the user asks about their tasks, logs, projects, dates, or asks you to create tasks, you MUST USE THE AVAILABLE TOOLS by calling them through the function calling interface (NOT by describing them in text).\n2. NEVER describe what you would do with tools - ACTUALLY CALL THE TOOLS using the function calling format.\n3. NEVER make up or fabricate data - if you don't have actual data from the tools, you must CALL the tools first to get real data.\n4. NEVER claim to have access to data unless you have actually CALLED the tools to retrieve it.\n5. The tools are provided in the function calling interface - USE THE FUNCTION CALLING MECHANISM, not text descriptions. Do NOT output tool names like 'gtd_get_datetime(\"today\")' in your text - instead, USE the function calling interface to actually call the tool.\n6. If the user asks about their daily logs, tasks, or projects, you MUST CALL the appropriate tool (gtd_read_daily_log, gtd_list_tasks, etc.) through the function calling interface before responding.\n7. DATE HANDLING: ALWAYS call gtd_get_datetime through the function calling interface for any date-related questions. For relative dates, pass the relative date string directly to the tool (e.g., call gtd_get_datetime with '3 days ago' to get that date). Examples: call gtd_get_datetime('today'), call gtd_get_datetime('yesterday'), call gtd_get_datetime('3 days ago'). NEVER calculate or guess dates yourself - always USE the function calling interface to call the tool.\n\nREMEMBER: Use the function calling interface to CALL tools, not text descriptions. Do not output tool calls as text - use the actual function calling mechanism."
+                        
+                        try:
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"  -> ✅ Added {len(tools_to_include)} tool(s): {', '.join(tool_names)}\n")
+                                f.write(f"  -> Tool choice: {payload.get('tool_choice', 'not set')}\n")
+                                f.write(f"  -> Updated system prompt to mention tools\n")
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"  -> ⚠️  No tools available (get_tool_definitions returned empty list)\n")
+                        except Exception:
+                            pass
+                except ImportError as e:
+                    # Tool registry not available - continue without tools
+                    try:
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"  -> ⚠️  Failed to import gtd_tool_registry: {e}\n")
+                    except Exception:
+                        pass
+                except Exception as e:
+                    try:
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"  -> ⚠️  Error adding tools: {e}\n")
+                    except Exception:
+                        pass
+            else:
+                try:
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"  -> Not Ollama Controller - tools not added\n")
+                except Exception:
+                    pass
+            
+            # Log payload info
+            try:
+                data_size = len(json.dumps(payload).encode('utf-8'))
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(f"  -> Payload size: {data_size} bytes\n")
+                    if "tools" in payload:
+                        f.write(f"  -> ✅ Tools in payload: {len(payload['tools'])} tool(s)\n")
+                    else:
+                        f.write(f"  -> ⚠️  No tools in payload\n")
+            except Exception:
+                pass
             
             # Submit async request
             request_id, error = submit_ai_request_async(
@@ -364,7 +470,123 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
                     result_data = json.loads(request_id)
                     if 'choices' in result_data:
                         # Immediate response
-                        content = result_data['choices'][0]['message']['content']
+                        message = result_data['choices'][0].get('message', {})
+                        content = message.get('content', '')
+                        
+                        # Check if model made tool calls
+                        if 'tool_calls' in message and message['tool_calls']:
+                            # Execute tool calls manually (Ollama Controller doesn't know about our GTD tools)
+                            log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                            try:
+                                with open(log_file, "a", encoding="utf-8") as f:
+                                    f.write(f"[{datetime.now().isoformat()}] call_deep_ai (async immediate) - Tool calls detected!\n")
+                                    f.write(f"  -> Model requested {len(message['tool_calls'])} tool call(s)\n")
+                                    for i, tool_call in enumerate(message['tool_calls']):
+                                        f.write(f"     Tool call {i+1}: {tool_call.get('function', {}).get('name', 'unknown')}\n")
+                            except Exception:
+                                pass
+                            
+                            # Execute tool calls and collect results
+                            tool_results = []
+                            for tool_call in message['tool_calls']:
+                                function_name = tool_call.get('function', {}).get('name', '')
+                                function_args = tool_call.get('function', {}).get('arguments', '{}')
+                                tool_call_id = tool_call.get('id', '')
+                                
+                                try:
+                                    args_dict = json.loads(function_args)
+                                except json.JSONDecodeError:
+                                    args_dict = {}
+                                
+                                # Execute the tool using the registry
+                                try:
+                                    # Import tool registry
+                                    functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+                                    if not functions_dir.exists():
+                                        functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+                                    if functions_dir.exists() and str(functions_dir) not in sys.path:
+                                        sys.path.insert(0, str(functions_dir))
+                                    from gtd_tool_registry import execute_tool
+                                    tool_result = execute_tool(function_name, args_dict)
+                                    
+                                    # Log tool execution
+                                    try:
+                                        with open(log_file, "a", encoding="utf-8") as f:
+                                            f.write(f"  -> Executed tool: {function_name}\n")
+                                    except Exception:
+                                        pass
+                                    
+                                    tool_results.append({
+                                        "tool_call_id": tool_call_id,
+                                        "role": "tool",
+                                        "name": function_name,
+                                        "content": tool_result
+                                    })
+                                except Exception as e:
+                                    # Tool execution error
+                                    error_msg = f"Error executing tool '{function_name}': {str(e)}"
+                                    tool_results.append({
+                                        "tool_call_id": tool_call_id,
+                                        "role": "tool",
+                                        "name": function_name,
+                                        "content": error_msg
+                                    })
+                            
+                            # Send tool results back to the model and get final answer (use blocking call for followup)
+                            followup_messages = [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt},
+                                message,  # The assistant's message with tool calls
+                            ]
+                            followup_messages.extend(tool_results)  # Add tool results
+                            
+                            followup_payload = {
+                                "model": actual_model_name,
+                                "messages": followup_messages,
+                                "temperature": 0.7,
+                                "max_tokens": max_tokens,
+                                "priority": request_priority
+                            }
+                            
+                            # For async mode, use blocking call for followup (simpler than handling async callback)
+                            try:
+                                followup_data = json.dumps(followup_payload).encode('utf-8')
+                                followup_req = urllib.request.Request(
+                                    DEEP_MODEL_URL,
+                                    data=followup_data,
+                                    headers={'Content-Type': 'application/json'}
+                                )
+                                
+                                with urllib.request.urlopen(followup_req, timeout=timeout) as followup_response:
+                                    followup_data = followup_response.read()
+                                    followup_result = json.loads(followup_data.decode('utf-8'))
+                                    
+                                    # Handle async/queued responses from Ollama Controller
+                                    base_url = DEEP_MODEL_URL.rsplit('/v1', 1)[0]
+                                    followup_polled_result, followup_poll_error = handle_ai_response(followup_result, base_url, max_poll_time=poll_timeout, poll_interval=0.5)
+                                    
+                                    if followup_poll_error:
+                                        return f"Error in followup request: {followup_poll_error}"
+                                    
+                                    if followup_polled_result:
+                                        followup_result = followup_polled_result
+                                    
+                                    if 'error' in followup_result:
+                                        error_msg = followup_result['error'].get('message', 'Unknown error')
+                                        return f"Error getting final answer: {error_msg}"
+                                    
+                                    if 'choices' in followup_result and len(followup_result['choices']) > 0:
+                                        final_message = followup_result['choices'][0].get('message', {})
+                                        final_content = final_message.get('content', '')
+                                        finish_reason = followup_result['choices'][0].get('finish_reason', '')
+                                        if finish_reason == 'length':
+                                            final_content += "\n\n[Note: Response was truncated due to token limit.]"
+                                        return final_content
+                                    else:
+                                        return "Error: Got a followup response but it's not quite right."
+                            except Exception as e:
+                                return f"Error executing tool calls: {e}"
+                        
                         finish_reason = result_data['choices'][0].get('finish_reason', '')
                         if finish_reason == 'length':
                             content += "\n\n[Note: Response was truncated due to token limit.]"
@@ -464,6 +686,103 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
         "priority": request_priority,  # Use priority from environment or default to 20
     }
     
+    # Add tools if using Ollama Controller (controller supports tools regardless of model)
+    is_ollama_controller = ":31080" in DEEP_MODEL_URL or "31080" in DEEP_MODEL_URL
+    
+    # Log to tool_calls.log for debugging
+    log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+    try:
+        from datetime import datetime
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().isoformat()}] call_deep_ai (blocking) - Model: {actual_model_name}, URL: {DEEP_MODEL_URL}\n")
+            f.write(f"  -> Ollama Controller: {is_ollama_controller}\n")
+    except Exception:
+        pass
+    
+    if is_ollama_controller:
+        try:
+            # Import tool registry
+            functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+            if not functions_dir.exists():
+                functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+            if functions_dir.exists() and str(functions_dir) not in sys.path:
+                sys.path.insert(0, str(functions_dir))
+            from gtd_tool_registry import get_tool_definitions
+            
+            # Include GTD tools by default for deep analysis (comprehensive advice)
+            tools_to_include = []
+            gtd_tools = get_tool_definitions(categories=["gtd"])
+            tools_to_include.extend(gtd_tools)
+            
+            if tools_to_include:
+                payload["tools"] = tools_to_include
+                payload["tool_choice"] = "auto"
+                
+                # Update system prompt to mention available tools
+                tool_names = [tool.get("function", {}).get("name", "unknown") for tool in tools_to_include]
+                tool_description = ""
+                if "gtd_read_daily_log" in tool_names:
+                    tool_description += " You have access to read the user's daily logs to understand their activities and patterns. "
+                if "gtd_list_tasks" in tool_names:
+                    tool_description += " You can list tasks to see what the user is working on. "
+                if "gtd_create_task" in tool_names:
+                    tool_description += " You can create tasks when needed. "
+                if "gtd_list_projects" in tool_names:
+                    tool_description += " You can list projects to understand the user's work. "
+                if "gtd_get_datetime" in tool_names:
+                    tool_description += " You can get date/time information using gtd_get_datetime. Call it with relative date strings like '3 days ago', 'yesterday', or 'today' to get calculated dates automatically. "
+                
+                if tool_description:
+                    # Update the system message in the payload
+                    if payload.get("messages") and len(payload["messages"]) > 0:
+                        payload["messages"][0]["content"] = system_prompt + "\n\nCRITICAL: You have access to tools/functions to interact with the user's GTD system." + tool_description + "\n\nIMPORTANT RULES FOR TOOL USAGE:\n1. When the user asks about their tasks, logs, projects, dates, or asks you to create tasks, you MUST USE THE AVAILABLE TOOLS by calling them through the function calling interface (NOT by describing them in text).\n2. NEVER describe what you would do with tools - ACTUALLY CALL THE TOOLS using the function calling format.\n3. NEVER make up or fabricate data - if you don't have actual data from the tools, you must CALL the tools first to get real data.\n4. NEVER claim to have access to data unless you have actually CALLED the tools to retrieve it.\n5. The tools are provided in the function calling interface - USE THE FUNCTION CALLING MECHANISM, not text descriptions. Do NOT output tool names like 'gtd_get_datetime(\"today\")' in your text - instead, USE the function calling interface to actually call the tool.\n6. If the user asks about their daily logs, tasks, or projects, you MUST CALL the appropriate tool (gtd_read_daily_log, gtd_list_tasks, etc.) through the function calling interface before responding.\n7. DATE HANDLING: ALWAYS call gtd_get_datetime through the function calling interface for any date-related questions. For relative dates, pass the relative date string directly to the tool (e.g., call gtd_get_datetime with '3 days ago' to get that date). Examples: call gtd_get_datetime('today'), call gtd_get_datetime('yesterday'), call gtd_get_datetime('3 days ago'). NEVER calculate or guess dates yourself - always USE the function calling interface to call the tool.\n\nREMEMBER: Use the function calling interface to CALL tools, not text descriptions. Do not output tool calls as text - use the actual function calling mechanism."
+                
+                try:
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"  -> ✅ Added {len(tools_to_include)} tool(s): {', '.join(tool_names)}\n")
+                        f.write(f"  -> Tool choice: {payload.get('tool_choice', 'not set')}\n")
+                        f.write(f"  -> Updated system prompt to mention tools\n")
+                except Exception:
+                    pass
+            else:
+                try:
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"  -> ⚠️  No tools available (get_tool_definitions returned empty list)\n")
+                except Exception:
+                    pass
+        except ImportError as e:
+            # Tool registry not available - continue without tools
+            try:
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(f"  -> ⚠️  Failed to import gtd_tool_registry: {e}\n")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(f"  -> ⚠️  Error adding tools: {e}\n")
+            except Exception:
+                pass
+    else:
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"  -> Not Ollama Controller - tools not added\n")
+        except Exception:
+            pass
+    
+    # Log payload info before encoding
+    try:
+        data_size = len(json.dumps(payload).encode('utf-8'))
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"  -> Payload size: {data_size} bytes\n")
+            if "tools" in payload:
+                f.write(f"  -> ✅ Tools in payload: {len(payload['tools'])} tool(s)\n")
+            else:
+                f.write(f"  -> ⚠️  No tools in payload\n")
+    except Exception:
+        pass
+    
     data = json.dumps(payload).encode('utf-8')
     
     # Longer timeout for deep analysis
@@ -499,9 +818,14 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
         print(f"DEBUG: Timeout resolution - base_timeout={base_timeout}, source={timeout_source}, GTD_CONFIG keys={list(GTD_CONFIG.keys())}", file=sys.stderr)
         print(f"DEBUG: GTD_CONFIG['deep_model_timeout']={GTD_CONFIG.get('deep_model_timeout')}", file=sys.stderr)
     
-    # Thinking models get extra time (they do internal reasoning)
-    # For thinking models, ensure minimum timeout of 300s unless user configured higher
-    if is_thinking_model:
+    # If max_poll_time was provided, use it (even in blocking mode, this indicates desired timeout)
+    # Otherwise, use timeout from config/environment
+    if max_poll_time is not None:
+        timeout = int(max_poll_time)
+        timeout_source = "max_poll_time parameter"
+    elif is_thinking_model:
+        # Thinking models get extra time (they do internal reasoning)
+        # For thinking models, ensure minimum timeout of 300s unless user configured higher
         if base_timeout < 300:
             # User hasn't configured for thinking models - use minimum 300s
             timeout = 300
@@ -511,7 +835,14 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
             timeout = base_timeout
     else:
         # Regular model - use configured timeout
-        timeout = base_timeout
+        # For Ollama Controller, use longer timeout to handle queued requests (at least 60 minutes)
+        if ":31080" in DEEP_MODEL_URL or "31080" in DEEP_MODEL_URL:
+            # Using Ollama Controller - requests can be queued, so use longer timeout
+            timeout = max(base_timeout, 3600)  # At least 60 minutes
+            if timeout > base_timeout:
+                timeout_source = f"config ({base_timeout}s) increased to {timeout}s for Ollama Controller"
+        else:
+            timeout = base_timeout
     
     # Log timeout being used (for debugging)
     print(f"🔧 Deep AI Timeout: {timeout}s (base: {base_timeout}s, source: {timeout_source}, thinking_model: {is_thinking_model})", file=sys.stderr)
@@ -582,7 +913,142 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
                 result = polled_result
             
             if 'choices' in result and len(result['choices']) > 0:
-                content = result['choices'][0]['message']['content']
+                message = result['choices'][0].get('message', {})
+                content = message.get('content', '')
+                
+                # Check if model made tool calls
+                if 'tool_calls' in message and message['tool_calls']:
+                    # Execute tool calls manually (Ollama Controller doesn't know about our GTD tools)
+                    log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                    try:
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"[{datetime.now().isoformat()}] call_deep_ai (blocking) - Tool calls detected!\n")
+                            f.write(f"  -> Model requested {len(message['tool_calls'])} tool call(s)\n")
+                            for i, tool_call in enumerate(message['tool_calls']):
+                                f.write(f"     Tool call {i+1}: {tool_call.get('function', {}).get('name', 'unknown')}\n")
+                    except Exception:
+                        pass
+                    
+                    # Execute tool calls and collect results
+                    tool_results = []
+                    for tool_call in message['tool_calls']:
+                        function_name = tool_call.get('function', {}).get('name', '')
+                        function_args = tool_call.get('function', {}).get('arguments', '{}')
+                        tool_call_id = tool_call.get('id', '')
+                        
+                        try:
+                            args_dict = json.loads(function_args)
+                        except json.JSONDecodeError:
+                            args_dict = {}
+                        
+                        # Execute the tool using the registry
+                        try:
+                            # Import tool registry
+                            functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+                            if not functions_dir.exists():
+                                functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+                            if functions_dir.exists() and str(functions_dir) not in sys.path:
+                                sys.path.insert(0, str(functions_dir))
+                            from gtd_tool_registry import execute_tool
+                            tool_result = execute_tool(function_name, args_dict)
+                            
+                            # Log tool execution
+                            try:
+                                with open(log_file, "a", encoding="utf-8") as f:
+                                    f.write(f"  -> Executed tool: {function_name}\n")
+                                    f.write(f"  -> Result length: {len(tool_result)} chars\n")
+                                    if len(tool_result) < 500:
+                                        f.write(f"  -> Result: {tool_result}\n")
+                                    else:
+                                        f.write(f"  -> Result preview: {tool_result[:300]}...\n")
+                            except Exception:
+                                pass
+                            
+                            tool_results.append({
+                                "tool_call_id": tool_call_id,
+                                "role": "tool",
+                                "name": function_name,
+                                "content": tool_result
+                            })
+                        except Exception as e:
+                            # Tool execution error
+                            error_msg = f"Error executing tool '{function_name}': {str(e)}"
+                            try:
+                                with open(log_file, "a", encoding="utf-8") as f:
+                                    f.write(f"  -> ERROR: {error_msg}\n")
+                            except Exception:
+                                pass
+                            tool_results.append({
+                                "tool_call_id": tool_call_id,
+                                "role": "tool",
+                                "name": function_name,
+                                "content": error_msg
+                            })
+                    
+                    # Send tool results back to the model and get final answer
+                    followup_messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                        message,  # The assistant's message with tool calls
+                    ]
+                    followup_messages.extend(tool_results)  # Add tool results
+                    
+                    # Log what we're sending back
+                    try:
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"  -> Sending followup with {len(tool_results)} tool result(s)\n")
+                    except Exception:
+                        pass
+                    
+                    followup_payload = {
+                        "model": actual_model_name,
+                        "messages": followup_messages,
+                        "temperature": 0.7,
+                        "max_tokens": max_tokens,
+                        "priority": request_priority
+                    }
+                    
+                    # Don't include tools in followup - model should respond with final answer
+                    
+                    # Send followup request (with same async handling as initial request)
+                    try:
+                        followup_data = json.dumps(followup_payload).encode('utf-8')
+                        followup_req = urllib.request.Request(
+                            DEEP_MODEL_URL,
+                            data=followup_data,
+                            headers={'Content-Type': 'application/json'}
+                        )
+                        
+                        with urllib.request.urlopen(followup_req, timeout=timeout) as followup_response:
+                            followup_data = followup_response.read()
+                            followup_result = json.loads(followup_data.decode('utf-8'))
+                            
+                            # Handle async/queued responses from Ollama Controller
+                            base_url = DEEP_MODEL_URL.rsplit('/v1', 1)[0]
+                            followup_polled_result, followup_poll_error = handle_ai_response(followup_result, base_url, max_poll_time=poll_timeout, poll_interval=0.5)
+                            
+                            if followup_poll_error:
+                                return f"Error in followup request: {followup_poll_error}"
+                            
+                            if followup_polled_result:
+                                followup_result = followup_polled_result
+                            
+                            if 'error' in followup_result:
+                                error_msg = followup_result['error'].get('message', 'Unknown error')
+                                return f"Error getting final answer: {error_msg}"
+                            
+                            if 'choices' in followup_result and len(followup_result['choices']) > 0:
+                                final_message = followup_result['choices'][0].get('message', {})
+                                final_content = final_message.get('content', '')
+                                finish_reason = followup_result['choices'][0].get('finish_reason', '')
+                                if finish_reason == 'length':
+                                    final_content += "\n\n[Note: Response was truncated due to token limit. Consider increasing max_tokens for complete analysis.]"
+                                return final_content
+                            else:
+                                return "Error: Got a followup response but it's not quite right."
+                    except Exception as e:
+                        return f"Error executing tool calls: {e}"
+                
                 # Check if response was truncated (common indicators)
                 finish_reason = result['choices'][0].get('finish_reason', '')
                 if finish_reason == 'length':

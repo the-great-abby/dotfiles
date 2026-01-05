@@ -114,7 +114,11 @@ get_log_stats() {
     local entry_count=$("$stats_script" today 2>/dev/null | tr -d '[:space:]' || echo "0")
     # gtd-log-stats today returns just the number
     if [[ "$entry_count" =~ ^[0-9]+$ ]] && [[ "$entry_count" != "0" ]]; then
-      local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null || echo "0")
+      local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null | tr -d '[:space:]' || echo "0")
+      # Ensure goal_count is numeric
+      if [[ ! "$goal_count" =~ ^[0-9]+$ ]]; then
+        goal_count=0
+      fi
       echo "Entries: $entry_count"
       if [[ $goal_count -gt 0 ]]; then
         echo "Goals: $goal_count"
@@ -144,7 +148,11 @@ get_log_stats() {
     entry_count=0
   fi
   
-  local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null || echo "0")
+  local goal_count=$(grep -ci "goal" "$log_file" 2>/dev/null | tr -d '[:space:]' || echo "0")
+  # Ensure goal_count is numeric
+  if [[ ! "$goal_count" =~ ^[0-9]+$ ]]; then
+    goal_count=0
+  fi
   
   echo "Entries: $entry_count"
   if [[ $goal_count -gt 0 ]]; then
@@ -244,11 +252,11 @@ get_louiza_lunch_message() {
   local stats="$2"
   local progress_status="$3"
   
-  # Find persona helper
+  # Find persona helper (use deep model version)
   local persona_helper=""
   local possible_paths=(
-    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
   )
   
   for path in "${possible_paths[@]}"; do

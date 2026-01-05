@@ -3757,6 +3757,7 @@ external_ollama_controller_wizard() {
   echo "  3) 📋 Show Connection Information"
   echo "  4) 🔌 Verify NodePort Service"
   echo "  5) 🧪 Test Ollama Connection"
+  echo "  6) 📊 Check Queue Status (by request ID)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -4023,6 +4024,113 @@ external_ollama_controller_wizard() {
       fi
       
       gtd_enter_to_continue
+      ;;
+    6)
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}📊 Check Request Status${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "Check the status of an advice request or Ollama Controller request."
+      echo ""
+      echo "You can check by:"
+      echo "  • Advice request ID (e.g., advice_20260102_184640_12189)"
+      echo "  • Ollama Controller request ID (e.g., 51257cb6-70d7-48d0-ace4-dc09484efceb)"
+      echo ""
+      echo "Enter the request ID to check:"
+      echo -n "Request ID: "
+      read request_id
+      
+      if [[ -z "$request_id" ]]; then
+        echo -e "${YELLOW}⚠️  No request ID provided${NC}"
+        echo ""
+        gtd_quick_pause
+      else
+        echo ""
+        echo "Checking request status..."
+        echo ""
+        
+        # Check if request status tool exists (preferred - shows comprehensive status)
+        REQUEST_STATUS_TOOL="$HOME/code/dotfiles/bin/gtd-request-status"
+        if [[ ! -f "$REQUEST_STATUS_TOOL" ]]; then
+          REQUEST_STATUS_TOOL="$HOME/code/personal/dotfiles/bin/gtd-request-status"
+        fi
+        
+        if [[ -f "$REQUEST_STATUS_TOOL" ]] && [[ -x "$REQUEST_STATUS_TOOL" ]]; then
+          "$REQUEST_STATUS_TOOL" "$request_id"
+        else
+          # Fallback: use queue status tool or Python directly
+          QUEUE_STATUS_TOOL="$HOME/code/dotfiles/bin/gtd-queue-status"
+          if [[ ! -f "$QUEUE_STATUS_TOOL" ]]; then
+            QUEUE_STATUS_TOOL="$HOME/code/personal/dotfiles/bin/gtd-queue-status"
+          fi
+          
+          if [[ -f "$QUEUE_STATUS_TOOL" ]] && [[ -x "$QUEUE_STATUS_TOOL" ]]; then
+            "$QUEUE_STATUS_TOOL" "$request_id"
+          else
+            # Final fallback: use Python directly
+            python3 <<PYTHON_EOF
+import sys
+import os
+from pathlib import Path
+
+# Add functions directory to path
+functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+if not functions_dir.exists():
+    functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+
+if functions_dir.exists():
+    sys.path.insert(0, str(functions_dir))
+
+try:
+    from gtd_ai_helpers import get_queue_status, is_ollama_controller_url
+    
+    # Get Ollama URL from environment or config
+    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:31080/v1/chat/completions")
+    
+    # Check if using Ollama Controller
+    if not is_ollama_controller_url(ollama_url):
+        print("❌ Not using Ollama Controller")
+        print(f"   URL: {ollama_url}")
+        print("   Queue status is only available for Ollama Controller requests")
+        sys.exit(1)
+    
+    # Extract base URL
+    base_url = ollama_url.rsplit('/v1', 1)[0]
+    
+    # Get queue status
+    request_id = "$request_id"
+    status = get_queue_status(request_id, base_url)
+    
+    # Display status
+    print(f"📊 Queue Status for Request: {request_id}")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print(f"Status: {status['status']}")
+    print(f"Message: {status['message']}")
+    
+    if status.get('queue_position') is not None:
+        print(f"Queue Position: {status['queue_position']}")
+    
+    if status.get('elapsed_time') is not None:
+        elapsed_min = int(status['elapsed_time'] // 60)
+        elapsed_sec = int(status['elapsed_time'] % 60)
+        print(f"Elapsed Time: {elapsed_min}m {elapsed_sec}s")
+    
+    if status.get('error'):
+        print(f"Error: {status['error']}")
+    
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+except Exception as e:
+    print(f"❌ Error checking queue status: {e}")
+    import traceback
+    traceback.print_exc()
+PYTHON_EOF
+          fi
+        fi
+        
+        echo ""
+        gtd_enter_to_continue
+      fi
       ;;
     0|"")
       return 0

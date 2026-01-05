@@ -8,6 +8,8 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Configuration
@@ -249,8 +251,20 @@ if command -v nginx &>/dev/null; then
             SERVER_NAMES="localhost $TAILSCALE_DOMAIN"
         fi
         
-        # Create nginx config
-        cat > "$NGINX_CONFIG" <<EOF
+        # Check if HTTPS config already exists (preserve it)
+        # Check for any SSL configuration (port 443, 8443, or any port with ssl)
+        HAS_HTTPS=false
+        if [[ -f "$NGINX_CONFIG" ]] && grep -qE "listen.*ssl|ssl_certificate" "$NGINX_CONFIG"; then
+            HAS_HTTPS=true
+            echo -e "${GREEN}✓ Detected existing HTTPS configuration - preserving it${NC}"
+            # Backup existing HTTPS config
+            cp "$NGINX_CONFIG" "${NGINX_CONFIG}.https-backup.$(date +%Y%m%d_%H%M%S)"
+        fi
+        
+        # Only create HTTP config if HTTPS doesn't exist
+        if [[ "$HAS_HTTPS" == "false" ]]; then
+            # Create nginx config
+            cat > "$NGINX_CONFIG" <<EOF
 server {
     listen 8080;
     listen [::]:8080;
@@ -302,8 +316,10 @@ server {
     }
 }
 EOF
-        
-        echo -e "${GREEN}✓ Nginx configuration created: $NGINX_CONFIG${NC}"
+            echo -e "${GREEN}✓ Nginx configuration created: $NGINX_CONFIG${NC}"
+        else
+            echo -e "${GREEN}✓ Preserved existing HTTPS configuration${NC}"
+        fi
         
         # Test nginx configuration
         if nginx -t 2>/dev/null; then
@@ -364,12 +380,40 @@ fi
 
 if command -v nginx &>/dev/null && [[ -n "${NGINX_CONFIG:-}" ]] && [[ -f "${NGINX_CONFIG}" ]]; then
     echo -e "${GREEN}✓ Frontend configured${NC}"
-    echo "  Frontend: ${BOLD}http://localhost:8080${NC} (Note: port 8080, not 80!)"
-    echo "  Backend API: http://localhost:8000"
-    echo ""
-    echo -e "${CYAN}💡${NC} If you see the nginx default page:"
-    echo "   • Make sure you're accessing port ${BOLD}8080${NC}, not port 80"
-    echo "   • Or restart nginx: brew services restart nginx"
+    
+    # Check if HTTPS is configured
+    if grep -q "listen.*ssl" "$NGINX_CONFIG" 2>/dev/null; then
+        TAILSCALE_DOMAIN="${GTD_TAILSCALE_DOMAIN:-abbys-macbook-air.tailf0befd.ts.net}"
+        
+        # Detect HTTPS port
+        HTTPS_PORT=$(grep -E "listen.*ssl" "$NGINX_CONFIG" | head -1 | grep -oE "listen[^;]*" | grep -oE "[0-9]+" | head -1 || echo "443")
+        
+        if [[ "$HTTPS_PORT" == "443" ]]; then
+            echo -e "  Frontend (HTTPS): ${BOLD}https://localhost${NC}"
+            if [[ -n "$TAILSCALE_DOMAIN" ]]; then
+                echo -e "  Frontend (HTTPS via Tailscale): ${BOLD}https://${TAILSCALE_DOMAIN}${NC}"
+            fi
+            echo "  Frontend (HTTP redirects to HTTPS): http://localhost"
+        else
+            echo -e "  Frontend (HTTPS): ${BOLD}https://localhost:${HTTPS_PORT}${NC}"
+            if [[ -n "$TAILSCALE_DOMAIN" ]]; then
+                echo -e "  Frontend (HTTPS via Tailscale): ${BOLD}https://${TAILSCALE_DOMAIN}:${HTTPS_PORT}${NC}"
+            fi
+            echo "  Frontend (HTTP redirects to HTTPS): http://localhost"
+            echo -e "${YELLOW}  Note: Using port ${HTTPS_PORT} because port 443 is in use${NC}"
+        fi
+        echo "  Backend API: http://localhost:8000"
+        echo ""
+        echo -e "${CYAN}💡${NC} HTTPS is configured and ready!"
+    else
+        echo "  Frontend (HTTP): ${BOLD}http://localhost:8080${NC} (Note: port 8080, not 80!)"
+        if [[ -n "${GTD_TAILSCALE_DOMAIN:-}" ]]; then
+            echo "  Frontend (HTTP via Tailscale): ${BOLD}http://${GTD_TAILSCALE_DOMAIN}:8080${NC}"
+        fi
+        echo "  Backend API: http://localhost:8000"
+        echo ""
+        echo -e "${CYAN}💡${NC} To enable HTTPS, run: ${BOLD}./setup-tailscale-https.sh${NC}"
+    fi
 else
     echo -e "${YELLOW}⚠ Frontend: Not served (backend-only mode)${NC}"
     echo "  Install nginx or use backend API directly"

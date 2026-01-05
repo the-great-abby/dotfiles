@@ -196,10 +196,10 @@ def read_database_config() -> Dict[str, Any]:
                             except ValueError:
                                 pass
                         elif key == "RABBITMQ_ENABLED":
-                            # Only set if not already set by mode-specific variable
-                            # Mode-specific variables take precedence (checked earlier)
-                            if "rabbitmq_enabled" not in config or config.get("rabbitmq_enabled") is None:
-                                config["rabbitmq_enabled"] = value.lower() in ("true", "1", "yes")
+                            # Always update from .gtd_config_database file
+                            # (Mode-specific variables like RABBITMQ_ENABLED_WORK are checked earlier and take precedence)
+                            # But .gtd_config_database should override the default False value
+                            config["rabbitmq_enabled"] = value.lower() in ("true", "1", "yes")
                         elif key == "RABBITMQ_URL":
                             config["rabbitmq_url"] = value
                         elif key == "RABBITMQ_USER":

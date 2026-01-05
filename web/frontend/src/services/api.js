@@ -164,6 +164,50 @@ export const api = {
       throw new Error(error.detail || 'Failed to complete habit')
     }
     return response.json()
+  },
+
+  async getHabits() {
+    const response = await fetch(`${API_BASE}/habits`)
+    if (!response.ok) throw new Error('Failed to fetch habits')
+    return response.json()
+  },
+
+  async getPersonas() {
+    const response = await fetch(`${API_BASE}/advice/personas`)
+    if (!response.ok) throw new Error('Failed to fetch personas')
+    return response.json()
+  },
+
+  async requestAdvice(request) {
+    const response = await fetch(`${API_BASE}/advice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to request advice')
+    }
+    return response.json()
+  },
+
+  async getAISuggestions() {
+    const response = await fetch(`${API_BASE}/ai-suggestions`)
+    if (!response.ok) throw new Error('Failed to fetch AI suggestions')
+    return response.json()
+  },
+
+  async addDailyLogEntry(entry) {
+    const response = await fetch(`${API_BASE}/daily-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry })
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to add daily log entry')
+    }
+    return response.json()
   }
 }
 

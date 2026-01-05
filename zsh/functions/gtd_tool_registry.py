@@ -506,6 +506,97 @@ register_tool(
 )
 
 
+def _gtd_get_datetime_handler(relative_date: Optional[str] = None) -> str:
+    """Handler for getting date and time, with optional relative date calculation.
+    
+    Args:
+        relative_date: Optional relative date string like "3 days ago", "yesterday", 
+                       "today", "1 week ago", etc. If None, returns current date/time.
+    
+    Returns:
+        JSON string with date/time information
+    """
+    try:
+        from datetime import datetime, timedelta, time as dt_time
+        import re
+        
+        now = datetime.now()
+        is_today = True
+        
+        # If relative_date is provided, parse it
+        if relative_date and relative_date.strip():
+            relative_date_str = relative_date.strip().lower()
+            
+            # Handle common cases
+            if relative_date_str == "today":
+                target_date = now
+                is_today = True
+            elif relative_date_str == "yesterday":
+                target_date = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+                is_today = False
+            elif relative_date_str == "tomorrow":
+                target_date = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                is_today = False
+            else:
+                # Parse patterns like "3 days ago", "2 weeks ago", "1 month ago"
+                # Pattern: <number> <unit> ago
+                match = re.match(r'(\d+)\s+(day|days|week|weeks|month|months)\s+ago', relative_date_str)
+                if match:
+                    number = int(match.group(1))
+                    unit = match.group(2)
+                    
+                    # Start from midnight of today, then subtract
+                    base_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    
+                    if unit in ('day', 'days'):
+                        target_date = base_date - timedelta(days=number)
+                    elif unit in ('week', 'weeks'):
+                        target_date = base_date - timedelta(weeks=number)
+                    elif unit in ('month', 'months'):
+                        # Approximate months as 30 days
+                        target_date = base_date - timedelta(days=number * 30)
+                    is_today = False
+                else:
+                    # If we can't parse it, return current date and include the request in response
+                    target_date = now
+                    is_today = True
+        else:
+            target_date = now
+            is_today = True
+        
+        return json.dumps({
+            "date": target_date.strftime("%Y-%m-%d"),
+            "time": target_date.strftime("%H:%M:%S") if is_today else "00:00:00",
+            "datetime": target_date.isoformat(),
+            "day_of_week": target_date.strftime("%A"),
+            "day_of_month": target_date.day,
+            "month": target_date.strftime("%B"),
+            "year": target_date.year,
+            "timestamp": target_date.timestamp(),
+            "relative_date_requested": relative_date if relative_date and relative_date.strip().lower() != "today" else None,
+            "is_current_date": is_today
+        })
+    except Exception as e:
+        return json.dumps({"error": f"Error getting datetime: {str(e)}"})
+
+
+register_tool(
+    name="gtd_get_datetime",
+    description="Get date and time information. Can return the current date/time, or calculate relative dates like '3 days ago', 'yesterday', '1 week ago', etc. Use this tool when the user asks about dates, 'today', 'yesterday', 'past X days', or any date-related questions. You can pass a relative date string like '3 days ago' to get that specific date calculated automatically. Examples: call with no arguments for today, or '3 days ago' for a date 3 days in the past.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "relative_date": {
+                "type": "string",
+                "description": "Optional relative date string. Examples: 'today', 'yesterday', '3 days ago', '1 week ago', '2 months ago'. If not provided, returns current date/time."
+            }
+        }
+    },
+    handler=_gtd_get_datetime_handler,
+    category="gtd"
+)
+
+
 def get_available_tools_by_category() -> Dict[str, List[str]]:
     """Get list of available tools grouped by category."""
     categories = {}

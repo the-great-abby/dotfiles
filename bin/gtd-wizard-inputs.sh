@@ -1373,7 +1373,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       return 0
       ;;
     3)
@@ -1397,7 +1397,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       return 0
       ;;
     4)
@@ -1415,7 +1415,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       return 0
       ;;
     5)
@@ -1439,7 +1439,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       return 0
       ;;
     6)
@@ -1457,7 +1457,7 @@ log_wizard() {
         return 1
       fi
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       return 0
       ;;
     *)
@@ -1871,7 +1871,7 @@ PYTHON_EOF
       
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo ""
-      gtd_quick_pause
+      gtd_enter_to_continue
       ;;
     0|"")
       return 0

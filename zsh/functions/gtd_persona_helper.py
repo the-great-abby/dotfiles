@@ -1111,8 +1111,12 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
         model_name = "local-model"
     
     # Check if model supports tool calling (Qwen, GPT, Claude, etc.)
+    # OR if using Ollama Controller (which supports tools regardless of model)
     model_lower = model_name.lower()
-    supports_tools = (
+    is_ollama_controller = ":31080" in config.get("url", "") or "31080" in config.get("url", "")
+    
+    # Model-based tool support (for LM Studio or direct Ollama)
+    model_supports_tools = (
         "qwen" in model_lower or
         "gpt" in model_lower or
         "claude" in model_lower or
@@ -1124,6 +1128,10 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
         "thinking" in model_lower  # Thinking models typically support tool calls
     )
     
+    # Ollama Controller always supports tools (the controller handles tool calling)
+    # For LM Studio/direct Ollama, use model-based detection
+    supports_tools = is_ollama_controller or model_supports_tools
+    
     # Log tool calling detection
     log_dir = Path.home() / ".gtd_logs"
     log_dir.mkdir(exist_ok=True)
@@ -1132,6 +1140,8 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
         from datetime import datetime
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now().isoformat()}] Model: {model_name}, Supports Tools: {supports_tools}, Web Search Requested: {web_search_requested}\n")
+            if is_ollama_controller:
+                f.write(f"  -> Ollama Controller detected - tools enabled by default\n")
             if supports_tools and (web_search_requested or "WEB SEARCH" in user_prompt.upper()):
                 f.write(f"  -> Tool calling requested for web search\n")
     except Exception:
@@ -1307,10 +1317,14 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
                 }]
                 payload["tool_choice"] = "auto"
         
+        # Only log if tools were actually added
         try:
             log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
             with open(log_file, "a", encoding="utf-8") as f:
-                f.write(f"  -> Tool definitions added to payload\n")
+                if "tools" in payload:
+                    f.write(f"  -> ✅ Tool definitions added to payload ({len(payload['tools'])} tool(s))\n")
+                else:
+                    f.write(f"  -> ⚠️  No tools added to payload (supports_tools={supports_tools}, enable_gtd_tools={enable_gtd_tools}, web_search_needed={web_search_needed})\n")
         except Exception:
             pass
     
@@ -1348,6 +1362,22 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
             f.write(f"  -> Timeout: {timeout}s, Model: {model_name}\n")
             f.write(f"  -> Payload size: {len(data)} bytes\n")
             f.write(f"  -> URL: {config['url']}\n")
+            # Log whether tools are included in payload
+            if "tools" in payload:
+                tools_count = len(payload["tools"]) if isinstance(payload.get("tools"), list) else 0
+                tool_names = []
+                if isinstance(payload.get("tools"), list):
+                    for tool in payload["tools"]:
+                        if isinstance(tool, dict) and "function" in tool:
+                            tool_names.append(tool["function"].get("name", "unknown"))
+                f.write(f"  -> ✅ Tools in payload: {tools_count} tool(s): {', '.join(tool_names) if tool_names else 'N/A'}\n")
+                f.write(f"  -> Tool choice: {payload.get('tool_choice', 'not set')}\n")
+                if ":31080" in config['url'] or "31080" in config['url']:
+                    f.write(f"  -> ✅ Ollama Controller detected - tools ARE being sent!\n")
+            else:
+                f.write(f"  -> ⚠️  No tools in payload\n")
+                if ":31080" in config['url'] or "31080" in config['url']:
+                    f.write(f"  -> Ollama Controller detected but no tools in payload (supports_tools={supports_tools})\n")
     except Exception:
         pass
     

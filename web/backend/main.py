@@ -134,6 +134,9 @@ class DailyReview(BaseModel):
     gratitude: Optional[str] = None  # What am I grateful for
     log_weather: Optional[bool] = False  # Whether to log weather
 
+class DailyLogEntry(BaseModel):
+    entry: str  # The log entry text
+
 # WebSocket connection manager
 class ConnectionManager:
     def __init__(self):
@@ -785,6 +788,35 @@ async def delete_inbox_item(item_id: int):
         logger.error(f"Error deleting inbox item: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def get_daily_log_dir() -> Path:
+    """Get the daily log directory from config or use default"""
+    daily_log_dir = Path.home() / "Documents" / "daily_logs"
+    daily_log_config = Path.home() / ".daily_log_config"
+    if not daily_log_config.exists():
+        for path in [
+            Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".daily_log_config",
+            Path.home() / "code" / "dotfiles" / "zsh" / ".daily_log_config",
+        ]:
+            if path.exists():
+                daily_log_config = path
+                break
+    
+    if daily_log_config.exists():
+        try:
+            with open(daily_log_config, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("DAILY_LOG_DIR="):
+                        value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        value = value.replace("$HOME", str(Path.home()))
+                        if value:
+                            daily_log_dir = Path(value)
+                            break
+        except Exception as e:
+            logger.debug(f"Could not read daily log config: {e}")
+    
+    return daily_log_dir
+
 @app.get("/api/reviews/daily")
 async def get_daily_review_data(review_type: Optional[str] = None):
     """Get data for daily review (morning or evening)"""
@@ -1010,31 +1042,8 @@ created: {today}T{now}
             f.write(content)
         
         # Also write a marker to the daily log so CLI recognizes it
-        # Find daily log directory from config
-        daily_log_dir = Path.home() / "Documents" / "daily_logs"
-        daily_log_config = Path.home() / ".daily_log_config"
-        if not daily_log_config.exists():
-            for path in [
-                Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".daily_log_config",
-                Path.home() / "code" / "dotfiles" / "zsh" / ".daily_log_config",
-            ]:
-                if path.exists():
-                    daily_log_config = path
-                    break
-        
-        if daily_log_config.exists():
-            try:
-                with open(daily_log_config, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("DAILY_LOG_DIR="):
-                            value = line.split("=", 1)[1].strip().strip('"').strip("'")
-                            value = value.replace("$HOME", str(Path.home()))
-                            if value:
-                                daily_log_dir = Path(value)
-                                break
-            except Exception as e:
-                logger.debug(f"Could not read daily log config: {e}")
+        # Get daily log directory using helper function
+        daily_log_dir = get_daily_log_dir()
         
         # Write full check-in to daily log (matching CLI format)
         daily_log_file = daily_log_dir / f"{today}.md"
@@ -1123,6 +1132,56 @@ created: {today}T{now}
         raise
     except Exception as e:
         logger.error(f"Error saving daily review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/daily-log")
+async def add_daily_log_entry(log_entry: DailyLogEntry):
+    """Add an entry to the daily log"""
+    try:
+        from datetime import datetime
+        
+        if not log_entry.entry or not log_entry.entry.strip():
+            raise HTTPException(status_code=400, detail="Entry cannot be empty")
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%H:%M")
+        
+        # Get daily log directory
+        daily_log_dir = get_daily_log_dir()
+        daily_log_file = daily_log_dir / f"{today}.md"
+        
+        # Create directory if it doesn't exist
+        daily_log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create file with header if it doesn't exist
+        if not daily_log_file.exists():
+            with open(daily_log_file, 'w', encoding='utf-8') as f:
+                f.write(f"# Daily Log - {today}\n\n")
+        
+        # Append the entry with timestamp (matching CLI format)
+        entry_text = f"{now} - {log_entry.entry.strip()}\n"
+        
+        with open(daily_log_file, 'a', encoding='utf-8') as f:
+            f.write(entry_text)
+        
+        logger.info(f"Added daily log entry: {daily_log_file}")
+        
+        # Broadcast update
+        await manager.broadcast({
+            "type": "status_update",
+            "message": "Daily log entry added"
+        })
+        
+        return {
+            "success": True,
+            "message": "Daily log entry added successfully",
+            "file": str(daily_log_file.name),
+            "timestamp": now
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding daily log entry: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/habits/{habit_name}/complete")
@@ -1527,7 +1586,8 @@ async def get_advice_results(status_filter: Optional[str] = None):
                 elif "answer" in data:
                     answer_text = data.get("answer", "")
                 
-                results.append({
+                # Get thinking content if available (don't include in list view, only in detail view)
+                result_item = {
                     "id": result_id,
                     "persona": data.get("persona", "unknown"),
                     "question": data.get("question", ""),
@@ -1541,7 +1601,14 @@ async def get_advice_results(status_filter: Optional[str] = None):
                     "duration_seconds": data.get("duration_seconds", 0),
                     "reviewed": data.get("reviewed", False),
                     "reviewed_at": data.get("reviewed_at", None)
-                })
+                }
+                
+                # Add thinking flag (but not content in list view)
+                thinking_file = ADVICE_RESULTS_DIR / f"{result_id}_thinking.txt"
+                if thinking_file.exists() or "thinking" in data:
+                    result_item["has_thinking"] = True
+                
+                results.append(result_item)
             except (json.JSONDecodeError, KeyError, IOError) as e:
                 logger.warning(f"Error reading advice result file {result_file}: {e}")
                 continue
@@ -1573,7 +1640,16 @@ async def get_advice_result(result_id: str):
         elif "answer" in data:
             answer_text = data.get("answer", "")
         
-        return {
+        # Get thinking content if available
+        thinking_file = ADVICE_RESULTS_DIR / f"{result_id}_thinking.txt"
+        thinking_text = ""
+        if thinking_file.exists():
+            with open(thinking_file, 'r', encoding='utf-8') as f:
+                thinking_text = f.read()
+        elif "thinking" in data:
+            thinking_text = data.get("thinking", "")
+        
+        result = {
             "id": result_id,
             "persona": data.get("persona", "unknown"),
             "question": data.get("question", ""),
@@ -1587,6 +1663,12 @@ async def get_advice_result(result_id: str):
             "reviewed": data.get("reviewed", False),
             "reviewed_at": data.get("reviewed_at", None)
         }
+        
+        # Add thinking if available
+        if thinking_text:
+            result["thinking"] = thinking_text
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1651,6 +1733,453 @@ async def delete_advice_result(result_id: str):
         raise
     except Exception as e:
         logger.error(f"Error archiving advice result: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/queue-status/{request_id}")
+async def get_queue_status(request_id: str):
+    """Get the queue status for an Ollama Controller request"""
+    try:
+        # Import the queue status function
+        sys.path.insert(0, str(GTD_BASE / "zsh" / "functions"))
+        from gtd_ai_helpers import get_queue_status, is_ollama_controller_url
+        
+        # Get the Ollama Controller URL from config
+        ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:31080/v1/chat/completions")
+        
+        # Check if using Ollama Controller
+        if not is_ollama_controller_url(ollama_url):
+            return {
+                "status": "not_applicable",
+                "message": "Not using Ollama Controller",
+                "request_id": request_id
+            }
+        
+        # Extract base URL
+        base_url = ollama_url.rsplit('/v1', 1)[0]
+        
+        # Get queue status
+        queue_status = get_queue_status(request_id, base_url)
+        
+        return queue_status
+    except Exception as e:
+        logger.error(f"Error getting queue status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Advice Request Models
+class AdviceRequest(BaseModel):
+    persona: str
+    question: str
+    mode: str = "normal"  # normal, random, simple, all, daily-log
+    web_search: bool = False
+    background: bool = False  # If True, queue for background processing
+
+class AdviceReadyNotification(BaseModel):
+    request_id: str
+    persona: str
+    question: str
+
+# Advice Endpoints
+@app.post("/api/advice")
+async def create_advice_request(request: AdviceRequest):
+    """Create an advice request (foreground or background)"""
+    try:
+        if request.background:
+            # Queue for background processing - try RabbitMQ first, fall back to file queue
+            request_id = f"advice_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.getpid()}"
+            
+            request_data = {
+                "id": request_id,
+                "persona": request.persona,
+                "question": request.question,
+                "mode": request.mode,
+                "web_search": str(request.web_search).lower(),
+                "priority": 20,
+                "created_at": datetime.now().isoformat() + "Z"
+            }
+            
+            # Try RabbitMQ first
+            queued_to_rabbitmq = False
+            rabbitmq_error = None
+            
+            try:
+                # Import pika for RabbitMQ
+                import pika
+                pika_available = True
+            except ImportError:
+                pika_available = False
+                rabbitmq_error = "pika not installed"
+                logger.warning("pika not available, cannot use RabbitMQ")
+            
+            if pika_available:
+                # Read RabbitMQ config - try multiple paths
+                config_paths = [
+                    Path.home() / "code" / "dotfiles" / "zsh" / "functions",
+                    Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions",
+                    GTD_BASE / "zsh" / "functions",
+                ]
+                
+                db_config = None
+                for config_path in config_paths:
+                    if config_path.exists():
+                        sys.path.insert(0, str(config_path))
+                        try:
+                            from gtd_vector_db import read_database_config
+                            db_config = read_database_config()
+                            logger.info(f"✅ Read config from: {config_path}")
+                            break
+                        except Exception as e:
+                            logger.debug(f"Could not read config from {config_path}: {e}")
+                            continue
+                
+                if db_config:
+                    rabbitmq_enabled = db_config.get("rabbitmq_enabled", False)
+                    rabbitmq_url = db_config.get("rabbitmq_url", "amqp://localhost:5672")
+                    logger.info(f"✅ RabbitMQ config loaded: enabled={rabbitmq_enabled}, url={rabbitmq_url}")
+                else:
+                    logger.warning("⚠️  Could not read database config from any path, using env vars")
+                    rabbitmq_enabled = os.getenv("GTD_RABBITMQ_ENABLED", "false").lower() == "true"
+                    rabbitmq_url = os.getenv("GTD_RABBITMQ_URL", "amqp://localhost:5672")
+                    logger.info(f"Using env vars: enabled={rabbitmq_enabled}, url={rabbitmq_url}")
+                
+                # Log the decision
+                if not rabbitmq_enabled:
+                    logger.warning(f"⚠️  RabbitMQ is DISABLED in config (rabbitmq_enabled={rabbitmq_enabled})")
+                    rabbitmq_error = f"RabbitMQ disabled in config (rabbitmq_enabled={rabbitmq_enabled})"
+                
+                if rabbitmq_enabled:
+                    try:
+                        logger.info(f"Attempting to connect to RabbitMQ at {rabbitmq_url}")
+                        params = pika.URLParameters(rabbitmq_url)
+                        params.blocked_connection_timeout = 5
+                        connection = pika.BlockingConnection(params)
+                        channel = connection.channel()
+                        channel.queue_declare(queue="gtd_advice", durable=True)
+                        
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key="gtd_advice",
+                            body=json.dumps(request_data),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,  # Make message persistent
+                            )
+                        )
+                        connection.close()
+                        queued_to_rabbitmq = True
+                        logger.info(f"✅ Advice request {request_id} queued to RabbitMQ successfully")
+                    except Exception as e:
+                        rabbitmq_error = str(e)
+                        logger.error(f"❌ Failed to queue to RabbitMQ: {e}")
+                        logger.error(f"   Error type: {type(e).__name__}")
+                        logger.error(f"   URL attempted: {rabbitmq_url}")
+                        import traceback
+                        logger.error(f"   Traceback: {traceback.format_exc()}")
+                        # Also log to stderr so it appears in console
+                        print(f"ERROR: Failed to queue to RabbitMQ: {e}", file=sys.stderr)
+                        print(f"  URL: {rabbitmq_url}", file=sys.stderr)
+                else:
+                    rabbitmq_error = "RabbitMQ not enabled in config"
+                    logger.warning(f"RabbitMQ not enabled (rabbitmq_enabled={rabbitmq_enabled})")
+            else:
+                rabbitmq_error = "pika not installed"
+            
+            # Fallback to file queue if RabbitMQ failed
+            if not queued_to_rabbitmq:
+                queue_file = GTD_DATA_BASE / "advice_queue.jsonl"
+                queue_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                with open(queue_file, 'a') as f:
+                    f.write(json.dumps(request_data) + '\n')
+                
+                logger.info(f"Advice request {request_id} queued to file queue")
+            
+            await manager.broadcast({
+                "type": "status_update",
+                "message": "Advice request queued"
+            })
+            
+            queue_type = "RabbitMQ" if queued_to_rabbitmq else "file queue"
+            message = f"Advice request queued for background processing ({queue_type})"
+            
+            # Include error info in response if RabbitMQ failed
+            if not queued_to_rabbitmq and rabbitmq_error:
+                logger.warning(f"Using file queue. Reason: {rabbitmq_error}")
+                # Don't expose internal errors to user, but log them
+            
+            return {
+                "success": True,
+                "request_id": request_id,
+                "message": message,
+                "queue_type": queue_type,
+                "rabbitmq_error": rabbitmq_error if not queued_to_rabbitmq else None
+            }
+        else:
+            # Process immediately (foreground)
+            gtd_advise_cmd = GTD_BASE / "bin" / "gtd-advise"
+            if not gtd_advise_cmd.exists():
+                gtd_advise_cmd = Path.home() / "code" / "personal" / "dotfiles" / "bin" / "gtd-advise"
+            
+            if not gtd_advise_cmd.exists():
+                raise HTTPException(status_code=500, detail="gtd-advise command not found")
+            
+            # Build command based on mode
+            cmd_args = []
+            if request.mode == "random":
+                cmd_args = ["--random"]
+            elif request.mode == "simple":
+                cmd_args = ["--simple"]
+                if request.web_search:
+                    cmd_args.append("--web-search")
+                cmd_args.append(request.persona)
+            elif request.mode == "all":
+                cmd_args = ["--all"]
+            elif request.mode == "daily-log":
+                cmd_args = ["--daily-log"]
+            else:
+                cmd_args = [request.persona]
+            
+            # Execute command
+            result = subprocess.run(
+                [str(gtd_advise_cmd)] + cmd_args + [request.question],
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            
+            if result.returncode == 0:
+                return {
+                    "success": True,
+                    "answer": result.stdout,
+                    "message": "Advice received successfully"
+                }
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=result.stderr or "Failed to get advice"
+                )
+    except HTTPException:
+        raise
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Advice request timed out")
+    except Exception as e:
+        logger.error(f"Error creating advice request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/advice/config")
+async def get_advice_config():
+    """Get advice queue configuration (for diagnostics)"""
+    try:
+        config_info = {
+            "pika_available": False,
+            "rabbitmq_enabled": False,
+            "rabbitmq_url": None,
+            "queue_type": "unknown"
+        }
+        
+        # Check if pika is available
+        try:
+            import pika
+            config_info["pika_available"] = True
+        except ImportError:
+            pass
+        
+        # Try to read config
+        config_paths = [
+            Path.home() / "code" / "dotfiles" / "zsh" / "functions",
+            Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions",
+            GTD_BASE / "zsh" / "functions",
+        ]
+        
+        for config_path in config_paths:
+            if config_path.exists():
+                sys.path.insert(0, str(config_path))
+                try:
+                    from gtd_vector_db import read_database_config
+                    db_config = read_database_config()
+                    config_info["rabbitmq_enabled"] = db_config.get("rabbitmq_enabled", False)
+                    config_info["rabbitmq_url"] = db_config.get("rabbitmq_url", "amqp://localhost:5672")
+                    config_info["config_source"] = str(config_path)
+                    break
+                except Exception as e:
+                    logger.debug(f"Could not read config from {config_path}: {e}")
+                    continue
+        
+        # Determine queue type
+        if config_info["pika_available"] and config_info["rabbitmq_enabled"]:
+            config_info["queue_type"] = "RabbitMQ"
+        else:
+            config_info["queue_type"] = "file queue"
+            if not config_info["pika_available"]:
+                config_info["reason"] = "pika not installed"
+            elif not config_info["rabbitmq_enabled"]:
+                config_info["reason"] = "rabbitmq_enabled=false in config"
+        
+        return config_info
+    except Exception as e:
+        logger.error(f"Error getting advice config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/advice/personas")
+async def get_personas():
+    """Get list of available personas"""
+    personas = [
+        "hank", "david", "cal", "james", "marie", "warren", "sheryl", "tim",
+        "george", "john", "jon", "bob", "fred", "louiza",
+        "spiderman", "ironman", "squirrelgirl", "harley", "deadpool", "rogue",
+        "esther", "gottman", "gary", "brene", "romance",
+        "kettlebell", "maxfit", "dumbbell", "dipbar", "kelsey", "kent", "charity",
+        "rich", "goggins", "dean", "bioneer", "harry", "murphy", "joe",
+        "skippy", "sherlock", "picard", "sandy", "spongebob",
+        "matt", "brennan", "chris", "aabria", "jeremy", "kingmaker-char"
+    ]
+    return {"personas": personas}
+
+@app.post("/api/advice/notify-ready")
+async def notify_advice_ready(notification: AdviceReadyNotification):
+    """Notify that an advice request has completed (called by advice worker)"""
+    try:
+        logger.info(f"Received advice ready notification for request {notification.request_id} from persona {notification.persona}")
+        logger.info(f"Active WebSocket connections: {len(manager.active_connections)}")
+        
+        # Broadcast WebSocket message to all connected clients
+        message = {
+            "type": "advice_ready",
+            "request_id": notification.request_id,
+            "persona": notification.persona,
+            "question": notification.question
+        }
+        await manager.broadcast(message)
+        logger.info(f"Broadcasted advice_ready message to {len(manager.active_connections)} client(s)")
+        
+        # Also trigger a status update to refresh the advice count
+        await manager.broadcast({
+            "type": "status_update",
+            "message": "New advice result available"
+        })
+        logger.info(f"Broadcasted status_update message")
+        
+        logger.info(f"✅ Successfully notified {len(manager.active_connections)} client(s) that advice {notification.request_id} is ready")
+        return {
+            "success": True,
+            "message": "Notification sent",
+            "clients_notified": len(manager.active_connections)
+        }
+    except Exception as e:
+        logger.error(f"Error notifying advice ready: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Habits Endpoints
+@app.get("/api/habits")
+async def get_habits():
+    """Get list of all habits"""
+    try:
+        from datetime import datetime
+        habits = []
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        if not HABITS_PATH.exists():
+            return {"habits": []}
+        
+        for habit_file in HABITS_PATH.glob("*.md"):
+            try:
+                with open(habit_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Parse habit data
+                habit_data = {
+                    "name": habit_file.stem,
+                    "slug": habit_file.stem,
+                    "status": "active",
+                    "frequency": "daily",
+                    "time_of_day": "",
+                    "last_completed": "",
+                    "description": ""
+                }
+                
+                for line in content.split('\n'):
+                    if line.startswith("name:"):
+                        habit_data["name"] = line.split(":", 1)[1].strip()
+                    elif line.startswith("status:"):
+                        habit_data["status"] = line.split(":", 1)[1].strip()
+                    elif line.startswith("frequency:"):
+                        habit_data["frequency"] = line.split(":", 1)[1].strip()
+                    elif line.startswith("time_of_day:"):
+                        habit_data["time_of_day"] = line.split(":", 1)[1].strip()
+                    elif line.startswith("last_completed:"):
+                        habit_data["last_completed"] = line.split(":", 1)[1].strip()
+                    elif line.startswith("description:"):
+                        habit_data["description"] = line.split(":", 1)[1].strip()
+                
+                # Check if due today
+                habit_data["due_today"] = (
+                    habit_data["status"] == "active" and
+                    habit_data["frequency"] == "daily" and
+                    habit_data["last_completed"] != today
+                )
+                
+                habits.append(habit_data)
+            except Exception as e:
+                logger.warning(f"Error reading habit file {habit_file}: {e}")
+                continue
+        
+        return {"habits": habits}
+    except Exception as e:
+        logger.error(f"Error getting habits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# AI Suggestions Endpoint
+@app.get("/api/ai-suggestions")
+async def get_ai_suggestions():
+    """Get AI suggestions based on recent logs"""
+    try:
+        from datetime import datetime
+        suggestions_dir = GTD_DATA_BASE / "checkin_suggestions"
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        morning_file = suggestions_dir / f"morning_{today}.txt"
+        evening_file = suggestions_dir / f"evening_{today}.txt"
+        
+        suggestions = []
+        
+        if morning_file.exists():
+            with open(morning_file, 'r', encoding='utf-8') as f:
+                suggestions.append({
+                    "type": "morning",
+                    "date": today,
+                    "content": f.read()
+                })
+        
+        if evening_file.exists():
+            with open(evening_file, 'r', encoding='utf-8') as f:
+                suggestions.append({
+                    "type": "evening",
+                    "date": today,
+                    "content": f.read()
+                })
+        
+        # Also check for general suggestions
+        suggestions_dir_general = GTD_DATA_BASE / "suggestions"
+        if suggestions_dir_general.exists():
+            for suggestion_file in sorted(suggestions_dir_general.glob("*.json"), reverse=True)[:10]:
+                try:
+                    with open(suggestion_file, 'r') as f:
+                        data = json.load(f)
+                        if data.get("status") != "accepted" and data.get("status") != "dismissed":
+                            suggestions.append({
+                                "type": "general",
+                                "id": suggestion_file.stem,
+                                "title": data.get("title", ""),
+                                "content": data.get("content", ""),
+                                "confidence": data.get("confidence", 0),
+                                "created_at": data.get("created_at", "")
+                            })
+                except:
+                    continue
+        
+        return {"suggestions": suggestions}
+    except Exception as e:
+        logger.error(f"Error getting AI suggestions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.websocket("/ws")

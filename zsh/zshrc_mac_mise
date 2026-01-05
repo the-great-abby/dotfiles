@@ -1347,11 +1347,12 @@ Give me a complete EMOM workout I can do right now using only bodyweight. Be ent
       *) persona_name="Hank Hill" ;;
     esac
     
-    # Use the persona helper instead of the old lmstudio_helper
+    # Use the persona helper (deep model version for tool support) instead of the old lmstudio_helper
     local persona_helper=""
     local possible_persona_paths=(
-      "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-      "${(%):-%x:h}/functions/gtd_persona_helper.py"
+      "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
+      "${(%):-%x:h}/functions/gtd_persona_helper_deep.py"
+      "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
     )
     
     for path in "${possible_persona_paths[@]}"; do

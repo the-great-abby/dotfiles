@@ -832,14 +832,70 @@ status_wizard() {
             gtd_quick_pause
             ;;
           13)
-            # Migrate file queue to RabbitMQ
+            # Restart all workers to reconnect to RabbitMQ
             echo ""
-            if [[ -f "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
-              "$HOME/code/dotfiles/bin/migrate-file-queue-to-rabbitmq"
-            elif [[ -f "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq" ]]; then
-              "$HOME/code/personal/dotfiles/bin/migrate-file-queue-to-rabbitmq"
+            echo -e "${CYAN}Restarting workers to connect to RabbitMQ...${NC}"
+            echo ""
+            
+            # Stop workers
+            if pgrep -f "gtd_deep_analysis_worker.py" >/dev/null; then
+              echo "Stopping Deep Analysis Worker..."
+              make -C "$HOME/code/dotfiles" worker-deep-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_vector_worker.py" >/dev/null; then
+              echo "Stopping Vectorization Worker..."
+              make -C "$HOME/code/dotfiles" worker-vector-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_advice_worker.py" >/dev/null; then
+              echo "Stopping Advice Worker..."
+              make -C "$HOME/code/dotfiles" advice-worker-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_task_organize_worker.py" >/dev/null; then
+              echo "Stopping Task Organization Worker..."
+              make -C "$HOME/code/dotfiles" worker-task-org-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_second_brain_sync_worker.py" >/dev/null; then
+              echo "Stopping Second Brain Sync Worker..."
+              make -C "$HOME/code/dotfiles" worker-brain-sync-stop 2>/dev/null || true
+            fi
+            if pgrep -f "gtd_badge_suggestion_worker.py" >/dev/null; then
+              echo "Stopping Badge Suggestion Worker..."
+              gtd-badge-suggestion-worker stop 2>/dev/null || true
+            fi
+            
+            sleep 2
+            
+            # Start workers
+            echo ""
+            echo "Starting workers..."
+            make -C "$HOME/code/dotfiles" worker-deep-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-vector-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-task-org-start 2>/dev/null || true
+            make -C "$HOME/code/dotfiles" worker-brain-sync-start 2>/dev/null || true
+            gtd-badge-suggestion-worker daemon 2>/dev/null || true
+            
+            echo ""
+            echo -e "${GREEN}✓ Workers restarted${NC}"
+            echo ""
+            echo "Wait a few seconds, then check connection:"
+            echo "  make rabbitmq-status"
+            echo ""
+            gtd_quick_pause
+            ;;
+          14)
+            # Migrate advice file queue to RabbitMQ
+            echo ""
+            echo -e "${CYAN}Migrating advice requests from file queue to RabbitMQ...${NC}"
+            echo ""
+            if [[ -f "$HOME/code/dotfiles/bin/migrate-advice-queue-to-rabbitmq" ]]; then
+              "$HOME/code/dotfiles/bin/migrate-advice-queue-to-rabbitmq"
+            elif [[ -f "$HOME/code/personal/dotfiles/bin/migrate-advice-queue-to-rabbitmq" ]]; then
+              "$HOME/code/personal/dotfiles/bin/migrate-advice-queue-to-rabbitmq"
             else
               echo -e "${RED}❌ Migration script not found${NC}"
+              echo "   Expected: migrate-advice-queue-to-rabbitmq"
+              echo "   Location: $HOME/code/dotfiles/bin/migrate-advice-queue-to-rabbitmq"
             fi
             echo ""
             gtd_quick_pause

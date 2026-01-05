@@ -184,11 +184,11 @@ get_louiza_morning_message() {
   local has_log="$1"  # "yes" or "no"
   local progress_status="$2"  # "good", "no_log", "no_entries", "old_entries", "low_entries"
   
-  # Find persona helper
+  # Find persona helper (use deep model version)
   local persona_helper=""
   local possible_paths=(
-    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
   )
   
   for path in "${possible_paths[@]}"; do

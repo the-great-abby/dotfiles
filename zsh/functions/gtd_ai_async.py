@@ -64,6 +64,30 @@ def submit_ai_request_async(
     global _pending_requests, _polling_thread, _polling_active
     
     try:
+        # Log payload before sending (for debugging tool inclusion)
+        log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+        try:
+            from datetime import datetime
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now().isoformat()}] submit_ai_request_async - About to send request\n")
+                f.write(f"  -> URL: {url}\n")
+                if "tools" in payload:
+                    tool_count = len(payload["tools"]) if isinstance(payload.get("tools"), list) else 0
+                    tool_names = []
+                    if isinstance(payload.get("tools"), list):
+                        for tool in payload["tools"]:
+                            if isinstance(tool, dict) and "function" in tool:
+                                tool_names.append(tool["function"].get("name", "unknown"))
+                    f.write(f"  -> ✅ Tools in payload before sending: {tool_count} tool(s): {', '.join(tool_names) if tool_names else 'N/A'}\n")
+                    # Log first 500 chars of tools JSON for verification
+                    tools_json = json.dumps(payload["tools"], indent=2)
+                    f.write(f"  -> Tools JSON (first 500 chars): {tools_json[:500]}\n")
+                else:
+                    f.write(f"  -> ⚠️  NO TOOLS in payload before sending!\n")
+        except Exception:
+            pass  # Don't fail if logging fails
+        
         # Make initial request
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
@@ -91,6 +115,12 @@ def submit_ai_request_async(
                 base_url = url.rsplit('/v1', 1)[0]
                 
                 # Store pending request
+                # Note: processing_started_at will be set when we first get a response from the
+                # status endpoint (even if HTTP 400/404, meaning the request exists in the system).
+                # This ensures the timeout timer starts from when processing begins (or when the
+                # request is known to exist in the system), not from when it was first submitted
+                # to the queue. This prevents timeouts from expiring while requests are still
+                # waiting in the queue.
                 with _lock:
                     _pending_requests[request_id] = {
                         'request_id': request_id,
@@ -102,6 +132,7 @@ def submit_ai_request_async(
                         'max_poll_time': max_poll_time,
                         'poll_interval': poll_interval,
                         'submitted_at': time.time(),
+                        'processing_started_at': None,  # Will be set when processing starts
                         'last_poll': time.time()
                     }
                     _save_pending_requests()
@@ -156,6 +187,12 @@ def check_request_status(request_id: str) -> Tuple[Optional[Dict[str, Any]], Opt
         with urllib.request.urlopen(status_req, timeout=5) as status_response:
             status_data = json.loads(status_response.read().decode('utf-8'))
             
+            # Request exists in system - mark processing as started if not already set
+            # This means the timeout timer starts from when processing begins, not submission
+            with _lock:
+                if request_id in _pending_requests and _pending_requests[request_id].get('processing_started_at') is None:
+                    _pending_requests[request_id]['processing_started_at'] = time.time()
+            
             # Check if completed
             if 'choices' in status_data and len(status_data.get('choices', [])) > 0:
                 # Completed - remove from pending and return
@@ -192,8 +229,11 @@ def check_request_status(request_id: str) -> Tuple[Optional[Dict[str, Any]], Opt
             
     except urllib.error.HTTPError as e:
         if e.code in [400, 404]:
-            # Still processing
+            # Request exists in system (HTTP 400/404 means queued/processing, not missing)
+            # Mark processing as started if not already set - timeout starts from here
             with _lock:
+                if request_id in _pending_requests and _pending_requests[request_id].get('processing_started_at') is None:
+                    _pending_requests[request_id]['processing_started_at'] = time.time()
                 _pending_requests[request_id]['last_poll'] = time.time()
             return (None, None, False)
         else:
@@ -208,6 +248,8 @@ def check_request_status(request_id: str) -> Tuple[Optional[Dict[str, Any]], Opt
             return (None, error_msg, True)
     except Exception as e:
         # Continue polling on errors
+        # Don't set processing_started_at here - we don't know if processing has started
+        # Only set it when we get a response from the status endpoint
         with _lock:
             _pending_requests[request_id]['last_poll'] = time.time()
         return (None, None, False)
@@ -237,14 +279,19 @@ def _poll_pending_requests():
                     request_info = _pending_requests[request_id]
                 
                 # Check if expired
-                elapsed = time.time() - request_info['submitted_at']
+                # Use processing_started_at if set (timeout starts when processing begins),
+                # otherwise fall back to submitted_at (for backward compatibility)
+                timeout_start_time = request_info.get('processing_started_at') or request_info['submitted_at']
+                elapsed = time.time() - timeout_start_time
                 if elapsed > request_info['max_poll_time']:
                     # Timeout - remove and call callback with error
                     with _lock:
                         _pending_requests.pop(request_id, None)
                         _save_pending_requests()
                     
-                    error_msg = f"Request timed out after {request_info['max_poll_time']}s"
+                    # Format timeout message to show when timer started
+                    timeout_source = "processing start" if request_info.get('processing_started_at') else "submission"
+                    error_msg = f"Request timed out after {request_info['max_poll_time']}s (timer started from {timeout_source})"
                     if request_info.get('callback'):
                         request_info['callback'](None, error_msg)
                     continue

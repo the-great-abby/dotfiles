@@ -182,6 +182,12 @@
             <h3>Answer:</h3>
             <div class="answer-content">{selectedResult.answer || 'No answer available'}</div>
           </div>
+          {#if selectedResult.thinking}
+            <div class="detail-thinking">
+              <h3>Thought:</h3>
+              <div class="thinking-content">{selectedResult.thinking}</div>
+            </div>
+          {/if}
         {/if}
       </div>
     </div>
@@ -236,10 +242,10 @@
             <div class="result-footer">
               <span class="result-date">{formatDate(result.completed_at)}</span>
               <span class="result-duration">{formatDuration(result.duration_seconds)}</span>
-              <div class="result-actions" on:click|stopPropagation>
+              <div class="result-actions">
                 {#if !result.reviewed}
                   <button 
-                    on:click={(e) => markReviewed(result.id, e)}
+                    on:click|stopPropagation={(e) => markReviewed(result.id, e)}
                     class="btn-mark-small"
                     disabled={markingReviewed === result.id}
                     title="Mark as reviewed"
@@ -248,7 +254,7 @@
                   </button>
                 {/if}
                 <button 
-                  on:click={(e) => deleteResult(result.id, e)}
+                  on:click|stopPropagation={(e) => deleteResult(result.id, e)}
                   class="btn-delete-small"
                   disabled={deletingResult === result.id}
                   title="Archive"
@@ -595,6 +601,37 @@
     line-height: 1.8;
     white-space: pre-wrap;
     word-wrap: break-word;
+  }
+
+  .detail-thinking {
+    margin-top: 20px;
+    padding: 1.5rem;
+    background: #f0f4ff;
+    border-radius: 6px;
+    border-left: 4px solid #667eea;
+  }
+
+  .detail-thinking h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: #667eea;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .thinking-content {
+    color: #555;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 0.9rem;
+    font-family: 'Courier New', monospace;
+    background: white;
+    padding: 1rem;
+    border-radius: 4px;
+    border: 1px solid #e0e7ff;
   }
 
   .detail-error {

@@ -237,11 +237,11 @@ get_health_reminder() {
   local pill_status="$5"  # "recent_activity", "some_time_ago", "long_time_ago", "no_recent_activity", "yesterday_activity"
   local time_of_day="${6:-}"  # morning, lunch, afternoon, evening
   
-  # Find persona helper
+  # Find persona helper (use deep model version)
   local persona_helper=""
   local possible_paths=(
-    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+    "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
+    "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
   )
   
   for path in "${possible_paths[@]}"; do

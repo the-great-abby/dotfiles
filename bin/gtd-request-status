@@ -1,0 +1,191 @@
+#!/bin/bash
+# Check comprehensive request status (advice request ID or Ollama Controller request ID)
+# Usage: gtd-request-status <request_id>
+
+REQUEST_ID="${1:-}"
+
+if [[ -z "$REQUEST_ID" ]]; then
+    echo "Usage: gtd-request-status <request_id>"
+    echo ""
+    echo "Examples:"
+    echo "  gtd-request-status advice_20260102_184640_12189  (advice request ID)"
+    echo "  gtd-request-status 51257cb6-70d7-48d0-ace4-dc09484efceb  (Ollama Controller request ID)"
+    exit 1
+fi
+
+# Get GTD base directory
+GTD_BASE="${GTD_BASE:-$HOME/code/dotfiles}"
+if [[ ! -d "$GTD_BASE" ]]; then
+    GTD_BASE="$HOME/code/personal/dotfiles"
+fi
+
+# Use Python to check request status
+PYTHON_CMD="${PYTHON_CMD:-python3}"
+SCRIPT_DIR="$GTD_BASE/zsh/functions"
+
+if [[ ! -d "$SCRIPT_DIR" ]]; then
+    echo "Error: Cannot find GTD functions directory"
+    exit 1
+fi
+
+# Run Python script to check request status
+"$PYTHON_CMD" <<PYTHON_EOF
+import sys
+import os
+import json
+from pathlib import Path
+from datetime import datetime
+
+# Add functions directory to path
+functions_dir = Path("$SCRIPT_DIR")
+if functions_dir.exists():
+    sys.path.insert(0, str(functions_dir))
+
+# Get GTD data directory
+GTD_DATA_BASE = Path.home() / "Documents" / "gtd"
+gtd_config_file = Path.home() / ".gtd_config"
+if not gtd_config_file.exists():
+    for path in [
+        Path.home() / "code" / "personal" / "dotfiles" / "zsh" / ".gtd_config",
+        Path.home() / "code" / "dotfiles" / "zsh" / ".gtd_config",
+    ]:
+        if path.exists():
+            gtd_config_file = path
+            break
+
+if gtd_config_file.exists():
+    try:
+        with open(gtd_config_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("GTD_BASE_DIR_HOME=") or line.startswith("GTD_BASE_DIR="):
+                    value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    value = value.replace("\$HOME", str(Path.home()))
+                    if value:
+                        GTD_DATA_BASE = Path(value)
+                        break
+    except Exception:
+        pass
+
+ADVICE_RESULTS_DIR = GTD_DATA_BASE / "advice_results"
+request_id = "$REQUEST_ID"
+
+print(f"📊 Request Status: {request_id}")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("")
+
+# Check if it's an advice request ID (starts with "advice_")
+is_advice_request_id = request_id.startswith("advice_")
+ollama_request_id = None
+
+# Step 1: Check if advice result file exists
+result_file = ADVICE_RESULTS_DIR / f"{request_id}.json"
+if result_file.exists():
+    try:
+        with open(result_file, 'r') as f:
+            data = json.load(f)
+        
+        status = data.get('status', 'unknown')
+        completed_at = data.get('completed_at', '')
+        created_at = data.get('created_at', '')
+        duration = data.get('duration_seconds', 0)
+        
+        print(f"✅ Status: {status.upper()}")
+        if created_at:
+            print(f"   Created: {created_at}")
+        if completed_at:
+            print(f"   Completed: {completed_at}")
+        if duration:
+            print(f"   Duration: {duration}s")
+        
+        print("")
+        print("📍 Location: Advice Result File (Completed)")
+        print(f"   File: {result_file}")
+        
+        # Check if there's an Ollama Controller request ID stored
+        ollama_request_id = data.get('ollama_request_id')
+        if ollama_request_id:
+            print(f"   Ollama Controller Request ID: {ollama_request_id}")
+        
+        sys.exit(0)
+    except Exception as e:
+        print(f"⚠️  Error reading result file: {e}")
+        print("")
+
+# Step 2: Check if it's an Ollama Controller request ID
+# Try to find advice request files that might contain this Ollama request ID
+if not is_advice_request_id and ADVICE_RESULTS_DIR.exists():
+    # Search through result files for this Ollama request ID
+    matching_files = []
+    for result_file in ADVICE_RESULTS_DIR.glob("*.json"):
+        try:
+            with open(result_file, 'r') as f:
+                data = json.load(f)
+            if data.get('ollama_request_id') == request_id:
+                matching_files.append((result_file, data))
+        except Exception:
+            continue
+    
+    if matching_files:
+        result_file, data = matching_files[0]
+        print(f"📍 Found in Advice Result: {result_file.stem}")
+        print(f"   Status: {data.get('status', 'unknown')}")
+        if data.get('completed_at'):
+            print(f"   Completed: {data.get('completed_at')}")
+        print("")
+        sys.exit(0)
+
+# Step 3: Check Ollama Controller queue status
+try:
+    from gtd_ai_helpers import get_queue_status, is_ollama_controller_url
+    
+    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:31080/v1/chat/completions")
+    
+    if is_ollama_controller_url(ollama_url):
+        base_url = ollama_url.rsplit('/v1', 1)[0]
+        queue_status = get_queue_status(request_id, base_url)
+        
+        if queue_status['status'] != 'not_found':
+            print(f"📍 Location: Ollama Controller")
+            print(f"   Status: {queue_status['status']}")
+            print(f"   Message: {queue_status['message']}")
+            
+            if queue_status.get('queue_position') is not None:
+                print(f"   Queue Position: {queue_status['queue_position']}")
+            
+            if queue_status.get('elapsed_time') is not None:
+                elapsed_min = int(queue_status['elapsed_time'] // 60)
+                elapsed_sec = int(queue_status['elapsed_time'] % 60)
+                print(f"   Elapsed Time: {elapsed_min}m {elapsed_sec}s")
+            
+            if queue_status.get('error'):
+                print(f"   Error: {queue_status['error']}")
+            
+            print("")
+            print("💡 This request is currently being processed by Ollama Controller")
+            print("   The advice worker is waiting for the response...")
+            sys.exit(0)
+    else:
+        print("⚠️  Not using Ollama Controller - queue status not available")
+        print("")
+except Exception as e:
+    print(f"⚠️  Error checking Ollama Controller: {e}")
+    print("")
+
+# Step 4: Check if it might be in RabbitMQ queue
+print("📍 Location: Unknown")
+print("")
+print("Possible locations:")
+print("  1. RabbitMQ queue (waiting to be picked up by advice worker)")
+print("  2. Advice worker processing (check logs: /tmp/advice-worker.log)")
+print("  3. Request not found or already completed")
+print("")
+print("💡 To check RabbitMQ queue status:")
+print("   gtd-wizard → 17 → 3 → 11 (View RabbitMQ Queue Status)")
+print("")
+print("💡 To check worker logs:")
+print("   tail -f /tmp/advice-worker.log | grep '$REQUEST_ID'")
+PYTHON_EOF
+
+exit_code=$?
+exit $exit_code

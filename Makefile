@@ -1032,15 +1032,19 @@ vector-db-init-schema: ## Initialize vector database schema (after extension is 
 # Advice Worker Management
 .PHONY: advice-worker-start advice-worker-stop advice-worker-status
 
-advice-worker-start: ## Start advice worker daemon
-	@echo "Starting advice worker..."
-	@if pgrep -f "gtd_advice_worker.py" >/dev/null; then \
-		echo "⚠️  Worker already running (PID: $$(pgrep -f 'gtd_advice_worker.py'))"; \
+advice-worker-start: ## Start advice worker daemon (set GTD_ADVICE_WORKER_COUNT=N for multiple workers)
+	@echo "Starting advice worker(s)..."
+	@WORKER_COUNT=$${GTD_ADVICE_WORKER_COUNT:-1}; \
+	if pgrep -f "gtd_advice_worker.py" >/dev/null; then \
+		RUNNING=$$(pgrep -f 'gtd_advice_worker.py' | wc -l | tr -d ' '); \
+		echo "⚠️  Worker(s) already running ($$RUNNING instance(s), PID(s): $$(pgrep -f 'gtd_advice_worker.py' | tr '\n' ' '))"; \
+		echo "   To change worker count, stop first: make advice-worker-stop"; \
 	else \
 		nohup $(HOME)/code/dotfiles/bin/gtd-advice-worker-python >/tmp/advice-worker.log 2>&1 & \
-		echo "✅ Worker started in background"; \
+		echo "✅ Worker(s) started in background (instances: $$WORKER_COUNT)"; \
 		echo "   Logs: /tmp/advice-worker.log"; \
 		echo "   Check status: make advice-worker-status"; \
+		echo "   To use more workers: GTD_ADVICE_WORKER_COUNT=3 make advice-worker-start"; \
 	fi
 
 advice-worker-stop: ## Stop advice worker daemon
@@ -1060,11 +1064,16 @@ advice-worker-stop: ## Stop advice worker daemon
 
 advice-worker-status: ## Check advice worker status
 	@if pgrep -f "gtd_advice_worker.py" >/dev/null; then \
-		echo "✅ Advice Worker: Running (PID: $$(pgrep -f 'gtd_advice_worker.py' | head -1))"; \
+		COUNT=$$(pgrep -f 'gtd_advice_worker.py' | wc -l | tr -d ' '); \
+		PIDS=$$(pgrep -f 'gtd_advice_worker.py' | tr '\n' ' '); \
+		echo "✅ Advice Worker: Running ($$COUNT instance(s))"; \
+		echo "   PID(s): $$PIDS"; \
 		echo "   Type: Python RabbitMQ Worker"; \
+		echo "   To change worker count: make advice-worker-stop && GTD_ADVICE_WORKER_COUNT=N make advice-worker-start"; \
 	else \
 		echo "ℹ️  Advice Worker: Not running"; \
 		echo "   Start with: make advice-worker-start"; \
+		echo "   Or with multiple workers: GTD_ADVICE_WORKER_COUNT=3 make advice-worker-start"; \
 	fi
 
 # External Services Deployment

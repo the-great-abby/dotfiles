@@ -10,7 +10,7 @@
   let error = null
 
   // List of implemented routes
-  const implementedRoutes = ['/capture', '/inbox', '/tasks', '/projects', '/dashboard', '/menu', '/review/morning', '/review/evening']
+  const implementedRoutes = ['/capture', '/inbox', '/tasks', '/projects', '/dashboard', '/menu', '/review/morning', '/review/evening', '/advice-review', '/advice', '/habits', '/ai-suggestions', '/log', '/checkin']
 
   const isImplemented = (route) => {
     return implementedRoutes.includes(route)
