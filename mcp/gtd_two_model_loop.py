@@ -506,7 +506,8 @@ def call_deep_thinking_model(
     conversation_history: List[Dict[str, str]],
     tool_results: List[Dict[str, Any]],
     max_tokens: int = 4000,
-    temperature: float = 0.7
+    temperature: float = 0.7,
+    vector_context: str = ""
 ) -> Tuple[Optional[str], bool, Optional[str]]:
     """
     Call the deep thinking model to process tool results and decide if more processing is needed.
@@ -515,9 +516,10 @@ def call_deep_thinking_model(
         user_prompt: Original user question
         system_prompt: System prompt for the deep thinking model (includes continuation instructions)
         conversation_history: Previous messages
-        tool_results: Results from tool execution
+        tool_results: Results from tool execution (HIGH PRIORITY)
         max_tokens: Maximum tokens for response
         temperature: Temperature for generation
+        vector_context: Optional vector search context (LOWER PRIORITY - supplementary only)
     
     Returns:
         Tuple of (response_text, needs_more_processing, error_string)
@@ -761,7 +763,8 @@ def process_with_two_model_loop(
     user_question: str,
     persona_system_prompt: str,
     user_name: str = "User",
-    max_iterations: int = 10
+    max_iterations: int = 10,
+    vector_context: str = ""
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Process a user question using the two-model loop system.
@@ -771,6 +774,7 @@ def process_with_two_model_loop(
         persona_system_prompt: Base system prompt (from persona)
         user_name: User's name
         max_iterations: Maximum number of loop iterations
+        vector_context: Optional vector search context (given lower priority than tool results)
     
     Returns:
         Tuple of (final_response, error_string)
@@ -846,12 +850,44 @@ REMEMBER:
         print(f"{tool_calling_system_prompt}", file=sys.stderr, flush=True)
         print(f"{'='*80}\n", file=sys.stderr, flush=True)
     
+    # Build deep thinking system prompt with context weighting instructions
+    context_weighting_note = ""
+    if vector_context:
+        context_weighting_note = """
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONTEXT PRIORITY AND RELEVANCE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPORTANT: When multiple sources of context are provided, prioritize them as follows:
+
+1. **TOOL RESULTS (HIGH PRIORITY - ~50% relevance)**: 
+   - Tool execution results (from functions like gtd_read_daily_log, gtd_list_tasks, etc.) are the PRIMARY source of information
+   - These results come from direct lookups and should be given HIGHEST PRIORITY
+   - When tool results are available, they should be the PRIMARY basis for your answer
+   - Tool results are more reliable and directly answer the user's question
+
+2. **VECTOR SEARCH CONTEXT (LOWER PRIORITY - ~50% relevance)**: 
+   - Vector search results (from knowledge base) are SECONDARY and should be used as SUPPLEMENTARY information
+   - These results may be less directly relevant to the current question
+   - Use vector context to provide additional context or background, but prioritize tool results when both are available
+   - If tool results directly answer the question, vector context should be used only for additional insights
+
+When both tool results and vector context are provided:
+- Base your answer PRIMARILY on tool results
+- Use vector context as supplementary information only
+- If tool results directly answer the question, you may not need to reference vector context heavily
+- If there's a conflict, trust tool results over vector context
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
     deep_thinking_system_prompt = f"""You are a thoughtful advisor helping {user_name}.
 
 {persona_system_prompt}
+{context_weighting_note}
 
 You receive tool execution results and need to:
-1. Analyze the tool results (if any were provided)
+1. Analyze the tool results (if any were provided) - these are HIGH PRIORITY
 2. Determine if additional tools are needed to fully answer the user's question
 3. If NO tool results were provided, or if the tool results don't contain enough information, respond with ONLY this JSON: {{"needs_more_processing": true, "reason": "brief reason why more tools are needed"}}
 4. If you have enough information from the tool results, provide a complete, helpful answer
@@ -865,6 +901,7 @@ CRITICAL RULES:
 - Only return a complete answer if the tool results contain sufficient information to fully answer the question
 - If tool results are empty, incomplete, or don't answer the question, return needs_more_processing=true
 - NEVER describe actions - either request more processing or provide the final answer
+- PRIORITIZE tool results over vector search context when both are available
 
 After reviewing tool results, either:
 - Return JSON with needs_more_processing=true if you need more tools/data OR if no tools were called yet

@@ -339,70 +339,28 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
             vector_context = ""
     
     # Enhance prompt with vector database context
+    # Note: Vector context should be treated as supplementary (~50% relevance)
+    # Tool execution results (from function calls) should be given higher priority
     enhanced_prompt = user_prompt
     if vector_context:
-        enhanced_prompt = f"{user_prompt}\n{vector_context}\n\nPlease use the information above to provide a comprehensive answer. Reference specific details from the knowledge base when relevant."
+        enhanced_prompt = f"""{user_prompt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUPPLEMENTARY CONTEXT (from knowledge base search):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTE: This context is from vector search and should be treated as SUPPLEMENTARY information (~50% relevance).
+If you have access to tool functions (like gtd_read_daily_log, gtd_list_tasks, etc.), prioritize results from those tools over this vector context.
+When tool results are available, they should be the PRIMARY source of information.
+
+{vector_context}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Please use the information above to provide a comprehensive answer. If you have tool execution results, prioritize those over the vector context above."""
     
     # Run advice request using deep model
     start_time = datetime.now()
     thinking_content = None  # Initialize thinking content (for thinking models)
     ollama_request_id = None  # Track Ollama Controller request ID for status tracking
-    
-    # Check if two-model loop system is enabled
-    # Priority: environment variable > config file > default (true)
-    use_two_model_loop = None
-    
-    # Check environment variable first
-    env_value = os.getenv("GTD_USE_TWO_MODEL_LOOP")
-    if env_value:
-        use_two_model_loop = env_value.lower() == "true"
-    else:
-        # Read from config files (with mode-specific support)
-        computer_mode = GTD_CONFIG.get("computer_mode", os.getenv("GTD_COMPUTER_MODE", "home")).lower()
-        mode_prefix = "WORK_" if computer_mode == "work" else "HOME_"
-        
-        config_paths = [
-            Path.home() / ".gtd_config_ai",
-            Path.home() / ".gtd_config",
-            dotfiles_dir / "zsh" / ".gtd_config_ai",
-            dotfiles_dir / "zsh" / ".gtd_config",
-        ]
-        
-        for config_path in config_paths:
-            if config_path.exists() and use_two_model_loop is None:
-                with open(config_path) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#') and '=' in line:
-                            key, value = line.split('=', 1)
-                            key = key.strip()
-                            value = value.strip().strip('"').strip("'")
-                            if value.startswith("${") and ":-" in value:
-                                value = value.split(":-", 1)[1].rstrip("}")
-                            
-                            # Check mode-specific first
-                            if key.startswith(mode_prefix):
-                                mode_key = key[len(mode_prefix):]
-                                if mode_key == "USE_TWO_MODEL_LOOP" and value:
-                                    use_two_model_loop = value.lower() == "true"
-                                    break
-                            
-                            # Then check general
-                            if key == "USE_TWO_MODEL_LOOP" and value:
-                                use_two_model_loop = value.lower() == "true"
-                                break
-                            if key == "HOME_USE_TWO_MODEL_LOOP" and value:
-                                use_two_model_loop = value.lower() == "true"
-                                break
-                            if key == "GTD_USE_TWO_MODEL_LOOP" and value:
-                                use_two_model_loop = value.lower() == "true"
-                                break
-            if use_two_model_loop is not None:
-                break
-        
-        # Default to true if not found in config
-        if use_two_model_loop is None:
-            use_two_model_loop = True
     
     # Use async mode for advice requests (supports tool calls via Ollama Controller)
     # Use longer timeout for advice requests to handle queued requests and tool execution
@@ -419,358 +377,323 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
     exit_code = 0
     
     try:
-        # Try two-model loop system first (if enabled)
-        if use_two_model_loop:
-            try:
-                try:
-                    from mcp.gtd_two_model_loop import process_with_two_model_loop
-                except ImportError:
-                    # Try alternative import path
-                    sys.path.insert(0, str(dotfiles_dir / "mcp"))
-                    from gtd_two_model_loop import process_with_two_model_loop
-                
-                print(f"🔄 Using two-model loop system (tool calling + deep thinking)", file=sys.stderr)
-                sys.stderr.flush()
-                
-                # Process with two-model loop
-                final_response, error = process_with_two_model_loop(
-                    user_question=enhanced_prompt if vector_context else user_prompt,
-                    persona_system_prompt=system_prompt,
-                    user_name=USER_NAME,
-                    max_iterations=10
-                )
-                
-                if error:
-                    print(f"⚠️  Two-model loop error: {error}, falling back to single model", file=sys.stderr)
-                    sys.stderr.flush()
-                    # Fall through to single model approach
-                elif final_response:
-                    advice_output = final_response
-                    exit_code = 0
-                else:
-                    print(f"⚠️  Two-model loop returned no response, falling back to single model", file=sys.stderr)
-                    sys.stderr.flush()
-                    # Fall through to single model approach
-            except ImportError as e:
-                print(f"⚠️  Two-model loop not available ({e}), using single model", file=sys.stderr)
-                sys.stderr.flush()
-                # Fall through to single model approach
-            except Exception as e:
-                print(f"⚠️  Error in two-model loop: {e}, falling back to single model", file=sys.stderr)
-                sys.stderr.flush()
-                # Fall through to single model approach
+        # Use single model approach with tool calling support
+        # Use deep model with higher token limit for comprehensive advice
+        # Thinking models can produce detailed responses
+        max_tokens = 4000 if mode != "simple" else 2000
         
-        # Single model approach (original or fallback)
-        if not use_two_model_loop or advice_output is None:
-            # Use deep model with higher token limit for comprehensive advice
-            # Thinking models can produce detailed responses
-            max_tokens = 4000 if mode != "simple" else 2000
+        # Set priority via environment variable for call_deep_ai
+        original_priority = os.getenv("GTD_REQUEST_PRIORITY")
+        os.environ["GTD_REQUEST_PRIORITY"] = str(priority)
+        try:
+            # Use async mode (use_async=True) to support tool calls via Ollama Controller
+            # Even though we wait for the result, async mode ensures requests go through
+            # the Ollama Controller queue which properly handles tool calling
+            advice_output = call_deep_ai(
+                prompt=enhanced_prompt,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                use_async=True,  # Use async mode to support tool calls
+                max_poll_time=advice_timeout  # Configurable timeout (default: 2 hours)
+            )
             
-            # Set priority via environment variable for call_deep_ai
-            original_priority = os.getenv("GTD_REQUEST_PRIORITY")
-            os.environ["GTD_REQUEST_PRIORITY"] = str(priority)
-            try:
-                # Use async mode (use_async=True) to support tool calls via Ollama Controller
-                # Even though we wait for the result, async mode ensures requests go through
-                # the Ollama Controller queue which properly handles tool calling
-                advice_output = call_deep_ai(
-                    prompt=enhanced_prompt,
-                    system_prompt=system_prompt,
-                    max_tokens=max_tokens,
-                    use_async=True,  # Use async mode to support tool calls
-                    max_poll_time=advice_timeout  # Configurable timeout (default: 2 hours)
+            # If async mode returned a request_id, we need to poll for the result
+            # (async mode can return immediately if response is ready, or request_id if queued)
+            polled_result = None
+            poll_error = None
+            if advice_output and advice_output.startswith("Request submitted: "):
+                ollama_request_id = advice_output.replace("Request submitted: ", "")
+                # Poll for result using blocking poll function
+                sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+                from gtd_ai_helpers import poll_async_response
+                
+                # Get DEEP_MODEL_URL from the same module we imported call_deep_ai from
+                try:
+                    from mcp.gtd_deep_analysis_worker import DEEP_MODEL_URL
+                except ImportError:
+                    from gtd_deep_analysis_worker import DEEP_MODEL_URL
+                
+                base_url = DEEP_MODEL_URL.rsplit('/v1', 1)[0]
+                print(f"⏳ Polling for async request {ollama_request_id[:8]}...", file=sys.stderr)
+                sys.stderr.flush()
+                
+                # Poll with configurable timeout (same as initial request)
+                # Use the same timeout value to ensure consistency
+                polled_result, poll_error = poll_async_response(
+                    request_id=ollama_request_id,
+                    base_url=base_url,
+                    max_poll_time=advice_timeout,  # Use same configurable timeout
+                    poll_interval=2.0
                 )
+            
+            if poll_error:
+                advice_output = f"Error: {poll_error}"
+            elif polled_result and 'choices' in polled_result and len(polled_result.get('choices', [])) > 0:
+                # Extract content from result
+                message = polled_result['choices'][0].get('message', {})
+                advice_output = message.get('content', '')
+                finish_reason = polled_result['choices'][0].get('finish_reason', '')
+            elif polled_result and 'choices' in polled_result and len(polled_result.get('choices', [])) == 0:
+                # Empty choices array - might be a completed response with no content
+                advice_output = "Error: Received empty response from AI (choices array is empty). The request may have completed but returned no content."
+                print(f"⚠️  Warning: Received response with empty choices array", file=sys.stderr, flush=True)
+                print(f"   Response keys: {list(polled_result.keys())}", file=sys.stderr, flush=True)
                 
-                # If async mode returned a request_id, we need to poll for the result
-                # (async mode can return immediately if response is ready, or request_id if queued)
-                polled_result = None
-                poll_error = None
-                if advice_output and advice_output.startswith("Request submitted: "):
-                    ollama_request_id = advice_output.replace("Request submitted: ", "")
-                    # Poll for result using blocking poll function
-                    sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
-                    from gtd_ai_helpers import poll_async_response
-                    
-                    # Get DEEP_MODEL_URL from the same module we imported call_deep_ai from
-                    try:
-                        from mcp.gtd_deep_analysis_worker import DEEP_MODEL_URL
-                    except ImportError:
-                        from gtd_deep_analysis_worker import DEEP_MODEL_URL
-                    
-                    base_url = DEEP_MODEL_URL.rsplit('/v1', 1)[0]
-                    print(f"⏳ Polling for async request {ollama_request_id[:8]}...", file=sys.stderr)
-                    sys.stderr.flush()
-                    
-                    # Poll with configurable timeout (same as initial request)
-                    # Use the same timeout value to ensure consistency
-                    polled_result, poll_error = poll_async_response(
-                        request_id=ollama_request_id,
-                        base_url=base_url,
-                        max_poll_time=advice_timeout,  # Use same configurable timeout
-                        poll_interval=2.0
-                    )
+                # Show the actual response content
+                import json as json_module
+                try:
+                    response_json = json_module.dumps(polled_result, indent=2, default=str)
+                    print(f"   Full response content:\n{response_json}", file=sys.stderr, flush=True)
+                except Exception as e:
+                    print(f"   Response content (str): {str(polled_result)[:1000]}", file=sys.stderr, flush=True)
+                    print(f"   (JSON formatting failed: {e})", file=sys.stderr, flush=True)
                 
-                if poll_error:
-                    advice_output = f"Error: {poll_error}"
-                elif polled_result and 'choices' in polled_result and len(polled_result.get('choices', [])) > 0:
-                    # Extract content from result
-                    message = polled_result['choices'][0].get('message', {})
-                    advice_output = message.get('content', '')
-                    finish_reason = polled_result['choices'][0].get('finish_reason', '')
-                elif polled_result and 'choices' in polled_result and len(polled_result.get('choices', [])) == 0:
-                    # Empty choices array - might be a completed response with no content
-                    advice_output = "Error: Received empty response from AI (choices array is empty). The request may have completed but returned no content."
-                    print(f"⚠️  Warning: Received response with empty choices array", file=sys.stderr, flush=True)
-                    print(f"   Response keys: {list(polled_result.keys())}", file=sys.stderr, flush=True)
-                    
-                    # Show the actual response content
-                    import json as json_module
-                    try:
-                        response_json = json_module.dumps(polled_result, indent=2, default=str)
-                        print(f"   Full response content:\n{response_json}", file=sys.stderr, flush=True)
-                    except Exception as e:
-                        print(f"   Response content (str): {str(polled_result)[:1000]}", file=sys.stderr, flush=True)
-                        print(f"   (JSON formatting failed: {e})", file=sys.stderr, flush=True)
-                    
-                    # Check for tool calls in response
-                    log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                # Check for tool calls in response
+                log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                try:
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.now().isoformat()}] gtd_advice_worker - Polled async response\n")
+                        f.write(f"  -> Finish reason: {finish_reason}\n")
+                        f.write(f"  -> Message keys: {list(message.keys())}\n")
+                        f.write(f"  -> Content type: {type(advice_output)}, length: {len(advice_output) if advice_output else 0}\n")
+                        
+                        # Log full message structure (first 1000 chars to avoid huge logs)
+                        message_json = json.dumps(message, indent=2, default=str)
+                        if len(message_json) > 1000:
+                            f.write(f"  -> Message structure (first 1000 chars): {message_json[:1000]}...\n")
+                        else:
+                            f.write(f"  -> Message structure: {message_json}\n")
+                        
+                        if 'tool_calls' in message:
+                            tool_calls = message.get('tool_calls', [])
+                            if tool_calls:
+                                f.write(f"  -> ✅ Tool calls detected in response: {len(tool_calls)} tool call(s)\n")
+                                for i, tool_call in enumerate(tool_calls):
+                                    f.write(f"     Tool call {i+1}: {tool_call.get('function', {}).get('name', 'unknown')}\n")
+                            else:
+                                f.write(f"  -> ⚠️  tool_calls key exists but is empty\n")
+                        else:
+                            f.write(f"  -> ⚠️  No tool_calls in message, content length: {len(advice_output)} chars\n")
+                            if advice_output:
+                                f.write(f"  -> Content preview (first 200 chars): {advice_output[:200]}\n")
+                            else:
+                                f.write(f"  -> Content is empty or None\n")
+                except Exception as e:
                     try:
                         with open(log_file, "a", encoding="utf-8") as f:
-                            f.write(f"[{datetime.now().isoformat()}] gtd_advice_worker - Polled async response\n")
-                            f.write(f"  -> Finish reason: {finish_reason}\n")
-                            f.write(f"  -> Message keys: {list(message.keys())}\n")
-                            f.write(f"  -> Content type: {type(advice_output)}, length: {len(advice_output) if advice_output else 0}\n")
-                            
-                            # Log full message structure (first 1000 chars to avoid huge logs)
-                            message_json = json.dumps(message, indent=2, default=str)
-                            if len(message_json) > 1000:
-                                f.write(f"  -> Message structure (first 1000 chars): {message_json[:1000]}...\n")
-                            else:
-                                f.write(f"  -> Message structure: {message_json}\n")
-                            
-                            if 'tool_calls' in message:
-                                tool_calls = message.get('tool_calls', [])
-                                if tool_calls:
-                                    f.write(f"  -> ✅ Tool calls detected in response: {len(tool_calls)} tool call(s)\n")
-                                    for i, tool_call in enumerate(tool_calls):
-                                        f.write(f"     Tool call {i+1}: {tool_call.get('function', {}).get('name', 'unknown')}\n")
-                                else:
-                                    f.write(f"  -> ⚠️  tool_calls key exists but is empty\n")
-                            else:
-                                f.write(f"  -> ⚠️  No tool_calls in message, content length: {len(advice_output)} chars\n")
-                                if advice_output:
-                                    f.write(f"  -> Content preview (first 200 chars): {advice_output[:200]}\n")
-                                else:
-                                    f.write(f"  -> Content is empty or None\n")
-                    except Exception as e:
+                            f.write(f"  -> ERROR logging response: {e}\n")
+                    except Exception:
+                        pass
+                
+                # Check for empty response
+                if not advice_output or len(advice_output.strip()) == 0:
+                    advice_output = f"⚠️  Model returned empty response (finish_reason: {finish_reason}). This might indicate the model failed to generate content, or there was an issue with the request."
+                    try:
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"  -> ERROR: Empty response detected, finish_reason={finish_reason}\n")
+                    except Exception:
+                        pass
+                
+                # Try to detect JSON tool calls in content (fallback for models that output tool calls as text)
+                json_tool_calls = []
+                if advice_output and not ('tool_calls' in message and message['tool_calls']):
+                    try:
+                        # Try to parse JSON tool calls from content
+                        import re
+                        # Look for JSON object with tool_call key - try to parse the entire JSON
                         try:
-                            with open(log_file, "a", encoding="utf-8") as f:
-                                f.write(f"  -> ERROR logging response: {e}\n")
-                        except Exception:
-                            pass
-                    
-                    # Check for empty response
-                    if not advice_output or len(advice_output.strip()) == 0:
-                        advice_output = f"⚠️  Model returned empty response (finish_reason: {finish_reason}). This might indicate the model failed to generate content, or there was an issue with the request."
-                        try:
-                            with open(log_file, "a", encoding="utf-8") as f:
-                                f.write(f"  -> ERROR: Empty response detected, finish_reason={finish_reason}\n")
-                        except Exception:
-                            pass
-                    
-                    # Try to detect JSON tool calls in content (fallback for models that output tool calls as text)
-                    json_tool_calls = []
-                    if advice_output and not ('tool_calls' in message and message['tool_calls']):
-                        try:
-                            # Try to parse JSON tool calls from content
-                            import re
-                            # Look for JSON object with tool_call key - try to parse the entire JSON
-                            try:
-                                # First, try to parse the entire content as JSON
-                                tool_call_json = json.loads(advice_output.strip())
-                                if 'tool_call' in tool_call_json:
-                                    json_tool_calls.append(tool_call_json['tool_call'])
-                            except json.JSONDecodeError:
-                                # If that fails, try regex to find JSON object
-                                json_match = re.search(r'\{\s*"tool_call"\s*:\s*\{.*?"name"\s*:\s*"[^"]+".*?"arguments"\s*:\s*\{.*?\}.*?\}\s*\}', advice_output, re.DOTALL)
-                                if json_match:
-                                    try:
-                                        tool_call_json = json.loads(json_match.group())
-                                        if 'tool_call' in tool_call_json:
-                                            json_tool_calls.append(tool_call_json['tool_call'])
-                                    except json.JSONDecodeError:
-                                        pass
-                        except Exception as e:
-                            # Log error but continue
-                            try:
-                                log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
-                                with open(log_file, "a", encoding="utf-8") as f:
-                                    f.write(f"  -> ERROR detecting JSON tool calls: {e}\n")
-                            except Exception:
-                                pass
-                    
-                    # Execute tool calls if present (Ollama Controller doesn't know about our GTD tools)
-                    # Check for proper tool_calls first, then fall back to JSON tool calls in content
-                    if ('tool_calls' in message and message['tool_calls']) or json_tool_calls:
-                        try:
-                            # Import tool registry
-                            functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
-                            if not functions_dir.exists():
-                                functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
-                            if functions_dir.exists() and str(functions_dir) not in sys.path:
-                                sys.path.insert(0, str(functions_dir))
-                            from gtd_tool_registry import execute_tool
-                            
-                            # Execute tool calls and collect results
-                            tool_results = []
-                            
-                            # Process proper tool_calls first
-                            if 'tool_calls' in message and message['tool_calls']:
-                                tool_calls_to_process = message['tool_calls']
-                            else:
-                                # Fallback: Convert JSON tool calls to tool_calls format
-                                tool_calls_to_process = []
-                                for json_tool_call in json_tool_calls:
-                                    tool_calls_to_process.append({
-                                        "function": {
-                                            "name": json_tool_call.get('name', ''),
-                                            "arguments": json.dumps(json_tool_call.get('arguments', {}))
-                                        },
-                                        "id": f"call_{len(tool_results)}"
-                                    })
-                            
-                            for tool_call in tool_calls_to_process:
-                                function_name = tool_call.get('function', {}).get('name', '')
-                                function_args = tool_call.get('function', {}).get('arguments', '{}')
-                                tool_call_id = tool_call.get('id', f"call_{len(tool_results)}")
-                                
+                            # First, try to parse the entire content as JSON
+                            tool_call_json = json.loads(advice_output.strip())
+                            if 'tool_call' in tool_call_json:
+                                json_tool_calls.append(tool_call_json['tool_call'])
+                        except json.JSONDecodeError:
+                            # If that fails, try regex to find JSON object
+                            json_match = re.search(r'\{\s*"tool_call"\s*:\s*\{.*?"name"\s*:\s*"[^"]+".*?"arguments"\s*:\s*\{.*?\}.*?\}\s*\}', advice_output, re.DOTALL)
+                            if json_match:
                                 try:
-                                    if isinstance(function_args, str):
-                                        args_dict = json.loads(function_args)
-                                    else:
-                                        args_dict = function_args
+                                    tool_call_json = json.loads(json_match.group())
+                                    if 'tool_call' in tool_call_json:
+                                        json_tool_calls.append(tool_call_json['tool_call'])
                                 except json.JSONDecodeError:
-                                    args_dict = {}
-                                
-                                try:
-                                    tool_result = execute_tool(function_name, args_dict)
-                                    try:
-                                        with open(log_file, "a", encoding="utf-8") as f:
-                                            f.write(f"  -> Executed tool: {function_name} (from {'tool_calls' if 'tool_calls' in message else 'JSON content'})\n")
-                                    except Exception:
-                                        pass
-                                    
-                                    tool_results.append({
-                                        "tool_call_id": tool_call_id,
-                                        "role": "tool",
-                                        "name": function_name,
-                                        "content": tool_result
-                                    })
-                                except Exception as e:
-                                    error_msg = f"Error executing tool '{function_name}': {str(e)}"
-                                    try:
-                                        with open(log_file, "a", encoding="utf-8") as f:
-                                            f.write(f"  -> ERROR: {error_msg}\n")
-                                    except Exception:
-                                        pass
-                                    tool_results.append({
-                                        "tool_call_id": tool_call_id,
-                                        "role": "tool",
-                                        "name": function_name,
-                                        "content": error_msg
-                                    })
-                            
-                            # Send tool results back to the model using call_deep_ai (blocking mode for followup)
-                            followup_messages = [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": enhanced_prompt},
-                                message,  # The assistant's message with tool calls
-                            ]
-                            followup_messages.extend(tool_results)  # Add tool results
-                            
-                            # Build followup prompt (the tool results are in the message history)
-                            # We'll use call_deep_ai in blocking mode for the followup
-                            # But we need to send the full message history... actually, call_deep_ai only takes prompt/system_prompt
-                            # So we need to make a direct request here
-                            try:
-                                from mcp.gtd_deep_analysis_worker import DEEP_MODEL_URL, DEEP_MODEL_NAME
-                            except ImportError:
-                                from gtd_deep_analysis_worker import DEEP_MODEL_URL, DEEP_MODEL_NAME
-                            
-                            import urllib.request
-                            from gtd_ai_helpers import handle_ai_response
-                            
-                            followup_payload = {
-                                "model": DEEP_MODEL_NAME,
-                                "messages": followup_messages,
-                                "temperature": 0.7,
-                                "max_tokens": max_tokens,
-                                "priority": priority
-                            }
-                            
-                            try:
-                                with open(log_file, "a", encoding="utf-8") as f:
-                                    f.write(f"  -> Sending followup with {len(tool_results)} tool result(s)\n")
-                            except Exception:
-                                pass
-                            
-                            followup_data = json.dumps(followup_payload).encode('utf-8')
-                            followup_req = urllib.request.Request(
-                                DEEP_MODEL_URL,
-                                data=followup_data,
-                                headers={'Content-Type': 'application/json'}
-                            )
-                            
-                            # Use same timeout for followup requests
-                            followup_timeout = int(advice_timeout)  # urllib timeout expects int
-                            with urllib.request.urlopen(followup_req, timeout=followup_timeout) as followup_response:
-                                followup_data = followup_response.read()
-                                followup_result = json.loads(followup_data.decode('utf-8'))
-                                
-                                # Handle async/queued responses
-                                base_url = DEEP_MODEL_URL.rsplit('/v1', 1)[0]
-                                followup_polled_result, followup_poll_error = handle_ai_response(followup_result, base_url, max_poll_time=advice_timeout, poll_interval=0.5)
-                                
-                                if followup_poll_error:
-                                    advice_output = f"Error in followup request: {followup_poll_error}"
-                                elif followup_polled_result and 'choices' in followup_polled_result and len(followup_polled_result.get('choices', [])) > 0:
-                                    final_message = followup_polled_result['choices'][0].get('message', {})
-                                    advice_output = final_message.get('content', '')
-                                    finish_reason = followup_polled_result['choices'][0].get('finish_reason', '')
-                                elif followup_polled_result and 'choices' in followup_polled_result and len(followup_polled_result.get('choices', [])) == 0:
-                                    advice_output = "Error: Received empty response from AI in followup request (choices array is empty)."
-                                    if finish_reason == 'length':
-                                        advice_output += "\n\n[Note: Response was truncated due to token limit.]"
-                                else:
-                                    advice_output = "Error: Got a followup response but it's not quite right."
-                        except Exception as e:
-                            # If tool execution fails, log and continue with original response
-                            try:
-                                with open(log_file, "a", encoding="utf-8") as f:
-                                    f.write(f"  -> ERROR executing tools: {e}\n")
-                            except Exception:
-                                pass
-                            # Continue with original advice_output (which contains tool call definitions as text)
+                                    pass
+                    except Exception as e:
+                        # Log error but continue
+                        try:
+                            log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"  -> ERROR detecting JSON tool calls: {e}\n")
+                        except Exception:
                             pass
-                    
+                
+                # Execute tool calls if present (Ollama Controller doesn't know about our GTD tools)
+                # Check for proper tool_calls first, then fall back to JSON tool calls in content
+                if ('tool_calls' in message and message['tool_calls']) or json_tool_calls:
+                    try:
+                        # Import tool registry
+                        functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+                        if not functions_dir.exists():
+                            functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+                        if functions_dir.exists() and str(functions_dir) not in sys.path:
+                            sys.path.insert(0, str(functions_dir))
+                        from gtd_tool_registry import execute_tool
+                        
+                        # Execute tool calls and collect results
+                        tool_results = []
+                        
+                        # Process proper tool_calls first
+                        if 'tool_calls' in message and message['tool_calls']:
+                            tool_calls_to_process = message['tool_calls']
+                        else:
+                            # Fallback: Convert JSON tool calls to tool_calls format
+                            tool_calls_to_process = []
+                            for json_tool_call in json_tool_calls:
+                                tool_calls_to_process.append({
+                                    "function": {
+                                        "name": json_tool_call.get('name', ''),
+                                        "arguments": json.dumps(json_tool_call.get('arguments', {}))
+                                    },
+                                    "id": f"call_{len(tool_results)}"
+                                })
+                        
+                        for tool_call in tool_calls_to_process:
+                            function_name = tool_call.get('function', {}).get('name', '')
+                            function_args = tool_call.get('function', {}).get('arguments', '{}')
+                            tool_call_id = tool_call.get('id', f"call_{len(tool_results)}")
+                            
+                            try:
+                                if isinstance(function_args, str):
+                                    args_dict = json.loads(function_args)
+                                else:
+                                    args_dict = function_args
+                            except json.JSONDecodeError:
+                                args_dict = {}
+                            
+                            try:
+                                tool_result = execute_tool(function_name, args_dict)
+                                try:
+                                    with open(log_file, "a", encoding="utf-8") as f:
+                                        f.write(f"  -> Executed tool: {function_name} (from {'tool_calls' if 'tool_calls' in message else 'JSON content'})\n")
+                                except Exception:
+                                    pass
+                                
+                                tool_results.append({
+                                    "tool_call_id": tool_call_id,
+                                    "role": "tool",
+                                    "name": function_name,
+                                    "content": tool_result
+                                })
+                            except Exception as e:
+                                error_msg = f"Error executing tool '{function_name}': {str(e)}"
+                                try:
+                                    with open(log_file, "a", encoding="utf-8") as f:
+                                        f.write(f"  -> ERROR: {error_msg}\n")
+                                except Exception:
+                                    pass
+                                tool_results.append({
+                                    "tool_call_id": tool_call_id,
+                                    "role": "tool",
+                                    "name": function_name,
+                                    "content": error_msg
+                                })
+                        
+                        # Send tool results back to the model using call_deep_ai (blocking mode for followup)
+                        followup_messages = [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": enhanced_prompt},
+                            message,  # The assistant's message with tool calls
+                        ]
+                        followup_messages.extend(tool_results)  # Add tool results
+                        
+                        # Build followup prompt (the tool results are in the message history)
+                        # We'll use call_deep_ai in blocking mode for the followup
+                        # But we need to send the full message history... actually, call_deep_ai only takes prompt/system_prompt
+                        # So we need to make a direct request here
+                        try:
+                            from mcp.gtd_deep_analysis_worker import DEEP_MODEL_URL, DEEP_MODEL_NAME
+                        except ImportError:
+                            from gtd_deep_analysis_worker import DEEP_MODEL_URL, DEEP_MODEL_NAME
+                        
+                        import urllib.request
+                        from gtd_ai_helpers import handle_ai_response
+                        
+                        followup_payload = {
+                            "model": DEEP_MODEL_NAME,
+                            "messages": followup_messages,
+                            "temperature": 0.7,
+                            "max_tokens": max_tokens,
+                            "priority": priority
+                        }
+                        
+                        try:
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"  -> Sending followup with {len(tool_results)} tool result(s)\n")
+                        except Exception:
+                            pass
+                        
+                        followup_data = json.dumps(followup_payload).encode('utf-8')
+                        followup_req = urllib.request.Request(
+                            DEEP_MODEL_URL,
+                            data=followup_data,
+                            headers={'Content-Type': 'application/json'}
+                        )
+                        
+                        # Use same timeout for followup requests
+                        followup_timeout = int(advice_timeout)  # urllib timeout expects int
+                        with urllib.request.urlopen(followup_req, timeout=followup_timeout) as followup_response:
+                            followup_data = followup_response.read()
+                            followup_result = json.loads(followup_data.decode('utf-8'))
+                            
+                            # Handle async/queued responses
+                            base_url = DEEP_MODEL_URL.rsplit('/v1', 1)[0]
+                            followup_polled_result, followup_poll_error = handle_ai_response(followup_result, base_url, max_poll_time=advice_timeout, poll_interval=0.5)
+                            
+                            if followup_poll_error:
+                                advice_output = f"Error in followup request: {followup_poll_error}"
+                            elif followup_polled_result and 'choices' in followup_polled_result and len(followup_polled_result.get('choices', [])) > 0:
+                                final_message = followup_polled_result['choices'][0].get('message', {})
+                                advice_output = final_message.get('content', '')
+                                finish_reason = followup_polled_result['choices'][0].get('finish_reason', '')
+                            elif followup_polled_result and 'choices' in followup_polled_result and len(followup_polled_result.get('choices', [])) == 0:
+                                advice_output = "Error: Received empty response from AI in followup request (choices array is empty)."
+                                if finish_reason == 'length':
+                                    advice_output += "\n\n[Note: Response was truncated due to token limit.]"
+                            else:
+                                advice_output = "Error: Got a followup response but it's not quite right."
+                    except Exception as e:
+                        # If tool execution fails, log and continue with original response
+                        try:
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"  -> ERROR executing tools: {e}\n")
+                        except Exception:
+                            pass
+                        # Continue with original advice_output (which contains tool call definitions as text)
+                        pass
+                else:
+                    # No tool calls - check if we need to handle finish_reason for length truncation
                     if polled_result and 'choices' in polled_result and len(polled_result.get('choices', [])) > 0:
                         finish_reason = polled_result['choices'][0].get('finish_reason', '')
                         if finish_reason == 'length':
                             advice_output += "\n\n[Note: Response was truncated due to token limit.]"
-                else:
-                    advice_output = f"Error: Unexpected response format from async request"
+                    elif not polled_result or not ('choices' in polled_result and len(polled_result.get('choices', [])) > 0):
+                        advice_output = f"Error: Unexpected response format from async request"
             
-                # Extract thinking content from response (for thinking models)
-                if advice_output and not advice_output.startswith("Error:"):
-                    try:
-                        from thinking_extractor import extract_thinking
-                        advice_output, thinking_content = extract_thinking(advice_output)
-                    except Exception as e:
-                        # If extraction fails, just continue with original content
-                        # Log error for debugging
-                        print(f"Warning: Failed to extract thinking content: {e}", file=sys.stderr)
-                        pass
-            finally:
+            # Extract thinking content from response (for thinking models)
+            if advice_output and not advice_output.startswith("Error:"):
+                try:
+                    from thinking_extractor import extract_thinking
+                    advice_output, thinking_content = extract_thinking(advice_output)
+                except Exception as e:
+                    # If extraction fails, just continue with original content
+                    # Log error for debugging
+                    print(f"Warning: Failed to extract thinking content: {e}", file=sys.stderr)
+                    pass
+        except Exception as e:
+            # Handle any errors in the main try block
+            advice_output = f"Error processing advice request: {str(e)}"
+            print(f"Error in advice worker: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+        finally:
                 # Restore original priority or remove if it wasn't set (only if we set it)
                 if 'original_priority' in locals():
                     if original_priority is not None:
