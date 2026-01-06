@@ -427,7 +427,40 @@ def call_tool_calling_model(
             if tool_calls is None:
                 print(f"  ⚠️  No 'tool_calls' key in message response", file=sys.stderr, flush=True)
                 print(f"  📝 Message keys: {list(message.keys())}", file=sys.stderr, flush=True)
-                print(f"  📝 Message content preview: {str(message.get('content', ''))[:200]}", file=sys.stderr, flush=True)
+                content_preview = str(message.get('content', ''))[:200]
+                print(f"  📝 Message content preview: {content_preview}", file=sys.stderr, flush=True)
+                
+                # Check if content contains JSON that looks like a tool call
+                # Some models return tool calls as JSON strings in content instead of using tool_calls
+                content = message.get('content', '').strip()
+                if content:
+                    try:
+                        # Try to parse as JSON
+                        parsed_content = json.loads(content)
+                        # Check if it looks like a tool call (has 'name' or 'function_name' and 'arguments')
+                        if isinstance(parsed_content, dict):
+                            function_name = parsed_content.get('name') or parsed_content.get('function_name')
+                            arguments = parsed_content.get('arguments') or parsed_content.get('args', {})
+                            if function_name and arguments is not None:
+                                print(f"  🔍 Detected tool call in content field: {function_name}", file=sys.stderr, flush=True)
+                                # Convert to proper tool_calls format
+                                tool_calls = [{
+                                    "id": f"call_{0}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": function_name,
+                                        "arguments": json.dumps(arguments) if not isinstance(arguments, str) else arguments
+                                    }
+                                }]
+                                print(f"  ✅ Converted JSON tool call to proper format", file=sys.stderr, flush=True)
+                                # IMPORTANT: Clear the content field so the deep thinking model doesn't see the JSON
+                                # We'll add a note that tools were called instead
+                                message = message.copy()  # Don't modify original
+                                message['content'] = f"[Tool call to {function_name} detected and will be executed]"
+                                print(f"  🧹 Cleaned message content to prevent confusion", file=sys.stderr, flush=True)
+                    except (json.JSONDecodeError, KeyError, AttributeError):
+                        # Not a JSON tool call, that's fine
+                        pass
             elif tool_calls == []:
                 print(f"  ⚠️  'tool_calls' is an empty list (model chose not to use tools)", file=sys.stderr, flush=True)
                 print(f"  📝 Message content: {str(message.get('content', ''))[:200]}", file=sys.stderr, flush=True)
@@ -649,10 +682,56 @@ def call_deep_thinking_model(
             message = result_data['choices'][0].get('message', {})
             response_text = message.get('content', '')
             
+            # Check if response is a tool call JSON (shouldn't happen, but handle it)
+            response_clean = response_text.strip()
+            # Remove markdown code blocks if present
+            if response_clean.startswith("```json"):
+                response_clean = response_clean[7:]
+            if response_clean.startswith("```"):
+                response_clean = response_clean[3:]
+            if response_clean.endswith("```"):
+                response_clean = response_clean[:-3]
+            response_clean = response_clean.strip()
+            
+            try:
+                # Check if response looks like a tool call JSON
+                parsed = json.loads(response_clean)
+                if isinstance(parsed, dict):
+                    # Check if it has tool call structure (name/function_name + arguments)
+                    function_name = parsed.get('name') or parsed.get('function_name')
+                    arguments = parsed.get('arguments') or parsed.get('args')
+                    if function_name and arguments is not None:
+                        # This is a tool call, not a final answer - we need more processing
+                        print(f"  ⚠️  Deep thinking model returned tool call JSON instead of answer", file=sys.stderr, flush=True)
+                        print(f"  📝 Tool call JSON: {response_clean[:200]}", file=sys.stderr, flush=True)
+                        print(f"  🔄 Requesting more processing to execute tool: {function_name}", file=sys.stderr, flush=True)
+                        # Convert to proper tool call format and add to conversation for next iteration
+                        return (f"Tool call detected in response - need to execute {function_name}", True, None)
+                    
+                    # Check if it's a description of what should be done (like {"answer": "gtd_get_datetime(...)", "explanation": "..."})
+                    # This suggests the model is describing actions instead of requesting them
+                    answer_field = parsed.get('answer', '') or parsed.get('action', '') or parsed.get('function', '')
+                    explanation_field = parsed.get('explanation', '')
+                    if answer_field and ('gtd_' in str(answer_field) or '(' in str(answer_field) or 'function' in str(answer_field).lower()):
+                        print(f"  ⚠️  Deep thinking model returned action description instead of answer", file=sys.stderr, flush=True)
+                        print(f"  📝 Full response: {response_clean[:500]}", file=sys.stderr, flush=True)
+                        print(f"  🔄 This looks like a description of what should be done - requesting more processing", file=sys.stderr, flush=True)
+                        return (f"Model returned action description instead of answer - tools need to be called", True, None)
+                    
+                    # If we get JSON that doesn't have needs_more_processing and no tool results were provided,
+                    # this is likely a description or incomplete response
+                    if not parsed.get("needs_more_processing") and len(tool_results) == 0:
+                        print(f"  ⚠️  Deep thinking model returned JSON without tool results", file=sys.stderr, flush=True)
+                        print(f"  📝 Response: {response_clean[:500]}", file=sys.stderr, flush=True)
+                        print(f"  🔄 No tool results provided - requesting more processing", file=sys.stderr, flush=True)
+                        return (f"JSON response provided but no tool results - tools need to be called", True, None)
+            except (json.JSONDecodeError, KeyError, AttributeError):
+                # Not JSON or not a tool call, continue to check for needs_more_processing
+                pass
+            
             # Check if response indicates more processing is needed
             try:
-                # Try to parse JSON response
-                response_clean = response_text.strip()
+                # Try to parse JSON response for needs_more_processing
                 if response_clean.startswith("```json"):
                     response_clean = response_clean[7:]
                 if response_clean.startswith("```"):
@@ -724,15 +803,16 @@ def process_with_two_model_loop(
 
 CRITICAL INSTRUCTIONS - YOU MUST FOLLOW THESE RULES:
 
-1. YOU MUST USE TOOLS - Never answer questions about the user's data without calling tools first
-2. When the user asks about logs, tasks, dates, or projects, you MUST call the appropriate tool(s)
-3. Use the function calling interface - call tools as function calls, do NOT describe what you would do
+1. YOU MUST USE THE FUNCTION CALLING INTERFACE - The backend provides tools in the "tools" parameter. Use the "tool_calls" field in your response.
+2. NEVER return tool calls as JSON strings in the "content" field - ALWAYS use the structured "tool_calls" field instead
+3. When the user asks about logs, tasks, dates, or projects, you MUST call the appropriate tool(s) using function calling
 4. For questions about multiple days of logs, call gtd_read_daily_log multiple times (once per day) or use gtd_get_datetime first to get the dates
 5. If the user asks "what were the past X days", you MUST call gtd_read_daily_log for each of those days
 6. After calling tools, your response will be processed by a thinking model that will use the tool results
-7. DO NOT provide text responses - ONLY call tools. The thinking model will provide the final answer to the user.
+7. DO NOT provide text responses in the "content" field - ONLY use "tool_calls" to call functions
+8. The backend supports function calling - use it! Do NOT write JSON strings describing what you would do
 
-AVAILABLE TOOLS (you have access to these through function calling):
+AVAILABLE TOOLS (use function calling interface - tools are provided in the "tools" parameter):
 - gtd_read_daily_log: Read daily log entries for a specific date (YYYY-MM-DD format). For multiple days, call this tool multiple times.
 - gtd_get_datetime: Get date/time information. Use with relative dates like "3 days ago", "yesterday", "today" to calculate dates.
 - gtd_list_tasks: List tasks with filters (context, energy, priority, project, status)
@@ -741,15 +821,18 @@ AVAILABLE TOOLS (you have access to these through function calling):
 
 EXAMPLES:
 - User: "What were the past 5 days of log entries?"
-  → You MUST call gtd_get_datetime to get the dates, then call gtd_read_daily_log 5 times (once for each date)
+  → Use function calling to call gtd_get_datetime, then call gtd_read_daily_log 5 times (once for each date)
   
 - User: "What tasks do I have?"
-  → You MUST call gtd_list_tasks
+  → Use function calling to call gtd_list_tasks
   
 - User: "What did I do yesterday?"
-  → You MUST call gtd_get_datetime with "yesterday", then call gtd_read_daily_log with that date
+  → Use function calling to call gtd_get_datetime with "yesterday", then call gtd_read_daily_log with that date
 
-Remember: ALWAYS call tools - do not answer from memory or make up data. Do not provide text responses - only call tools."""
+REMEMBER: 
+- Use the function calling interface (tool_calls field), NOT text JSON in content field
+- The backend will execute your function calls automatically
+- Do NOT write JSON strings - use the structured tool_calls format"""
     
     # Log the tool calling system prompt
     print(f"📝 Tool calling system prompt (first 500 chars):", file=sys.stderr, flush=True)
@@ -775,10 +858,13 @@ You receive tool execution results and need to:
 
 The user's question: {user_question}
 
-CRITICAL: 
-- If no tool results were provided above, you MUST return needs_more_processing=true so tools can be called
+CRITICAL RULES: 
+- If no tool results were provided above, you MUST return {{"needs_more_processing": true, "reason": "Tools need to be called"}}
+- DO NOT describe what tools should be called - return needs_more_processing=true instead
+- DO NOT return JSON like {{"answer": "gtd_get_datetime(...)", "explanation": "..."}} - return needs_more_processing=true
 - Only return a complete answer if the tool results contain sufficient information to fully answer the question
 - If tool results are empty, incomplete, or don't answer the question, return needs_more_processing=true
+- NEVER describe actions - either request more processing or provide the final answer
 
 After reviewing tool results, either:
 - Return JSON with needs_more_processing=true if you need more tools/data OR if no tools were called yet
@@ -822,9 +908,26 @@ After reviewing tool results, either:
         # Log if no tool calls were made
         if not tool_calls:
             print(f"  ⚠️  WARNING: Tool calling model did not call any tools!", file=sys.stderr, flush=True)
-            print(f"  📝 Model response: {str(tool_response.get('content', ''))[:200] if tool_response else 'None'}", file=sys.stderr, flush=True)
+            content_preview = str(tool_response.get('content', ''))[:200] if tool_response else 'None'
+            print(f"  📝 Model response: {content_preview}", file=sys.stderr, flush=True)
+            
+            # Check if the content contains JSON that looks like a tool call we might have missed
+            # This is a safety check in case our detection didn't work
+            if tool_response:
+                content = tool_response.get('content', '').strip()
+                if content:
+                    try:
+                        parsed = json.loads(content)
+                        if isinstance(parsed, dict):
+                            function_name = parsed.get('name') or parsed.get('function_name')
+                            if function_name:
+                                print(f"  🔍 Found JSON tool call in content that wasn't converted: {function_name}", file=sys.stderr, flush=True)
+                                print(f"  ⚠️  This suggests the detection/conversion logic needs to be checked", file=sys.stderr, flush=True)
+                    except (json.JSONDecodeError, KeyError, AttributeError):
+                        pass
         
         # Add tool calling model's response to history
+        # If we cleaned the content (removed JSON), use the cleaned version
         conversation_history.append(tool_response)
         
         # Step 2: Execute tools if any
@@ -870,13 +973,31 @@ After reviewing tool results, either:
                     })
         else:
             print(f"  ℹ️  No tool calls in this iteration", file=sys.stderr, flush=True)
+            # If no tools were called, we need to try again with the tool calling model
+            # Don't call the deep thinking model yet - go back to tool calling model
+            print(f"  🔄 No tools executed - will try tool calling model again on next iteration", file=sys.stderr, flush=True)
+            # Add a note to conversation history that tools need to be called
+            if iteration == 0:
+                # First iteration - add the original tool calling model response
+                conversation_history.append(tool_response)
+            else:
+                # Subsequent iteration - add a note that tools are still needed
+                conversation_history.append({
+                    "role": "assistant",
+                    "content": "Tools need to be called to answer the user's question."
+                })
+            # Continue to next iteration to try tool calling model again
+            continue
         
-        # Step 3: Call deep thinking model
+        # Step 3: Call deep thinking model (only if tools were executed)
         print(f"🧠 Calling deep thinking model with {len(tool_results)} tool result(s)...", file=sys.stderr, flush=True)
         if tool_results:
             for tr in tool_results:
                 result_preview = str(tr.get('content', ''))[:200] + "..." if len(str(tr.get('content', ''))) > 200 else str(tr.get('content', ''))
                 print(f"  📊 Tool result ({tr.get('name', 'unknown')}): {result_preview}", file=sys.stderr, flush=True)
+        
+        # Add tool results to history before calling deep thinking model
+        conversation_history.extend(tool_results)
         
         thinking_response, needs_more, error = call_deep_thinking_model(
             user_prompt=user_question,
@@ -888,9 +1009,6 @@ After reviewing tool results, either:
         if error:
             return (None, error)
         
-        # Add tool results to history
-        conversation_history.extend(tool_results)
-        
         # Step 4: Check if more processing is needed
         if needs_more:
             print(f"  🔄 More processing needed: {thinking_response or 'Additional tools needed'}", file=sys.stderr, flush=True)
@@ -899,7 +1017,7 @@ After reviewing tool results, either:
                 "role": "assistant",
                 "content": thinking_response or "Additional tools needed"
             })
-            # Continue loop
+            # Continue loop to call tool calling model again
             continue
         else:
             # Processing complete - return final response

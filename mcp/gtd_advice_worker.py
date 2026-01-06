@@ -142,6 +142,90 @@ def get_persona_system_prompt(persona_key: str, mode: str) -> str:
         return f"You are a helpful assistant providing advice to {USER_NAME if USER_NAME != 'User' else 'the user'}."
 
 
+def process_tool_execution_request(message: Dict[str, Any]) -> bool:
+    """
+    Process a tool execution request from Ollama Controller.
+    
+    Args:
+        message: Message dictionary with type="tool_execution", tool_calls, request_id
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    request_id = message.get("request_id", "unknown")
+    tool_calls = message.get("tool_calls", [])
+    
+    if not tool_calls:
+        print(f"Error: No tool calls in tool execution request {request_id}")
+        return False
+    
+    print(f"Processing tool execution request: {request_id} ({len(tool_calls)} tool(s))")
+    
+    # Import tool registry
+    functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+    if not functions_dir.exists():
+        functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+    
+    if not functions_dir.exists():
+        print(f"Error: Tool registry not found at {functions_dir}")
+        return False
+    
+    if str(functions_dir) not in sys.path:
+        sys.path.insert(0, str(functions_dir))
+    
+    try:
+        from gtd_tool_registry import execute_tool
+    except ImportError as e:
+        print(f"Error: Failed to import tool registry: {e}")
+        return False
+    
+    # Execute each tool call
+    tool_results = []
+    for tool_call in tool_calls:
+        function_info = tool_call.get("function", {})
+        function_name = function_info.get("name", "")
+        function_args = function_info.get("arguments", {})
+        tool_call_id = tool_call.get("id", "")
+        
+        if not function_name:
+            print(f"  ⚠️  Skipping tool call with no function name (id: {tool_call_id})")
+            continue
+        
+        # Parse arguments if they're a string
+        if isinstance(function_args, str):
+            try:
+                function_args = json.loads(function_args)
+            except json.JSONDecodeError:
+                function_args = {}
+        
+        # Execute the tool
+        try:
+            print(f"  🔧 Executing tool: {function_name}({json.dumps(function_args)})")
+            tool_result = execute_tool(function_name, function_args)
+            print(f"  ✅ Tool {function_name} executed successfully ({len(tool_result)} chars)")
+            
+            tool_results.append({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "name": function_name,
+                "content": tool_result
+            })
+        except Exception as e:
+            error_msg = f"Error executing tool '{function_name}': {str(e)}"
+            print(f"  ❌ {error_msg}")
+            tool_results.append({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "name": function_name,
+                "content": error_msg
+            })
+    
+    # Note: Tool execution results are typically sent back to Ollama Controller via callback URL
+    # This function just executes them - the controller handles the response
+    print(f"✅ Tool execution request {request_id} completed ({len(tool_results)} result(s))")
+    return True
+
+
 def process_advice_request(message: Dict[str, Any]) -> bool:
     """Process a single advice request using the deep analysis model.
     
@@ -916,8 +1000,22 @@ def process_rabbitmq_queue():
             params.socket_timeout = 10  # Increased from 5 to 10 seconds
             # Add heartbeat to keep connection alive during long operations
             # For advice worker, processing can take up to 60 minutes with async queuing
+            # 
+            # IMPORTANT: Heartbeat vs Consumer Timeout
+            # - heartbeat: Client-side, keeps the TCP connection alive (prevents network timeouts)
+            # - consumer_timeout: Server-side, limits how long a message can be unacknowledged (default: 30 min)
+            #
+            # Why other workers work with just heartbeats:
+            # - Deep analysis worker: 15-min heartbeat, but jobs take 5-10 min (< 30 min consumer timeout) ✅
+            # - Task/knowledge workers: Fast jobs (< 5 min) ✅
+            # - Advice worker: Jobs can take 30+ minutes (> 30 min consumer timeout) ❌
+            #
+            # The heartbeat doesn't extend the consumer timeout - it just keeps the connection alive.
+            # If your job takes longer than consumer_timeout, you MUST increase consumer_timeout on the server.
+            # To change consumer_timeout, configure it in RabbitMQ server (rabbitmq.conf):
+            #   consumer_timeout = 3600000  # 60 minutes in milliseconds
             try:
-                params.heartbeat = 3600  # 60 minutes - extra long for advice processing
+                params.heartbeat = 3600  # 60 minutes - keeps connection alive during long processing
                 params.blocked_connection_timeout = 3600  # 60 minutes
             except:
                 # If heartbeat setting fails, continue without it
@@ -1011,11 +1109,17 @@ def process_rabbitmq_queue():
                     
                     print(f"📥 Processing: {message.get('id', 'unknown')} at {datetime.now()}")
                     
-                    # Store start time to detect long-running operations
+                    # Check if this is a tool execution request
+                    request_type = message.get('type', 'advice')
                     process_start = datetime.now()
-                    success = process_advice_request(message)
-                    process_duration = (datetime.now() - process_start).total_seconds()
+                    if request_type == "tool_execution":
+                        print(f"🔧 Tool execution request detected")
+                        success = process_tool_execution_request(message)
+                    else:
+                        # Regular advice request
+                        success = process_advice_request(message)
                     
+                    process_duration = (datetime.now() - process_start).total_seconds()
                     print(f"⏱️  Processing took {process_duration:.1f}s for {message.get('id', 'unknown')}")
                     
                     if success:
@@ -1120,6 +1224,10 @@ def process_rabbitmq_queue():
                         return
             
             channel.basic_qos(prefetch_count=1)
+            # Note: consumer_timeout is a server-side setting (default: 30 minutes = 1800000 ms)
+            # If processing takes longer than 30 minutes, configure consumer_timeout in rabbitmq.conf:
+            #   consumer_timeout = 3600000  # 60 minutes in milliseconds
+            # All workers use the same server-side consumer_timeout setting
             channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
             
             print(f"✅ Waiting for messages on {RABBITMQ_QUEUE}. To exit press CTRL+C")

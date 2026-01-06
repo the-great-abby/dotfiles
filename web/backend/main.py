@@ -2033,6 +2033,100 @@ async def get_personas():
     ]
     return {"personas": personas}
 
+# Tool Execution Endpoint (for Ollama Controller callbacks)
+class ToolExecutionRequest(BaseModel):
+    type: str  # Should be "tool_execution"
+    tool_calls: List[Dict[str, Any]]  # List of tool calls to execute
+    request_id: Optional[str] = None  # Optional request ID for tracking
+
+@app.post("/api/tools/execute")
+async def execute_tools(request: ToolExecutionRequest):
+    """Execute tools requested by Ollama Controller (tool_execution callback)"""
+    try:
+        if request.type != "tool_execution":
+            raise HTTPException(status_code=400, detail=f"Invalid request type: {request.type}. Expected 'tool_execution'")
+        
+        if not request.tool_calls:
+            raise HTTPException(status_code=400, detail="No tool calls provided")
+        
+        logger.info(f"Executing {len(request.tool_calls)} tool(s) for request {request.request_id or 'unknown'}")
+        
+        # Import tool registry
+        functions_dir = GTD_BASE / "zsh" / "functions"
+        if not functions_dir.exists():
+            functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+        
+        if not functions_dir.exists():
+            raise HTTPException(status_code=500, detail="Tool registry not found")
+        
+        if str(functions_dir) not in sys.path:
+            sys.path.insert(0, str(functions_dir))
+        
+        try:
+            from gtd_tool_registry import execute_tool
+        except ImportError:
+            raise HTTPException(status_code=500, detail="Failed to import tool registry")
+        
+        # Execute each tool call
+        tool_results = []
+        for tool_call in request.tool_calls:
+            # Extract tool call information
+            function_info = tool_call.get("function", {})
+            function_name = function_info.get("name", "")
+            function_args = function_info.get("arguments", {})
+            tool_call_id = tool_call.get("id", "")
+            
+            if not function_name:
+                tool_results.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": "unknown",
+                    "content": "Error: No function name provided"
+                })
+                continue
+            
+            # Parse arguments if they're a string
+            if isinstance(function_args, str):
+                try:
+                    function_args = json.loads(function_args)
+                except json.JSONDecodeError:
+                    function_args = {}
+            
+            # Execute the tool
+            try:
+                logger.info(f"Executing tool: {function_name} with args: {function_args}")
+                tool_result = execute_tool(function_name, function_args)
+                
+                tool_results.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": function_name,
+                    "content": tool_result
+                })
+                logger.info(f"Tool {function_name} executed successfully ({len(tool_result)} chars)")
+            except Exception as e:
+                error_msg = f"Error executing tool '{function_name}': {str(e)}"
+                logger.error(error_msg)
+                tool_results.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": function_name,
+                    "content": error_msg
+                })
+        
+        # Return results in OpenAI-compatible format
+        return {
+            "type": "tool_execution_result",
+            "request_id": request.request_id,
+            "tool_results": tool_results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing tools: {e}")
+        raise HTTPException(status_code=500, detail=f"Error executing tools: {str(e)}")
+
 @app.post("/api/advice/notify-ready")
 async def notify_advice_ready(notification: AdviceReadyNotification):
     """Notify that an advice request has completed (called by advice worker)"""

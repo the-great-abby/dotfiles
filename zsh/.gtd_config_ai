@@ -63,7 +63,7 @@ HOME_OLLAMA_INSTRUCT_MODEL="${HOME_OLLAMA_INSTRUCT_MODEL:-ministral-3:3b}"
 HOME_OLLAMA_EMBEDDING_MODEL="${HOME_OLLAMA_EMBEDDING_MODEL:-nomic-embed-text-v2-moe}"
 HOME_DEEP_MODEL_NAME="${HOME_DEEP_MODEL_NAME:-qwen3:4b}"
 HOME_TOOL_CALLING_MODEL_NAME="${HOME_TOOL_CALLING_MODEL_NAME:-qwen3:4b}"
-HOME_USE_TWO_MODEL_LOOP="${HOME_USE_TWO_MODEL_LOOP:-true}"
+HOME_USE_TWO_MODEL_LOOP="${HOME_USE_TWO_MODEL_LOOP:-false}"
 
 # ============================================================================
 # Personas/Characters for different types of advice
