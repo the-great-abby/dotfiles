@@ -17,7 +17,7 @@ GTD_COMPUTER_MODE="home"
 SECOND_BRAIN_WORK="$HOME/Documents/Second Brain"
 GTD_BASE_DIR_WORK="$HOME/Documents/gtd"
 # Mode-specific directories (home mode)
-SECOND_BRAIN_HOME="$HOME/Documents/Second Brain"
+SECOND_BRAIN_HOME="$HOME/Documents/obsidian/Second Brain/"
 GTD_BASE_DIR_HOME="$HOME/Documents/gtd"
 # ============================================================================
 # Mode-Specific Feature Settings
