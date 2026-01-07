@@ -75,11 +75,33 @@ sync_projects() {
     
     echo "  📄 Processing: $project_name"
     
-    # Check if already linked
-    if grep -q "## Second Brain" "$project_file" 2>/dev/null; then
+    # Check if already linked AND brain note exists
+    if grep -q "## Second Brain" "$project_file" 2>/dev/null && [[ -f "$brain_note" ]]; then
       echo "    ⏭️  Already linked, skipping"
       ((skipped++))
       continue
+    fi
+    
+    # If linked but brain note doesn't exist, recreate it
+    # Also check if link points to wrong path and fix it
+    if grep -q "## Second Brain" "$project_file" 2>/dev/null; then
+      if [[ ! -f "$brain_note" ]]; then
+        echo "    ⚠️  Link exists but brain note missing, recreating..."
+      else
+        # Check if link points to wrong path (e.g., has "obsidian" when it shouldn't)
+        local link_path=$(grep "## Second Brain" -A 1 "$project_file" 2>/dev/null | grep -o "→ [^ ]*" | cut -d' ' -f2)
+        if [[ -n "$link_path" ]] && [[ "$link_path" != "$brain_note" ]] && echo "$link_path" | grep -q "obsidian"; then
+          echo "    ⚠️  Link points to old path, updating..."
+          # Update the link in the GTD file
+          if [[ "$GTD_BIDIRECTIONAL_LINKS" == "true" ]]; then
+            # Remove old link section and recreate with correct path
+            sed -i '' '/^## Second Brain$/,/^$/d' "$project_file" 2>/dev/null || sed -i '/^## Second Brain$/,/^$/d' "$project_file" 2>/dev/null
+            echo "" >> "$project_file"
+            echo "## Second Brain" >> "$project_file"
+            echo "- [[$project_name]] → $brain_note" >> "$project_file"
+          fi
+        fi
+      fi
     fi
     
     # Create or update brain note
@@ -144,11 +166,16 @@ sync_areas() {
     
     echo "  📄 Processing: $area_name"
     
-    # Check if already linked
-    if grep -q "## Second Brain" "$area_file" 2>/dev/null; then
+    # Check if already linked AND brain note exists
+    if grep -q "## Second Brain" "$area_file" 2>/dev/null && [[ -f "$brain_note" ]]; then
       echo "    ⏭️  Already linked, skipping"
       ((skipped++))
       continue
+    fi
+    
+    # If linked but brain note doesn't exist, recreate it
+    if grep -q "## Second Brain" "$area_file" 2>/dev/null && [[ ! -f "$brain_note" ]]; then
+      echo "    ⚠️  Link exists but brain note missing, recreating..."
     fi
     
     # Create or update brain note
@@ -213,11 +240,16 @@ sync_references() {
     
     echo "  📄 Processing: $ref_name"
     
-    # Only sync if not already linked
-    if grep -q "## Second Brain" "$ref_file" 2>/dev/null; then
+    # Check if already linked AND brain note exists
+    if grep -q "## Second Brain" "$ref_file" 2>/dev/null && [[ -f "$brain_note" ]]; then
       echo "    ⏭️  Already linked, skipping"
       ((skipped++))
       continue
+    fi
+    
+    # If linked but brain note doesn't exist, recreate it
+    if grep -q "## Second Brain" "$ref_file" 2>/dev/null && [[ ! -f "$brain_note" ]]; then
+      echo "    ⚠️  Link exists but brain note missing, recreating..."
     fi
     
     # Create brain note if it doesn't exist
