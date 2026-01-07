@@ -2092,6 +2092,20 @@ async def execute_tools(request: ToolExecutionRequest):
                 except json.JSONDecodeError:
                     function_args = {}
             
+            # Handle case where arguments might be wrapped in an "argument" key
+            # This can happen if the Ollama Controller sends arguments in a different format
+            if isinstance(function_args, dict) and "argument" in function_args and len(function_args) == 1:
+                # Unwrap: {"argument": "{\"key\": \"value\"}"} -> {"key": "value"}
+                argument_value = function_args["argument"]
+                if isinstance(argument_value, str):
+                    try:
+                        function_args = json.loads(argument_value)
+                    except json.JSONDecodeError:
+                        # If parsing fails, try using the string as-is
+                        function_args = {"argument": argument_value}
+                else:
+                    function_args = argument_value
+            
             # Execute the tool
             try:
                 logger.info(f"Executing tool: {function_name} with args: {function_args}")

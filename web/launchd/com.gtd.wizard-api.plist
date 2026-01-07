@@ -25,6 +25,8 @@
         <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:%GTD_BASE%/bin</string>
         <key>GTD_TAILSCALE_DOMAIN</key>
         <string>abbys-macbook-air.tailf0befd.ts.net</string>
+        <key>GTD_BIND_HOST</key>
+        <string>0.0.0.0</string>
     </dict>
 </dict>
 </plist>

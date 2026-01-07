@@ -273,6 +273,122 @@ if not GTD_DISCORD_WEBHOOK_URL:
                 break
 
 
+# Helper function to get callback URL for tool execution
+def get_tool_callback_url() -> Optional[str]:
+    """Get the callback URL for tool execution from config or environment.
+    
+    For Kubernetes (Ollama Controller), detects accessible URL (Tailscale or node IP).
+    For local setups, uses localhost.
+    
+    Returns:
+        Callback URL string if configured, None otherwise
+    """
+    # Check environment variable first
+    callback_url = os.getenv("GTD_TOOL_CALLBACK_URL")
+    if callback_url:
+        return callback_url
+    
+    # Check config files
+    config_paths = [
+        Path.home() / ".gtd_config_ai",
+        Path.home() / ".gtd_config",
+        Path(__file__).parent.parent / "zsh" / ".gtd_config_ai",
+        Path(__file__).parent.parent / "zsh" / ".gtd_config",
+    ]
+    
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip().strip('"').strip("'")
+                            if key == "GTD_TOOL_CALLBACK_URL":
+                                return value
+            except Exception:
+                continue
+    
+    # Check if we're using Ollama Controller (Kubernetes)
+    # If so, we need a URL accessible from Kubernetes pods
+    is_ollama_controller = ":31080" in DEEP_MODEL_URL or "31080" in DEEP_MODEL_URL
+    
+    if is_ollama_controller:
+        # Try Tailscale domain first (most reliable for Kubernetes access)
+        tailscale_domain = os.getenv("GTD_TAILSCALE_DOMAIN", "")
+        if not tailscale_domain:
+            # Check config files for Tailscale domain
+            for config_path in config_paths:
+                if config_path.exists():
+                    try:
+                        with open(config_path) as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#') and '=' in line:
+                                    key, value = line.split('=', 1)
+                                    key = key.strip()
+                                    value = value.strip().strip('"').strip("'")
+                                    if key == "GTD_TAILSCALE_DOMAIN":
+                                        tailscale_domain = value
+                                        break
+                    except Exception:
+                        continue
+        
+        if tailscale_domain:
+            # Use Tailscale domain with nginx port (8080)
+            return f"http://{tailscale_domain}:8080/api/tools/execute"
+        
+        # Fall back to detecting Kubernetes node IP
+        try:
+            import subprocess
+            # Try to detect node IP
+            node_ip = None
+            
+            # Check for minikube
+            try:
+                result = subprocess.run(
+                    ["minikube", "ip"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                if result.returncode == 0:
+                    node_ip = result.stdout.strip()
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+            
+            # Check kubectl for node IP
+            if not node_ip:
+                try:
+                    result = subprocess.run(
+                        ["kubectl", "get", "nodes", "-o", "jsonpath={.items[0].status.addresses[?(@.type==\"InternalIP\")].address}"],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        detected_ip = result.stdout.strip()
+                        # For Docker Desktop, use 127.0.0.1
+                        if detected_ip == "127.0.0.1" or detected_ip.startswith("192.168"):
+                            node_ip = "127.0.0.1"
+                        else:
+                            node_ip = detected_ip
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
+            
+            if node_ip:
+                # Use node IP with nginx port (8080)
+                return f"http://{node_ip}:8080/api/tools/execute"
+        except Exception:
+            # If detection fails, log warning but continue
+            pass
+    
+    # Default: use localhost:8000 (web backend default port)
+    # This works for local setups but NOT for Kubernetes
+    return "http://127.0.0.1:8000/api/tools/execute"
+
 def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000, use_async: bool = False, callback=None, result_file: str = None, max_poll_time: float = None) -> str:
     """
     Call the deep AI model (GPT-OSS 20b) for comprehensive analysis.
@@ -403,8 +519,53 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
                         
                         if tool_description:
                             # Update the system message in the payload
+                            tool_calling_instructions = """
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 HOW TO CALL TOOLS (CRITICAL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When you need to use tools, you MUST use the function calling interface by including tool calls in the "tool_calls" field of your response message.
+
+CORRECT FORMAT - Your response message should have this structure:
+{
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+    {
+      "id": "call_abc123",
+      "type": "function",
+      "function": {
+        "name": "gtd_read_daily_log",
+        "arguments": "{\"date\": \"2025-01-05\"}"
+      }
+    }
+  ]
+}
+
+IMPORTANT DETAILS:
+- The "tool_calls" field is an ARRAY of tool call objects
+- Each tool call has: "id", "type" (always "function"), and "function"
+- The "function" object has: "name" (tool name) and "arguments" (JSON string)
+- The "arguments" field must be a JSON STRING, not a JSON object
+- Set "content" to null when making tool calls
+
+WRONG FORMATS (DO NOT USE):
+❌ {"name": "gtd_read_daily_log", "arguments": {"date": "2025-01-05"}} in content field
+❌ Describing tools in text like "I would call gtd_read_daily_log..."
+❌ Returning JSON strings in the "content" field"""
+                            
                             if payload.get("messages") and len(payload["messages"]) > 0:
-                                payload["messages"][0]["content"] = system_prompt + "\n\nCRITICAL: You have access to tools/functions to interact with the user's GTD system." + tool_description + "\n\nIMPORTANT RULES FOR TOOL USAGE:\n1. When the user asks about their tasks, logs, projects, dates, or asks you to create tasks, you MUST USE THE AVAILABLE TOOLS by calling them through the function calling interface (NOT by describing them in text).\n2. NEVER describe what you would do with tools - ACTUALLY CALL THE TOOLS using the function calling format.\n3. NEVER make up or fabricate data - if you don't have actual data from the tools, you must CALL the tools first to get real data.\n4. NEVER claim to have access to data unless you have actually CALLED the tools to retrieve it.\n5. The tools are provided in the function calling interface - USE THE FUNCTION CALLING MECHANISM, not text descriptions. Do NOT output tool names like 'gtd_get_datetime(\"today\")' in your text - instead, USE the function calling interface to actually call the tool.\n6. If the user asks about their daily logs, tasks, or projects, you MUST CALL the appropriate tool (gtd_read_daily_log, gtd_list_tasks, etc.) through the function calling interface before responding.\n7. DATE HANDLING: ALWAYS call gtd_get_datetime through the function calling interface for any date-related questions. For relative dates, pass the relative date string directly to the tool (e.g., call gtd_get_datetime with '3 days ago' to get that date). Examples: call gtd_get_datetime('today'), call gtd_get_datetime('yesterday'), call gtd_get_datetime('3 days ago'). NEVER calculate or guess dates yourself - always USE the function calling interface to call the tool.\n\nREMEMBER: Use the function calling interface to CALL tools, not text descriptions. Do not output tool calls as text - use the actual function calling mechanism."
+                                payload["messages"][0]["content"] = system_prompt + "\n\nYou have access to tools/functions to interact with the user's GTD system." + tool_description + tool_calling_instructions
+                        
+                        # Add callback URL for tool execution
+                        callback_url = get_tool_callback_url()
+                        if callback_url:
+                            payload["callback_url"] = callback_url
+                            try:
+                                with open(log_file, "a", encoding="utf-8") as f:
+                                    f.write(f"  -> ✅ Callback URL: {callback_url}\n")
+                            except Exception:
+                                pass
                         
                         try:
                             with open(log_file, "a", encoding="utf-8") as f:
@@ -735,8 +896,53 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
                 
                 if tool_description:
                     # Update the system message in the payload
+                    tool_calling_instructions = """
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 HOW TO CALL TOOLS (CRITICAL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When you need to use tools, you MUST use the function calling interface by including tool calls in the "tool_calls" field of your response message.
+
+CORRECT FORMAT - Your response message should have this structure:
+{
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+    {
+      "id": "call_abc123",
+      "type": "function",
+      "function": {
+        "name": "gtd_read_daily_log",
+        "arguments": "{\"date\": \"2025-01-05\"}"
+      }
+    }
+  ]
+}
+
+IMPORTANT DETAILS:
+- The "tool_calls" field is an ARRAY of tool call objects
+- Each tool call has: "id", "type" (always "function"), and "function"
+- The "function" object has: "name" (tool name) and "arguments" (JSON string)
+- The "arguments" field must be a JSON STRING, not a JSON object
+- Set "content" to null when making tool calls
+
+WRONG FORMATS (DO NOT USE):
+❌ {"name": "gtd_read_daily_log", "arguments": {"date": "2025-01-05"}} in content field
+❌ Describing tools in text like "I would call gtd_read_daily_log..."
+❌ Returning JSON strings in the "content" field"""
+                    
                     if payload.get("messages") and len(payload["messages"]) > 0:
-                        payload["messages"][0]["content"] = system_prompt + "\n\nCRITICAL: You have access to tools/functions to interact with the user's GTD system." + tool_description + "\n\nIMPORTANT RULES FOR TOOL USAGE:\n1. When the user asks about their tasks, logs, projects, dates, or asks you to create tasks, you MUST USE THE AVAILABLE TOOLS by calling them through the function calling interface (NOT by describing them in text).\n2. NEVER describe what you would do with tools - ACTUALLY CALL THE TOOLS using the function calling format.\n3. NEVER make up or fabricate data - if you don't have actual data from the tools, you must CALL the tools first to get real data.\n4. NEVER claim to have access to data unless you have actually CALLED the tools to retrieve it.\n5. The tools are provided in the function calling interface - USE THE FUNCTION CALLING MECHANISM, not text descriptions. Do NOT output tool names like 'gtd_get_datetime(\"today\")' in your text - instead, USE the function calling interface to actually call the tool.\n6. If the user asks about their daily logs, tasks, or projects, you MUST CALL the appropriate tool (gtd_read_daily_log, gtd_list_tasks, etc.) through the function calling interface before responding.\n7. DATE HANDLING: ALWAYS call gtd_get_datetime through the function calling interface for any date-related questions. For relative dates, pass the relative date string directly to the tool (e.g., call gtd_get_datetime with '3 days ago' to get that date). Examples: call gtd_get_datetime('today'), call gtd_get_datetime('yesterday'), call gtd_get_datetime('3 days ago'). NEVER calculate or guess dates yourself - always USE the function calling interface to call the tool.\n\nREMEMBER: Use the function calling interface to CALL tools, not text descriptions. Do not output tool calls as text - use the actual function calling mechanism."
+                        payload["messages"][0]["content"] = system_prompt + "\n\nYou have access to tools/functions to interact with the user's GTD system." + tool_description + tool_calling_instructions
+                
+                # Add callback URL for tool execution
+                callback_url = get_tool_callback_url()
+                if callback_url:
+                    payload["callback_url"] = callback_url
+                    try:
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"  -> ✅ Callback URL: {callback_url}\n")
+                    except Exception:
+                        pass
                 
                 try:
                     with open(log_file, "a", encoding="utf-8") as f:

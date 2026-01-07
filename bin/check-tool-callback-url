@@ -1,0 +1,70 @@
+#!/bin/bash
+# Check tool callback URL configuration and connectivity
+
+echo "🔍 Checking Tool Callback URL Configuration"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Get callback URL from Python
+CALLBACK_URL=$(cd ~/code/dotfiles && python3 << 'PYTHON_EOF'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "mcp"))
+from gtd_deep_analysis_worker import get_tool_callback_url
+print(get_tool_callback_url())
+PYTHON_EOF
+)
+
+echo "Current Callback URL: $CALLBACK_URL"
+echo ""
+
+# Check if URL is valid
+if [[ -z "$CALLBACK_URL" ]]; then
+    echo "❌ No callback URL configured"
+    exit 1
+fi
+
+if [[ ! "$CALLBACK_URL" =~ ^https?:// ]]; then
+    echo "❌ Invalid URL format: $CALLBACK_URL"
+    echo "   Should start with http:// or https://"
+    exit 1
+fi
+
+echo "✅ URL format is valid"
+echo ""
+
+# Test connectivity
+echo "Testing connectivity..."
+if [[ "$CALLBACK_URL" =~ ^https:// ]]; then
+    # Use -k to skip SSL verification for self-signed certs
+    RESPONSE=$(curl -s -k -X POST "$CALLBACK_URL" \
+        -H "Content-Type: application/json" \
+        -d '{"type":"tool_execution","tool_calls":[{"id":"test","function":{"name":"gtd_get_datetime","arguments":"{\"relative_date\":\"yesterday\"}"}}]}' \
+        -w "\nHTTP_CODE:%{http_code}" 2>&1)
+else
+    RESPONSE=$(curl -s -X POST "$CALLBACK_URL" \
+        -H "Content-Type: application/json" \
+        -d '{"type":"tool_execution","tool_calls":[{"id":"test","function":{"name":"gtd_get_datetime","arguments":"{\"relative_date\":\"yesterday\"}"}}]}' \
+        -w "\nHTTP_CODE:%{http_code}" 2>&1)
+fi
+
+HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
+
+if [[ "$HTTP_CODE" == "200" ]]; then
+    echo "✅ Connection successful (HTTP $HTTP_CODE)"
+    echo ""
+    echo "Response preview:"
+    echo "$BODY" | head -5
+else
+    echo "❌ Connection failed (HTTP $HTTP_CODE)"
+    echo ""
+    echo "Response:"
+    echo "$BODY" | head -10
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Recent callback requests from Kubernetes:"
+tail -50 /tmp/gtd-wizard-api.log 2>/dev/null | grep "100\.64\.178\.53.*tools/execute" | tail -5 || echo "No recent requests found"

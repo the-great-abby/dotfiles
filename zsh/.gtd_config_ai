@@ -40,6 +40,10 @@ OLLAMA_INSTRUCT_MODEL="${OLLAMA_INSTRUCT_MODEL:-llama3.1:8b-instruct-q6_K}"
 # These settings override the defaults above based on GTD_COMPUTER_MODE
 # Use this to have different AI systems/models for work vs home computers
 
+# Callback URL for Ollama Controller tool execution
+# Use Tailscale domain for Kubernetes access (most reliable)
+# Or use node IP if Tailscale not available
+GTD_TOOL_CALLBACK_URL="https://abbys-macbook-air.tailf0befd.ts.net:8443/api/tools/execute"
 # Work Mode Configuration (when GTD_COMPUTER_MODE="work")
 # Example: Use Ollama with different models for work
 WORK_AI_BACKEND="${WORK_AI_BACKEND:-ollama}"

@@ -34,6 +34,122 @@ except ImportError:
     sys.path.insert(0, str(dotfiles_dir / "zsh" / "functions"))
     from gtd_tool_registry import execute_tool, get_tool_definitions
 
+# Helper function to get callback URL for tool execution
+def get_tool_callback_url() -> Optional[str]:
+    """Get the callback URL for tool execution from config or environment.
+    
+    For Kubernetes (Ollama Controller), detects accessible URL (Tailscale or node IP).
+    For local setups, uses localhost.
+    
+    Returns:
+        Callback URL string if configured, None otherwise
+    """
+    # Check environment variable first
+    callback_url = os.getenv("GTD_TOOL_CALLBACK_URL")
+    if callback_url:
+        return callback_url
+    
+    # Check config files
+    config_paths = [
+        Path.home() / ".gtd_config_ai",
+        Path.home() / ".gtd_config",
+        dotfiles_dir / "zsh" / ".gtd_config_ai",
+        dotfiles_dir / "zsh" / ".gtd_config",
+    ]
+    
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip().strip('"').strip("'")
+                            if key == "GTD_TOOL_CALLBACK_URL":
+                                return value
+            except Exception:
+                continue
+    
+    # Check if we're using Ollama Controller (Kubernetes)
+    # If so, we need a URL accessible from Kubernetes pods
+    is_ollama_controller = ":31080" in TOOL_CALLING_MODEL_URL or "31080" in TOOL_CALLING_MODEL_URL
+    
+    if is_ollama_controller:
+        # Try Tailscale domain first (most reliable for Kubernetes access)
+        tailscale_domain = os.getenv("GTD_TAILSCALE_DOMAIN", "")
+        if not tailscale_domain:
+            # Check config files for Tailscale domain
+            for config_path in config_paths:
+                if config_path.exists():
+                    try:
+                        with open(config_path) as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#') and '=' in line:
+                                    key, value = line.split('=', 1)
+                                    key = key.strip()
+                                    value = value.strip().strip('"').strip("'")
+                                    if key == "GTD_TAILSCALE_DOMAIN":
+                                        tailscale_domain = value
+                                        break
+                    except Exception:
+                        continue
+        
+        if tailscale_domain:
+            # Use Tailscale domain with nginx port (8080)
+            return f"http://{tailscale_domain}:8080/api/tools/execute"
+        
+        # Fall back to detecting Kubernetes node IP
+        try:
+            import subprocess
+            # Try to detect node IP
+            node_ip = None
+            
+            # Check for minikube
+            try:
+                result = subprocess.run(
+                    ["minikube", "ip"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                if result.returncode == 0:
+                    node_ip = result.stdout.strip()
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+            
+            # Check kubectl for node IP
+            if not node_ip:
+                try:
+                    result = subprocess.run(
+                        ["kubectl", "get", "nodes", "-o", "jsonpath={.items[0].status.addresses[?(@.type==\"InternalIP\")].address}"],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        detected_ip = result.stdout.strip()
+                        # For Docker Desktop, use 127.0.0.1
+                        if detected_ip == "127.0.0.1" or detected_ip.startswith("192.168"):
+                            node_ip = "127.0.0.1"
+                        else:
+                            node_ip = detected_ip
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
+            
+            if node_ip:
+                # Use node IP with nginx port (8080)
+                return f"http://{node_ip}:8080/api/tools/execute"
+        except Exception:
+            # If detection fails, log warning but continue
+            pass
+    
+    # Default: use localhost:8000 (web backend default port)
+    # This works for local setups but NOT for Kubernetes
+    return "http://127.0.0.1:8000/api/tools/execute"
+
 # Read tool calling model name from config
 def get_tool_calling_model_name() -> str:
     """Get the tool calling model name from config."""
@@ -234,6 +350,14 @@ def call_tool_calling_model(
             payload["priority"] = int(priority)
         except (ValueError, TypeError):
             payload["priority"] = 30  # Fallback to 30 if invalid
+        
+        # Add callback URL if using Ollama Controller and tools are present
+        is_ollama_controller = ":31080" in TOOL_CALLING_MODEL_URL or "31080" in TOOL_CALLING_MODEL_URL
+        if tools and is_ollama_controller:
+            callback_url = get_tool_callback_url()
+            if callback_url:
+                payload["callback_url"] = callback_url
+                print(f"  🔗 Callback URL: {callback_url}", file=sys.stderr, flush=True)
         
         # Log payload details for debugging
         tool_names_in_payload = []
@@ -805,38 +929,95 @@ def process_with_two_model_loop(
 
 {persona_system_prompt}
 
-CRITICAL INSTRUCTIONS - YOU MUST FOLLOW THESE RULES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 YOUR PRIMARY TASK:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Answer the user's question by calling the appropriate tools to get current, accurate data.
 
-1. YOU MUST USE THE FUNCTION CALLING INTERFACE - The backend provides tools in the "tools" parameter. Use the "tool_calls" field in your response.
-2. NEVER return tool calls as JSON strings in the "content" field - ALWAYS use the structured "tool_calls" field instead
-3. When the user asks about logs, tasks, dates, or projects, you MUST call the appropriate tool(s) using function calling
-4. For questions about multiple days of logs, call gtd_read_daily_log multiple times (once per day) or use gtd_get_datetime first to get the dates
-5. If the user asks "what were the past X days", you MUST call gtd_read_daily_log for each of those days
-6. After calling tools, your response will be processed by a thinking model that will use the tool results
-7. DO NOT provide text responses in the "content" field - ONLY use "tool_calls" to call functions
-8. The backend supports function calling - use it! Do NOT write JSON strings describing what you would do
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 HOW TO CALL TOOLS (CRITICAL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When you need to use tools, you MUST use the function calling interface by including tool calls in the "tool_calls" field of your response message.
 
-AVAILABLE TOOLS (use function calling interface - tools are provided in the "tools" parameter):
-- gtd_read_daily_log: Read daily log entries for a specific date (YYYY-MM-DD format). For multiple days, call this tool multiple times.
-- gtd_get_datetime: Get date/time information. Use with relative dates like "3 days ago", "yesterday", "today" to calculate dates.
-- gtd_list_tasks: List tasks with filters (context, energy, priority, project, status)
-- gtd_create_task: Create new tasks
-- gtd_list_projects: List projects
+CORRECT FORMAT - Your response message should have this EXACT structure:
+{{
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+    {{
+      "id": "call_abc123",
+      "type": "function",
+      "function": {{
+        "name": "gtd_read_daily_log",
+        "arguments": "{{\\"date\\": \\"2025-01-05\\"}}"
+      }}
+    }}
+  ]
+}}
 
-EXAMPLES:
-- User: "What were the past 5 days of log entries?"
-  → Use function calling to call gtd_get_datetime, then call gtd_read_daily_log 5 times (once for each date)
-  
-- User: "What tasks do I have?"
-  → Use function calling to call gtd_list_tasks
-  
-- User: "What did I do yesterday?"
-  → Use function calling to call gtd_get_datetime with "yesterday", then call gtd_read_daily_log with that date
+CRITICAL RULES:
+1. When making tool calls, "content" MUST be null (not empty string, not text, not reasoning - NULL)
+2. Do NOT include any reasoning, thinking, or explanation in the "content" field
+3. Do NOT include any text before or after tool calls
+4. Do NOT describe what you're going to do - just make the tool calls
+5. Do NOT say "I need to call..." or "Let me check..." - just include the tool_calls field
+6. The "tool_calls" field is an ARRAY of tool call objects
+7. Each tool call has: "id", "type" (always "function"), and "function"
+8. The "function" object has: "name" (tool name) and "arguments" (JSON string)
+9. The "arguments" field must be a JSON STRING (double-encoded), not a JSON object
 
-REMEMBER: 
-- Use the function calling interface (tool_calls field), NOT text JSON in content field
-- The backend will execute your function calls automatically
-- Do NOT write JSON strings - use the structured tool_calls format"""
+WRONG FORMATS (DO NOT USE):
+❌ Saying "I need to call tools" or "Let me check..." in content field
+❌ Including reasoning text like "Wait, I need to call..." in content field
+❌ Describing what you're going to do instead of actually doing it
+❌ {{"name": "gtd_read_daily_log", "arguments": {{"date": "2025-01-05"}}}} in content field
+❌ Describing tools in text like "I would call gtd_read_daily_log..."
+❌ Returning JSON strings in the "content" field
+❌ Setting content to empty string "" - it must be null
+❌ Including any text explanation before or after tool calls
+
+EXAMPLE - User asks "What were the log entries for yesterday?"
+✅ CORRECT: {{"role": "assistant", "content": null, "tool_calls": [{{"id": "call_1", "type": "function", "function": {{"name": "gtd_get_datetime", "arguments": "{{\\"relative_date\\": \\"yesterday\\"}}"}}}}]}}
+❌ WRONG: {{"role": "assistant", "content": "I need to call gtd_get_datetime to get yesterday's date", "tool_calls": [...]}}
+❌ WRONG: {{"role": "assistant", "content": "Let me check the date first..."}}
+❌ WRONG: Any text in content field when making tool calls
+
+CRITICAL: You MUST call tools to retrieve data. Do not rely on any supplementary context - use tools to get the actual, current information. When you need to call a tool, include it in the tool_calls field immediately - do not describe it first.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 AFTER TOOL EXECUTION (CRITICAL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When tool calls are executed and you receive tool results, you have TWO options:
+
+OPTION 1: If you need MORE data (make another tool call):
+- Include "tool_calls" field with the next tool call
+- Set "content" to null
+- Do NOT describe what you're going to do - just make the tool call
+- Example: After getting date from gtd_get_datetime, immediately call gtd_read_daily_log
+
+OPTION 2: If you have ALL the data needed (provide final answer):
+- Include "content" field with your answer (NOT null, NOT empty)
+- Do NOT include "tool_calls" field
+- Answer the user's question using the tool results
+
+IMPORTANT RULES:
+- If you need more data, make another tool call - do NOT describe it in content
+- Do NOT say "I need to call..." or "Let me check..." - just make the tool call
+- Only provide final answer when you have all the data you need
+- Never return empty content - either make a tool call or provide the answer
+
+EXAMPLE FLOW:
+1. User asks: "What were the log entries for yesterday?"
+2. You make tool call: {{"role": "assistant", "content": null, "tool_calls": [{{"id": "call_1", "type": "function", "function": {{"name": "gtd_get_datetime", "arguments": "{{\\"relative_date\\": \\"yesterday\\"}}"}}}}]}}
+3. You receive tool result: {{"date": "2026-01-05", ...}}
+4. You make another tool call: {{"role": "assistant", "content": null, "tool_calls": [{{"id": "call_2", "type": "function", "function": {{"name": "gtd_read_daily_log", "arguments": "{{\\"date\\": \\"2026-01-05\\"}}"}}}}]}}
+5. You receive tool result: "Log entries for 2026-01-05: ..."
+6. You MUST generate final response: {{"role": "assistant", "content": "Based on the log entries for yesterday (2026-01-05), here's what you recorded: ..."}}
+
+WRONG: After receiving tool result, saying "Now I need to call gtd_read_daily_log..." in content field
+RIGHT: After receiving tool result, immediately make the next tool call with content: null
+
+CRITICAL: Never return empty content after receiving tool results. Either make another tool call or provide the complete answer."""
     
     # Log the tool calling system prompt
     print(f"📝 Tool calling system prompt (first 500 chars):", file=sys.stderr, flush=True)
@@ -861,23 +1042,32 @@ CONTEXT PRIORITY AND RELEVANCE:
 
 IMPORTANT: When multiple sources of context are provided, prioritize them as follows:
 
-1. **TOOL RESULTS (HIGH PRIORITY - ~50% relevance)**: 
+1. **USER REQUEST (HIGHEST PRIORITY)**: 
+   - The user's specific question is the PRIMARY focus
+   - You MUST answer this question directly
+   - If tools are available, you MUST call them to get current data
+   - Do NOT rely on supplementary context to answer the user's question
+
+2. **TOOL RESULTS (HIGH PRIORITY - PRIMARY DATA SOURCE)**: 
    - Tool execution results (from functions like gtd_read_daily_log, gtd_list_tasks, etc.) are the PRIMARY source of information
    - These results come from direct lookups and should be given HIGHEST PRIORITY
    - When tool results are available, they should be the PRIMARY basis for your answer
    - Tool results are more reliable and directly answer the user's question
+   - Always prefer tool results over any other context
 
-2. **VECTOR SEARCH CONTEXT (LOWER PRIORITY - ~50% relevance)**: 
-   - Vector search results (from knowledge base) are SECONDARY and should be used as SUPPLEMENTARY information
-   - These results may be less directly relevant to the current question
-   - Use vector context to provide additional context or background, but prioritize tool results when both are available
-   - If tool results directly answer the question, vector context should be used only for additional insights
+3. **VECTOR SEARCH CONTEXT (LOW PRIORITY - ~25% relevance)**: 
+   - Vector search results (from knowledge base) are SECONDARY and should be used as SUPPLEMENTARY information only
+   - These results may be outdated, incomplete, or less directly relevant (~25% relevance)
+   - Use vector context ONLY for background information or additional insights
+   - NEVER use vector context as the primary source to answer the user's question
+   - If tool results are available, vector context should be used minimally or not at all
 
 When both tool results and vector context are provided:
-- Base your answer PRIMARILY on tool results
-- Use vector context as supplementary information only
-- If tool results directly answer the question, you may not need to reference vector context heavily
-- If there's a conflict, trust tool results over vector context
+- Base your answer PRIMARILY on tool results (75%+ of your answer should come from tools)
+- Use vector context as supplementary information only (25% or less)
+- If tool results directly answer the question, you may not need to reference vector context at all
+- If there's a conflict, ALWAYS trust tool results over vector context
+- If no tool results are available, you MUST call tools first before using vector context
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
 
@@ -886,13 +1076,16 @@ When both tool results and vector context are provided:
 {persona_system_prompt}
 {context_weighting_note}
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 USER REQUEST (HIGHEST PRIORITY):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{user_question}
+
 You receive tool execution results and need to:
 1. Analyze the tool results (if any were provided) - these are HIGH PRIORITY
-2. Determine if additional tools are needed to fully answer the user's question
+2. Determine if additional tools are needed to fully answer the user's question above
 3. If NO tool results were provided, or if the tool results don't contain enough information, respond with ONLY this JSON: {{"needs_more_processing": true, "reason": "brief reason why more tools are needed"}}
-4. If you have enough information from the tool results, provide a complete, helpful answer
-
-The user's question: {user_question}
+4. If you have enough information from the tool results, provide a complete, helpful answer to the user's question above
 
 CRITICAL RULES: 
 - If no tool results were provided above, you MUST return {{"needs_more_processing": true, "reason": "Tools need to be called"}}
@@ -926,7 +1119,14 @@ After reviewing tool results, either:
     for iteration in range(max_iterations):
         print(f"\n🔄 Two-model loop iteration {iteration + 1}/{max_iterations}", file=sys.stderr, flush=True)
         # Step 1: Call tool calling model
-        user_prompt_for_this_iteration = user_question if iteration == 0 else "Additional tools needed based on previous results"
+        if iteration == 0:
+            # First iteration: emphasize the user's question prominently
+            user_prompt_for_this_iteration = f"""🎯 USER REQUEST (HIGHEST PRIORITY):
+{user_question}
+
+CRITICAL: You MUST call the appropriate tools to get current, accurate data to answer this question. Do not rely on any other context - use tools to retrieve the actual information."""
+        else:
+            user_prompt_for_this_iteration = "Additional tools needed based on previous results"
         print(f"📞 Calling tool calling model with prompt: {user_prompt_for_this_iteration[:100]}{'...' if len(user_prompt_for_this_iteration) > 100 else ''}", file=sys.stderr, flush=True)
         print(f"  📦 Passing {len(tools_list)} tool definition(s) to model", file=sys.stderr, flush=True)
         tool_response, tool_calls, error = call_tool_calling_model(

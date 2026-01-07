@@ -468,22 +468,42 @@ def _gtd_read_daily_log_handler(date: Optional[str] = None) -> str:
             date = datetime.now().strftime("%Y-%m-%d")
         
         log_dir = Path.home() / "Documents" / "daily_logs"
-        log_file = log_dir / f"{date}.txt"
         
-        if log_file.exists():
-            with open(log_file, 'r') as f:
+        # Try both .md and .txt extensions (check .md first as it's more common)
+        log_file = None
+        for ext in [".md", ".txt"]:
+            candidate = log_dir / f"{date}{ext}"
+            if candidate.exists():
+                log_file = candidate
+                break
+        
+        if log_file and log_file.exists():
+            with open(log_file, 'r', encoding='utf-8') as f:
                 content = f.read()
             return json.dumps({
                 "date": date,
                 "content": content,
-                "entry_count": len([l for l in content.split('\n') if l.strip() and not l.strip().startswith('#')])
+                "entry_count": len([l for l in content.split('\n') if l.strip() and not l.strip().startswith('#')]),
+                "file_found": str(log_file.name)
             })
         else:
+            # Check if directory exists
+            if not log_dir.exists():
+                return json.dumps({
+                    "date": date,
+                    "content": "",
+                    "entry_count": 0,
+                    "error": f"Log directory not found: {log_dir}"
+                })
+            # Check what files exist for debugging
+            existing_files = list(log_dir.glob(f"{date}.*"))
             return json.dumps({
                 "date": date,
                 "content": "",
                 "entry_count": 0,
-                "note": "Log file not found"
+                "note": f"Log file not found for {date}. Tried: {date}.md and {date}.txt",
+                "log_directory": str(log_dir),
+                "existing_files_for_date": [f.name for f in existing_files] if existing_files else []
             })
     except Exception as e:
         return f"Error reading daily log: {str(e)}"

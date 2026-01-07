@@ -264,6 +264,40 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
         # Normal or simple mode - use persona-specific prompt
         system_prompt = get_persona_system_prompt(persona, mode)
     
+    # Add critical instructions for tool execution and final response
+    system_prompt += f"""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 TOOL EXECUTION INSTRUCTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When you need to use tools, include tool calls in the "tool_calls" field with "content": null.
+
+CRITICAL: Do NOT describe what you're going to do - just make the tool calls. Do NOT say "I need to call..." or "Let me check..." - just include the tool_calls field immediately.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 AFTER TOOL EXECUTION (CRITICAL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When tool calls are executed and you receive tool results, you have TWO options:
+
+OPTION 1: If you need MORE data (make another tool call):
+- Include "tool_calls" field with the next tool call
+- Set "content" to null
+- Do NOT describe what you're going to do - just make the tool call
+- Example: After getting date from gtd_get_datetime, immediately call gtd_read_daily_log
+
+OPTION 2: If you have ALL the data needed (provide final answer):
+- Include "content" field with your answer (NOT null, NOT empty)
+- Do NOT include "tool_calls" field
+- Answer the user's question using the tool results
+
+IMPORTANT RULES:
+- If you need more data, make another tool call - do NOT describe it in content
+- Do NOT say "I need to call..." or "Let me check..." - just make the tool call
+- Only provide final answer when you have all the data you need
+- Never return empty content - either make a tool call or provide the answer
+
+CRITICAL: Never return empty content after receiving tool results. Either make another tool call or provide the complete answer."""
+    
     # Build user prompt
     user_prompt = question
     
@@ -339,23 +373,32 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
             vector_context = ""
     
     # Enhance prompt with vector database context
-    # Note: Vector context should be treated as supplementary (~50% relevance)
-    # Tool execution results (from function calls) should be given higher priority
+    # Note: Vector context should be treated as supplementary (~25% relevance)
+    # Tool execution results (from function calls) should be given highest priority
+    # User request should be most prominent
     enhanced_prompt = user_prompt
     if vector_context:
-        enhanced_prompt = f"""{user_prompt}
+        enhanced_prompt = f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 USER REQUEST (HIGHEST PRIORITY - PRIMARY FOCUS):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{user_prompt}
+
+CRITICAL: You MUST answer this specific question. If you have access to tool functions (like gtd_read_daily_log, gtd_list_tasks, gtd_get_datetime, etc.), you MUST call them to get the actual data. Do NOT rely on supplementary context below to answer this question - use tools to retrieve the real, current data.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SUPPLEMENTARY CONTEXT (from knowledge base search):
+📚 SUPPLEMENTARY CONTEXT (LOW PRIORITY - ~25% relevance):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-NOTE: This context is from vector search and should be treated as SUPPLEMENTARY information (~50% relevance).
-If you have access to tool functions (like gtd_read_daily_log, gtd_list_tasks, etc.), prioritize results from those tools over this vector context.
-When tool results are available, they should be the PRIMARY source of information.
+NOTE: This context is from vector search and should be treated as SUPPLEMENTARY information only (~25% relevance).
+This context may be outdated, incomplete, or less directly relevant. 
+- If you have access to tools, you MUST call them to get current data
+- Only use this context for background information or additional insights
+- NEVER use this context as the primary source to answer the user's question
+- Tool execution results are ALWAYS more reliable and should be used instead
 
 {vector_context}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Please use the information above to provide a comprehensive answer. If you have tool execution results, prioritize those over the vector context above."""
+Remember: Answer the user's question using tool calls to get current data. Use supplementary context only for additional background information."""
     
     # Run advice request using deep model
     start_time = datetime.now()
@@ -433,6 +476,67 @@ Please use the information above to provide a comprehensive answer. If you have 
                 message = polled_result['choices'][0].get('message', {})
                 advice_output = message.get('content', '')
                 finish_reason = polled_result['choices'][0].get('finish_reason', '')
+                
+                # Check if content is a JSON string (model returned structured data as text)
+                if advice_output and advice_output.strip().startswith('{'):
+                    try:
+                        # Try to parse as JSON
+                        parsed_content = json.loads(advice_output.strip())
+                        # If it's a message object, extract the actual content
+                        if isinstance(parsed_content, dict):
+                            if 'content' in parsed_content:
+                                advice_output = parsed_content.get('content', '')
+                            elif 'role' in parsed_content and 'content' in parsed_content:
+                                # It's a message object
+                                advice_output = parsed_content.get('content', '')
+                            elif 'function' in parsed_content:
+                                # It's a tool call JSON - this should be handled by tool_calls field, not content
+                                # Log this as an error case - model is returning tool calls in content instead of tool_calls field
+                                log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                                try:
+                                    with open(log_file, "a", encoding="utf-8") as f:
+                                        f.write(f"[{datetime.now().isoformat()}] gtd_advice_worker - Tool call in content field (should be in tool_calls)\n")
+                                        f.write(f"  -> Parsed content: {json.dumps(parsed_content, indent=2)}\n")
+                                        f.write(f"  -> This indicates the model is not using the tool_calls field correctly\n")
+                                except Exception:
+                                    pass
+                                # Don't extract this as content - it's a tool call that should be executed
+                                # We'll handle this below in the tool call detection section
+                                advice_output = ""  # Clear it so it gets handled as empty content with tool calls
+                    except (json.JSONDecodeError, ValueError):
+                        # Not valid JSON, use as-is
+                        pass
+                
+                # Check for empty content even when choices exist
+                if not advice_output or len(advice_output.strip()) == 0:
+                    log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                    
+                    # Check if tool calls were made (Ollama Controller indicates this)
+                    tool_calls_made = polled_result.get('tool_calls_made', 0) if isinstance(polled_result, dict) else 0
+                    tool_iterations = polled_result.get('tool_iterations', 0) if isinstance(polled_result, dict) else 0
+                    
+                    try:
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"[{datetime.now().isoformat()}] gtd_advice_worker - Empty content in response\n")
+                            f.write(f"  -> Finish reason: {finish_reason}\n")
+                            f.write(f"  -> Message keys: {list(message.keys())}\n")
+                            if 'tool_calls' in message:
+                                tool_calls = message.get('tool_calls', [])
+                                f.write(f"  -> Tool calls present: {len(tool_calls)} tool call(s)\n")
+                            if tool_calls_made > 0:
+                                f.write(f"  -> ⚠️  Tool calls were made (tool_calls_made: {tool_calls_made}, tool_iterations: {tool_iterations})\n")
+                                f.write(f"  -> This suggests tool calls were executed but model didn't generate final response\n")
+                            response_json = json.dumps(polled_result, indent=2, default=str)
+                            f.write(f"  -> Full response (first 2000 chars): {response_json[:2000]}\n")
+                    except Exception:
+                        pass
+                    
+                    # If tool calls were made but content is empty, this is a known issue
+                    # The Ollama Controller executed tool calls but the model didn't generate a final response
+                    if tool_calls_made > 0:
+                        advice_output = f"⚠️  Tool calls were executed ({tool_calls_made} call(s), {tool_iterations} iteration(s)), but the model returned empty content.\n\nThis indicates:\n- Tool calls were successfully executed via the callback URL\n- The model received tool results but failed to generate a final response\n- This may be a model issue or a timeout\n\nPlease try the request again, or check if the tool results were correct."
+                    else:
+                        advice_output = f"⚠️  Model returned empty content (finish_reason: {finish_reason}). This might indicate:\n- The model failed to generate content\n- Tool calls were made but not processed correctly\n- There was an issue with the request\n\nPlease check the logs for more details."
             elif polled_result and 'choices' in polled_result and len(polled_result.get('choices', [])) == 0:
                 # Empty choices array - might be a completed response with no content
                 advice_output = "Error: Received empty response from AI (choices array is empty). The request may have completed but returned no content."
@@ -504,8 +608,15 @@ Please use the information above to provide a comprehensive answer. If you have 
                         try:
                             # First, try to parse the entire content as JSON
                             tool_call_json = json.loads(advice_output.strip())
+                            # Check for different tool call formats
                             if 'tool_call' in tool_call_json:
                                 json_tool_calls.append(tool_call_json['tool_call'])
+                            elif 'function' in tool_call_json:
+                                # Format: {"function": "name", "arguments": {...}}
+                                json_tool_calls.append({
+                                    "name": tool_call_json.get('function', ''),
+                                    "arguments": tool_call_json.get('arguments', {})
+                                })
                         except json.JSONDecodeError:
                             # If that fails, try regex to find JSON object
                             json_match = re.search(r'\{\s*"tool_call"\s*:\s*\{.*?"name"\s*:\s*"[^"]+".*?"arguments"\s*:\s*\{.*?\}.*?\}\s*\}', advice_output, re.DOTALL)
@@ -516,6 +627,19 @@ Please use the information above to provide a comprehensive answer. If you have 
                                         json_tool_calls.append(tool_call_json['tool_call'])
                                 except json.JSONDecodeError:
                                     pass
+                            else:
+                                # Try to find {"function": "...", "arguments": {...}} pattern
+                                function_match = re.search(r'\{\s*"function"\s*:\s*"[^"]+".*?"arguments"\s*:\s*\{.*?\}\s*\}', advice_output, re.DOTALL)
+                                if function_match:
+                                    try:
+                                        tool_call_json = json.loads(function_match.group())
+                                        if 'function' in tool_call_json:
+                                            json_tool_calls.append({
+                                                "name": tool_call_json.get('function', ''),
+                                                "arguments": tool_call_json.get('arguments', {})
+                                            })
+                                    except json.JSONDecodeError:
+                                        pass
                     except Exception as e:
                         # Log error but continue
                         try:
@@ -653,6 +777,15 @@ Please use the information above to provide a comprehensive answer. If you have 
                                 final_message = followup_polled_result['choices'][0].get('message', {})
                                 advice_output = final_message.get('content', '')
                                 finish_reason = followup_polled_result['choices'][0].get('finish_reason', '')
+                                
+                                # Check if content is a JSON string (model returned structured data as text)
+                                if advice_output and advice_output.strip().startswith('{'):
+                                    try:
+                                        parsed_content = json.loads(advice_output.strip())
+                                        if isinstance(parsed_content, dict) and 'content' in parsed_content:
+                                            advice_output = parsed_content.get('content', '')
+                                    except (json.JSONDecodeError, ValueError):
+                                        pass
                             elif followup_polled_result and 'choices' in followup_polled_result and len(followup_polled_result.get('choices', [])) == 0:
                                 advice_output = "Error: Received empty response from AI in followup request (choices array is empty)."
                                 if finish_reason == 'length':
