@@ -2883,6 +2883,8 @@ manage_worker() {
           LOG_FILE="/tmp/dashboard-cache-worker.log"
         elif [[ "$worker_script" == "gtd_calendar_reminder_worker.py" ]]; then
           LOG_FILE="/tmp/calendar-reminder-worker.log"
+        elif [[ "$worker_script" == "gtd_second_brain_sync_worker.py" ]]; then
+          LOG_FILE="/tmp/second-brain-sync-worker.log"
         else
           LOG_FILE="/tmp/${worker_script%.py}.log"
         fi

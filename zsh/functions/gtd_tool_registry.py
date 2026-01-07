@@ -497,13 +497,15 @@ def _gtd_read_daily_log_handler(date: Optional[str] = None) -> str:
                 })
             # Check what files exist for debugging
             existing_files = list(log_dir.glob(f"{date}.*"))
+            # This is not necessarily an error - the log file might just not exist yet for this date
             return json.dumps({
                 "date": date,
                 "content": "",
                 "entry_count": 0,
-                "note": f"Log file not found for {date}. Tried: {date}.md and {date}.txt",
+                "note": f"Log file not found for {date}. This is normal if no log was created for this date. Tried: {date}.md and {date}.txt",
                 "log_directory": str(log_dir),
-                "existing_files_for_date": [f.name for f in existing_files] if existing_files else []
+                "existing_files_for_date": [f.name for f in existing_files] if existing_files else [],
+                "is_error": False  # Not an error, just informational
             })
     except Exception as e:
         return f"Error reading daily log: {str(e)}"
