@@ -51,6 +51,6 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Second Brain Sync Worker" >> "$LOG
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Queue type: $QUEUE_TYPE" >> "$LOG_FILE"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Queue: gtd_second_brain_sync" >> "$LOG_FILE"
 
-# Run worker
-exec "$MCP_PYTHON" "$WORKER_SCRIPT" --queue-type="$QUEUE_TYPE" >> "$LOG_FILE" 2>&1
+# Run worker with unbuffered Python output
+exec "$MCP_PYTHON" -u "$WORKER_SCRIPT" --queue-type="$QUEUE_TYPE" >> "$LOG_FILE" 2>&1
 

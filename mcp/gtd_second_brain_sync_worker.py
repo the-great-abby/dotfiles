@@ -213,12 +213,12 @@ def process_file_queue():
         job = json.loads(first_line)
         
         # Process job
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing sync job: {job.get('sync_type', 'unknown')}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing sync job: {job.get('sync_type', 'unknown')}", flush=True)
         result = process_sync_job(job)
         
         # Save result
         result_file = save_result(result)
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sync complete. Result saved to: {result_file}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sync complete. Result saved to: {result_file}", flush=True)
         
         # Send notification
         send_notification(result, result_file)
@@ -237,7 +237,7 @@ def process_file_queue():
         
         return True
     except json.JSONDecodeError as e:
-        print(f"Error parsing job JSON: {e}", file=sys.stderr)
+        print(f"Error parsing job JSON: {e}", file=sys.stderr, flush=True)
         # Remove invalid line
         with open(QUEUE_FILE, 'r') as f:
             lines = f.readlines()
@@ -248,7 +248,7 @@ def process_file_queue():
             QUEUE_FILE.unlink()
         return False
     except Exception as e:
-        print(f"Error processing file queue: {e}", file=sys.stderr)
+        print(f"Error processing file queue: {e}", file=sys.stderr, flush=True)
         return False
 
 
@@ -277,12 +277,12 @@ def process_rabbitmq_queue():
         job = json.loads(body)
         
         # Process job
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing sync job: {job.get('sync_type', 'unknown')}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing sync job: {job.get('sync_type', 'unknown')}", flush=True)
         result = process_sync_job(job)
         
         # Save result
         result_file = save_result(result)
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sync complete. Result saved to: {result_file}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sync complete. Result saved to: {result_file}", flush=True)
         
         # Send notification
         send_notification(result, result_file)
@@ -300,7 +300,7 @@ def process_rabbitmq_queue():
         # RabbitMQ not available, fall back to file queue
         return False
     except Exception as e:
-        print(f"Error processing RabbitMQ queue: {e}", file=sys.stderr)
+        print(f"Error processing RabbitMQ queue: {e}", file=sys.stderr, flush=True)
         return False
 
 
@@ -328,12 +328,17 @@ def main():
         return
     
     # Continuous mode
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Second Brain Sync Worker")
-    print(f"Queue: {RABBITMQ_QUEUE if queue_type != 'file' else 'file'}")
-    print(f"Queue file: {QUEUE_FILE}")
-    print(f"Results dir: {RESULTS_DIR}")
-    print("Waiting for jobs...")
-    print()
+    # Force unbuffered output for logging
+    import sys
+    sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
+    sys.stderr.reconfigure(line_buffering=True) if hasattr(sys.stderr, 'reconfigure') else None
+    
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Second Brain Sync Worker", flush=True)
+    print(f"Queue: {RABBITMQ_QUEUE if queue_type != 'file' else 'file'}", flush=True)
+    print(f"Queue file: {QUEUE_FILE}", flush=True)
+    print(f"Results dir: {RESULTS_DIR}", flush=True)
+    print("Waiting for jobs...", flush=True)
+    print(flush=True)
     
     while True:
         try:
@@ -353,7 +358,7 @@ def main():
             print("\nShutting down worker...")
             break
         except Exception as e:
-            print(f"Error in worker loop: {e}", file=sys.stderr)
+            print(f"Error in worker loop: {e}", file=sys.stderr, flush=True)
             time.sleep(10)  # Wait before retrying
 
 
