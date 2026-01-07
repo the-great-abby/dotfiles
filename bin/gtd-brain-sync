@@ -49,6 +49,15 @@ fi
 
 # Default values
 # GTD_BASE_DIR is already set by init_gtd_paths in gtd-common.sh (DRY - reuse existing helper)
+# Use SECOND_BRAIN from config if set, otherwise default
+# Note: gtd-common.sh may override this, so we check config again after sourcing
+if [[ -f "$GTD_CONFIG_FILE" ]]; then
+  # Re-read SECOND_BRAIN from config in case gtd-common.sh overrode it
+  local_config_second_brain=$(grep "^SECOND_BRAIN=" "$GTD_CONFIG_FILE" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | sed "s|\$HOME|$HOME|g")
+  if [[ -n "$local_config_second_brain" ]]; then
+    SECOND_BRAIN="$local_config_second_brain"
+  fi
+fi
 SECOND_BRAIN="${SECOND_BRAIN:-$HOME/Documents/obsidian/Second Brain}"
 GTD_PROJECTS_DIR="${GTD_PROJECTS_DIR:-1-projects}"
 GTD_AREAS_DIR="${GTD_AREAS_DIR:-2-areas}"
