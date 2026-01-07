@@ -40,6 +40,12 @@ fi
 # Log file
 LOG_FILE="/tmp/second-brain-sync-worker.log"
 
+# Ensure log file exists and is writable
+touch "$LOG_FILE" 2>/dev/null || {
+  echo "Error: Cannot create or write to log file: $LOG_FILE" >&2
+  exit 1
+}
+
 # Start worker
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Second Brain Sync Worker" >> "$LOG_FILE"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Queue type: $QUEUE_TYPE" >> "$LOG_FILE"
