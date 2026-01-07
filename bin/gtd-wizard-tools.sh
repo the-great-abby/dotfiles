@@ -2338,9 +2338,10 @@ config_wizard() {
   echo "  14) 👷 Manage Background Workers (Start/Stop/Restart)"
   echo "  15) ☸️  Switch Kubernetes Context (Docker Desktop ↔ Rancher Desktop)"
   echo "  16) 🌐 Manage Web Interface Service (Install/Start/Stop/Uninstall)"
+  echo "  17) 🌅 Setup Check-In Suggestions Scheduler (3 AM job for AI suggestions)"
   echo ""
   echo -e "${BOLD}${GREEN}Guided Setup:${NC}"
-  echo "  17) 🚀 Complete Guided Setup (Walk through entire setup process)"
+  echo "  18) 🚀 Complete Guided Setup (Walk through entire setup process)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -5184,6 +5185,158 @@ except:
       manage_web_service
       ;;
     17)
+      # Setup Check-In Suggestions Scheduler
+      clear
+      echo ""
+      echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "${BOLD}${CYAN}🌅 Setup Check-In Suggestions Scheduler${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+      echo "This will install a scheduled job that runs at 3 AM every night to"
+      echo "pre-generate AI suggestions for your morning and evening check-ins."
+      echo ""
+      echo -e "${BOLD}What it does:${NC}"
+      echo "  • Analyzes your recent daily log entries (last 3 days)"
+      echo "  • Generates personalized AI suggestions using Hank (morning) or Louiza (evening)"
+      echo "  • Saves suggestions so they're ready when you run your check-in"
+      echo "  • Runs automatically at 3 AM while you sleep"
+      echo ""
+      echo -e "${BOLD}Benefits:${NC}"
+      echo "  • Suggestions are ready immediately (no waiting during check-in)"
+      echo "  • Uses AI when system is idle (better performance)"
+      echo "  • Consistent suggestions based on your recent activity"
+      echo ""
+      
+      # Check current status
+      if command -v gtd-checkin-suggestions-schedule &>/dev/null; then
+        echo -e "${BOLD}Current Status:${NC}"
+        gtd-checkin-suggestions-schedule status
+        echo ""
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" ]]; then
+        echo -e "${BOLD}Current Status:${NC}"
+        "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" status
+        echo ""
+      else
+        echo -e "${YELLOW}⚠️  gtd-checkin-suggestions-schedule command not found${NC}"
+        echo ""
+      fi
+      
+      echo "What would you like to do?"
+      echo ""
+      echo "  1) Install scheduler (default: 3 AM daily)"
+      echo "  2) Install with custom time"
+      echo "  3) Check status"
+      echo "  4) View logs"
+      echo "  5) Uninstall scheduler"
+      echo "  6) Test run (generate suggestions now)"
+      echo ""
+      echo -e "${YELLOW}0)${NC} Back"
+      echo ""
+      echo -n "Choose: "
+      read scheduler_choice
+      
+      case "$scheduler_choice" in
+        1)
+          echo ""
+          echo "Installing scheduler with default time (3 AM)..."
+          if command -v gtd-checkin-suggestions-schedule &>/dev/null; then
+            gtd-checkin-suggestions-schedule install
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" install
+          else
+            echo -e "${RED}❌ gtd-checkin-suggestions-schedule command not found${NC}"
+            echo ""
+            echo "Expected location: $HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule"
+          fi
+          ;;
+        2)
+          echo ""
+          echo -n "Enter hour (0-23, default 3): "
+          read custom_hour
+          custom_hour="${custom_hour:-3}"
+          echo -n "Enter minute (0-59, default 0): "
+          read custom_minute
+          custom_minute="${custom_minute:-0}"
+          echo ""
+          echo "Installing scheduler for ${custom_hour}:$(printf "%02d" "$custom_minute")..."
+          if command -v gtd-checkin-suggestions-schedule &>/dev/null; then
+            gtd-checkin-suggestions-schedule install --hour "$custom_hour" --minute "$custom_minute"
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" install --hour "$custom_hour" --minute "$custom_minute"
+          else
+            echo -e "${RED}❌ gtd-checkin-suggestions-schedule command not found${NC}"
+          fi
+          ;;
+        3)
+          echo ""
+          if command -v gtd-checkin-suggestions-schedule &>/dev/null; then
+            gtd-checkin-suggestions-schedule status
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" status
+          else
+            echo -e "${RED}❌ gtd-checkin-suggestions-schedule command not found${NC}"
+          fi
+          ;;
+        4)
+          echo ""
+          echo "Recent logs:"
+          echo ""
+          if [[ -f "$HOME/Documents/gtd/checkin_suggestions.log" ]]; then
+            echo -e "${BOLD}Output log:${NC}"
+            tail -20 "$HOME/Documents/gtd/checkin_suggestions.log" 2>/dev/null || echo "  (empty)"
+            echo ""
+          fi
+          if [[ -f "$HOME/Documents/gtd/checkin_suggestions_error.log" ]]; then
+            echo -e "${BOLD}Error log:${NC}"
+            tail -20 "$HOME/Documents/gtd/checkin_suggestions_error.log" 2>/dev/null || echo "  (empty)"
+            echo ""
+          fi
+          if command -v gtd-checkin-suggestions-schedule &>/dev/null; then
+            gtd-checkin-suggestions-schedule logs
+          elif [[ -f "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" logs
+          fi
+          ;;
+        5)
+          echo ""
+          echo -n "Are you sure you want to uninstall? (y/N): "
+          read confirm
+          if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+            if command -v gtd-checkin-suggestions-schedule &>/dev/null; then
+              gtd-checkin-suggestions-schedule uninstall
+            elif [[ -f "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" ]]; then
+              "$HOME/code/dotfiles/bin/gtd-checkin-suggestions-schedule" uninstall
+            else
+              echo -e "${RED}❌ gtd-checkin-suggestions-schedule command not found${NC}"
+            fi
+          else
+            echo "Cancelled"
+          fi
+          ;;
+        6)
+          echo ""
+          echo "Running test generation (this may take a moment)..."
+          echo ""
+          if [[ -f "$HOME/code/dotfiles/bin/gtd-generate-checkin-suggestions" ]]; then
+            "$HOME/code/dotfiles/bin/gtd-generate-checkin-suggestions"
+          elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-generate-checkin-suggestions" ]]; then
+            "$HOME/code/personal/dotfiles/bin/gtd-generate-checkin-suggestions"
+          else
+            echo -e "${RED}❌ gtd-generate-checkin-suggestions script not found${NC}"
+          fi
+          ;;
+        0|"")
+          return 0
+          ;;
+        *)
+          echo "Invalid choice"
+          ;;
+      esac
+      
+      echo ""
+      gtd_enter_to_continue
+      ;;
+    18)
       guided_setup_wizard
       ;;
     0|"")
