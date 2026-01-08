@@ -30,6 +30,8 @@ get_log_inspiration() {
   
   # Use day of year to rotate messages (ensures variety across the year)
   local day_of_year=$(date +%j 2>/dev/null || echo "1")
+  # Strip leading zeros to avoid octal interpretation (bash interprets 008 as octal, which is invalid)
+  day_of_year=$((10#$day_of_year))
   local message_index=$((day_of_year % ${#messages[@]}))
   
   # Fallback to random if day_of_year calculation fails
