@@ -24,6 +24,9 @@ requests>=2.31.0
 beautifulsoup4>=4.12.0
 html2text>=2020.1.16
 
+# Even glasses BLE integration (optional)
+bleak>=0.21.0
+
 # Standard library should cover the rest
 # (json, pathlib, datetime, etc. are built-in)
 

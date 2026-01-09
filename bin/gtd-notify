@@ -28,6 +28,7 @@ fi
 # Default values
 GTD_NOTIFICATIONS="${GTD_NOTIFICATIONS:-true}"
 GTD_NOTIFICATION_METHOD="${GTD_NOTIFICATION_METHOD:-osascript}"
+GTD_EVEN_GLASSES_ENABLED="${GTD_EVEN_GLASSES_ENABLED:-false}"
 
 # Send macOS notification using osascript
 notify_osascript() {
@@ -133,6 +134,37 @@ PYTHON_EOF
   fi
 }
 
+# Send notification to Even glasses
+notify_even_glasses() {
+  local title="$1"
+  local message="$2"
+  local subtitle="${3:-}"
+  
+  if [[ "$GTD_EVEN_GLASSES_ENABLED" != "true" ]]; then
+    return 0
+  fi
+  
+  # Check if Python script exists
+  local script_path="$HOME/code/dotfiles/bin/gtd_even_glasses.py"
+  if [[ ! -f "$script_path" && -f "$HOME/code/personal/dotfiles/bin/gtd_even_glasses.py" ]]; then
+    script_path="$HOME/code/personal/dotfiles/bin/gtd_even_glasses.py"
+  fi
+  
+  if [[ ! -f "$script_path" ]]; then
+    echo "⚠️  Even glasses script not found: $script_path" >&2
+    return 1
+  fi
+  
+  # Build arguments
+  local args=()
+  [[ -n "$title" ]] && args+=("--title" "$title")
+  [[ -n "$message" ]] && args+=("--message" "$message")
+  [[ -n "$subtitle" ]] && args+=("--subtitle" "$subtitle")
+  
+  # Run Python script in background to avoid blocking
+  python3 "$script_path" "${args[@]}" >/dev/null 2>&1 &
+}
+
 # Main notification function
 send_notification() {
   if [[ "$GTD_NOTIFICATIONS" != "true" ]]; then
@@ -144,6 +176,11 @@ send_notification() {
   local subtitle="${3:-}"
   local sound="${4:-default}"
   
+  # Send to Even glasses if enabled (in addition to primary method)
+  if [[ "$GTD_EVEN_GLASSES_ENABLED" == "true" ]]; then
+    notify_even_glasses "$title" "$message" "$subtitle" &
+  fi
+  
   case "$GTD_NOTIFICATION_METHOD" in
     osascript)
       notify_osascript "$title" "$message" "$subtitle" "$sound"
@@ -153,6 +190,11 @@ send_notification() {
       ;;
     discord)
       notify_discord "$title" "$message" "$subtitle"
+      ;;
+    even_glasses)
+      # Even glasses as primary method (also send to terminal as fallback)
+      notify_even_glasses "$title" "$message" "$subtitle"
+      notify_terminal "$title" "$message" "$subtitle"
       ;;
     *)
       # Default to osascript on macOS, terminal otherwise
@@ -209,6 +251,17 @@ Examples:
 
 Sound options: default, Glass, Ping, Submarine, Basso, Blow, Bottle, Frog, Funk, 
                Hero, Morse, Pop, Purr, Sosumi, Tink, none
+
+Even Glasses Integration:
+  To enable Even glasses notifications, add to your .gtd_config:
+    GTD_EVEN_GLASSES_ENABLED="true"
+  
+  To use Even glasses as primary notification method:
+    GTD_NOTIFICATION_METHOD="even_glasses"
+  
+  To use Even glasses in addition to other methods:
+    GTD_NOTIFICATION_METHOD="osascript"  # or terminal, discord
+    GTD_EVEN_GLASSES_ENABLED="true"
 
 EOF
 }

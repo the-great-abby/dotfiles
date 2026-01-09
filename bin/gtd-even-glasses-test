@@ -1,0 +1,93 @@
+#!/bin/bash
+# Test script for Even glasses connection
+# This script helps diagnose connection issues and test the Even glasses integration
+
+# Source common environment (PATH setup)
+COMMON_ENV="$HOME/code/dotfiles/zsh/common_env.sh"
+if [[ ! -f "$COMMON_ENV" && -f "$HOME/code/personal/dotfiles/zsh/common_env.sh" ]]; then
+  COMMON_ENV="$HOME/code/personal/dotfiles/zsh/common_env.sh"
+fi
+if [[ -f "$COMMON_ENV" ]]; then
+  source "$COMMON_ENV"
+fi
+
+# Find Python script
+SCRIPT_PATH="$HOME/code/dotfiles/bin/gtd_even_glasses.py"
+if [[ ! -f "$SCRIPT_PATH" && -f "$HOME/code/personal/dotfiles/bin/gtd_even_glasses.py" ]]; then
+  SCRIPT_PATH="$HOME/code/personal/dotfiles/bin/gtd_even_glasses.py"
+fi
+
+if [[ ! -f "$SCRIPT_PATH" ]]; then
+  echo "❌ Error: gtd_even_glasses.py not found"
+  echo "   Expected: $SCRIPT_PATH"
+  exit 1
+fi
+
+# Check if bleak is installed
+if ! python3 -c "import bleak" 2>/dev/null; then
+  echo "❌ Error: bleak library not installed"
+  echo ""
+  echo "Install with:"
+  echo "  pip3 install bleak"
+  echo ""
+  echo "Or using the MCP virtual environment:"
+  echo "  cd ~/code/dotfiles/mcp"
+  echo "  source venv/bin/activate"
+  echo "  pip install bleak"
+  exit 1
+fi
+
+echo "🧪 Even Glasses Connection Test"
+echo "================================"
+echo ""
+
+# Test 1: Scan for devices
+echo "Test 1: Scanning for Even glasses devices..."
+echo "----------------------------------------------"
+python3 "$SCRIPT_PATH" --scan
+
+if [[ $? -ne 0 ]]; then
+  echo "❌ Scan failed"
+  echo ""
+  echo "Troubleshooting:"
+  echo "  1. Check Bluetooth is enabled"
+  echo "  2. Ensure glasses are powered on"
+  echo "  3. Check glasses are in pairing mode"
+  echo "  4. Try pairing glasses via System Preferences → Bluetooth"
+  exit 1
+fi
+
+echo ""
+echo "✓ Scan completed"
+echo ""
+
+# Test 2: Send test notification
+echo "Test 2: Sending test notification..."
+echo "-------------------------------------"
+python3 "$SCRIPT_PATH" \
+  --title "GTD Test" \
+  --message "This is a test notification from your GTD system" \
+  --subtitle "Connection successful!"
+
+if [[ $? -eq 0 ]]; then
+  echo ""
+  echo "✅ All tests passed!"
+  echo ""
+  echo "Your Even glasses are ready to receive GTD notifications."
+  echo ""
+  echo "To enable in your GTD system, add to ~/.gtd_config or ~/code/dotfiles/zsh/.gtd_config:"
+  echo "  GTD_EVEN_GLASSES_ENABLED=\"true\""
+  echo ""
+else
+  echo ""
+  echo "❌ Test notification failed"
+  echo ""
+  echo "Troubleshooting:"
+  echo "  1. Check glasses are connected and in range"
+  echo "  2. Check macOS Bluetooth permissions"
+  echo "  3. Try pairing glasses via System Preferences → Bluetooth"
+  echo "  4. Check device names match expected values (use --scan to see)"
+  echo "  5. Try running with --verbose for more details:"
+  echo "     python3 $SCRIPT_PATH --verbose --title \"Test\" --message \"Test\""
+  exit 1
+fi

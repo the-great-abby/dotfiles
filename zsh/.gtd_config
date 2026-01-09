@@ -363,8 +363,18 @@ GTD_FUZZY_SEARCH="false"
 # Enable notifications (true/false)
 GTD_NOTIFICATIONS="true"
 
-# Notification method (terminal, osascript, notify-send, discord, etc.)
+# Notification method (terminal, osascript, notify-send, discord, even_glasses, etc.)
 GTD_NOTIFICATION_METHOD="osascript"
+
+# Even Glasses Integration
+# Enable Even glasses notifications (true/false)
+# When enabled, notifications will also be sent to Even AI glasses via BLE
+GTD_EVEN_GLASSES_ENABLED="${GTD_EVEN_GLASSES_ENABLED:-false}"
+
+# Even glasses device names (optional, defaults: Even-G1-L, Even-G1-R)
+# Uncomment and modify if your devices use different names
+# EVEN_GLASSES_LEFT_NAME="Even-G1-L"
+# EVEN_GLASSES_RIGHT_NAME="Even-G1-R"
 
 # Discord webhook URL for notifications (optional)
 # Get this from Discord: Server Settings → Integrations → Webhooks → New Webhook
