@@ -7,7 +7,7 @@
       ],
       "env": {
         "GTD_USER_NAME": "${env:USER}",
-        "GTD_DEEP_MODEL_URL": "http://localhost:1234/v1/chat/completions",
+        "GTD_DEEP_MODEL_URL": "http://127.0.0.1:31080/v1/chat/completions",
         "GTD_DEEP_MODEL_NAME": "gpt-oss-20b",
         "GTD_RABBITMQ_URL": "amqp://192.168.64.2:30672",
         "GTD_RABBITMQ_QUEUE": "gtd_deep_analysis",

@@ -111,22 +111,56 @@ get_ai_suggestions() {
     prompt=$(printf "Based on my recent daily log entries from the last %d days, provide 2-3 brief suggestions for improvement, patterns you notice, and what I should focus on tomorrow. Be encouraging but honest. Keep it concise.\n\nRecent log entries:\n%s" "$days_back" "$log_content")
   fi
   
+  # Check if AI server is available before trying (quick check)
+  # This prevents hanging if the server is down
+  local ai_available=false
+  if curl -s --max-time 2 "http://127.0.0.1:31080/v1/models" >/dev/null 2>&1 || \
+     curl -s --max-time 2 "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
+    ai_available=true
+  fi
+  
+  if [[ "$ai_available" == "false" ]]; then
+    echo "AI server not available" >&2
+    return 1
+  fi
+  
   # Get AI suggestion (persona helper expects prompt as second argument)
   # Use URGENT priority (40) for foreground/interactive requests
   export GTD_REQUEST_PRIORITY=40
   # Use timeout if available to prevent hanging (increased to 30s for controller polling)
   local suggestion=""
+  local exit_code=0
   # Use printf %q to properly quote the prompt for command line
   local quoted_prompt=$(printf '%q' "$prompt")
-  if command -v gtimeout &>/dev/null; then
-    suggestion=$(eval "gtimeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
-  elif command -v timeout &>/dev/null; then
-    suggestion=$(eval "timeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
-  else
-    # No timeout available, just try to get suggestion (may take a while)
-    suggestion=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+  
+  # Use a background process with timeout to prevent hanging
+  local temp_file=$(mktemp)
+  (eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" > "$temp_file" 2>&1) &
+  local pid=$!
+  
+  # Kill the process after 30 seconds if it's still running
+  (sleep 30 && kill $pid 2>/dev/null && echo "timeout" > "$temp_file") &
+  local timeout_pid=$!
+  
+  # Wait for the process to complete
+  wait $pid 2>/dev/null
+  exit_code=$?
+  kill $timeout_pid 2>/dev/null
+  
+  # Read the result
+  if [[ -f "$temp_file" ]]; then
+    suggestion=$(cat "$temp_file" 2>/dev/null)
+    rm -f "$temp_file"
   fi
+  
   unset GTD_REQUEST_PRIORITY
+  
+  # Return failure if we got a timeout or error
+  if [[ "$suggestion" =~ "timeout" ]] || [[ "$suggestion" =~ "Connection refused" ]] || \
+     [[ "$suggestion" =~ "ConnectionError" ]] || [[ "$suggestion" =~ "Connection timed out" ]] || \
+     [[ $exit_code -ne 0 ]]; then
+    return 1
+  fi
   
   # Clean up the suggestion (persona helper adds header, we want just the advice)
   if [[ -n "$suggestion" ]]; then
@@ -148,32 +182,42 @@ TODAY=$(gtd_get_today)
 DATE_CMD=$(gtd_get_date_cmd)
 
 # Generate morning suggestions
-echo "Generating morning check-in suggestions..."
-morning_suggestions=$(get_ai_suggestions "morning" 3)
-if [[ -n "$morning_suggestions" ]]; then
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Generating morning check-in suggestions..."
+morning_suggestions=$(get_ai_suggestions "morning" 3 2>&1)
+morning_exit_code=$?
+if [[ $morning_exit_code -eq 0 && -n "$morning_suggestions" ]]; then
   echo "$morning_suggestions" > "${SUGGESTIONS_DIR}/morning_${TODAY}.txt"
-  echo "✓ Morning suggestions saved"
+  echo "[$(date +'%Y-%m-%d %H:%M:%S')] ✓ Morning suggestions saved"
 else
   # Create empty file to indicate we tried
   touch "${SUGGESTIONS_DIR}/morning_${TODAY}.txt"
-  echo "⚠ No morning suggestions (insufficient log data)"
+  if [[ $morning_exit_code -ne 0 ]]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ⚠ No morning suggestions (AI unavailable or error)"
+  else
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ⚠ No morning suggestions (insufficient log data)"
+  fi
 fi
 
 # Generate evening suggestions
-echo "Generating evening check-in suggestions..."
-evening_suggestions=$(get_ai_suggestions "evening" 3)
-if [[ -n "$evening_suggestions" ]]; then
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Generating evening check-in suggestions..."
+evening_suggestions=$(get_ai_suggestions "evening" 3 2>&1)
+evening_exit_code=$?
+if [[ $evening_exit_code -eq 0 && -n "$evening_suggestions" ]]; then
   echo "$evening_suggestions" > "${SUGGESTIONS_DIR}/evening_${TODAY}.txt"
-  echo "✓ Evening suggestions saved"
+  echo "[$(date +'%Y-%m-%d %H:%M:%S')] ✓ Evening suggestions saved"
 else
   # Create empty file to indicate we tried
   touch "${SUGGESTIONS_DIR}/evening_${TODAY}.txt"
-  echo "⚠ No evening suggestions (insufficient log data)"
+  if [[ $evening_exit_code -ne 0 ]]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ⚠ No evening suggestions (AI unavailable or error)"
+  else
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ⚠ No evening suggestions (insufficient log data)"
+  fi
 fi
 
 # Clean up old suggestion files (keep last 7 days)
 find "$SUGGESTIONS_DIR" -name "morning_*.txt" -mtime +7 -delete 2>/dev/null
 find "$SUGGESTIONS_DIR" -name "evening_*.txt" -mtime +7 -delete 2>/dev/null
 
-echo "Done!"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Done!"
 
