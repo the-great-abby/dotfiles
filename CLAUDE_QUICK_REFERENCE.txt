@@ -1,0 +1,147 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                  Claude + Ollama GTD System - Quick Reference              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+🚀 QUICKEST ACCESS (FROM WIZARD)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  gtd-wizard → 11) Get advice → 8) Quick Claude + Ollama
+  
+  Then choose:
+    1) Get persona advice  (instant)
+    2) Generate suggestions (instant)
+    3) Categorize tasks (instant)
+    4) Analyze daily log (instant)
+
+💻 COMMAND LINE (DIRECT ACCESS)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Get advice from persona
+  claude-gtd persona "question" --persona david
+  
+  # Get task suggestions
+  claude-gtd suggest "describe what you've done"
+  
+  # Categorize tasks
+  claude-gtd categorize "task1, task2, task3"
+  
+  # Analyze daily log
+  claude-gtd analyze ~/Documents/daily_logs/2026-01-19.md
+  
+  # Check status
+  claude-gtd status
+
+🔧 CONFIGURE & SWITCH MODES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FROM WIZARD:
+    gtd-wizard → 11) Get advice → 9) AI System Configuration
+  
+  FROM CLI:
+    claude-gtd mode                    # Check current mode
+    claude-gtd mode hybrid             # Switch to hybrid
+    claude-gtd mode ollama-only        # Switch to local-only
+  
+  SHELL SHORTCUTS:
+    gtd-mode-check                     # Show current mode
+    gtd-mode-status                    # Detailed status
+    gtd-mode-hybrid                    # Switch to hybrid
+    gtd-mode-ollama                    # Switch to local-only
+
+📊 MODES EXPLAINED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  OLLAMA-ONLY (Local):
+    • All requests → Local Ollama
+    • Speed: Instant (100-500ms)
+    • Cost: FREE
+    • Quality: Good for patterns and suggestions
+    • Use: Offline, no API costs, quick advice
+  
+  HYBRID (Smart Routing):
+    • Simple tasks → Ollama (instant)
+    • Complex tasks → Claude (quality)
+    • Speed: ~1-3 seconds
+    • Cost: ~$0.002 per request (10% Claude)
+    • Quality: Best quality overall
+    • Use: Strategic planning, important decisions
+
+🎯 PERSONAS AVAILABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  GTD/Productivity:     david, cal, james, warren, sheryl, tim, louiza
+  Wellness:            goggins, dean, bioneer
+  Entertainment:       bob, skippy, george, john, jon, harry, murphy
+  Relationship:        esther, gottman, gary, brene, romance
+  Special:             hank (default), random
+
+✅ SYSTEM REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  For Ollama-Only:
+    ✓ Ollama running on port 31080
+    ✓ Nothing else needed
+  
+  For Hybrid Mode:
+    ✓ Ollama running on port 31080
+    ✓ ANTHROPIC_API_KEY environment variable set
+    ✓ Internet connection (for Claude calls)
+
+🆘 TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Ollama not responding?
+    → Check: curl http://127.0.0.1:31080/v1/models
+    → Start Ollama if needed
+  
+  Claude not working?
+    → Check: echo $ANTHROPIC_API_KEY
+    → Set: export ANTHROPIC_API_KEY=sk-...
+  
+  Functions not loading?
+    → Re-source wizard: source ~/code/dotfiles/bin/gtd-wizard
+    → Check file: ls -la ~/code/dotfiles/bin/gtd-wizard-claude-integration.sh
+
+📚 USEFUL FILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ~/code/dotfiles/CLAUDE_OLLAMA_HYBRID.md          (Full system documentation)
+  ~/code/dotfiles/WIZARD_CLAUDE_INTEGRATION.md     (Wizard integration guide)
+  ~/code/dotfiles/mcp/claude_ollama_bridge.py      (Smart router source)
+  ~/code/dotfiles/mcp/claude_gtd_client.py         (CLI source)
+  ~/.gtd_config_ai                                 (Configuration file)
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ Quick Tip: Start with gtd-wizard, then 11) → 8) for instant Claude advice ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+🧠 ASK CLAUDE DIRECTLY (Bypass Router)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Use when: You want guaranteed Claude quality, strategic questions
+
+  FROM COMMAND LINE:
+    claude-ask "What's your advice on this?"
+    claude-gtd ask "Strategic question here"
+  
+  FROM WIZARD:
+    gtd-wizard → 11) Get advice → 8) Quick Claude → 5) Ask Claude directly
+
+  EXAMPLES:
+    claude-ask "Help me think through this decision"
+    claude-ask "What patterns do you see in my productivity?"
+    claude-ask "What's the best way to approach this problem?"
+
+  DIFFERENCE FROM ROUTER:
+    Router:  Intelligent routing (Ollama or Claude)
+             ~ Free-fast, some requests routed to Ollama
+    
+    Ask:     Always Claude
+             ~ Best quality, always costs, always 1-3 seconds
+
+
+🔐 CHECK API KEY STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  claude-check-api          Show where API key is loaded from
+  
+  Output shows:
+    ✅ if key is found and Claude is ready
+    ✅ Priority order (env var → file → config)
+    ✅ Which source is being used
+
+  Supported locations (in priority order):
+    1) Environment: export ANTHROPIC_API_KEY=sk-...
+    2) File: ~/code/dotfiles/zsh/ANTHROPIC_API_KEY ← You have this!
+    3) Config: ~/.gtd_config_ai
+

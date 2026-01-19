@@ -110,6 +110,15 @@ if [[ -f "$GTD_WIZARD_TOOLS" ]]; then
   source "$GTD_WIZARD_TOOLS"
 fi
 
+# Source Claude + Ollama integration functions
+GTD_WIZARD_CLAUDE="$HOME/code/dotfiles/bin/gtd-wizard-claude-integration.sh"
+if [[ ! -f "$GTD_WIZARD_CLAUDE" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-claude-integration.sh" ]]; then
+  GTD_WIZARD_CLAUDE="$HOME/code/personal/dotfiles/bin/gtd-wizard-claude-integration.sh"
+fi
+if [[ -f "$GTD_WIZARD_CLAUDE" ]]; then
+  source "$GTD_WIZARD_CLAUDE" 2>/dev/null || true
+fi
+
 # Source wizard preferences functions
 GTD_WIZARD_PREFERENCES="$HOME/code/dotfiles/bin/gtd-wizard-preferences.sh"
 if [[ ! -f "$GTD_WIZARD_PREFERENCES" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-preferences.sh" ]]; then
@@ -126,6 +135,15 @@ if [[ ! -f "$GTD_WIZARD_ENHANCED_REVIEW" && -f "$HOME/code/personal/dotfiles/bin
 fi
 if [[ -f "$GTD_WIZARD_ENHANCED_REVIEW" ]]; then
   source "$GTD_WIZARD_ENHANCED_REVIEW"
+fi
+
+# Source wizard personalization functions
+GTD_WIZARD_PERSONALIZATION="$HOME/code/dotfiles/bin/gtd-wizard-personalization.sh"
+if [[ ! -f "$GTD_WIZARD_PERSONALIZATION" && -f "$HOME/code/personal/dotfiles/bin/gtd-wizard-personalization.sh" ]]; then
+  GTD_WIZARD_PERSONALIZATION="$HOME/code/personal/dotfiles/bin/gtd-wizard-personalization.sh"
+fi
+if [[ -f "$GTD_WIZARD_PERSONALIZATION" ]]; then
+  source "$GTD_WIZARD_PERSONALIZATION"
 fi
 
 # Parse command-line arguments

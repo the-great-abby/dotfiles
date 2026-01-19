@@ -1,0 +1,174 @@
+#!/bin/bash
+# Test which Claude models are available with your API key
+
+# Get MCP Python
+MCP_PYTHON="$HOME/code/dotfiles/mcp/venv/bin/python3"
+if [[ ! -f "$MCP_PYTHON" ]]; then
+    MCP_PYTHON="python3"
+fi
+
+# Load API key
+if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+    if [[ -f "$HOME/code/dotfiles/zsh/ANTHROPIC_API_KEY" ]]; then
+        export ANTHROPIC_API_KEY=$(cat "$HOME/code/dotfiles/zsh/ANTHROPIC_API_KEY" | tr -d '\n')
+    elif [[ -f "$HOME/ANTHROPIC_API_KEY" ]]; then
+        export ANTHROPIC_API_KEY=$(cat "$HOME/ANTHROPIC_API_KEY" | tr -d '\n')
+    fi
+fi
+
+if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+    echo "❌ ANTHROPIC_API_KEY not found"
+    exit 1
+fi
+
+echo "🧪 Testing Claude models with your API key..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# First, verify the API key is valid by trying a simple call
+echo "Step 1: Verifying API key validity..."
+echo -n "   Testing authentication... "
+
+auth_test=$("$MCP_PYTHON" -c "
+import anthropic
+import sys
+import os
+
+try:
+    client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+    # Try to list messages or make a minimal call to verify auth
+    # We'll use a very old model that should exist if key is valid
+    response = client.messages.create(
+        model='claude-3-haiku-20240307',
+        max_tokens=5,
+        messages=[{'role': 'user', 'content': 'hi'}]
+    )
+    print('✅ API key is VALID')
+    sys.exit(0)
+except anthropic.AuthenticationError as e:
+    print('❌ AUTHENTICATION FAILED - Invalid API key')
+    sys.exit(1)
+except anthropic.APIError as e:
+    if e.status_code == 404:
+        print('✅ API key is VALID (404 means model not found, not auth issue)')
+        sys.exit(0)
+    else:
+        print(f'⚠️  API error: {e.status_code}')
+        sys.exit(1)
+except Exception as e:
+    error_str = str(e)
+    if '401' in error_str or 'authentication' in error_str.lower() or 'unauthorized' in error_str.lower():
+        print('❌ AUTHENTICATION FAILED')
+        sys.exit(1)
+    else:
+        print('✅ API key appears valid (error: ' + str(e)[:50] + ')')
+        sys.exit(0)
+" 2>&1)
+
+auth_result=$?
+echo "$auth_test"
+echo ""
+
+if [[ $auth_result -ne 0 ]] && [[ "$auth_test" == *"AUTHENTICATION FAILED"* ]]; then
+    echo "❌ Your API key is invalid or expired."
+    echo "   Please check: https://console.anthropic.com/"
+    exit 1
+fi
+
+# List of models to test (in order of preference)
+# Try older models first that are more likely to be available
+models=(
+    "claude-3-haiku-20240307"      # Oldest, most widely available
+    "claude-3-sonnet-20240229"     # Older Sonnet
+    "claude-3-opus-20240229"        # Older Opus
+    "claude-3-5-sonnet-20240620"    # 3.5 Sonnet (older version)
+    "claude-3-5-sonnet-20241022"    # 3.5 Sonnet (newer version)
+    "claude-3-7-sonnet-20250219"    # 3.7 Sonnet
+    "claude-sonnet-4-20250514"      # Sonnet 4
+    "claude-sonnet-4-5"             # Sonnet 4.5 alias
+    "claude-sonnet-4-5-20250929"    # Sonnet 4.5 specific
+    "claude-haiku-4-5"              # Haiku 4.5 alias
+    "claude-haiku-4-5-20251001"     # Haiku 4.5 specific
+)
+    "claude-sonnet-4-5"
+    "claude-haiku-4-5"
+    "claude-sonnet-4-5-20250929"
+    "claude-haiku-4-5-20251001"
+    "claude-sonnet-4-20250514"
+    "claude-3-7-sonnet-20250219"
+    "claude-3-haiku-20240307"
+)
+
+working_models=()
+failed_models=()
+
+for model in "${models[@]}"; do
+    echo -n "Testing '$model'... "
+    
+    result=$("$MCP_PYTHON" -c "
+import anthropic
+import sys
+import os
+
+try:
+    client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+    response = client.messages.create(
+        model='$model',
+        max_tokens=10,
+        messages=[{'role': 'user', 'content': 'Hi'}]
+    )
+    print('✅ WORKING')
+    sys.exit(0)
+except Exception as e:
+    error_str = str(e)
+    if '404' in error_str or 'not found' in error_str.lower():
+        print('❌ NOT FOUND')
+    else:
+        print(f'❌ ERROR: {error_str[:50]}')
+    sys.exit(1)
+" 2>&1)
+    
+    exit_code=$?
+    echo "$result"
+    
+    if [[ $exit_code -eq 0 ]]; then
+        working_models+=("$model")
+    else
+        failed_models+=("$model")
+    fi
+done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📊 Results:"
+echo ""
+echo "✅ Working models (${#working_models[@]}):"
+if [[ ${#working_models[@]} -gt 0 ]]; then
+    for model in "${working_models[@]}"; do
+        echo "   • $model"
+    done
+else
+    echo "   (none)"
+fi
+
+echo ""
+echo "❌ Failed models (${#failed_models[@]}):"
+if [[ ${#failed_models[@]} -gt 0 ]]; then
+    for model in "${failed_models[@]}"; do
+        echo "   • $model"
+    done
+fi
+
+echo ""
+if [[ ${#working_models[@]} -gt 0 ]]; then
+    echo "💡 Recommendation: Use '${working_models[0]}' as your default model"
+    echo "   Add to ~/.gtd_config_ai:"
+    echo "   CLAUDE_MODEL=\"${working_models[0]}\""
+else
+    echo "⚠️  No working models found. This may indicate:"
+    echo "   1. Your API key doesn't have access to these models"
+    echo "   2. Your account tier needs to be upgraded"
+    echo "   3. There's an issue with your API key"
+    echo ""
+    echo "   Check your API key at: https://console.anthropic.com/"
+fi

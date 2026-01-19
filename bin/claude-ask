@@ -1,0 +1,19 @@
+#!/bin/bash
+# Direct Claude question wrapper - always goes to Claude, never to Ollama
+# Supports --interactive or -i flag for conversational mode
+
+# Find the script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+DOTFILES_DIR="$( dirname "$SCRIPT_DIR" )"
+
+# Find Python
+PYTHON_CMD="python3"
+if ! command -v "$PYTHON_CMD" &> /dev/null; then
+    PYTHON_CMD="python"
+fi
+
+# Make sure PYTHONPATH includes dotfiles
+export PYTHONPATH="${DOTFILES_DIR}:${PYTHONPATH}"
+
+# Run the ask command
+"$PYTHON_CMD" "${DOTFILES_DIR}/mcp/claude_gtd_client.py" ask "$@"

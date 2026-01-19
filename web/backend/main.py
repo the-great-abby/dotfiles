@@ -2302,6 +2302,328 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+# Browser Extension Endpoints
+class BrowserProcessRequest(BaseModel):
+    action: str  # summarize, suggest_tasks, create_task, analyze
+    content: Dict[str, Any]  # url, title, text, description, author
+
+@app.post("/api/browser/process")
+async def process_browser_content(request: BrowserProcessRequest):
+    """
+    Process web page content from browser extension.
+    Supports: summarize, suggest_tasks, create_task, analyze
+    """
+    try:
+        # Import MCP server functions
+        mcp_server_path = GTD_BASE / "mcp" / "gtd_mcp_server.py"
+        if not mcp_server_path.exists():
+            mcp_server_path = Path.home() / "code" / "personal" / "dotfiles" / "mcp" / "gtd_mcp_server.py"
+        
+        if not mcp_server_path.exists():
+            raise HTTPException(status_code=500, detail="MCP server not found")
+        
+        # Add MCP directory to path
+        mcp_dir = str(mcp_server_path.parent)
+        if mcp_dir not in sys.path:
+            sys.path.insert(0, mcp_dir)
+        
+        # Import MCP functions
+        try:
+            # Import the module first to ensure it's loaded
+            import gtd_mcp_server
+            
+            # Then get the functions
+            call_fast_ai = getattr(gtd_mcp_server, 'call_fast_ai', None)
+            handle_call_tool = getattr(gtd_mcp_server, 'handle_call_tool', None)
+            import asyncio
+            
+            # Verify imports exist and are callable
+            if call_fast_ai is None:
+                logger.error("call_fast_ai not found in gtd_mcp_server module")
+                raise ValueError("call_fast_ai not found in gtd_mcp_server module")
+            if not callable(call_fast_ai):
+                logger.error(f"call_fast_ai is not callable: {type(call_fast_ai)}")
+                raise ValueError(f"call_fast_ai is not callable: {type(call_fast_ai)}")
+            
+            if handle_call_tool is None:
+                logger.error("handle_call_tool not found in gtd_mcp_server module")
+                raise ValueError("handle_call_tool not found in gtd_mcp_server module")
+            if not callable(handle_call_tool):
+                logger.error(f"handle_call_tool is not callable: {type(handle_call_tool)}")
+                raise ValueError(f"handle_call_tool is not callable: {type(handle_call_tool)}")
+        except ImportError as e:
+            logger.error(f"Failed to import MCP module: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to import MCP module: {e}")
+        except (ValueError, AttributeError) as e:
+            logger.error(f"MCP function import issue: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"MCP function import issue: {e}")
+        
+        content = request.content
+        action = request.action
+        
+        # Build text content from article
+        text_parts = []
+        if content.get("title"):
+            text_parts.append(f"Title: {content['title']}")
+        if content.get("description"):
+            text_parts.append(f"Description: {content['description']}")
+        if content.get("text"):
+            text_parts.append(f"\nContent:\n{content['text']}")
+        article_text = "\n".join(text_parts)
+        
+        if action == "summarize":
+            # Use summarize_web_page tool
+            url = content.get("url", "")
+            if url:
+                try:
+                    result = await handle_call_tool("summarize_web_page", {"url": url})
+                    if result and len(result) > 0:
+                        result_text = result[0].text if hasattr(result[0], 'text') else str(result[0])
+                        try:
+                            result_data = json.loads(result_text)
+                            # Check for errors in the result
+                            if result_data.get("error"):
+                                return {
+                                    "success": False,
+                                    "error": result_data.get("message", result_data.get("error")),
+                                    "title": content.get("title", ""),
+                                    "url": url
+                                }
+                            return {
+                                "success": True,
+                                "summary": result_data.get("summary", result_text),
+                                "title": result_data.get("title", content.get("title", "")),
+                                "url": result_data.get("url", url)
+                            }
+                        except json.JSONDecodeError:
+                            # If it's not JSON, check if it's an error message
+                            if "Error:" in result_text or "error" in result_text.lower():
+                                return {
+                                    "success": False,
+                                    "error": result_text,
+                                    "title": content.get("title", ""),
+                                    "url": url
+                                }
+                            return {"success": True, "summary": result_text}
+                except Exception as tool_error:
+                    # If summarize_web_page tool fails, fall through to fallback
+                    logger.warning(f"summarize_web_page tool failed: {tool_error}")
+                    pass
+            
+            # Fallback: generate summary using AI
+            summary_prompt = f"""Summarize the following web page content. Provide:
+1. A brief 2-3 sentence summary of what the page is about
+2. 3-5 key points or takeaways
+3. Any important details that would be useful to remember
+
+Page Title: {content.get('title', 'Untitled')}
+URL: {content.get('url', '')}
+
+Content:
+{article_text[:4000]}
+
+Format your response as:
+SUMMARY: [brief summary]
+
+KEY POINTS:
+- [point 1]
+- [point 2]
+- [point 3]
+- [point 4]
+- [point 5]
+
+IMPORTANT DETAILS:
+[any important details worth noting]"""
+            
+            try:
+                summary = call_fast_ai(
+                    summary_prompt,
+                    "You are a helpful assistant that creates concise, informative summaries of web pages. Focus on extracting the most important information."
+                )
+                
+                # Check if summary is an error message
+                if summary.startswith("Error:") or "Could not connect" in summary or "timeout" in summary.lower():
+                    # Extract the actual error message
+                    error_detail = summary.replace("Error: ", "")
+                    return {
+                        "success": False,
+                        "error": error_detail,
+                        "title": content.get("title", ""),
+                        "url": content.get("url", ""),
+                        "note": "Make sure your LLM server is running. If using Ollama Controller, check port 31080. If using LM Studio, check port 1234. Verify your .gtd_config_ai has AI_BACKEND set correctly."
+                    }
+                
+                return {
+                    "success": True,
+                    "summary": summary,
+                    "title": content.get("title", ""),
+                    "url": content.get("url", "")
+                }
+            except Exception as ai_error:
+                error_msg = str(ai_error)
+                # Provide more specific error messages
+                if "Connection refused" in error_msg or "timeout" in error_msg.lower():
+                    error_note = "LLM server is not responding. Check that Ollama Controller (port 31080) or LM Studio (port 1234) is running."
+                elif "localhost:1234" in error_msg:
+                    error_note = "Trying to connect to LM Studio on port 1234, but it's not running. Set AI_BACKEND='ollama' in .gtd_config_ai to use Ollama Controller instead."
+                else:
+                    error_note = "Check your .gtd_config_ai configuration. Make sure AI_BACKEND is set to 'ollama' if using Ollama Controller, or ensure LM Studio is running on port 1234."
+                
+                return {
+                    "success": False,
+                    "error": f"Failed to generate summary: {error_msg}",
+                    "title": content.get("title", ""),
+                    "url": content.get("url", ""),
+                    "note": error_note
+                }
+        
+        elif action == "suggest_tasks":
+            # Use suggest_tasks_from_text tool
+            try:
+                # Verify handle_call_tool is callable
+                if not callable(handle_call_tool):
+                    raise ValueError(f"handle_call_tool is not callable: {type(handle_call_tool)}")
+                
+                result = await handle_call_tool("suggest_tasks_from_text", {
+                    "text": article_text,
+                    "context": "browser_extension",
+                    "mode": "review"
+                })
+                
+                if result and len(result) > 0:
+                    result_text = result[0].text if hasattr(result[0], 'text') else str(result[0])
+                    try:
+                        result_data = json.loads(result_text)
+                        # Check for errors in the result
+                        if result_data.get("error"):
+                            return {
+                                "success": False,
+                                "error": result_data.get("error") or result_data.get("message", "Unknown error"),
+                                "suggestions": [],
+                                "count": 0
+                            }
+                        return {
+                            "success": True,
+                            "suggestions": result_data.get("suggestions", []),
+                            "count": result_data.get("count", 0),
+                            "auto_created": result_data.get("auto_created", [])
+                        }
+                    except json.JSONDecodeError:
+                        # If it's not JSON, check if it's an error message
+                        if "Error:" in result_text or "error" in result_text.lower():
+                            return {
+                                "success": False,
+                                "error": result_text,
+                                "suggestions": [],
+                                "count": 0
+                            }
+                        return {"success": True, "suggestions": [], "result": result_text}
+                
+                return {"success": True, "suggestions": [], "count": 0}
+            except Exception as tool_error:
+                error_msg = str(tool_error)
+                logger.error(f"Error calling suggest_tasks_from_text: {tool_error}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": f"Failed to extract task suggestions: {error_msg}",
+                    "suggestions": [],
+                    "count": 0,
+                    "note": "Check that your LLM server is running and configured correctly."
+                }
+        
+        elif action == "create_task":
+            # Extract task title from article
+            title = content.get("title", "Review article")
+            if len(title) > 100:
+                title = title[:97] + "..."
+            
+            # Create task with article URL as notes
+            notes = f"Source: {content.get('url', '')}\n\n{content.get('description', '')}"
+            
+            result = await handle_call_tool("create_task", {
+                "title": title,
+                "context": "computer",
+                "priority": "not_urgent_important",
+                "notes": notes[:500]  # Limit notes length
+            })
+            
+            if result and len(result) > 0:
+                result_text = result[0].text if hasattr(result[0], 'text') else str(result[0])
+                try:
+                    result_data = json.loads(result_text)
+                    return {
+                        "success": True,
+                        "message": "Task created successfully",
+                        "task": result_data
+                    }
+                except:
+                    return {"success": True, "message": "Task created", "result": result_text}
+            
+            return {"success": True, "message": "Task created"}
+        
+        elif action == "analyze":
+            # Queue deep analysis of article content (background processing)
+            try:
+                # Import queue function
+                from gtd_mcp_server import queue_deep_analysis
+                
+                # Prepare context for analysis
+                analysis_context = {
+                    "title": content.get("title", "Untitled"),
+                    "url": content.get("url", ""),
+                    "text": article_text[:8000],  # Limit for queue
+                    "description": content.get("description", ""),
+                    "author": content.get("author", ""),
+                    "source": "browser_extension",
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                # Queue the analysis job
+                queue_status = queue_deep_analysis("browser_article", analysis_context)
+                
+                # Determine queue method for user message
+                queue_method = "RabbitMQ" if "rabbitmq" in queue_status.lower() else "file queue"
+                
+                return {
+                    "success": True,
+                    "status": "queued",
+                    "message": f"Analysis queued for background processing ({queue_method}). Results will be saved when complete.",
+                    "title": content.get("title", ""),
+                    "url": content.get("url", ""),
+                    "queue_status": queue_status,
+                    "note": "Check your deep analysis results directory for the completed analysis."
+                }
+                
+            except ImportError as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to import queue function: {e}. Make sure MCP server is properly configured.",
+                    "title": content.get("title", ""),
+                    "url": content.get("url", "")
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to queue analysis: {e}",
+                    "title": content.get("title", ""),
+                    "url": content.get("url", "")
+                }
+        
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing browser content: {e}", exc_info=True)
+        # Return a more helpful error message instead of raising
+        return {
+            "success": False,
+            "error": f"Server error: {str(e)}",
+            "detail": "Check API server logs for more details. Make sure your LLM server is configured and running.",
+            "action": action
+        }
+
 if __name__ == "__main__":
     import uvicorn
     # Allow binding to all interfaces if TAILSCALE_DOMAIN is set (for direct access)

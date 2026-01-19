@@ -1,0 +1,450 @@
+#!/usr/bin/env python3
+"""
+Claude GTD Client - CLI interface for hybrid Claude + Ollama GTD system
+
+Usage:
+    claude-gtd persona <question> [--persona NAME]
+    claude-gtd suggest <context>
+    claude-gtd categorize <tasks>
+    claude-gtd analyze <log_file>
+    claude-gtd status
+    claude-gtd mode <ollama-only|hybrid>
+"""
+
+import sys
+import json
+import argparse
+from pathlib import Path
+from typing import Optional
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
+
+from claude_ollama_bridge import SmartAIRouter, AIMode
+
+
+class GTDClient:
+    """Client for interacting with the hybrid AI system"""
+
+    def __init__(self):
+        """Initialize the client"""
+        self.router = SmartAIRouter()
+
+    def run(self, args: list) -> int:
+        """Main entry point"""
+
+        if not args:
+            self._print_help()
+            return 0
+
+        command = args[0]
+        command_args = args[1:] if len(args) > 1 else []
+
+        try:
+            if command == "persona":
+                return self._handle_persona(command_args)
+            elif command == "suggest":
+                return self._handle_suggest(command_args)
+            elif command == "categorize":
+                return self._handle_categorize(command_args)
+            elif command == "analyze":
+                return self._handle_analyze(command_args)
+            elif command == "status":
+                return self._handle_status()
+            elif command == "mode":
+                return self._handle_mode(command_args)
+            elif command == "ask":
+                return self._handle_ask(command_args)
+            elif command == "help":
+                self._print_help()
+                return 0
+            else:
+                print(f"❌ Unknown command: {command}", file=sys.stderr)
+                self._print_help()
+                return 1
+
+        except Exception as e:
+            print(f"❌ Error: {e}", file=sys.stderr)
+            return 1
+
+    def _handle_persona(self, args: list) -> int:
+        """Handle persona advice request"""
+
+        if not args:
+            print("❌ Usage: claude-gtd persona <question> [--persona NAME]", file=sys.stderr)
+            return 1
+
+        # Parse arguments
+        persona = "hank"  # Default
+        question_parts = []
+        i = 0
+
+        while i < len(args):
+            if args[i] == "--persona" and i + 1 < len(args):
+                persona = args[i + 1]
+                i += 2
+            else:
+                question_parts.append(args[i])
+                i += 1
+
+        if not question_parts:
+            print("❌ Usage: claude-gtd persona <question> [--persona NAME]", file=sys.stderr)
+            return 1
+
+        question = " ".join(question_parts)
+
+        print(f"🤖 Getting {persona}'s advice on: {question[:50]}...")
+
+        result, error = self.router.route_request(
+            "persona_response",
+            question,
+            persona=persona,
+            context={"temperature": 0.8, "max_tokens": 300}
+        )
+
+        if error:
+            print(f"❌ Error: {error}", file=sys.stderr)
+            return 1
+
+        print(f"\n💭 {persona.capitalize()} says:")
+        print("─" * 60)
+        print(result.get("response", ""))
+        print("─" * 60)
+        print(f"Source: {result.get('source', 'unknown')}")
+
+        return 0
+
+    def _handle_suggest(self, args: list) -> int:
+        """Handle task suggestion"""
+
+        if not args:
+            print("❌ Usage: claude-gtd suggest <context>", file=sys.stderr)
+            return 1
+
+        context = " ".join(args)
+
+        print(f"💡 Generating task suggestions from: {context[:50]}...")
+
+        result, error = self.router.route_request(
+            "task_suggest",
+            context,
+            context={"max_tokens": 400}
+        )
+
+        if error:
+            print(f"❌ Error: {error}", file=sys.stderr)
+            return 1
+
+        print(f"\n✨ Suggested tasks:")
+        print("─" * 60)
+        print(result.get("response", ""))
+        print("─" * 60)
+        print(f"Source: {result.get('source', 'unknown')}")
+
+        return 0
+
+    def _handle_categorize(self, args: list) -> int:
+        """Handle task categorization"""
+
+        if not args:
+            print("❌ Usage: claude-gtd categorize <tasks>", file=sys.stderr)
+            return 1
+
+        tasks = " ".join(args)
+
+        print(f"🏷️  Categorizing tasks: {tasks[:50]}...")
+
+        result, error = self.router.route_request(
+            "task_categorize",
+            tasks,
+            context={"max_tokens": 300}
+        )
+
+        if error:
+            print(f"❌ Error: {error}", file=sys.stderr)
+            return 1
+
+        print(f"\n📋 Categorized tasks:")
+        print("─" * 60)
+        print(result.get("response", ""))
+        print("─" * 60)
+        print(f"Source: {result.get('source', 'unknown')}")
+
+        return 0
+
+    def _handle_analyze(self, args: list) -> int:
+        """Handle daily log analysis"""
+
+        if not args:
+            print("❌ Usage: claude-gtd analyze <log_file>", file=sys.stderr)
+            return 1
+
+        log_file = Path(args[0])
+
+        if not log_file.exists():
+            print(f"❌ Log file not found: {log_file}", file=sys.stderr)
+            return 1
+
+        content = log_file.read_text()
+
+        print(f"📊 Analyzing: {log_file.name}")
+
+        result, error = self.router.route_request(
+            "analyze_daily_log",
+            content,
+            context={"max_tokens": 800}
+        )
+
+        if error:
+            print(f"❌ Error: {error}", file=sys.stderr)
+            return 1
+
+        print(f"\n📈 Analysis:")
+        print("─" * 60)
+        print(result.get("response", ""))
+        print("─" * 60)
+        print(f"Source: {result.get('source', 'unknown')}")
+
+        return 0
+
+    def _handle_status(self) -> int:
+        """Show current status"""
+
+        status = self.router.get_status()
+
+        print(f"\n🔄 AI System Status")
+        print("─" * 60)
+        print(f"Mode:              {status['mode']}")
+        print(f"Ollama Available:  {'✅' if status['ollama_available'] else '❌'}")
+        print(f"Claude Available:  {'✅' if status['claude_available'] else '❌'}")
+        print(f"Ollama URL:        {status['ollama_url']}")
+
+        if status['last_ollama_call']:
+            print(f"Last Ollama Call:  {status['last_ollama_call']}")
+        if status['last_claude_call']:
+            print(f"Last Claude Call:  {status['last_claude_call']}")
+
+        print("─" * 60)
+
+        return 0
+
+    def _handle_mode(self, args: list) -> int:
+        """Switch AI mode"""
+
+        if not args:
+            status = self.router.get_status()
+            print(f"Current mode: {status['mode']}")
+            print(f"Available modes: {AIMode.OLLAMA_ONLY}, {AIMode.HYBRID}")
+            return 0
+
+        new_mode = args[0]
+        success, message = self.router.switch_mode(new_mode)
+
+        if success:
+            print(f"✅ {message}")
+            return 0
+        else:
+            print(f"❌ {message}", file=sys.stderr)
+            return 1
+
+    def _handle_ask(self, args: list) -> int:
+        """Ask Claude directly (bypass router, always use Claude) - supports interactive mode"""
+
+        if not args:
+            print("❌ Usage: claude-gtd ask <question> [--interactive]", file=sys.stderr)
+            return 1
+
+        # Check for interactive flag
+        interactive = False
+        if "--interactive" in args or "-i" in args:
+            interactive = True
+            args = [a for a in args if a not in ["--interactive", "-i"]]
+
+        if not args:
+            print("❌ Usage: claude-gtd ask <question> [--interactive]", file=sys.stderr)
+            return 1
+
+        question = " ".join(args)
+
+        if not self.router.anthropic_api_key:
+            print("❌ Claude API key not configured", file=sys.stderr)
+            print("   Set it with: export ANTHROPIC_API_KEY=sk-...", file=sys.stderr)
+            return 1
+
+        if interactive:
+            return self._handle_interactive_ask(question)
+        else:
+            return self._handle_single_ask(question)
+
+    def _handle_single_ask(self, question: str) -> int:
+        """Handle a single question (non-interactive)"""
+        print(f"🧠 Asking Claude directly: {question[:50]}...")
+
+        result, error = self.router._call_claude(
+            "general_question",
+            question,
+            persona=None,
+            context={"max_tokens": 2000}
+        )
+
+        if error:
+            print(f"❌ Error: {error}", file=sys.stderr)
+            return 1
+
+        print(f"\n💡 Claude's response:")
+        print("─" * 60)
+        print(result.get("response", ""))
+        print("─" * 60)
+
+        return 0
+
+    def _handle_interactive_ask(self, initial_question: str) -> int:
+        """Handle interactive conversation mode"""
+        print(f"💬 Interactive Claude Conversation")
+        print("─" * 60)
+        print(f"Initial question: {initial_question}")
+        print("─" * 60)
+        print("\n💡 Type 'done' or 'exit' to end the conversation")
+        print("💡 Type 'continue' to let Claude continue its current workflow\n")
+
+        conversation_history = []
+        current_question = initial_question
+
+        while True:
+            # Ask Claude
+            print(f"\n🧠 Asking: {current_question[:80]}...")
+            
+            result, error = self.router._call_claude(
+                "general_question",
+                current_question,
+                persona=None,
+                context={"max_tokens": 2000, "conversation_history": conversation_history}
+            )
+
+            if error:
+                print(f"❌ Error: {error}", file=sys.stderr)
+                # Ask if user wants to continue
+                response = input("\nContinue anyway? (y/n): ").strip().lower()
+                if response != 'y':
+                    break
+                continue
+
+            response_text = result.get("response", "")
+            print(f"\n💡 Claude:")
+            print("─" * 60)
+            print(response_text)
+            print("─" * 60)
+
+            # Add to conversation history
+            conversation_history.append({"role": "user", "content": current_question})
+            conversation_history.append({"role": "assistant", "content": response_text})
+
+            # Ask for next input
+            print("\n")
+            next_input = input("💬 Your response (or 'done'/'exit' to finish, 'continue' to let Claude proceed): ").strip()
+
+            if not next_input or next_input.lower() in ['done', 'exit', 'quit', 'q']:
+                print("\n✓ Conversation ended.")
+                break
+            elif next_input.lower() == 'continue':
+                # Let Claude continue - use a continuation prompt
+                current_question = "Please continue with the next steps of what you were doing. If you were in the middle of a workflow, proceed with the next step."
+            else:
+                current_question = next_input
+
+        return 0
+
+    def _print_help(self):
+        """Print help message"""
+
+        help_text = """
+Claude GTD Client - Hybrid AI system for GTD workflows
+
+USAGE:
+    claude-gtd <command> [options]
+
+COMMANDS:
+    persona <question> [--persona NAME]
+        Get advice from a specific persona (uses smart routing)
+        Example: claude-gtd persona "How do I focus?" --persona cal
+
+    suggest <context>
+        Generate task suggestions (uses smart routing)
+        Example: claude-gtd suggest "finished report, need to prepare presentation"
+
+    categorize <tasks>
+        Categorize tasks by context (uses smart routing)
+        Example: claude-gtd categorize "email client, call mom, buy groceries"
+
+    analyze <log_file>
+        Analyze a daily log for insights (uses smart routing)
+        Example: claude-gtd analyze ~/Documents/daily_logs/2026-01-19.md
+
+    ask <question>
+        Ask Claude directly (ALWAYS uses Claude, bypasses router)
+        Example: claude-gtd ask "What's your thoughts on productivity?"
+
+    status
+        Show current system status (mode, available backends)
+
+    mode [ollama-only|hybrid]
+        Switch between modes or show current mode
+        Example: claude-gtd mode hybrid
+
+    help
+        Show this help message
+
+MODES:
+    ollama-only   - All requests use local Ollama (free, instant)
+    hybrid        - Smart routing: simple tasks→Ollama, complex→Claude (API)
+
+ROUTING:
+    Most commands use smart routing in hybrid mode:
+        - Simple tasks (suggestions, categorization) → Ollama
+        - Complex tasks (analysis, strategy) → Claude
+
+    Use 'ask' command to ALWAYS use Claude:
+        - Bypasses routing logic
+        - Always calls Claude API
+        - Guarantees Claude quality
+
+CONFIG:
+    - Mode is controlled via ~/.gtd_config_ai (GTD_AI_MODE setting)
+    - Claude API key: Set ANTHROPIC_API_KEY environment variable
+    - Ollama URL: Set OLLAMA_URL in ~/.gtd_config_ai
+
+EXAMPLES:
+    # Get Hank's productivity advice (routed via smart logic)
+    claude-gtd persona "I'm procrastinating"
+
+    # Get Cal Newport's deep work advice (routed via smart logic)
+    claude-gtd persona "How do I do deep work?" --persona cal
+
+    # Ask Claude a direct question (ALWAYS Claude)
+    claude-gtd ask "What's your best productivity advice?"
+
+    # Generate 3-5 tasks from today's notes (routed via smart logic)
+    claude-gtd suggest "worked on architecture, reviewed PRs, planned sprint"
+
+    # Categorize a list of tasks (routed via smart logic, usually Ollama)
+    claude-gtd categorize "email john, run test suite, buy milk"
+
+    # Check current system
+    claude-gtd status
+
+    # Switch to local-only mode (no API calls)
+    claude-gtd mode ollama-only
+"""
+        print(help_text)
+
+
+def main():
+    """Main entry point"""
+    client = GTDClient()
+    exit_code = client.run(sys.argv[1:])
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()

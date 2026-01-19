@@ -1,0 +1,11 @@
+# Icons (user should create their own)
+icons/*.png
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~

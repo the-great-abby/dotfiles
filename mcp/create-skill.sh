@@ -22,6 +22,27 @@ echo -e "${BOLD}${CYAN}✨ Agent Skill Creation Helper${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+# Offer to view suggestions guide
+SUGGESTIONS_FILE="${SKILLS_DIR}/SKILL_SUGGESTIONS.md"
+if [[ -f "$SUGGESTIONS_FILE" ]]; then
+  echo -e "${BOLD}💡 Tip:${NC} There's a skills suggestions guide with ideas for new skills."
+  echo -e "   It includes workflow suggestions, MCP tools to use, and best practices."
+  echo ""
+  read -p "View suggestions guide before creating? (y/n): " -n 1 -r
+  echo ""
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo ""
+    if command -v less &>/dev/null; then
+      less "$SUGGESTIONS_FILE"
+    elif command -v cat &>/dev/null; then
+      cat "$SUGGESTIONS_FILE"
+      echo ""
+      read -p "Press Enter to continue..."
+    fi
+    echo ""
+  fi
+fi
+
 # Step 1: Get skill name
 echo -e "${BOLD}Skill Name:${NC}"
 echo -e "  This will be the folder name (lowercase, hyphens, no spaces)"
@@ -251,6 +272,10 @@ echo "  2. Add scripts, templates, or resources as needed"
 echo "  3. Test with: python3 -c \"from gtd_skills import get_registry; r = get_registry(); r.reload_skills(); print('Reloaded:', [s['id'] for s in r.list_skills()])\""
 echo "  4. Use in wizard or via MCP: execute_agent_skill(skill_name=\"${skill_name}\")"
 echo ""
+if [[ -f "$SUGGESTIONS_FILE" ]]; then
+  echo -e "${BOLD}💡 Reference:${NC} See ${SUGGESTIONS_FILE} for workflow ideas and best practices"
+  echo ""
+fi
 
 # Offer to open in editor
 read -p "Open SKILL.md in editor? (y/n): " -n 1 -r

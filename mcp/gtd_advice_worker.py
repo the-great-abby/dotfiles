@@ -226,6 +226,277 @@ def process_tool_execution_request(message: Dict[str, Any]) -> bool:
     return True
 
 
+def process_panel_discussion_request(
+    request_id: str,
+    question: str,
+    panel_size: int,
+    manual_personas: Optional[str],
+    thread_id: Optional[str],
+    result_file: Path,
+    answer_file: Path
+) -> bool:
+    """Process a panel discussion request.
+    
+    Args:
+        request_id: Request identifier
+        question: User's question
+        panel_size: Number of personas for panel
+        manual_personas: Comma-separated persona keys (optional)
+        thread_id: Conversation thread ID (optional)
+        result_file: Path to result JSON file
+        answer_file: Path to answer text file
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    print(f"Processing panel discussion request: {request_id}")
+    
+    start_time = datetime.now()
+    created_at = datetime.now(timezone.utc).isoformat()
+    
+    try:
+        # Import panel discussion module
+        functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+        if not functions_dir.exists():
+            functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+        
+        if not functions_dir.exists():
+            error_msg = f"Error: Panel discussion module not found at {functions_dir}"
+            print(error_msg)
+            result_data = {
+                "id": request_id,
+                "status": "error",
+                "persona": "panel",
+                "question": question,
+                "mode": "panel",
+                "error": error_msg,
+                "created_at": created_at,
+                "completed_at": datetime.now().isoformat() + "Z",
+                "duration_seconds": 0
+            }
+            with open(result_file, 'w') as f:
+                json.dump(result_data, f, indent=2)
+            return False
+        
+        if str(functions_dir) not in sys.path:
+            sys.path.insert(0, str(functions_dir))
+        
+        from gtd_panel_discussion import run_panel_discussion_cli
+        
+        # Run panel discussion
+        # Capture both stdout and stderr (progress messages go to stderr)
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        
+        output_buffer = io.StringIO()
+        error_buffer = io.StringIO()
+        
+        with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
+            run_panel_discussion_cli(question, panel_size, manual_personas)
+        
+        stdout_output = output_buffer.getvalue()
+        stderr_output = error_buffer.getvalue()
+        
+        # Combine stdout and stderr (stderr contains progress messages)
+        # Put stderr progress messages before the main output for better readability
+        if stderr_output:
+            advice_output = stderr_output + "\n" + stdout_output
+        else:
+            advice_output = stdout_output
+        
+        if not advice_output or len(advice_output.strip()) == 0:
+            error_msg = "Error: Panel discussion returned empty output"
+            print(error_msg)
+            result_data = {
+                "id": request_id,
+                "status": "error",
+                "persona": "panel",
+                "question": question,
+                "mode": "panel",
+                "error": error_msg,
+                "created_at": created_at,
+                "completed_at": datetime.now().isoformat() + "Z",
+                "duration_seconds": 0
+            }
+            with open(result_file, 'w') as f:
+                json.dump(result_data, f, indent=2)
+            return False
+        
+        # Save answer to text file
+        answer_file.write_text(advice_output, encoding='utf-8')
+        
+        # Create preview (first 200 chars)
+        preview = advice_output[:200] + '...' if len(advice_output) > 200 else advice_output
+        
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        result_data = {
+            "id": request_id,
+            "status": "completed",
+            "persona": "panel",
+            "question": question,
+            "mode": "panel",
+            "panel_size": panel_size,
+            "manual_personas": manual_personas,
+            "answer": advice_output,
+            "preview": preview,
+            "answer_file": str(answer_file),
+            "created_at": created_at,
+            "completed_at": end_time.isoformat() + "Z",
+            "duration_seconds": int(duration)
+        }
+        
+        # Save result JSON
+        with open(result_file, 'w') as f:
+            json.dump(result_data, f, indent=2)
+        
+        # Update thread if this is part of a conversation thread
+        if thread_id:
+            threads_dir = Path.home() / "Documents" / "gtd" / "advice_threads"
+            thread_file = threads_dir / f"{thread_id}.json"
+            
+            if thread_file.exists():
+                try:
+                    with open(thread_file, 'r') as f:
+                        thread = json.load(f)
+                    
+                    # Find the last pending answer and update it
+                    for i in range(len(thread.get("answers", [])) - 1, -1, -1):
+                        if thread["answers"][i].get("status") == "pending":
+                            thread["answers"][i]["answer"] = advice_output
+                            thread["answers"][i]["status"] = "completed"
+                            thread["answers"][i]["completed_at"] = end_time.isoformat() + "Z"
+                            thread["updated_at"] = datetime.now(timezone.utc).isoformat() + "Z"
+                            break
+                    
+                    with open(thread_file, 'w') as f:
+                        json.dump(thread, f, indent=2)
+                    
+                    print(f"Updated thread: {thread_id}")
+                except Exception as e:
+                    print(f"Warning: Failed to update thread {thread_id}: {e}")
+        
+        # Notify backend API that advice is ready (for WebSocket notifications)
+        try:
+            import urllib.request
+            import urllib.error
+            
+            # Try to find the backend API URL
+            api_url = os.getenv("GTD_WEB_API_URL", "http://localhost:8000")
+            notify_url = f"{api_url}/api/advice/notify-ready"
+            
+            # Prepare JSON payload
+            payload = {
+                "request_id": request_id,
+                "persona": "panel",
+                "question": question[:500]  # Limit question length
+            }
+            
+            # Encode as JSON
+            data = json.dumps(payload).encode('utf-8')
+            
+            # Send POST request
+            req = urllib.request.Request(
+                notify_url,
+                data=data,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            
+            try:
+                response = urllib.request.urlopen(req, timeout=10)
+                response_data = response.read().decode('utf-8')
+                print(f"✓ Notified backend API that advice {request_id} is ready")
+                print(f"  Response: {response_data}")
+                sys.stdout.flush()
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode('utf-8') if e.fp else "No error body"
+                print(f"⚠️  Backend API returned HTTP {e.code}: {error_body}")
+                print(f"  URL: {notify_url}")
+                sys.stdout.flush()
+            except urllib.error.URLError as e:
+                print(f"⚠️  Could not connect to backend API: {e}")
+                print(f"  URL: {notify_url}")
+                print(f"  This is OK if the backend is not running")
+                sys.stdout.flush()
+            except Exception as e:
+                print(f"⚠️  Unexpected error notifying backend: {e}")
+                print(f"  URL: {notify_url}")
+                import traceback
+                print(f"  Traceback: {traceback.format_exc()}")
+                sys.stdout.flush()
+        except Exception as e:
+            # Non-critical - backend might not be available
+            print(f"⚠️  Could not notify backend API: {e}")
+            import traceback
+            print(f"  Traceback: {traceback.format_exc()}")
+            sys.stdout.flush()
+        
+        # Send Discord notification if webhook URL is configured
+        webhook_url = os.getenv("GTD_DISCORD_WEBHOOK_URL", "")
+        if webhook_url:
+            try:
+                import urllib.request
+                
+                title = f"✅ Panel Discussion Ready"
+                message_text = f"**Question:** {question}\n\n**Answer:**\n{preview}"
+                
+                if len(message_text) > 2000:
+                    message_text = message_text[:1900] + '\n\n... (truncated)'
+                
+                payload = {
+                    'embeds': [{
+                        'title': title,
+                        'description': message_text,
+                        'color': 3447003,  # Blue
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
+                        'fields': [
+                            {'name': 'Review', 'value': 'gtd-wizard → 11) Get Advice → 6) Review Background Advice', 'inline': False}
+                        ]
+                    }]
+                }
+                
+                data = json.dumps(payload).encode('utf-8')
+                req = urllib.request.Request(
+                    webhook_url,
+                    data=data,
+                    headers={'Content-Type': 'application/json'}
+                )
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass  # Fail silently
+        
+        print(f"✅ Panel discussion request completed: {request_id}")
+        return True
+        
+    except Exception as e:
+        error_msg = f"Error processing panel discussion: {str(e)}"
+        print(error_msg)
+        import traceback
+        traceback.print_exc()
+        
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        result_data = {
+            "id": request_id,
+            "status": "error",
+            "persona": "panel",
+            "question": question,
+            "mode": "panel",
+            "error": error_msg,
+            "created_at": created_at,
+            "completed_at": end_time.isoformat() + "Z",
+            "duration_seconds": int(duration)
+        }
+        
+        with open(result_file, 'w') as f:
+            json.dump(result_data, f, indent=2)
+        
+        return False
+
+
 def process_advice_request(message: Dict[str, Any]) -> bool:
     """Process a single advice request using the deep analysis model.
     
@@ -243,6 +514,10 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
     thread_id = message.get("thread_id")
     priority = message.get("priority", 20)  # Default priority 20 for background tasks
     
+    # Panel discussion parameters
+    panel_size = message.get("panel_size", 4)
+    manual_personas = message.get("manual_personas")
+    
     if not request_id or not question:
         print(f"Error: Invalid message format - missing required fields")
         return False
@@ -252,6 +527,18 @@ def process_advice_request(message: Dict[str, Any]) -> bool:
     # Result files
     result_file = RESULTS_DIR / f"{request_id}.json"
     answer_file = RESULTS_DIR / f"{request_id}_answer.txt"
+    
+    # Handle panel discussion mode
+    if mode == "panel":
+        return process_panel_discussion_request(
+            request_id=request_id,
+            question=question,
+            panel_size=panel_size,
+            manual_personas=manual_personas,
+            thread_id=thread_id,
+            result_file=result_file,
+            answer_file=answer_file
+        )
     
     # Build system prompt based on persona and mode
     if mode == "all":
@@ -376,14 +663,16 @@ CRITICAL: Never return empty content after receiving tool results. Either make a
     # Note: Vector context should be treated as supplementary (~25% relevance)
     # Tool execution results (from function calls) should be given highest priority
     # User request should be most prominent
-    enhanced_prompt = user_prompt
+    # CRITICAL: Always apply enhanced prompt format to ensure tool instructions are included
+    # This is especially important for follow-up questions which might not have vector context
     if vector_context:
+        # Has vector context - include it as supplementary information
         enhanced_prompt = f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 USER REQUEST (HIGHEST PRIORITY - PRIMARY FOCUS):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {user_prompt}
 
-CRITICAL: You MUST answer this specific question. If you have access to tool functions (like gtd_read_daily_log, gtd_list_tasks, gtd_get_datetime, etc.), you MUST call them to get the actual data. Do NOT rely on supplementary context below to answer this question - use tools to retrieve the real, current data.
+CRITICAL: You MUST answer this specific question. If you have access to tool functions (like gtd_read_daily_log, gtd_list_tasks, gtd_get_datetime, gtd_list_projects, etc.), you MUST call them to get the actual data. Do NOT rely on supplementary context below to answer this question - use tools to retrieve the real, current data.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📚 SUPPLEMENTARY CONTEXT (LOW PRIORITY - ~25% relevance):
@@ -399,6 +688,19 @@ This context may be outdated, incomplete, or less directly relevant.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Remember: Answer the user's question using tool calls to get current data. Use supplementary context only for additional background information."""
+    else:
+        # No vector context - still apply enhanced format with tool instructions
+        # This ensures follow-up questions and other requests always get tool instructions
+        enhanced_prompt = f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 USER REQUEST (HIGHEST PRIORITY - PRIMARY FOCUS):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{user_prompt}
+
+CRITICAL: You MUST answer this specific question. If you have access to tool functions (like gtd_read_daily_log, gtd_list_tasks, gtd_get_datetime, gtd_list_projects, etc.), you MUST call them to get the actual data. Use tools to retrieve the real, current data to answer the user's question accurately.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Remember: Answer the user's question using tool calls to get current data."""
     
     # Run advice request using deep model
     start_time = datetime.now()

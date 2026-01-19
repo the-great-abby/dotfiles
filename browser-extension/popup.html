@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GTD Article Processor</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📄 GTD Article Processor</h1>
+      <p class="subtitle">Process this page with your GTD system</p>
+    </header>
+
+    <div class="content-preview" id="contentPreview">
+      <div class="preview-header">
+        <strong>Page:</strong> <span id="pageTitle">Loading...</span>
+      </div>
+      <div class="preview-url" id="pageUrl"></div>
+      <div class="preview-stats" id="contentStats"></div>
+    </div>
+
+    <div class="actions">
+      <h2>What would you like to do?</h2>
+      
+      <button id="summarizeBtn" class="action-btn">
+        <span class="icon">📝</span>
+        <span class="label">Summarize Article</span>
+      </button>
+
+      <button id="suggestTasksBtn" class="action-btn">
+        <span class="icon">✅</span>
+        <span class="label">Extract Task Suggestions</span>
+      </button>
+
+      <button id="createTaskBtn" class="action-btn">
+        <span class="icon">➕</span>
+        <span class="label">Create Task from Article</span>
+      </button>
+
+      <button id="analyzeBtn" class="action-btn">
+        <span class="icon">🧠</span>
+        <span class="label">Deep Analysis</span>
+      </button>
+    </div>
+
+    <div class="status" id="status"></div>
+    <div class="results" id="results"></div>
+    
+    <div class="connection-test" id="connectionTest" style="display: none;">
+      <button id="testConnectionBtn" class="test-btn">🔍 Test API Connection</button>
+      <div id="connectionStatus"></div>
+    </div>
+
+    <div class="settings">
+      <details>
+        <summary>⚙️ Settings</summary>
+        <div class="settings-content">
+          <label>
+            <span>API Endpoint:</span>
+            <input type="text" id="apiEndpoint" placeholder="http://localhost:8000" />
+          </label>
+          <button id="saveSettingsBtn">Save Settings</button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

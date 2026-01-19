@@ -1,0 +1,66 @@
+#!/bin/bash
+# Show detailed GTD AI system status
+
+CONFIG_FILE="${HOME}/.gtd_config_ai"
+if [[ ! -f "$CONFIG_FILE" && -f "${HOME}/code/dotfiles/zsh/.gtd_config_ai" ]]; then
+    CONFIG_FILE="${HOME}/code/dotfiles/zsh/.gtd_config_ai"
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔄 GTD AI System Status"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "❌ Config file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+# Extract settings
+MODE=$(grep "GTD_AI_MODE=" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/.*GTD_AI_MODE="\(.*\)".*/\1/' | sed 's/.*GTD_AI_MODE=\([^ ]*\).*/\1/')
+OLLAMA_URL=$(grep "OLLAMA_URL=" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/.*OLLAMA_URL="\(.*\)".*/\1/' | sed 's/.*OLLAMA_URL=\([^ ]*\).*/\1/')
+HAS_CLAUDE_KEY="${ANTHROPIC_API_KEY:+yes}"
+
+MODE=${MODE:-hybrid}
+OLLAMA_URL=${OLLAMA_URL:-http://127.0.0.1:31080/v1/chat/completions}
+
+echo ""
+echo "📋 Configuration:"
+echo "  Mode:           $MODE"
+echo "  Ollama URL:     $OLLAMA_URL"
+echo "  Claude API Key: ${HAS_CLAUDE_KEY:-no}"
+echo ""
+
+# Check Ollama connectivity
+echo "🔌 Backend Status:"
+if timeout 2 curl -s "${OLLAMA_URL%/v1*}/v1/models" > /dev/null 2>&1; then
+    echo "  Ollama:         ✅ Available"
+else
+    echo "  Ollama:         ❌ Not responding"
+fi
+
+if [[ -n "$ANTHROPIC_API_KEY" ]]; then
+    echo "  Claude API:     ✅ Configured ($(echo -n "$ANTHROPIC_API_KEY" | head -c 10)...)"
+else
+    echo "  Claude API:     ⚠️  Not configured"
+fi
+
+echo ""
+echo "💡 Usage:"
+if [[ "$MODE" == "ollama-only" ]]; then
+    echo "  • All requests use local Ollama"
+    echo "  • Fast, free, no API calls"
+    echo "  • Lower quality for complex tasks"
+else
+    echo "  • Simple tasks → Ollama (fast)"
+    echo "  • Complex tasks → Claude (quality)"
+    echo "  • Automatic routing based on complexity"
+fi
+
+echo ""
+echo "🔧 Quick Commands:"
+echo "  gtd-mode-ollama   - Switch to local-only mode"
+echo "  gtd-mode-hybrid   - Switch to smart routing"
+echo "  claude-gtd status - Show detailed system status"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

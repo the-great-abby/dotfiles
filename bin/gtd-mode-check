@@ -1,0 +1,23 @@
+#!/bin/bash
+# Check current GTD AI system mode
+
+CONFIG_FILE="${HOME}/.gtd_config_ai"
+if [[ ! -f "$CONFIG_FILE" && -f "${HOME}/code/dotfiles/zsh/.gtd_config_ai" ]]; then
+    CONFIG_FILE="${HOME}/code/dotfiles/zsh/.gtd_config_ai"
+fi
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "⚠️  No config file found. Defaulting to hybrid mode."
+    echo "Config should be at: $CONFIG_FILE"
+    exit 0
+fi
+
+# Extract the mode
+MODE=$(grep "GTD_AI_MODE=" "$CONFIG_FILE" | head -1 | sed 's/.*GTD_AI_MODE="\(.*\)".*/\1/' | sed 's/.*GTD_AI_MODE=\([^ ]*\).*/\1/')
+
+if [[ -z "$MODE" ]]; then
+    echo "⚠️  GTD_AI_MODE not set in config. Using default: hybrid"
+    MODE="hybrid"
+fi
+
+echo "Current AI mode: $MODE"

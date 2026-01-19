@@ -312,6 +312,29 @@ morning_checkin() {
   
   if [[ -f "$morning_suggestions_file" ]]; then
     ai_suggestions=$(cat "$morning_suggestions_file" 2>/dev/null)
+    # Check if file is empty or just whitespace
+    if [[ -z "${ai_suggestions// }" ]]; then
+      ai_suggestions=""
+    fi
+  fi
+  
+  # Fallback: Generate suggestions on-demand if pre-generated ones don't exist or are empty
+  if [[ -z "$ai_suggestions" ]]; then
+    # Show thinking timer for AI generation (may take a while)
+    show_thinking_timer "Generating AI suggestions" &
+    local timer_pid=$!
+    
+    # Generate suggestions on-demand
+    ai_suggestions=$(get_ai_suggestions "morning" 3 2>/dev/null)
+    
+    # Stop the thinking timer
+    stop_thinking_timer $timer_pid
+    
+    # Save generated suggestions for future use (even if we just generated them)
+    if [[ -n "$ai_suggestions" && ${#ai_suggestions} -gt 20 ]]; then
+      mkdir -p "$suggestions_dir"
+      echo "$ai_suggestions" > "$morning_suggestions_file" 2>/dev/null || true
+    fi
   fi
   
   # System status
@@ -730,6 +753,29 @@ evening_checkin() {
   
   if [[ -f "$evening_suggestions_file" ]]; then
     ai_suggestions=$(cat "$evening_suggestions_file" 2>/dev/null)
+    # Check if file is empty or just whitespace
+    if [[ -z "${ai_suggestions// }" ]]; then
+      ai_suggestions=""
+    fi
+  fi
+  
+  # Fallback: Generate suggestions on-demand if pre-generated ones don't exist or are empty
+  if [[ -z "$ai_suggestions" ]]; then
+    # Show thinking timer for AI generation (may take a while)
+    show_thinking_timer "Generating AI suggestions" &
+    local timer_pid=$!
+    
+    # Generate suggestions on-demand
+    ai_suggestions=$(get_ai_suggestions "evening" 3 2>/dev/null)
+    
+    # Stop the thinking timer
+    stop_thinking_timer $timer_pid
+    
+    # Save generated suggestions for future use (even if we just generated them)
+    if [[ -n "$ai_suggestions" && ${#ai_suggestions} -gt 20 ]]; then
+      mkdir -p "$suggestions_dir"
+      echo "$ai_suggestions" > "$evening_suggestions_file" 2>/dev/null || true
+    fi
   fi
   
   # Sync Apple Health data (if available)

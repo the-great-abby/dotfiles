@@ -13,3 +13,4 @@ credentials.json
 .cursor/mcp.json
 zsh/.gtd_config_database.bak
 .gtd_computer_mode
+ANTHROPIC_API_KEY

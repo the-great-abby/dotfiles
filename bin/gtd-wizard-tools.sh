@@ -320,7 +320,9 @@ PYTHON_EOF
 )
   
   # Build prompt with full conversation context (use printf to handle newlines properly)
-  local full_prompt=$(printf "Context: We were discussing:\n\n%s\n\nFollow-up question: %s\n\nAnswer this follow-up question about the same topic. Be specific and accurate." "${context}" "${followup_question}")
+  # CRITICAL: Include explicit tool usage instructions for follow-up questions
+  # The model needs to know it should use tools to get current data, not just rely on context
+  local full_prompt=$(printf "Context: We were discussing:\n\n%s\n\nFollow-up question: %s\n\nCRITICAL: Answer this follow-up question using tools to get current, accurate data. If you have access to tool functions (like gtd_read_daily_log, gtd_list_tasks, gtd_get_datetime, gtd_list_projects, etc.), you MUST call them to get the actual data. Do NOT rely only on the context above - use tools to retrieve the real, current data. Be specific and accurate." "${context}" "${followup_question}")
   
   # Queue with thread_id and priority
   queue_advice_request "$persona" "$full_prompt" "$mode" "$web_search" "$thread_id" "$priority"
@@ -376,6 +378,8 @@ queue_advice_request() {
   local web_search="${4:-false}"
   local thread_id="${5:-}"
   local priority="${6:-20}"  # Default priority 20 (NORMAL) if not provided
+  local panel_size="${7:-4}"  # Panel size (for panel mode)
+  local manual_personas="${8:-}"  # Manual personas (for panel mode)
   
   QUEUE_FILE="${HOME}/Documents/gtd/advice_queue.jsonl"
   mkdir -p "$(dirname "$QUEUE_FILE")"
@@ -425,6 +429,13 @@ request = {
 thread_id_val = "$thread_id"
 if thread_id_val:
     request["thread_id"] = thread_id_val
+
+# Add panel discussion parameters if mode is panel
+if "$mode" == "panel":
+    request["panel_size"] = int("$panel_size")
+    manual_personas_val = "$manual_personas"
+    if manual_personas_val:
+        request["manual_personas"] = manual_personas_val
 
 # Try RabbitMQ first if available
 try:
@@ -727,11 +738,14 @@ advice_wizard() {
   echo "  3) All personas"
   echo "  4) Review daily log"
   echo "  5) Simple factual question (no GTD context)"
+  echo "  6) 🎭 Panel Discussion (multiple personas collaborate)"
   if [[ "$pending_results" -gt 0 ]]; then
-    echo -e "  6) 📋 Review Background Advice Results ${GREEN}($pending_results ready)${NC}"
+    echo -e "  7) 📋 Review Background Advice Results ${GREEN}($pending_results ready)${NC}"
   else
-    echo "  6) 📋 Review Background Advice Results"
+    echo "  7) 📋 Review Background Advice Results"
   fi
+  echo -e "  8) ⚡ Quick Claude + Ollama (instant advice, suggestions, categorization)"
+  echo -e "  9) 🤖 AI System Configuration (switch modes, check status)"
   echo ""
   echo -e "${YELLOW}0)${NC} Back to Main Menu"
   echo ""
@@ -751,7 +765,7 @@ advice_wizard() {
         echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
         echo ""
         echo "💡 You'll receive a Discord notification when the advice is ready."
-        echo "   Review results: Option 6) Review Background Advice Results"
+        echo "   Review results: Option 7) Review Background Advice Results"
         echo ""
         
         # Start worker if not running
@@ -782,7 +796,7 @@ advice_wizard() {
           echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
           echo ""
           echo "💡 You'll receive a Discord notification when the advice is ready."
-          echo "   Review results: Option 6) Review Background Advice Results"
+          echo "   Review results: Option 7) Review Background Advice Results"
           echo ""
           
           # Start worker if not running
@@ -1306,6 +1320,97 @@ advice_wizard() {
       fi
       ;;
     6)
+      echo ""
+      echo -e "${BOLD}🎭 Panel Discussion${NC}"
+      echo ""
+      echo "Panel discussions allow 3-4 AI personas to collaborate on your question."
+      echo "Each persona provides their perspective, then they discuss and synthesize."
+      echo ""
+      echo -n "What do you need advice about? "
+      read question
+      
+      if [[ -n "$question" ]]; then
+        echo ""
+        echo "Panel options:"
+        echo "  1) Auto-select personas (recommended - selects best experts for your question)"
+        echo "  2) Custom panel size (3-5 personas)"
+        echo "  3) Manual persona selection"
+        echo ""
+        echo -n "Choose (default: 1): "
+        read panel_option
+        panel_option="${panel_option:-1}"
+        
+        local panel_size=4
+        local manual_personas=""
+        
+        case "$panel_option" in
+          2)
+            echo ""
+            echo -n "Panel size (3-5, default: 4): "
+            read panel_size
+            panel_size="${panel_size:-4}"
+            # Validate panel size
+            if ! [[ "$panel_size" =~ ^[3-5]$ ]]; then
+              echo "⚠️  Invalid panel size. Using default: 4"
+              panel_size=4
+            fi
+            ;;
+          3)
+            echo ""
+            echo "Enter comma-separated persona keys (e.g., david,cal,james,marie):"
+            echo "Available personas: david, cal, james, marie, tim, esther, john, gary, brene, warren, charlie, david-goggins, dean, bioneer"
+            echo ""
+            echo -n "Personas: "
+            read manual_personas
+            if [[ -n "$manual_personas" ]]; then
+              # Count personas
+              panel_size=$(echo "$manual_personas" | tr ',' '\n' | wc -l | tr -d ' ')
+            fi
+            ;;
+        esac
+        
+        # Queue for background processing
+        echo ""
+        echo -e "${CYAN}📤 Queuing panel discussion request for background processing...${NC}"
+        local request_id=$(queue_advice_request "panel" "$question" "panel" "false" "" "20" "$panel_size" "$manual_personas")
+        echo -e "${GREEN}✓ Request queued (ID: $request_id)${NC}"
+        echo ""
+        echo "💡 Panel discussions take longer (2-3 minutes) as multiple personas collaborate."
+        echo "   You'll receive a Discord notification when the discussion is ready."
+        echo "   Review results: Option 7) Review Background Advice Results"
+        echo ""
+        
+        # Start worker if not running
+        if ! pgrep -f "gtd_advice_worker.py" >/dev/null 2>&1 && ! pgrep -f "gtd-advice-worker.*daemon" >/dev/null 2>&1; then
+          echo "Starting advice worker..."
+          if command -v make &>/dev/null; then
+            make -C "$HOME/code/dotfiles" advice-worker-start 2>/dev/null || true
+          else
+            MCP_DIR="$HOME/code/dotfiles/mcp"
+            if [[ ! -d "$MCP_DIR" ]]; then
+              MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+            fi
+            VENV_PYTHON="${MCP_DIR}/venv/bin/python3"
+            WORKER_SCRIPT="${MCP_DIR}/gtd_advice_worker.py"
+            if [[ -f "$VENV_PYTHON" && -f "$WORKER_SCRIPT" ]]; then
+              (nohup "$VENV_PYTHON" "$WORKER_SCRIPT" >/tmp/advice-worker.log 2>&1 &) 2>/dev/null || true
+              disown -a 2>/dev/null || true
+              sleep 2
+              local worker_pid=$(pgrep -f "gtd_advice_worker.py" | head -1 || echo "")
+              if [[ -n "$worker_pid" ]]; then
+                echo -e "${GREEN}✓ Python RabbitMQ worker started (PID: $worker_pid)${NC}"
+              else
+                echo -e "${YELLOW}⚠️  Worker may not have started. Check logs: tail -f /tmp/advice-worker.log${NC}"
+              fi
+            else
+              echo -e "${RED}❌ Could not find Python worker script${NC}"
+            fi
+          fi
+          echo ""
+        fi
+      fi
+      ;;
+    7)
       clear
       echo ""
       echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1864,6 +1969,30 @@ PYTHON_EOF
       echo ""
       gtd_quick_pause
       ;;
+    8)
+      # Quick Claude + Ollama commands
+      if type -t quick_claude_from_advice_wizard >/dev/null 2>&1; then
+        quick_claude_from_advice_wizard
+      else
+        echo ""
+        echo -e "${RED}❌ Claude integration not loaded${NC}"
+        echo ""
+        echo -n "Press Enter to continue: "
+        read
+      fi
+      ;;
+    9)
+      # AI System Configuration
+      if type -t ai_mode_configuration_wizard >/dev/null 2>&1; then
+        ai_mode_configuration_wizard
+      else
+        echo ""
+        echo -e "${RED}❌ Claude integration not loaded${NC}"
+        echo ""
+        echo -n "Press Enter to continue: "
+        read
+      fi
+      ;;
     0|"")
       return 0
       ;;
@@ -1871,7 +2000,7 @@ PYTHON_EOF
       echo "Invalid choice"
       ;;
   esac
-  
+
   echo ""
   gtd_quick_pause
 }

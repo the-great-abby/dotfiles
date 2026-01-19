@@ -2207,6 +2207,46 @@ async def handle_list_tools() -> List[Tool]:
             }
         ),
         Tool(
+            name="get_personalization",
+            description="Get personalization data about the user. This includes relationships (partner, family), goals, values, work patterns, energy management, communication preferences, learning style, and more. Use this to understand the user's context, goals, and preferences to provide personalized assistance. If category is provided, returns only that category (e.g., 'relationships', 'goals', 'energy_patterns').",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Optional category to filter by (e.g., 'relationships', 'goals', 'energy_patterns', 'communication_style', 'professional'). If not provided, returns all personalization data."
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="update_personalization",
+            description="Update personalization data based on insights learned about the user. Use this when you discover new information that should be remembered for future interactions. Examples: learning their partner's name, discovering their goals, noticing energy patterns, understanding communication preferences. Only update when you have clear, reliable information - don't guess or assume. Use 'set' to set/replace a value, 'append' to add to a list, 'remove' to remove from a list.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Category to update (e.g., 'relationships', 'goals', 'energy_patterns', 'communication_style', 'professional', 'lessons_learned')"
+                    },
+                    "field": {
+                        "type": "string",
+                        "description": "Field name within the category (e.g., 'partner' for relationships, 'career' for goals, 'peak_hours' for energy_patterns)"
+                    },
+                    "value": {
+                        "description": "Value to set/append/remove. Can be a string, number, array, or object depending on the field type."
+                    },
+                    "operation": {
+                        "type": "string",
+                        "description": "Operation to perform: 'set' (set/replace value), 'append' (add to list), 'remove' (remove from list). Default: 'set'",
+                        "enum": ["set", "append", "remove"],
+                        "default": "set"
+                    }
+                },
+                "required": ["category", "field", "value"]
+            }
+        ),
+        Tool(
             name="restructure_with_natural_language",
             description="Restructure tasks, projects, areas, or goals based on natural language instructions. Understands semantic intent like 'make more prominent', 'archive but keep searchable', 'focus on this week', etc.",
             inputSchema={
@@ -3414,6 +3454,154 @@ Only suggest tasks that are clearly actionable. If no tasks are found, return an
             "count": len(logs),
             "days": days
         }, default=str))]
+    
+    elif name == "get_personalization":
+        category = arguments.get("category")
+        personalization_file = Path.home() / ".gtd_personalization.json"
+        
+        if not personalization_file.exists():
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Personalization file not found",
+                "message": "User has not set up personalization yet. Suggest running: gtd-wizard → option 67",
+                "file_path": str(personalization_file)
+            }))]
+        
+        try:
+            with open(personalization_file, 'r') as f:
+                data = json.load(f)
+            
+            # If category specified, return only that category
+            if category:
+                if category in data:
+                    return [TextContent(type="text", text=json.dumps({
+                        "category": category,
+                        "data": data[category],
+                        "last_updated": data.get("last_updated")
+                    }, default=str))]
+                else:
+                    return [TextContent(type="text", text=json.dumps({
+                        "error": f"Category '{category}' not found",
+                        "available_categories": list(data.keys())
+                    }))]
+            
+            # Return full data
+            return [TextContent(type="text", text=json.dumps(data, default=str))]
+        
+        except json.JSONDecodeError as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Invalid JSON in personalization file",
+                "message": str(e),
+                "file_path": str(personalization_file)
+            }))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": "Error reading personalization file",
+                "message": str(e),
+                "file_path": str(personalization_file)
+            }))]
+    
+    elif name == "update_personalization":
+        category = arguments.get("category")
+        field = arguments.get("field")
+        value = arguments.get("value")
+        operation = arguments.get("operation", "set")
+        personalization_file = Path.home() / ".gtd_personalization.json"
+        
+        try:
+            # Load existing data or create new
+            if personalization_file.exists():
+                with open(personalization_file, 'r') as f:
+                    data = json.load(f)
+            else:
+                # Initialize with basic structure
+                data = {
+                    "created": datetime.now().isoformat(),
+                    "last_updated": datetime.now().isoformat(),
+                    "relationships": {},
+                    "goals": {"career": [], "personal": [], "financial": [], "learning": []},
+                    "values": [],
+                    "energy_patterns": {},
+                    "work_patterns": {},
+                    "health_routines": {},
+                    "communication_style": {},
+                    "learning_style": {},
+                    "knowledge_areas": {},
+                    "decision_making": {},
+                    "problem_solving": {},
+                    "stress_indicators": {},
+                    "coping_mechanisms": {},
+                    "interests": {},
+                    "professional": {},
+                    "tools": {},
+                    "lessons_learned": {}
+                }
+            
+            # Ensure category exists
+            if category not in data:
+                data[category] = {}
+            
+            # Handle different operations
+            if operation == "set":
+                # Set a field value
+                if isinstance(data[category], dict):
+                    data[category][field] = value
+                elif isinstance(data[category], list):
+                    # For list categories, append if not exists
+                    if value not in data[category]:
+                        data[category].append(value)
+                else:
+                    # Replace entire category if it's not a dict/list
+                    data[category] = {field: value}
+            
+            elif operation == "append":
+                # Append to a list field
+                if isinstance(data[category], dict):
+                    if field not in data[category]:
+                        data[category][field] = []
+                    if not isinstance(data[category][field], list):
+                        data[category][field] = [data[category][field]]
+                    if value not in data[category][field]:
+                        data[category][field].append(value)
+                elif isinstance(data[category], list):
+                    if value not in data[category]:
+                        data[category].append(value)
+            
+            elif operation == "remove":
+                # Remove from a list field
+                if isinstance(data[category], dict):
+                    if field in data[category]:
+                        if isinstance(data[category][field], list):
+                            if value in data[category][field]:
+                                data[category][field].remove(value)
+                        else:
+                            del data[category][field]
+                elif isinstance(data[category], list):
+                    if value in data[category]:
+                        data[category].remove(value)
+            
+            # Update timestamp
+            data["last_updated"] = datetime.now().isoformat()
+            
+            # Save back to file
+            with open(personalization_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            return [TextContent(type="text", text=json.dumps({
+                "success": True,
+                "message": f"Personalization updated: {category}.{field}",
+                "category": category,
+                "field": field,
+                "value": value,
+                "operation": operation,
+                "last_updated": data["last_updated"]
+            }, default=str))]
+        
+        except Exception as e:
+            import traceback
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error updating personalization: {str(e)}",
+                "traceback": traceback.format_exc()
+            }))]
     
     elif name == "restructure_with_natural_language":
         item_type = arguments.get("item_type", "")

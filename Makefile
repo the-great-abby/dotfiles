@@ -1,4 +1,5 @@
 GLIBC_VER=2.31-r0
+QUESTION ?= "Help review my daily log."
 
 # GTD System Commands
 .PHONY: gtd-wizard gtd-wizard-2col gtd-wizard-fuzzy gtd-wizard-full gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status gtd-diagram
@@ -1031,6 +1032,10 @@ vector-db-init-schema: ## Initialize vector database schema (after extension is 
 
 # Advice Worker Management
 .PHONY: advice-worker-start advice-worker-stop advice-worker-status
+
+claude-ask-interactive:
+	@echo "Asking Claude interactively..."
+	cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && claude-gtd ask $(QUESTION) --interactive
 
 advice-worker-start: ## Start advice worker daemon (set GTD_ADVICE_WORKER_COUNT=N for multiple workers)
 	@echo "Starting advice worker(s)..."

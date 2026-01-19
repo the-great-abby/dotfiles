@@ -1,0 +1,106 @@
+#!/bin/bash
+# Check Claude API key status and where it's being loaded from
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔐 Claude API Key Status"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check 1: Environment variable
+if [[ -n "${ANTHROPIC_API_KEY}" ]]; then
+    echo "✅ Found in environment variable: ANTHROPIC_API_KEY"
+    echo "   Value: ${ANTHROPIC_API_KEY:0:20}..."
+    echo "   (Priority: 1 - Highest)"
+    echo ""
+fi
+
+# Check 2: Dedicated API key file
+api_key_file="${HOME}/code/dotfiles/zsh/ANTHROPIC_API_KEY"
+if [[ ! -f "$api_key_file" ]]; then
+    api_key_file="${HOME}/ANTHROPIC_API_KEY"
+fi
+
+if [[ -f "$api_key_file" ]]; then
+    api_key=$(cat "$api_key_file" 2>/dev/null | tr -d '\n' | xargs)
+    if [[ -n "$api_key" ]]; then
+        echo "✅ Found in API key file:"
+        echo "   Location: $api_key_file"
+        echo "   Value: ${api_key:0:20}..."
+        echo "   (Priority: 2)"
+        echo ""
+    fi
+fi
+
+# Check 3: .gtd_config_ai
+config_file="${HOME}/.gtd_config_ai"
+if [[ ! -f "$config_file" && -f "${HOME}/code/dotfiles/zsh/.gtd_config_ai" ]]; then
+    config_file="${HOME}/code/dotfiles/zsh/.gtd_config_ai"
+fi
+
+if [[ -f "$config_file" ]]; then
+    api_key=$(grep "ANTHROPIC_API_KEY=" "$config_file" 2>/dev/null | head -1 | sed 's/.*ANTHROPIC_API_KEY="\(.*\)".*/\1/' | sed 's/.*ANTHROPIC_API_KEY=\([^ ]*\).*/\1/' | tr -d '\n')
+    if [[ -n "$api_key" && "$api_key" != "-" ]]; then
+        echo "ℹ️  Found in config file:"
+        echo "   Location: $config_file"
+        echo "   Value: ${api_key:0:20}..."
+        echo "   (Priority: 3 - Lowest)"
+        echo ""
+    fi
+fi
+
+# Check if any key is loaded
+if [[ -z "${ANTHROPIC_API_KEY}" ]]; then
+    # Try Python to check what the router loaded
+    python3 << 'PYEOF' 2>/dev/null
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles"))
+
+try:
+    from mcp.claude_ollama_bridge import SmartAIRouter
+    router = SmartAIRouter()
+    if router.anthropic_api_key:
+        print("✅ Router loaded API key:")
+        print(f"   Value: {router.anthropic_api_key[:20]}...")
+        print(f"   Use Claude: {router.use_claude}")
+except:
+    pass
+PYEOF
+fi
+
+# Final status
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if we can use Claude
+python3_result=$(cd ~/code/dotfiles/mcp && python3 << 'PYEOF' 2>/dev/null
+import sys
+sys.path.insert(0, '..')
+try:
+    from claude_ollama_bridge import SmartAIRouter
+    router = SmartAIRouter()
+    if router.anthropic_api_key and router.anthropic_api_key.startswith('sk-'):
+        print("ready")
+    else:
+        print("not_ready")
+except:
+    print("error")
+PYEOF
+)
+
+if [[ "$python3_result" == "ready" ]]; then
+    echo "✅ Claude API is READY"
+    echo "   You can use: claude-ask, claude-gtd ask, and hybrid mode"
+else
+    echo "⚠️  Claude API status unclear"
+    echo ""
+    if [[ -z "${ANTHROPIC_API_KEY}" ]]; then
+        echo "API key not found in environment."
+        echo "If you've recently added/changed your API key file,"
+        echo "try exporting it: export ANTHROPIC_API_KEY=\$(cat ~/code/dotfiles/zsh/ANTHROPIC_API_KEY)"
+    fi
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -4473,7 +4473,8 @@ PYTHON_EOF
     "${GREEN}37)${NC} 📊 Weekly progress report" \
     "${GREEN}38)${NC} 🧠 Second Brain metrics" \
     "${GREEN}56)${NC} 📊 Success metrics (usage & effectiveness)" \
-    "${GREEN}58)${NC} 📚 Learning System Preferences"
+    "${GREEN}58)${NC} 📚 Learning System Preferences" \
+    "${GREEN}67)${NC} 👤 Personalization Setup (help AI understand you)"
   
   # TOOLS section
   print_menu_section "${BOLD}${CYAN}🛠️  TOOLS & SUPPORT:${NC}" \
@@ -4925,6 +4926,10 @@ main() {
         ;;
       65)
         external_ollama_controller_wizard
+        ;;
+      67)
+        award_wizard_xp "wizard_action" "Used wizard: Personalization Setup"
+        personalization_wizard
         ;;
       66)
         award_wizard_xp "wizard_productive" "Used wizard: Agent Skills"

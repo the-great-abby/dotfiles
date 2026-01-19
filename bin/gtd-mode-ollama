@@ -1,0 +1,27 @@
+#!/bin/bash
+# Switch GTD AI system to ollama-only mode (local, free, instant)
+
+set -e
+
+CONFIG_FILE="${HOME}/.gtd_config_ai"
+if [[ ! -f "$CONFIG_FILE" && -f "${HOME}/code/dotfiles/zsh/.gtd_config_ai" ]]; then
+    CONFIG_FILE="${HOME}/code/dotfiles/zsh/.gtd_config_ai"
+fi
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "❌ Config file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+# Update the config file
+if grep -q "GTD_AI_MODE=" "$CONFIG_FILE"; then
+    # macOS-compatible sed
+    sed -i '' 's/GTD_AI_MODE=.*/GTD_AI_MODE="ollama-only"/' "$CONFIG_FILE"
+else
+    echo 'GTD_AI_MODE="ollama-only"' >> "$CONFIG_FILE"
+fi
+
+echo "✅ Switched to ollama-only mode"
+echo ""
+echo "All requests will now use local Ollama (no API costs)"
+echo "Config: $CONFIG_FILE"

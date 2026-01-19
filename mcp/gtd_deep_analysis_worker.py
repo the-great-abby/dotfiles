@@ -581,13 +581,14 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
                         if "gtd_get_datetime" in tool_names:
                             tool_description += " You can get date/time information using gtd_get_datetime. Call it with relative date strings like '3 days ago', 'yesterday', or 'today' to get calculated dates automatically. "
                         
-                        if tool_description:
-                            # Update the system message in the payload
-                            tool_calling_instructions = """
+                        # CRITICAL: Always add tool calling instructions when tools are present
+                        # This ensures the model knows how to use tools even if tool_description is empty
+                        available_tools_str_async = ", ".join(tool_names)
+                        tool_calling_instructions = """
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔧 HOW TO CALL TOOLS (CRITICAL):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================================
+HOW TO CALL TOOLS (CRITICAL):
+================================================================================
 When you need to use tools, you MUST use the function calling interface by including tool calls in the "tool_calls" field of your response message.
 
 CORRECT FORMAT - Your response message should have this structure:
@@ -614,28 +615,64 @@ IMPORTANT DETAILS:
 - Set "content" to null when making tool calls
 
 WRONG FORMATS (DO NOT USE):
-❌ {"name": "gtd_read_daily_log", "arguments": {"date": "2025-01-05"}} in content field
-❌ Describing tools in text like "I would call gtd_read_daily_log..."
-❌ Returning JSON strings in the "content" field"""
-                            
-                            if payload.get("messages") and len(payload["messages"]) > 0:
+- {"name": "gtd_read_daily_log", "arguments": {"date": "2025-01-05"}} in content field
+- Describing tools in text like "I would call gtd_read_daily_log..."
+- Returning JSON strings in the "content" field
+
+Available tools: """ + available_tools_str_async + """
+"""
+                        
+                        # Always update the system message when tools are present
+                        if payload.get("messages") and len(payload["messages"]) > 0:
+                            if tool_description:
                                 payload["messages"][0]["content"] = system_prompt + "\n\nYou have access to tools/functions to interact with the user's GTD system." + tool_description + tool_calling_instructions
+                            else:
+                                # Even if tool_description is empty, still add tool instructions
+                                payload["messages"][0]["content"] = system_prompt + "\n\nYou have access to tools/functions to interact with the user's GTD system." + tool_calling_instructions
                         
                         # Add callback URL for tool execution
-                        callback_url = get_tool_callback_url()
-                        if callback_url:
-                            payload["callback_url"] = callback_url
+                        # CRITICAL: Tools require a callback URL to execute when using Ollama Controller
+                        # For local execution (advice worker), tools are executed locally after receiving tool calls
+                        # Only set callback URL when actually using Ollama Controller (Kubernetes)
+                        if is_ollama_controller:
+                            callback_url = get_tool_callback_url()
+                            if callback_url:
+                                payload["callback_url"] = callback_url
+                                try:
+                                    with open(log_file, "a", encoding="utf-8") as f:
+                                        f.write(f"  -> ✅ Callback URL: {callback_url}\n")
+                                except Exception:
+                                    pass
+                            else:
+                                # Log warning if callback URL is missing for Ollama Controller
+                                try:
+                                    with open(log_file, "a", encoding="utf-8") as f:
+                                        f.write(f"  -> ⚠️  WARNING: No callback URL configured - tools will not execute via Ollama Controller!\n")
+                                        f.write(f"  -> Set GTD_TOOL_CALLBACK_URL environment variable or in config\n")
+                                except Exception:
+                                    pass
+                        else:
+                            # Local execution - advice worker will handle tool execution locally
+                            # No callback URL needed - tools will be executed in the advice worker after receiving tool calls
                             try:
                                 with open(log_file, "a", encoding="utf-8") as f:
-                                    f.write(f"  -> ✅ Callback URL: {callback_url}\n")
+                                    f.write(f"  -> ℹ️  Local execution mode - tools will be executed locally by advice worker\n")
+                                    f.write(f"  -> No callback URL needed for local tool execution\n")
                             except Exception:
                                 pass
+                            # Still add tools to payload - model can see them but execution will fail
+                            # This is better than not showing tools at all
                         
                         try:
                             with open(log_file, "a", encoding="utf-8") as f:
                                 f.write(f"  -> ✅ Added {len(tools_to_include)} tool(s): {', '.join(tool_names)}\n")
                                 f.write(f"  -> Tool choice: {payload.get('tool_choice', 'not set')}\n")
                                 f.write(f"  -> Updated system prompt to mention tools\n")
+                                f.write(f"  -> System prompt length: {len(payload['messages'][0]['content']) if payload.get('messages') else 0} chars\n")
+                                if callback_url:
+                                    f.write(f"  -> Callback URL configured: {callback_url}\n")
+                                else:
+                                    f.write(f"  -> ⚠️  WARNING: No callback URL configured - tools may not execute!\n")
                         except Exception:
                             pass
                     else:
@@ -967,13 +1004,14 @@ WRONG FORMATS (DO NOT USE):
                 if "gtd_get_datetime" in tool_names:
                     tool_description += " You can get date/time information using gtd_get_datetime. Call it with relative date strings like '3 days ago', 'yesterday', or 'today' to get calculated dates automatically. "
                 
-                if tool_description:
-                    # Update the system message in the payload
-                    tool_calling_instructions = """
+                # CRITICAL: Always add tool calling instructions when tools are present
+                # This ensures the model knows how to use tools even if tool_description is empty
+                available_tools_str = ", ".join(tool_names)
+                tool_calling_instructions = """
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔧 HOW TO CALL TOOLS (CRITICAL):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================================
+HOW TO CALL TOOLS (CRITICAL):
+================================================================================
 When you need to use tools, you MUST use the function calling interface by including tool calls in the "tool_calls" field of your response message.
 
 CORRECT FORMAT - Your response message should have this structure:
@@ -1000,20 +1038,50 @@ IMPORTANT DETAILS:
 - Set "content" to null when making tool calls
 
 WRONG FORMATS (DO NOT USE):
-❌ {"name": "gtd_read_daily_log", "arguments": {"date": "2025-01-05"}} in content field
-❌ Describing tools in text like "I would call gtd_read_daily_log..."
-❌ Returning JSON strings in the "content" field"""
-                    
-                    if payload.get("messages") and len(payload["messages"]) > 0:
+- {"name": "gtd_read_daily_log", "arguments": {"date": "2025-01-05"}} in content field
+- Describing tools in text like "I would call gtd_read_daily_log..."
+- Returning JSON strings in the "content" field
+
+Available tools: """ + available_tools_str + """
+"""
+                
+                # Always update the system message when tools are present
+                if payload.get("messages") and len(payload["messages"]) > 0:
+                    if tool_description:
                         payload["messages"][0]["content"] = system_prompt + "\n\nYou have access to tools/functions to interact with the user's GTD system." + tool_description + tool_calling_instructions
+                    else:
+                        # Even if tool_description is empty, still add tool instructions
+                        payload["messages"][0]["content"] = system_prompt + "\n\nYou have access to tools/functions to interact with the user's GTD system." + tool_calling_instructions
                 
                 # Add callback URL for tool execution
-                callback_url = get_tool_callback_url()
-                if callback_url:
-                    payload["callback_url"] = callback_url
+                # CRITICAL: Tools require a callback URL to execute when using Ollama Controller
+                # For local execution (blocking mode), tools are executed locally in this function
+                # Only set callback URL when actually using Ollama Controller (Kubernetes)
+                callback_url = None
+                if is_ollama_controller:
+                    callback_url = get_tool_callback_url()
+                    if callback_url:
+                        payload["callback_url"] = callback_url
+                        try:
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"  -> ✅ Callback URL: {callback_url}\n")
+                        except Exception:
+                            pass
+                    else:
+                        # Log warning if callback URL is missing for Ollama Controller
+                        try:
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"  -> ⚠️  WARNING: No callback URL configured - tools will not execute via Ollama Controller!\n")
+                                f.write(f"  -> Set GTD_TOOL_CALLBACK_URL environment variable or in config\n")
+                        except Exception:
+                            pass
+                else:
+                    # Local execution - tools will be executed locally in this function
+                    # No callback URL needed
                     try:
                         with open(log_file, "a", encoding="utf-8") as f:
-                            f.write(f"  -> ✅ Callback URL: {callback_url}\n")
+                            f.write(f"  -> ℹ️  Local execution mode - tools will be executed locally\n")
+                            f.write(f"  -> No callback URL needed for local tool execution\n")
                     except Exception:
                         pass
                 
@@ -1022,6 +1090,11 @@ WRONG FORMATS (DO NOT USE):
                         f.write(f"  -> ✅ Added {len(tools_to_include)} tool(s): {', '.join(tool_names)}\n")
                         f.write(f"  -> Tool choice: {payload.get('tool_choice', 'not set')}\n")
                         f.write(f"  -> Updated system prompt to mention tools\n")
+                        f.write(f"  -> System prompt length: {len(payload['messages'][0]['content']) if payload.get('messages') else 0} chars\n")
+                        if callback_url:
+                            f.write(f"  -> Callback URL configured: {callback_url}\n")
+                        else:
+                            f.write(f"  -> ⚠️  WARNING: No callback URL configured - tools may not execute!\n")
                 except Exception:
                     pass
             else:
@@ -2460,6 +2533,107 @@ Be supportive, reflective, and constructive. Reference their actual check-in con
     return result
 
 
+def analyze_browser_article(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyze an article from the browser extension."""
+    title = context.get("title", "Untitled")
+    url = context.get("url", "")
+    text = context.get("text", "")
+    description = context.get("description", "")
+    
+    prompt = f"""Analyze the following article and provide comprehensive insights:
+
+Title: {title}
+URL: {url}
+Description: {description}
+
+Content:
+{text}
+
+Provide a thorough analysis with:
+1. Main themes and topics
+2. Key insights or takeaways
+3. Actionable items or next steps
+4. Connections to productivity or GTD principles
+5. Questions this raises
+6. Potential tasks or projects that could emerge from this content
+
+Format your response clearly with sections and be specific about actionable items."""
+    
+    system_prompt = """You are a thoughtful analyst that extracts insights and actionable information from articles. 
+Focus on practical applications, connections to productivity systems, and identifying concrete next steps.
+Be thorough but concise, and always highlight actionable items."""
+    
+    # Use async mode for background processing
+    use_async = os.getenv("DEEP_ANALYSIS_USE_ASYNC", "true").lower() == "true"
+    
+    if use_async and ":31080" in DEEP_MODEL_URL:
+        # Async mode: submit request and return request_id
+        result_file = f"browser_article_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        def on_complete(result_str, error):
+            if error:
+                error_result = {
+                    "type": "browser_article",
+                    "title": title,
+                    "url": url,
+                    "error": error,
+                    "timestamp": datetime.now().isoformat()
+                }
+                result_path = RESULT_DIR / f"error_{result_file}"
+                with open(result_path, 'w') as f:
+                    json.dump(error_result, f, indent=2)
+            else:
+                result_data = json.loads(result_str)
+                content = result_data['choices'][0]['message']['content']
+                result = {
+                    "type": "browser_article",
+                    "title": title,
+                    "url": url,
+                    "description": description,
+                    "analysis": content,
+                    "timestamp": datetime.now().isoformat()
+                }
+                result_path = RESULT_DIR / result_file
+                with open(result_path, 'w') as f:
+                    json.dump(result, f, indent=2)
+                send_discord_notification_for_result("browser_article", result, result_path)
+                send_local_notification_for_result("browser_article", result, result_path)
+        
+        request_id = call_deep_ai(prompt, system_prompt, max_tokens=3000, use_async=True, callback=on_complete, result_file=result_file)
+        
+        return {
+            "type": "browser_article",
+            "title": title,
+            "url": url,
+            "status": "queued",
+            "request_id": request_id.replace("Request submitted: ", ""),
+            "message": "Article analysis queued for background processing",
+            "timestamp": datetime.now().isoformat()
+        }
+    else:
+        # Blocking mode
+        analysis = call_deep_ai(prompt, system_prompt, max_tokens=3000, use_async=False)
+        
+        result = {
+            "type": "browser_article",
+            "title": title,
+            "url": url,
+            "description": description,
+            "analysis": analysis,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Save result
+        result_file = f"browser_article_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        result_path = RESULT_DIR / result_file
+        with open(result_path, 'w') as f:
+            json.dump(result, f, indent=2)
+        send_discord_notification_for_result("browser_article", result, result_path)
+        send_local_notification_for_result("browser_article", result, result_path)
+        
+        return result
+
+
 def process_analysis_request(message: Dict[str, Any]) -> Dict[str, Any]:
     """Process a single analysis request."""
     analysis_type = message.get("type")
@@ -2480,6 +2654,8 @@ def process_analysis_request(message: Dict[str, Any]) -> Dict[str, Any]:
             result = analyze_evening_review(context)
         elif analysis_type == "extract_suggestions":
             result = extract_suggestions_from_analysis_deep(context)
+        elif analysis_type == "browser_article":
+            result = analyze_browser_article(context)
         else:
             result = {
                 "error": f"Unknown analysis type: {analysis_type}",
@@ -2495,17 +2671,23 @@ def process_analysis_request(message: Dict[str, Any]) -> Dict[str, Any]:
                 print(f"⚠️  Suggestion extraction failed: {result.get('error', 'Unknown error')}")
             # Don't save result file or send notifications for suggestion extraction
             # (it's a background task that creates suggestions, not a main analysis result)
+        elif analysis_type == "browser_article" and result.get("status") == "queued":
+            # Browser article analysis handles its own saving in async callback
+            # Just log that it was queued
+            print(f"✅ Browser article analysis queued: {result.get('title', 'Untitled')}")
         else:
             # Save result for other analysis types
-            result_file = RESULT_DIR / f"{analysis_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            with open(result_file, 'w') as f:
-                json.dump(result, f, indent=2)
-            
-            # Send Discord notification
-            send_discord_notification_for_result(analysis_type, result, result_file)
-            
-            # Send macOS/local notification
-            send_local_notification_for_result(analysis_type, result, result_file)
+            # (browser_article in blocking mode will be saved by analyze_browser_article)
+            if analysis_type != "browser_article" or result.get("status") != "queued":
+                result_file = RESULT_DIR / f"{analysis_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                with open(result_file, 'w') as f:
+                    json.dump(result, f, indent=2)
+                
+                # Send Discord notification
+                send_discord_notification_for_result(analysis_type, result, result_file)
+                
+                # Send macOS/local notification
+                send_local_notification_for_result(analysis_type, result, result_file)
             
             # Optionally auto-scan and create suggestions
             auto_scan_enabled = os.getenv("DEEP_ANALYSIS_AUTO_SCAN_SUGGESTIONS", "false").lower() == "true"

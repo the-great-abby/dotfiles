@@ -4,11 +4,21 @@
 # AI backend settings, personas, and persona triggers
 
 # ============================================================================
+# Claude Code + Ollama Hybrid System Configuration
+# ============================================================================
+# AI system mode: "ollama-only" (local, free) or "hybrid" (smart routing between Ollama + Claude)
+# Default: "hybrid" for best quality; use "ollama-only" when you want to run completely locally
+GTD_AI_MODE="hybrid"
+
+# Anthropic API configuration (used in hybrid mode for Claude)
+ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"  # Set your API key here or via environment
+
+# ============================================================================
 # AI Backend Configuration for Multiple Personas
 # ============================================================================
 # Default AI backend (used if mode-specific config not set)
 # AI backend to use: "lmstudio" or "ollama" (default: "lmstudio")
-AI_BACKEND="${AI_BACKEND:-lmstudio}"
+AI_BACKEND="${AI_BACKEND:-ollama}"
 GTD_DEEP_MODEL_NAME="qwen3:4b"
 
 # Deep model timeout (in seconds)
@@ -64,7 +74,8 @@ WORK_DEEP_MODEL_NAME="${WORK_DEEP_MODEL_NAME:-gpt-oss:20b}"
 # Home Mode Configuration (when GTD_COMPUTER_MODE="home")
 # Example: Use Ollama with instruct models for home
 HOME_AI_BACKEND="${HOME_AI_BACKEND:-ollama}"
-HOME_OLLAMA_URL="${HOME_OLLAMA_URL:-http://127.0.0.1:11434/v1/chat/completions}"
+HOME_OLLAMA_URL="${HOME_OLLAMA_URL:-http://127.0.0.1:31080/v1/chat/completions}"
+#HOME_OLLAMA_URL="${HOME_OLLAMA_URL:-http://127.0.0.1:11434/v1/chat/completions}"
 HOME_LM_STUDIO_CHAT_MODEL="${HOME_LM_STUDIO_CHAT_MODEL:-qwen/qwen3-1.7b}"
 HOME_LM_STUDIO_INSTRUCT_MODEL="${HOME_LM_STUDIO_INSTRUCT_MODEL:-qwen2.5-7b-instruct-mlx}"
 HOME_LM_STUDIO_EMBEDDING_MODEL="${HOME_LM_STUDIO_EMBEDDING_MODEL:-nomic-embed-text-v2-moe-GGUF}"

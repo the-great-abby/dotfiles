@@ -2,6 +2,25 @@
 
 Based on analysis of your existing workflows, here are Agent Skills that could replace or enhance current bash scripts. These skills use MCP tools to provide higher-level capabilities.
 
+## How to Use This Guide
+
+**When creating a new skill**, reference this guide to:
+
+1. **Find inspiration**: Browse the suggested skills below to see what workflows could benefit from being skills
+2. **Understand patterns**: See how existing workflows are structured and what MCP tools they use
+3. **Follow best practices**: Learn from the examples of how skills should be designed
+4. **Check implementation status**: See which skills are already implemented (✅) and which are still suggestions
+
+**To create a skill:**
+- Run `mcp/create-skill.sh` (or use the wizard's skill management menu)
+- The creation helper will offer to show this guide before you start
+- Use the suggestions below as templates for your skill's structure and workflow
+
+**Each suggestion includes:**
+- **What it replaces/enhances**: The existing workflow or capability
+- **What it does**: The functionality and MCP tools used
+- **Why it's better as a skill**: Benefits of the skill approach
+
 ## High-Priority Skills (Replace Existing Workflows)
 
 ### 1. Morning Check-In Workflow
