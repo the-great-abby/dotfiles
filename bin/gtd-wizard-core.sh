@@ -4447,6 +4447,7 @@ PYTHON_EOF
     "${GREEN}57)${NC} 🔄 Bidirectional Obsidian Sync" \
     "${GREEN}59)${NC} 📊 Enhanced Review System" \
     "${GREEN}62)${NC} 📝 Review Draft Notes (evergreen insights)" \
+    "${GREEN}66)${NC} 🎯 Agent Skills (workflows & processes)" \
     "${GREEN}9)${NC} ✍️  Express Phase (create content from notes)" \
     "${GREEN}10)${NC} 📋 Use Templates" \
     "${GREEN}22)${NC} 🎨 Create diagrams & mindmaps"
@@ -4924,6 +4925,10 @@ main() {
         ;;
       65)
         external_ollama_controller_wizard
+        ;;
+      66)
+        award_wizard_xp "wizard_productive" "Used wizard: Agent Skills"
+        skills_wizard
         ;;
       # Handle favorited tasks (900-902) and projects (903-904)
       900|901|902)

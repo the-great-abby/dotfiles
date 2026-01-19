@@ -23,6 +23,7 @@ Model Context Protocol (MCP) server for the GTD Unified System, providing AI-pow
 - **`gtd_mcp_server.py`**: Main MCP server with all tools
 - **`gtd_auto_suggest.py`**: Intelligent auto-suggestion system with banter
 - **`gtd_deep_analysis_worker.py`**: Background worker for deep analysis
+- **`gtd_skills.py`**: Agent Skills management (Agent Skills format support)
 - **Configuration**: Uses existing `.gtd_config` file
 
 ## Setup
@@ -30,8 +31,10 @@ Model Context Protocol (MCP) server for the GTD Unified System, providing AI-pow
 ### 1. Install Dependencies
 
 ```bash
-pip install mcp pika  # pika is optional (for RabbitMQ)
+pip install mcp pika PyYAML  # pika is optional (for RabbitMQ), PyYAML for Agent Skills
 ```
+
+Note: PyYAML is optional for Agent Skills (a simple fallback parser is included), but recommended for full YAML support.
 
 ### 2. Configure MCP Server in Cursor
 
@@ -277,6 +280,29 @@ python3 mcp/gtd_auto_suggest.py entry "Need to review the PR and deploy the upda
 python3 mcp/gtd_deep_analysis_worker.py file
 ```
 
+## Agent Skills Support
+
+This system supports **Agent Skills** - a format for giving agents new capabilities through modular skill packages. Skills are folders with `SKILL.md` files that can contain instructions, scripts, and templates.
+
+### Quick Start with Skills
+
+1. **List available skills:**
+   ```python
+   list_agent_skills()
+   ```
+
+2. **Execute a skill:**
+   ```python
+   execute_agent_skill(skill_name="example-skill", method="instructions")
+   ```
+
+3. **Get skill details:**
+   ```python
+   get_agent_skill(skill_name="example-skill")
+   ```
+
+Skills are automatically discovered from `mcp/skills/`. See [AGENT_SKILLS.md](AGENT_SKILLS.md) for full documentation on creating and using skills.
+
 ## Future Enhancements
 
 - [ ] Webhook integration for real-time suggestions
@@ -285,4 +311,6 @@ python3 mcp/gtd_deep_analysis_worker.py file
 - [ ] Advanced pattern recognition
 - [ ] Predictive task scheduling
 - [ ] Integration with calendar events
+- [ ] Remote skill repositories for Agent Skills
+- [ ] Skill marketplace/sharing
 

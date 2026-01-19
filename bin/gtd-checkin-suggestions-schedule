@@ -144,8 +144,8 @@ show_status() {
     # Show schedule
     echo ""
     echo "Schedule:"
-    hour=$(/usr/bin/plutil -extract StartCalendarInterval.Hour xml1 "$INSTALL_PLIST" -o - | grep -oP '(?<=<integer>)\d+' || echo "3")
-    minute=$(/usr/bin/plutil -extract StartCalendarInterval.Minute xml1 "$INSTALL_PLIST" -o - | grep -oP '(?<=<integer>)\d+' || echo "0")
+    hour=$(/usr/bin/plutil -extract StartCalendarInterval.Hour xml1 "$INSTALL_PLIST" -o - 2>/dev/null | sed -n 's/.*<integer>\([0-9]*\)<\/integer>.*/\1/p' | head -1 || echo "3")
+    minute=$(/usr/bin/plutil -extract StartCalendarInterval.Minute xml1 "$INSTALL_PLIST" -o - 2>/dev/null | sed -n 's/.*<integer>\([0-9]*\)<\/integer>.*/\1/p' | head -1 || echo "0")
     echo "  Daily at $(printf "%02d:%02d" "$hour" "$minute")"
     
     echo ""

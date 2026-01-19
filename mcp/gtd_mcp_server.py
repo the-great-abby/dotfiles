@@ -31,14 +31,35 @@ try:
         ImageContent,
         EmbeddedResource,
     )
+    MCP_AVAILABLE = True
 except ImportError:
-    print("Error: mcp package not installed. Install with: pip install mcp", file=sys.stderr)
-    sys.exit(1)
+    MCP_AVAILABLE = False
+    # Only exit if running as a script, not when imported as a module
+    if __name__ == "__main__":
+        print("Error: mcp package not installed. Install with: pip install mcp", file=sys.stderr)
+        sys.exit(1)
+    # When imported as module, set placeholder values so helper functions can still be used
+    Server = None
+    InitializationOptions = None
+    stdio_server = None
+    Resource = None
+    Tool = None
+    TextContent = None
+    ImageContent = None
+    EmbeddedResource = None
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from zsh.functions.gtd_persona_helper import read_config, call_persona
+
+# Import Agent Skills management
+try:
+    from gtd_skills import get_registry, SkillsRegistry
+    SKILLS_AVAILABLE = True
+except ImportError:
+    SKILLS_AVAILABLE = False
 
 # Import vector database functions
 try:
@@ -261,8 +282,30 @@ def get_rabbitmq_url() -> str:
 RABBITMQ_URL = get_rabbitmq_url()
 RABBITMQ_QUEUE = os.getenv("GTD_RABBITMQ_QUEUE", "gtd_deep_analysis")
 
-# Initialize MCP server
-server = Server("gtd-unified-system")
+# Initialize MCP server (only if MCP is available)
+if MCP_AVAILABLE:
+    server = Server("gtd-unified-system")
+else:
+    # Dummy server object for when imported as module without MCP
+    # This allows helper functions to be imported without MCP installed
+    class DummyServer:
+        """Dummy server that provides no-op decorators."""
+        def list_tools(self):
+            def decorator(func):
+                return func
+            return decorator
+        
+        def call_tool(self):
+            def decorator(func):
+                return func
+            return decorator
+        
+        def list_resources(self):
+            def decorator(func):
+                return func
+            return decorator
+    
+    server = DummyServer()
 
 
 def load_suggestion(suggestion_id: str) -> Optional[Dict[str, Any]]:
@@ -2298,7 +2341,74 @@ async def handle_list_tools() -> List[Tool]:
                 "required": ["url"]
             }
         ),
-    ]
+    ] + (
+        # Add skills-related tools if skills are available
+        [
+            Tool(
+                name="list_agent_skills",
+                description="List all available Agent Skills. Skills are folders with SKILL.md files that provide capabilities to the system.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Optional search query to filter skills by name or description"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional list of tags to filter skills"
+                        }
+                    }
+                }
+            ),
+            Tool(
+                name="get_agent_skill",
+                description="Get detailed information about a specific Agent Skill including its metadata and instructions.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "description": "Name of the skill to retrieve"
+                        }
+                    },
+                    "required": ["skill_name"]
+                }
+            ),
+            Tool(
+                name="execute_agent_skill",
+                description="Execute an Agent Skill using a specific method (instructions, script, or template). Skills can provide new capabilities to the system.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "description": "Name of the skill to execute"
+                        },
+                        "method": {
+                            "type": "string",
+                            "description": "Execution method: 'instructions' (returns skill instructions), 'script:<script_name>' (executes a script), or 'template:<template_name>' (renders a template). Default: 'instructions'",
+                            "default": "instructions"
+                        },
+                        "args": {
+                            "type": "object",
+                            "description": "Optional arguments to pass to the skill (for scripts or templates)"
+                        }
+                    },
+                    "required": ["skill_name"]
+                }
+            ),
+            Tool(
+                name="reload_agent_skills",
+                description="Reload all Agent Skills from disk. Use this after adding, modifying, or removing skills.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {}
+                }
+            ),
+        ] if SKILLS_AVAILABLE else []
+    )
 
 
 @server.call_tool()
@@ -4291,12 +4401,112 @@ IMPORTANT DETAILS:
                 "message": "Failed to retrieve file vectorization information."
             }))]
     
+    # Agent Skills tools
+    elif SKILLS_AVAILABLE and name == "list_agent_skills":
+        try:
+            registry = get_registry()
+            query = arguments.get("query")
+            tags = arguments.get("tags")
+            
+            if query or tags:
+                skills = registry.search_skills(query=query, tags=tags)
+            else:
+                skills = registry.list_skills()
+            
+            return [TextContent(type="text", text=json.dumps({
+                "skills": skills,
+                "count": len(skills)
+            }, indent=2, default=str))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error listing skills: {str(e)}"
+            }))]
+    
+    elif SKILLS_AVAILABLE and name == "get_agent_skill":
+        try:
+            registry = get_registry()
+            skill_name = arguments.get("skill_name")
+            
+            if not skill_name:
+                return [TextContent(type="text", text=json.dumps({
+                    "error": "skill_name is required"
+                }))]
+            
+            skill = registry.get_skill(skill_name)
+            if not skill:
+                return [TextContent(type="text", text=json.dumps({
+                    "error": f"Skill not found: {skill_name}",
+                    "available_skills": [s["id"] for s in registry.list_skills()]
+                }))]
+            
+            return [TextContent(type="text", text=json.dumps({
+                "skill": skill.to_dict(),
+                "full_instructions": skill.instructions,
+                "metadata": skill.metadata,
+                "has_scripts": skill.scripts_dir.exists() and any(skill.scripts_dir.iterdir()),
+                "has_templates": skill.templates_dir.exists() and any(skill.templates_dir.iterdir()),
+                "has_resources": skill.resources_dir.exists() and any(skill.resources_dir.iterdir()),
+            }, indent=2, default=str))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error getting skill: {str(e)}"
+            }))]
+    
+    elif SKILLS_AVAILABLE and name == "execute_agent_skill":
+        try:
+            registry = get_registry()
+            skill_name = arguments.get("skill_name")
+            method = arguments.get("method", "instructions")
+            args = arguments.get("args", {})
+            
+            if not skill_name:
+                return [TextContent(type="text", text=json.dumps({
+                    "error": "skill_name is required"
+                }))]
+            
+            success, output, metadata = registry.execute_skill(
+                skill_name=skill_name,
+                method=method,
+                args=args
+            )
+            
+            return [TextContent(type="text", text=json.dumps({
+                "success": success,
+                "output": output,
+                "metadata": metadata
+            }, indent=2, default=str))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error executing skill: {str(e)}"
+            }))]
+    
+    elif SKILLS_AVAILABLE and name == "reload_agent_skills":
+        try:
+            registry = get_registry()
+            registry.reload_skills()
+            skills = registry.list_skills()
+            
+            return [TextContent(type="text", text=json.dumps({
+                "success": True,
+                "message": "Skills reloaded successfully",
+                "skills_loaded": len(skills),
+                "skills": [s["id"] for s in skills]
+            }, indent=2, default=str))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error reloading skills: {str(e)}"
+            }))]
+    
     else:
         return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
 
 
 async def main():
     """Run the MCP server."""
+    if not MCP_AVAILABLE:
+        print("Error: mcp package not installed. Install with: pip install mcp", file=sys.stderr)
+        sys.exit(1)
+    
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,

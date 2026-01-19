@@ -1616,6 +1616,73 @@ main() {
       shift
       advise_random "$@"
       ;;
+    --panel|-P)
+      shift
+      # Panel discussion: multiple personas collaborate on advice
+      if [[ $# -eq 0 ]]; then
+        echo "Usage: gtd-advise --panel \"your question\""
+        echo "       gtd-advise --panel \"your question\" --panel-size 5"
+        echo "       gtd-advise --panel \"your question\" --panel-personas=\"david,cal,james,marie\""
+        exit 1
+      fi
+
+      local question="$1"
+      shift
+
+      # Parse panel options
+      local panel_size=4
+      local manual_personas=""
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --panel-size)
+            shift
+            if [[ -z "$1" ]]; then
+              echo "Error: --panel-size requires a number" >&2
+              exit 1
+            fi
+            panel_size="$1"
+            shift
+            ;;
+          --panel-personas=*)
+            manual_personas="${1#*=}"
+            shift
+            ;;
+          --panel-personas)
+            shift
+            if [[ -z "$1" ]]; then
+              echo "Error: --panel-personas requires a value" >&2
+              exit 1
+            fi
+            manual_personas="$1"
+            shift
+            ;;
+          *)
+            # Unknown option, treat as part of question
+            break
+            ;;
+        esac
+      done
+
+      # Load panel discussion module
+      PANEL_DISCUSSION_MODULE="$HOME/code/dotfiles/zsh/functions/gtd_panel_discussion.py"
+      if [[ ! -f "$PANEL_DISCUSSION_MODULE" && -f "$HOME/code/personal/dotfiles/zsh/functions/gtd_panel_discussion.py" ]]; then
+        PANEL_DISCUSSION_MODULE="$HOME/code/personal/dotfiles/zsh/functions/gtd_panel_discussion.py"
+      fi
+
+      if [[ ! -f "$PANEL_DISCUSSION_MODULE" ]]; then
+        echo "Error: Panel discussion module not found. Expected at:" >&2
+        echo "   $PANEL_DISCUSSION_MODULE" >&2
+        exit 1
+      fi
+
+      # Run panel discussion
+      if [[ -n "$manual_personas" ]]; then
+        "$PYTHON_CMD" "$PANEL_DISCUSSION_MODULE" "$question" --size "$panel_size" --personas "$manual_personas"
+      else
+        "$PYTHON_CMD" "$PANEL_DISCUSSION_MODULE" "$question" --size "$panel_size"
+      fi
+      ;;
     --background|--queue|-b)
       shift
       # Queue advice request for background processing
@@ -1707,6 +1774,7 @@ main() {
       echo "  --daily-log [range]           Review daily log(s) with default persona"
       echo "                                Range: today (default), week, month, all, or YYYY-MM-DD"
       echo "  --random, -R                  Get advice from random persona"
+      echo "  --panel, -P                   Panel discussion (3-4 personas collaborate)"
       echo "  --simple, -s                  Ask a simple factual question (no GTD context)"
       echo "  --background, --queue, -b     Queue request for background processing (includes context)"
       echo "  --priority <n>                Set request priority (higher = higher priority, default: 20)"
@@ -1742,6 +1810,9 @@ main() {
       echo "  gtd-advise --context=project \"Review my project plan\""
       echo "  gtd-advise --review"
       echo "  gtd-advise --random \"Give me advice\""
+      echo "  gtd-advise --panel \"How do I balance deep work with urgent tasks?\""
+      echo "  gtd-advise --panel \"How do I stay consistent?\" --panel-size 5"
+      echo "  gtd-advise --panel \"Question\" --panel-personas=\"david,cal,james,marie\""
       echo "  gtd-advise --simple hank \"Who won the 1967 World Series?\"  # Factual question, no GTD context"
       echo "  gtd-advise --background kingmaker-char \"How would you react?\"  # Queue for background (includes session notes)"
       echo "  echo \"My question\" | gtd-advise david"

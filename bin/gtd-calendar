@@ -170,6 +170,12 @@ to_lowercase() {
 parse_relative_date() {
   local date_input="$1"
   
+  # Check if input is already in YYYY-MM-DD format - return immediately
+  if echo "$date_input" | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"; then
+    echo "$date_input"
+    return 0
+  fi
+  
   # Convert to lowercase for comparison (bash 3+ compatible)
   local lower_input=$(to_lowercase "$date_input")
   

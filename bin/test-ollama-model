@@ -1,0 +1,78 @@
+#!/bin/bash
+# Test script to verify Ollama model works with API key
+
+set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Get model name from command line or use default
+MODEL="${1:-minimax-m2.1:cloud}"
+URL="${2:-http://127.0.0.1:11434/v1/chat/completions}"
+
+echo "Testing Ollama Model: $MODEL"
+echo "URL: $URL"
+echo ""
+
+# Check if API key is set
+if [ -z "$OLLAMA_API_KEY" ]; then
+    echo -e "${YELLOW}⚠️  OLLAMA_API_KEY is not set in environment${NC}"
+    echo ""
+    echo "To set it:"
+    echo "  export OLLAMA_API_KEY=\"your-api-key-here\""
+    echo ""
+    echo "To make it permanent, add to your ~/.zshrc or ~/.bash_profile:"
+    echo "  echo 'export OLLAMA_API_KEY=\"your-api-key-here\"' >> ~/.zshrc"
+    echo ""
+    exit 1
+else
+    echo -e "${GREEN}✅ OLLAMA_API_KEY is set${NC}"
+    echo ""
+fi
+
+# Check if model is available
+echo -n "Checking if model '$MODEL' is available... "
+if ollama list | grep -q "$MODEL"; then
+    echo -e "${GREEN}✅ Found${NC}"
+else
+    echo -e "${RED}❌ Not found${NC}"
+    echo "Pull it with: ollama pull $MODEL"
+    exit 1
+fi
+
+echo ""
+echo "Testing API call..."
+
+# Make the API request
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$URL" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OLLAMA_API_KEY" \
+  -d "{
+    \"model\": \"$MODEL\",
+    \"messages\": [{\"role\": \"user\", \"content\": \"Say hello in one word\"}],
+    \"max_tokens\": 10
+  }")
+
+# Extract HTTP code and body
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+# Check response
+if [ "$HTTP_CODE" = "200" ]; then
+    echo -e "${GREEN}✅ API call successful!${NC}"
+    echo ""
+    echo "Response:"
+    echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
+else
+    echo -e "${RED}❌ API call failed (HTTP $HTTP_CODE)${NC}"
+    echo ""
+    echo "Response:"
+    echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
+    exit 1
+fi
+
+echo ""
+echo -e "${GREEN}✅ Model test successful!${NC}"

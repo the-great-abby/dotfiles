@@ -1,0 +1,77 @@
+#!/bin/bash
+# Test script for Ollama web search functionality
+
+set -e
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+echo "Testing Ollama Web Search"
+echo "========================"
+echo ""
+
+# Check if API key is set
+if [ -z "$OLLAMA_API_KEY" ]; then
+    echo -e "${YELLOW}⚠️  OLLAMA_API_KEY is not set${NC}"
+    echo ""
+    echo "Set it with:"
+    echo "  export OLLAMA_API_KEY=\"your-api-key-here\""
+    echo ""
+    exit 1
+fi
+
+# Test query
+QUERY="${1:-what is ollama?}"
+
+echo "Query: $QUERY"
+echo ""
+
+# Test the Python module directly
+echo "Testing Ollama web search module..."
+python3 -c "
+import sys
+sys.path.insert(0, '$(dirname $0)/../zsh/functions')
+from gtd_ollama_web_search import execute_ollama_web_search
+
+try:
+    result = execute_ollama_web_search('$QUERY', max_results=3)
+    print(result)
+    print('')
+    print('✅ Ollama web search test successful!')
+except Exception as e:
+    print(f'❌ Error: {e}')
+    sys.exit(1)
+"
+
+echo ""
+echo "Testing integration with execute_web_search..."
+echo ""
+
+# Test through the persona helper
+python3 -c "
+import sys
+import os
+sys.path.insert(0, '$(dirname $0)/../zsh/functions')
+
+# Set provider to ollama
+os.environ['GTD_WEB_SEARCH_PROVIDER'] = 'ollama'
+
+from gtd_persona_helper import execute_web_search
+
+try:
+    result = execute_web_search('$QUERY', use_enhanced_search=False)
+    print(result)
+    print('')
+    print('✅ Integration test successful!')
+except Exception as e:
+    print(f'❌ Error: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+"
+
+echo ""
+echo -e "${GREEN}✅ All tests passed!${NC}"

@@ -84,6 +84,9 @@ def read_embedding_config() -> Dict[str, Any]:
                             embedding_model = value
                         elif key == "OLLAMA_URL" and "/v1" in value:
                             base_url = value.replace("/v1/chat/completions", "/v1")
+                        elif key == "OLLAMA_API_KEY":
+                            # Store in a way that can be accessed later
+                            os.environ.setdefault("OLLAMA_API_KEY", value)
                         elif key == "LM_STUDIO_TIMEOUT" or key == "TIMEOUT":
                             try:
                                 timeout = int(value)
@@ -143,6 +146,27 @@ def read_embedding_config() -> Dict[str, Any]:
     }
 
 
+def _build_ollama_headers(url: str) -> Dict[str, str]:
+    """Build HTTP headers for Ollama requests, including Authorization if API key is present.
+    
+    Args:
+        url: Request URL (to check if it's an Ollama URL)
+    
+    Returns:
+        Dictionary of HTTP headers
+    """
+    headers = {'Content-Type': 'application/json'}
+    
+    # Check if this is an Ollama URL
+    is_ollama = 'ollama' in url.lower() or ':11434' in url or ':31080' in url
+    if is_ollama:
+        # Try to get API key from environment variable
+        api_key = os.getenv("OLLAMA_API_KEY")
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+    
+    return headers
+
 def generate_embedding(text: str, config: Optional[Dict[str, Any]] = None) -> Optional[List[float]]:
     """
     Generate embedding vector for text using configured embedding model.
@@ -201,7 +225,7 @@ def generate_embedding(text: str, config: Optional[Dict[str, Any]] = None) -> Op
     req = urllib.request.Request(
         embedding_url,
         data=data,
-        headers={'Content-Type': 'application/json'}
+        headers=_build_ollama_headers(embedding_url)
     )
     
     try:

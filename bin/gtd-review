@@ -85,6 +85,79 @@ count_items() {
   find "$path" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' '
 }
 
+# Show next week's calendar events
+show_next_week_calendar() {
+  # Calculate next week's Monday (7 days from current week's Monday)
+  local current_week_monday
+  if [[ "$(uname)" == "Darwin" ]]; then
+    current_week_monday=$(date -v-monday +"%Y-%m-%d" 2>/dev/null || echo "")
+  else
+    current_week_monday=$(date -d "last monday" +"%Y-%m-%d" 2>/dev/null || echo "")
+  fi
+  
+  # If we couldn't calculate, try alternative: next Monday is 7 days from today
+  if [[ -z "$current_week_monday" ]]; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+      current_week_monday=$(date -v-monday +"%Y-%m-%d" 2>/dev/null || date -v+7d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      current_week_monday=$(date -d "last monday" +"%Y-%m-%d" 2>/dev/null || date -d "+7 days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+  fi
+  
+  # Calculate next week's Monday (7 days after current week's Monday)
+  local next_week_monday
+  if [[ -n "$current_week_monday" ]]; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+      next_week_monday=$(date -j -f "%Y-%m-%d" "$current_week_monday" -v+7d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      next_week_monday=$(date -d "$current_week_monday +7 days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+  fi
+  
+  # Calculate next week's Sunday (6 days after next Monday)
+  local next_week_sunday
+  if [[ -n "$next_week_monday" ]]; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+      next_week_sunday=$(date -j -f "%Y-%m-%d" "$next_week_monday" -v+6d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      next_week_sunday=$(date -d "$next_week_monday +6 days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+  fi
+  
+  # Fallback: use relative dates if calculation fails
+  if [[ -z "$next_week_monday" ]] || [[ -z "$next_week_sunday" ]]; then
+    # Use "next week" concept - show 7 days starting from 7 days from today
+    if [[ "$(uname)" == "Darwin" ]]; then
+      next_week_monday=$(date -v+7d +"%Y-%m-%d" 2>/dev/null || echo "")
+      next_week_sunday=$(date -v+13d +"%Y-%m-%d" 2>/dev/null || echo "")
+    else
+      next_week_monday=$(date -d "+7 days" +"%Y-%m-%d" 2>/dev/null || echo "")
+      next_week_sunday=$(date -d "+13 days" +"%Y-%m-%d" 2>/dev/null || echo "")
+    fi
+  fi
+  
+  # Display calendar events for next week
+  echo ""
+  if [[ -n "$next_week_monday" ]] && [[ -n "$next_week_sunday" ]]; then
+    echo "📅 Calendar Events for Next Week ($next_week_monday to $next_week_sunday):"
+    echo ""
+    
+    # Try using gtd-calendar list-events if available
+    if command -v gtd-calendar &>/dev/null; then
+      gtd-calendar list-events "$next_week_monday" "$next_week_sunday" 2>/dev/null | sed 's/^/   /' || echo "   (Unable to fetch calendar events)"
+    elif [[ -f "$HOME/code/dotfiles/bin/gtd-calendar" ]]; then
+      "$HOME/code/dotfiles/bin/gtd-calendar" list-events "$next_week_monday" "$next_week_sunday" 2>/dev/null | sed 's/^/   /' || echo "   (Unable to fetch calendar events)"
+    elif [[ -f "$HOME/code/personal/dotfiles/bin/gtd-calendar" ]]; then
+      "$HOME/code/personal/dotfiles/bin/gtd-calendar" list-events "$next_week_monday" "$next_week_sunday" 2>/dev/null | sed 's/^/   /' || echo "   (Unable to fetch calendar events)"
+    else
+      echo "   (Calendar integration not available - install gtd-calendar)"
+    fi
+  else
+    echo "   (Unable to calculate next week dates)"
+  fi
+  echo ""
+}
+
 # Daily review
 daily_review() {
   local review_type="${1:-auto}"  # auto, morning, or evening
@@ -219,7 +292,7 @@ EOF
             persona_helper="$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
           fi
           if [[ -f "$persona_helper" ]]; then
-            python3 "$persona_helper" "david" "$review_content" "daily_review"
+            python3 "$persona_helper" "david" "$review_content" "daily_review" --enable-gtd-tools
           fi
         fi
       fi
@@ -306,6 +379,8 @@ weekly_review() {
   echo ""
   
   echo "3. What's on my calendar for next week?"
+  # Show calendar events for next week
+  show_next_week_calendar
   read -p "   " calendar_next_week
   echo ""
   

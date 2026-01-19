@@ -123,13 +123,15 @@ get_ai_suggestions() {
   local suggestion=""
   # Use printf %q to properly quote the prompt for command line
   local quoted_prompt=$(printf '%q' "$prompt")
+  # Enable GTD tools so the AI can access tasks, projects, logs, etc. for better suggestions
+  local flags="--enable-gtd-tools"
   if command -v gtimeout &>/dev/null; then
-    suggestion=$(eval "gtimeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+    suggestion=$(eval "gtimeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
   elif command -v timeout &>/dev/null; then
-    suggestion=$(eval "timeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+    suggestion=$(eval "timeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
   else
     # No timeout available, just try to get suggestion (may take a while)
-    suggestion=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" 2>/dev/null || echo "")
+    suggestion=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
   fi
   unset GTD_REQUEST_PRIORITY
   

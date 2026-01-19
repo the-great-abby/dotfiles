@@ -6,6 +6,7 @@ Integrates with existing web search functionality to improve search quality.
 
 import json
 import sys
+import os
 import urllib.request
 import urllib.error
 from typing import List, Dict, Any, Optional
@@ -47,6 +48,27 @@ class EnhancedSearchSystem:
         if not self.deep_model:
             self.deep_model = self.quick_model
     
+    def _build_headers(self, url: str) -> Dict[str, str]:
+        """Build HTTP headers for AI requests, including Authorization if API key is present.
+        
+        Args:
+            url: Request URL (to check if it's an Ollama URL)
+        
+        Returns:
+            Dictionary of HTTP headers
+        """
+        headers = {'Content-Type': 'application/json'}
+        
+        # Check if this is an Ollama URL and if we have an API key
+        is_ollama = 'ollama' in url.lower() or ':11434' in url or ':31080' in url
+        if is_ollama:
+            # Try to get API key from config, then environment variable
+            api_key = self.config.get("ollama_api_key") or os.getenv("OLLAMA_API_KEY")
+            if api_key:
+                headers['Authorization'] = f'Bearer {api_key}'
+        
+        return headers
+    
     def _call_llm(self, prompt: str, model: Optional[str] = None, max_tokens: Optional[int] = None, 
                    temperature: float = 0.5, stop: Optional[List[str]] = None) -> str:
         """
@@ -84,7 +106,7 @@ class EnhancedSearchSystem:
         req = urllib.request.Request(
             self.url,
             data=data,
-            headers={'Content-Type': 'application/json'}
+            headers=self._build_headers(self.url)
         )
         
         try:

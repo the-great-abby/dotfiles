@@ -52,9 +52,22 @@ for config_path in config_paths:
                     key, value = line.split('=', 1)
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
-                    # Remove variable expansion syntax like ${VAR:-default}
-                    if value.startswith("${") and ":-" in value:
-                        value = value.split(":-", 1)[1].rstrip("}")
+                    # Remove variable expansion syntax like ${VAR:-default} or ${VAR:default}
+                    if value.startswith("${") and "}" in value:
+                        if ":-" in value:
+                            # Standard syntax: ${VAR:-default}
+                            value = value.split(":-", 1)[1].rstrip("}")
+                        elif ":" in value and not value.startswith("${:-"):
+                            # Bash alternate syntax: ${VAR:default} (use if VAR is unset or empty)
+                            # For API keys, prefer checking environment variable
+                            if key == "OLLAMA_API_KEY":
+                                # Don't strip the default - let it fall through to env var check
+                                value = ""
+                            else:
+                                value = value.split(":", 1)[1].rstrip("}")
+                        elif value == "${OLLAMA_API_KEY:-}":
+                            # Empty default - use env var
+                            value = ""
                     
                     # Process the key-value pair
                     if key == "GTD_COMPUTER_MODE":
@@ -65,6 +78,8 @@ for config_path in config_paths:
                         GTD_CONFIG["url"] = value
                     elif key == "OLLAMA_URL" and "ollama_url" not in GTD_CONFIG:
                         GTD_CONFIG["ollama_url"] = value
+                    elif key == "OLLAMA_API_KEY" and "ollama_api_key" not in GTD_CONFIG:
+                        GTD_CONFIG["ollama_api_key"] = value
                     elif key == "AI_BACKEND":
                         GTD_CONFIG["ai_backend"] = value.strip('"').strip("'").lower()
                     elif key == "GTD_DEEP_MODEL_NAME" and "deep_model_name" not in GTD_CONFIG:
@@ -106,9 +121,22 @@ for config_path in config_paths:
                     key, value = line.split('=', 1)
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
-                    # Remove variable expansion syntax
-                    if value.startswith("${") and ":-" in value:
-                        value = value.split(":-", 1)[1].rstrip("}")
+                    # Remove variable expansion syntax like ${VAR:-default} or ${VAR:default}
+                    if value.startswith("${") and "}" in value:
+                        if ":-" in value:
+                            # Standard syntax: ${VAR:-default}
+                            value = value.split(":-", 1)[1].rstrip("}")
+                        elif ":" in value and not value.startswith("${:-"):
+                            # Bash alternate syntax: ${VAR:default} (use if VAR is unset or empty)
+                            # For API keys, prefer checking environment variable
+                            if mode_key == "OLLAMA_API_KEY":
+                                # Don't strip the default - let it fall through to env var check
+                                value = ""
+                            else:
+                                value = value.split(":", 1)[1].rstrip("}")
+                        elif value == "${OLLAMA_API_KEY:-}" or value.endswith(":-}"):
+                            # Empty default - use env var
+                            value = ""
                     
                     # Check for mode-specific settings
                     if key.startswith(mode_prefix):
@@ -117,6 +145,8 @@ for config_path in config_paths:
                             GTD_CONFIG["ai_backend"] = value.lower()
                         elif mode_key == "OLLAMA_URL" and value:
                             GTD_CONFIG["ollama_url"] = value
+                        elif mode_key == "OLLAMA_API_KEY" and value:
+                            GTD_CONFIG["ollama_api_key"] = value
                         elif mode_key == "LM_STUDIO_URL" and value:
                             GTD_CONFIG["url"] = value
                         elif mode_key == "DEEP_MODEL_NAME" and value:
@@ -148,6 +178,28 @@ else:
         DEEP_MODEL_URL = GTD_CONFIG.get("url", "http://localhost:1234/v1/chat/completions")
 # Get model name from env var, then config, then default
 DEEP_MODEL_NAME = os.getenv("GTD_DEEP_MODEL_NAME") or os.getenv("GTD_DEEP_MODEL") or GTD_CONFIG.get("deep_model_name") or "gpt-oss-20b"
+
+
+def _build_ollama_headers(url: str) -> Dict[str, str]:
+    """Build HTTP headers for Ollama requests, including Authorization if API key is present.
+    
+    Args:
+        url: Request URL (to check if it's an Ollama URL)
+    
+    Returns:
+        Dictionary of HTTP headers
+    """
+    headers = {'Content-Type': 'application/json'}
+    
+    # Check if this is an Ollama URL
+    is_ollama = 'ollama' in url.lower() or ':11434' in url or ':31080' in url
+    if is_ollama:
+        # Try to get API key from config, then environment variable
+        api_key = GTD_CONFIG.get("ollama_api_key") or os.getenv("OLLAMA_API_KEY")
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+    
+    return headers
 
 
 def _check_ollama_controller_ready(url: str) -> tuple[bool, str]:
@@ -389,7 +441,7 @@ def get_tool_callback_url() -> Optional[str]:
     # This works for local setups but NOT for Kubernetes
     return "http://127.0.0.1:8000/api/tools/execute"
 
-def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000, use_async: bool = False, callback=None, result_file: str = None, max_poll_time: float = None) -> str:
+def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000, use_async: bool = False, callback=None, result_file: str = None, max_poll_time: float = None, force_tools: bool = False) -> str:
     """
     Call the deep AI model (GPT-OSS 20b) for comprehensive analysis.
     
@@ -403,6 +455,9 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
         max_poll_time: Optional maximum time to poll for async responses (in seconds). 
                       If None, uses the configured timeout. For long-running requests 
                       (like advice), use 3600 (60 minutes) or higher.
+        force_tools: If True, always attempt to add tools to the request, even if not using 
+                     Ollama Controller. Tools are only actually functional with Ollama Controller,
+                     but this allows advice worker and other callers to ensure tools are included.
     
     Returns:
         - If use_async=False: Result string (blocking)
@@ -471,7 +526,16 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
             }
             
             # Add tools if using Ollama Controller (controller supports tools regardless of model)
+            # Or if force_tools is True (for advice worker and other cases where tools are always needed)
             is_ollama_controller = ":31080" in DEEP_MODEL_URL or "31080" in DEEP_MODEL_URL
+            if force_tools and not is_ollama_controller:
+                # If force_tools is True but not using Ollama Controller, log warning but still try
+                try:
+                    log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"  -> ⚠️  force_tools=True but not using Ollama Controller (URL: {DEEP_MODEL_URL})\n")
+                except Exception:
+                    pass
             
             # Log to tool_calls.log for debugging
             log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
@@ -484,7 +548,7 @@ def call_deep_ai(prompt: str, system_prompt: str = None, max_tokens: int = 2000,
             except Exception:
                 pass
             
-            if is_ollama_controller:
+            if is_ollama_controller or force_tools:
                 try:
                     # Import tool registry
                     functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
@@ -715,7 +779,7 @@ WRONG FORMATS (DO NOT USE):
                                 followup_req = urllib.request.Request(
                                     DEEP_MODEL_URL,
                                     data=followup_data,
-                                    headers={'Content-Type': 'application/json'}
+                                    headers=_build_ollama_headers(DEEP_MODEL_URL)
                                 )
                                 
                                 with urllib.request.urlopen(followup_req, timeout=timeout) as followup_response:
@@ -781,7 +845,7 @@ WRONG FORMATS (DO NOT USE):
     actual_model_name = DEEP_MODEL_NAME
     available_models = []
     try:
-        test_req = urllib.request.Request(f"{DEEP_MODEL_URL.rsplit('/v1', 1)[0]}/v1/models", headers={'Content-Type': 'application/json'})
+        test_req = urllib.request.Request(f"{DEEP_MODEL_URL.rsplit('/v1', 1)[0]}/v1/models", headers=_build_ollama_headers(DEEP_MODEL_URL))
         with urllib.request.urlopen(test_req, timeout=5) as test_response:
             models_data = json.loads(test_response.read().decode('utf-8'))
             available_models = [m.get('id', '') for m in models_data.get('data', [])]
@@ -848,7 +912,16 @@ WRONG FORMATS (DO NOT USE):
     }
     
     # Add tools if using Ollama Controller (controller supports tools regardless of model)
+    # Or if force_tools is True (for advice worker and other cases where tools are always needed)
     is_ollama_controller = ":31080" in DEEP_MODEL_URL or "31080" in DEEP_MODEL_URL
+    if force_tools and not is_ollama_controller:
+        # If force_tools is True but not using Ollama Controller, log warning but still try
+        try:
+            log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"  -> ⚠️  force_tools=True but not using Ollama Controller (URL: {DEEP_MODEL_URL})\n")
+        except Exception:
+            pass
     
     # Log to tool_calls.log for debugging
     log_file = Path.home() / ".gtd_logs" / "tool_calls.log"
@@ -861,7 +934,7 @@ WRONG FORMATS (DO NOT USE):
     except Exception:
         pass
     
-    if is_ollama_controller:
+    if is_ollama_controller or force_tools:
         try:
             # Import tool registry
             functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
@@ -1058,7 +1131,7 @@ WRONG FORMATS (DO NOT USE):
         req = urllib.request.Request(
             DEEP_MODEL_URL,
             data=request_data,
-            headers={'Content-Type': 'application/json'}
+            headers=_build_ollama_headers(DEEP_MODEL_URL)
         )
         return urllib.request.urlopen(req, timeout=timeout_val)
     
@@ -1222,7 +1295,7 @@ WRONG FORMATS (DO NOT USE):
                         followup_req = urllib.request.Request(
                             DEEP_MODEL_URL,
                             data=followup_data,
-                            headers={'Content-Type': 'application/json'}
+                            headers=_build_ollama_headers(DEEP_MODEL_URL)
                         )
                         
                         with urllib.request.urlopen(followup_req, timeout=timeout) as followup_response:
@@ -1307,7 +1380,7 @@ WRONG FORMATS (DO NOT USE):
             try:
                 check_req = urllib.request.Request(
                     f"{DEEP_MODEL_URL.rsplit('/v1', 1)[0]}/v1/models",
-                    headers={'Content-Type': 'application/json'}
+                    headers=_build_ollama_headers(DEEP_MODEL_URL)
                 )
                 with urllib.request.urlopen(check_req, timeout=5) as check_resp:
                     check_data = json.loads(check_resp.read().decode('utf-8'))
@@ -1369,7 +1442,7 @@ def _load_model(model_name: str, base_url: str) -> bool:
         base_api_url = base_url.rsplit('/v1', 1)[0]
         models_req = urllib.request.Request(
             f"{base_api_url}/v1/models",
-            headers={'Content-Type': 'application/json'}
+            headers=_build_ollama_headers(base_url)
         )
         with urllib.request.urlopen(models_req, timeout=5) as models_resp:
             models_data = json.loads(models_resp.read().decode('utf-8'))
@@ -1466,7 +1539,7 @@ def _try_fallback_models(prompt: str, system_prompt: str, max_tokens: int, avail
             req = urllib.request.Request(
                 DEEP_MODEL_URL,
                 data=data,
-                headers={'Content-Type': 'application/json'}
+                headers=_build_ollama_headers(DEEP_MODEL_URL)
             )
             
             # Use base timeout for fallback models (they're usually smaller/faster)

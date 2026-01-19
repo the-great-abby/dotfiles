@@ -2104,3 +2104,278 @@ evening_summary_wizard() {
   echo ""
       gtd_quick_pause
 }
+
+# Agent Skills Wizard
+skills_wizard() {
+  push_menu "Main Menu"
+  
+  # Find MCP Python and skills directory
+  MCP_DIR="$HOME/code/dotfiles/mcp"
+  if [[ ! -d "$MCP_DIR" && -d "$HOME/code/personal/dotfiles/mcp" ]]; then
+    MCP_DIR="$HOME/code/personal/dotfiles/mcp"
+  fi
+  SKILLS_DIR="${MCP_DIR}/skills"
+  
+  # Get Python command for skills
+  PYTHON_CMD=$(gtd_get_mcp_python 2>/dev/null || command -v python3 || echo "python3")
+  
+  while true; do
+    clear
+    show_breadcrumb
+    gtd_print_header "Agent Skills Wizard" "🎯"
+    
+    echo "Agent Skills provide structured workflows using MCP tools."
+    echo ""
+    echo "What would you like to do?"
+    echo ""
+    
+    # List available skills
+    local skills_list=""
+    if [[ -d "$SKILLS_DIR" ]] && command -v python3 &>/dev/null; then
+      skills_list=$(cd "$MCP_DIR" && python3 -c "
+import sys
+sys.path.insert(0, '.')
+try:
+    from gtd_skills import get_registry
+    r = get_registry()
+    skills = r.list_skills()
+    for i, skill in enumerate(skills, 1):
+        name = skill['metadata'].get('name', skill['id'])
+        desc = skill['metadata'].get('description', '')[:50]
+        print(f\"{i}|{skill['id']}|{name}|{desc}\")
+except Exception as e:
+    print(f\"ERROR|{e}\")
+" 2>/dev/null || echo "")
+    fi
+    
+    local skill_count=0
+    if [[ -n "$skills_list" && ! "$skills_list" =~ ^ERROR ]]; then
+      echo -e "${BOLD}Available Skills:${NC}"
+      echo ""
+      while IFS='|' read -r num skill_id skill_name skill_desc; do
+        if [[ -n "$num" && "$num" != "ERROR" ]]; then
+          skill_count=$((skill_count + 1))
+          echo "  ${skill_count}) ${skill_name}"
+          if [[ -n "$skill_desc" ]]; then
+            echo "     ${skill_desc}..."
+          fi
+        fi
+      done <<< "$skills_list"
+      echo ""
+    else
+      echo -e "${YELLOW}⚠️  No skills found or skills system unavailable${NC}"
+      echo ""
+    fi
+    
+    echo -e "${BOLD}Actions:${NC}"
+    local action_num=$((skill_count + 1))
+    echo "  ${action_num}) 🔄 Reload skills from disk"
+    action_num=$((action_num + 1))
+    echo "  ${action_num}) ➕ Create new skill"
+    action_num=$((action_num + 1))
+    echo "  ${action_num}) 📚 View skill suggestions guide"
+    echo ""
+    echo -e "${YELLOW}0)${NC} Back to Main Menu"
+    echo ""
+    echo -n "Choose: "
+    read skills_choice
+    
+    if [[ "$skills_choice" == "0" ]]; then
+      pop_menu
+      return 0
+    fi
+    
+    # Execute selected skill
+    if [[ "$skills_choice" =~ ^[0-9]+$ ]] && [[ $skills_choice -le $skill_count ]] && [[ $skills_choice -gt 0 ]]; then
+      # Get skill ID from list
+      local selected_skill_id=$(echo "$skills_list" | sed -n "${skills_choice}p" | cut -d'|' -f2)
+      
+      if [[ -n "$selected_skill_id" ]]; then
+        clear
+        echo ""
+        echo -e "${BOLD}${CYAN}Skill: ${selected_skill_id}${NC}"
+        echo ""
+        
+        # Check if skill has an execute script
+        local skill_dir="${SKILLS_DIR}/${selected_skill_id}"
+        local execute_script="${skill_dir}/scripts/execute.sh"
+        
+        if [[ -f "$execute_script" && -x "$execute_script" ]]; then
+          # Execute the script directly
+          echo -e "${GREEN}Executing workflow...${NC}"
+          echo ""
+          bash "$execute_script"
+          echo ""
+          gtd_enter_to_continue
+        else
+          # Show instructions and offer to view or get skill details
+          if command -v python3 &>/dev/null; then
+            local skill_info=$(cd "$MCP_DIR" && python3 -c "
+import sys
+sys.path.insert(0, '.')
+try:
+    from gtd_skills import get_registry
+    r = get_registry()
+    skill = r.get_skill('${selected_skill_id}')
+    if not skill:
+        r.reload_skills()
+        skill = r.get_skill('${selected_skill_id}')
+    if skill:
+        name = skill.metadata.get('name', skill.path.name)
+        desc = skill.metadata.get('description', '')
+        has_script = skill.scripts_dir.exists() and any(skill.scripts_dir.iterdir())
+        print(f'NAME|{name}')
+        print(f'DESC|{desc}')
+        print(f'HAS_SCRIPT|{has_script}')
+        if has_script:
+            scripts = list(skill.scripts_dir.iterdir())
+            if scripts:
+                print(f'SCRIPTS|{scripts[0].name}')
+    else:
+        print('ERROR|Skill not found')
+except Exception as e:
+    print(f'ERROR|{e}')
+" 2>/dev/null || echo "ERROR|Could not load skill")
+            
+            local skill_name=$(echo "$skill_info" | grep "^NAME|" | cut -d'|' -f2)
+            local skill_desc=$(echo "$skill_info" | grep "^DESC|" | cut -d'|' -f2)
+            local has_script=$(echo "$skill_info" | grep "^HAS_SCRIPT|" | cut -d'|' -f2)
+            
+            if [[ "$skill_info" != ERROR* ]]; then
+              echo -e "${BOLD}${skill_name}${NC}"
+              if [[ -n "$skill_desc" ]]; then
+                echo "$skill_desc"
+                echo ""
+              fi
+              
+              echo "What would you like to do?"
+              echo ""
+              echo "  1) 📖 View full instructions"
+              echo "  2) 📋 View skill metadata"
+              if [[ "$has_script" == "True" ]]; then
+                echo "  3) ⚠️  No execute script found (skill has scripts but no execute.sh)"
+              fi
+              echo ""
+              echo -e "${YELLOW}0)${NC} Back"
+              echo ""
+              echo -n "Choose: "
+              read action_choice
+              
+              case "$action_choice" in
+                1)
+                  # Show full instructions
+                  cd "$MCP_DIR" && python3 -c "
+import sys
+sys.path.insert(0, '.')
+try:
+    from gtd_skills import get_registry
+    r = get_registry()
+    skill = r.get_skill('${selected_skill_id}')
+    if skill:
+        print('=' * 60)
+        print(skill.instructions)
+except Exception as e:
+    print(f'Error: {e}')
+" 2>/dev/null | ${PAGER:-less} || gtd_enter_to_continue
+                  ;;
+                2)
+                  # Show metadata
+                  cd "$MCP_DIR" && python3 -c "
+import sys, json
+sys.path.insert(0, '.')
+try:
+    from gtd_skills import get_registry
+    r = get_registry()
+    skill = r.get_skill('${selected_skill_id}')
+    if skill:
+        print(json.dumps(skill.to_dict(), indent=2, default=str))
+except Exception as e:
+    print(f'Error: {e}')
+" 2>/dev/null || echo "Error loading skill details"
+                  echo ""
+                  gtd_enter_to_continue
+                  ;;
+                0|"")
+                  # Back
+                  ;;
+                *)
+                  echo "Invalid choice"
+                  gtd_quick_pause
+                  ;;
+              esac
+            else
+              echo "❌ Could not load skill information"
+              echo ""
+              gtd_quick_pause
+            fi
+          else
+            echo "❌ Python not available to load skill"
+            echo ""
+            gtd_quick_pause
+          fi
+        fi
+      fi
+    
+    # Reload skills
+    elif [[ "$skills_choice" == "$((skill_count + 1))" ]]; then
+      echo ""
+      echo "Reloading skills from disk..."
+      if command -v python3 &>/dev/null; then
+        cd "$MCP_DIR" && python3 -c "
+import sys
+sys.path.insert(0, '.')
+try:
+    from gtd_skills import get_registry
+    r = get_registry()
+    r.reload_skills()
+    count = len(r.list_skills())
+    print(f'✓ Reloaded {count} skills')
+except Exception as e:
+    print(f'Error: {e}')
+" 2>/dev/null || echo "Error reloading skills"
+      fi
+      echo ""
+      gtd_quick_pause
+    
+    # Create new skill
+    elif [[ "$skills_choice" == "$((skill_count + 2))" ]]; then
+      if [[ -f "${MCP_DIR}/create-skill.sh" ]]; then
+        echo ""
+        echo "Starting skill creation helper..."
+        echo ""
+        bash "${MCP_DIR}/create-skill.sh"
+        echo ""
+        gtd_quick_pause
+      else
+        echo ""
+        echo -e "${YELLOW}Skill creation helper not found at: ${MCP_DIR}/create-skill.sh${NC}"
+        echo ""
+        gtd_quick_pause
+      fi
+    
+    # View suggestions guide
+    elif [[ "$skills_choice" == "$((skill_count + 3))" ]]; then
+      if [[ -f "${SKILLS_DIR}/SKILL_SUGGESTIONS.md" ]]; then
+        clear
+        echo ""
+        if command -v less &>/dev/null; then
+          less "${SKILLS_DIR}/SKILL_SUGGESTIONS.md"
+        elif command -v cat &>/dev/null; then
+          cat "${SKILLS_DIR}/SKILL_SUGGESTIONS.md"
+          echo ""
+          gtd_enter_to_continue
+        fi
+      else
+        echo ""
+        echo -e "${YELLOW}Suggestions guide not found${NC}"
+        echo ""
+        gtd_quick_pause
+      fi
+    
+    else
+      echo "❌ Invalid choice"
+      echo ""
+      gtd_quick_pause
+    fi
+  done
+}

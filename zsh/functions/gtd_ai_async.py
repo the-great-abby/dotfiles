@@ -30,6 +30,28 @@ _polling_active = False
 _lock = threading.Lock()
 
 
+def _build_ollama_headers(url: str) -> Dict[str, str]:
+    """Build HTTP headers for Ollama requests, including Authorization if API key is present.
+    
+    Args:
+        url: Request URL (to check if it's an Ollama URL)
+    
+    Returns:
+        Dictionary of HTTP headers
+    """
+    headers = {'Content-Type': 'application/json'}
+    
+    # Check if this is an Ollama URL
+    is_ollama = 'ollama' in url.lower() or ':11434' in url or ':31080' in url
+    if is_ollama:
+        # Try to get API key from environment variable
+        api_key = os.getenv("OLLAMA_API_KEY")
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+    
+    return headers
+
+
 def submit_ai_request_async(
     url: str,
     payload: Dict[str, Any],
@@ -93,7 +115,7 @@ def submit_ai_request_async(
         req = urllib.request.Request(
             url,
             data=data,
-            headers={'Content-Type': 'application/json'}
+            headers=_build_ollama_headers(url)
         )
         
         with urllib.request.urlopen(req, timeout=10) as response:
@@ -183,7 +205,7 @@ def check_request_status(request_id: str) -> Tuple[Optional[Dict[str, Any]], Opt
     status_url = f"{base_url}/v1/chat/completions/{request_id}"
     
     try:
-        status_req = urllib.request.Request(status_url)
+        status_req = urllib.request.Request(status_url, headers=_build_ollama_headers(status_url))
         with urllib.request.urlopen(status_req, timeout=5) as status_response:
             status_data = json.loads(status_response.read().decode('utf-8'))
             

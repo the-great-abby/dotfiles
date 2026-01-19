@@ -77,8 +77,18 @@ get_todays_log() {
   for ext in ".md" ".txt"; do
     local log_file="${DAILY_LOG_DIR}/${today}${ext}"
     if [[ -f "$log_file" ]]; then
-      cat "$log_file"
-      return 0
+      # Check if file is readable before attempting to read
+      if [[ -r "$log_file" ]]; then
+        cat "$log_file" 2>/dev/null || {
+          # If cat fails (e.g., permission denied), return gracefully
+          return 1
+        }
+        return 0
+      else
+        # File exists but is not readable (permission issue)
+        # Silently skip and try next extension
+        continue
+      fi
     fi
   done
   return 1
@@ -91,13 +101,13 @@ get_log_stats() {
   local log_file=""
   for ext in ".md" ".txt"; do
     local test_file="${DAILY_LOG_DIR}/${today}${ext}"
-    if [[ -f "$test_file" ]]; then
+    if [[ -f "$test_file" && -r "$test_file" ]]; then
       log_file="$test_file"
       break
     fi
   done
   
-  if [[ -z "$log_file" || ! -f "$log_file" ]]; then
+  if [[ -z "$log_file" || ! -f "$log_file" || ! -r "$log_file" ]]; then
     echo "No entries yet"
     return
   fi
@@ -167,14 +177,14 @@ check_lunch_progress() {
   local log_file=""
   for ext in ".md" ".txt"; do
     local test_file="${DAILY_LOG_DIR}/${today}${ext}"
-    if [[ -f "$test_file" ]]; then
+    if [[ -f "$test_file" && -r "$test_file" ]]; then
       log_file="$test_file"
       break
     fi
   done
   
-  # Check if no log exists
-  if [[ -z "$log_file" || ! -f "$log_file" ]]; then
+  # Check if no log exists or is not readable
+  if [[ -z "$log_file" || ! -f "$log_file" || ! -r "$log_file" ]]; then
     echo "no_log"
     return
   fi

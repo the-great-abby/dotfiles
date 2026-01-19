@@ -125,40 +125,35 @@ get_ai_suggestions() {
   fi
   
   # Get AI suggestion (persona helper expects prompt as second argument)
-  # Use URGENT priority (40) for foreground/interactive requests
-  export GTD_REQUEST_PRIORITY=40
-  # Use timeout if available to prevent hanging (increased to 30s for controller polling)
+  # This is a scheduled background job (not interactive), so use NORMAL priority (20)
+  # The persona helper already handles async responses from Ollama Controller internally
+  # For non-interactive requests, persona helper polls for up to 5 minutes (300s) when queued
+  export GTD_REQUEST_PRIORITY=20  # NORMAL priority for background/scheduled tasks
+  # Use timeout if available to prevent hanging (persona helper handles async polling internally)
   local suggestion=""
-  local exit_code=0
   # Use printf %q to properly quote the prompt for command line
   local quoted_prompt=$(printf '%q' "$prompt")
+  # Enable GTD tools so the AI can access tasks, projects, logs, etc. for better suggestions
+  local flags="--enable-gtd-tools"
   
-  # Use a background process with timeout to prevent hanging
-  local temp_file=$(mktemp)
-  (eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt" > "$temp_file" 2>&1) &
-  local pid=$!
-  
-  # Kill the process after 30 seconds if it's still running
-  (sleep 30 && kill $pid 2>/dev/null && echo "timeout" > "$temp_file") &
-  local timeout_pid=$!
-  
-  # Wait for the process to complete
-  wait $pid 2>/dev/null
-  exit_code=$?
-  kill $timeout_pid 2>/dev/null
-  
-  # Read the result
-  if [[ -f "$temp_file" ]]; then
-    suggestion=$(cat "$temp_file" 2>/dev/null)
-    rm -f "$temp_file"
+  # Use the same pattern as gtd-checkin - persona helper handles async responses internally
+  # For scheduled background jobs, use a longer timeout (360s = 6 min) to allow for full async polling
+  # Persona helper polls for up to 5 minutes (300s) when requests are queued, so we need buffer
+  if command -v gtimeout &>/dev/null; then
+    suggestion=$(eval "gtimeout 360 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
+  elif command -v timeout &>/dev/null; then
+    suggestion=$(eval "timeout 360 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
+  else
+    # No timeout available, just try to get suggestion
+    # Persona helper has its own timeout handling for async responses (max 5 min polling)
+    suggestion=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
   fi
-  
   unset GTD_REQUEST_PRIORITY
   
-  # Return failure if we got a timeout or error
-  if [[ "$suggestion" =~ "timeout" ]] || [[ "$suggestion" =~ "Connection refused" ]] || \
+  # Return failure if we got an error or empty response
+  if [[ -z "$suggestion" ]] || [[ "$suggestion" =~ "Connection refused" ]] || \
      [[ "$suggestion" =~ "ConnectionError" ]] || [[ "$suggestion" =~ "Connection timed out" ]] || \
-     [[ $exit_code -ne 0 ]]; then
+     [[ "$suggestion" =~ "Error:" ]]; then
     return 1
   fi
   

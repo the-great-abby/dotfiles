@@ -28,7 +28,13 @@ LM_STUDIO_INSTRUCT_MODEL="${LM_STUDIO_INSTRUCT_MODEL:-qwen2.5-7b-instruct-mlx}"
 # Ollama Configuration (used when AI_BACKEND="ollama")
 # Ollama default port is 11434, uses OpenAI-compatible API
 OLLAMA_URL="http://127.0.0.1:31080/v1/chat/completions"
+OLLAMA_API_KEY="${OLLAMA_API_KEY:-}"
 OLLAMA_CHAT_MODEL="${OLLAMA_CHAT_MODEL:-gemma3:1b}"
+
+# Web Search Provider Configuration
+# Options: "ollama" (uses Ollama's web search API) or "duckduckgo" (default, uses DuckDuckGo)
+# Requires OLLAMA_API_KEY to be set if using "ollama"
+GTD_WEB_SEARCH_PROVIDER="${GTD_WEB_SEARCH_PROVIDER:-duckduckgo}"
 OLLAMA_EMBEDDING_MODEL="${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text-v2-moe}"
 
 # Instruct models - Use for structured output, JSON formatting, or when precise instruction following is needed
@@ -58,15 +64,15 @@ WORK_DEEP_MODEL_NAME="${WORK_DEEP_MODEL_NAME:-gpt-oss:20b}"
 # Home Mode Configuration (when GTD_COMPUTER_MODE="home")
 # Example: Use Ollama with instruct models for home
 HOME_AI_BACKEND="${HOME_AI_BACKEND:-ollama}"
-HOME_OLLAMA_URL="http://127.0.0.1:31080/v1/chat/completions"
+HOME_OLLAMA_URL="${HOME_OLLAMA_URL:-http://127.0.0.1:11434/v1/chat/completions}"
 HOME_LM_STUDIO_CHAT_MODEL="${HOME_LM_STUDIO_CHAT_MODEL:-qwen/qwen3-1.7b}"
 HOME_LM_STUDIO_INSTRUCT_MODEL="${HOME_LM_STUDIO_INSTRUCT_MODEL:-qwen2.5-7b-instruct-mlx}"
 HOME_LM_STUDIO_EMBEDDING_MODEL="${HOME_LM_STUDIO_EMBEDDING_MODEL:-nomic-embed-text-v2-moe-GGUF}"
 HOME_OLLAMA_CHAT_MODEL="${HOME_OLLAMA_CHAT_MODEL:-qwen3:4b}"
 HOME_OLLAMA_INSTRUCT_MODEL="${HOME_OLLAMA_INSTRUCT_MODEL:-ministral-3:3b}"
 HOME_OLLAMA_EMBEDDING_MODEL="${HOME_OLLAMA_EMBEDDING_MODEL:-nomic-embed-text-v2-moe}"
-HOME_DEEP_MODEL_NAME="${HOME_DEEP_MODEL_NAME:-qwen3:4b}"
-HOME_TOOL_CALLING_MODEL_NAME="${HOME_TOOL_CALLING_MODEL_NAME:-qwen3:4b}"
+HOME_DEEP_MODEL_NAME="${HOME_DEEP_MODEL_NAME:-minimax-m2.1:cloud}"
+HOME_TOOL_CALLING_MODEL_NAME="${HOME_TOOL_CALLING_MODEL_NAME:-minimax-m2.1:cloud}"
 HOME_USE_TWO_MODEL_LOOP="${HOME_USE_TWO_MODEL_LOOP:-false}"
 
 # ============================================================================

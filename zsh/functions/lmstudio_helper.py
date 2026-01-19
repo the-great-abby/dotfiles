@@ -58,6 +58,8 @@ def read_config():
                         config["lmstudio_model"] = value
                     elif key == "OLLAMA_URL":
                         config["ollama_url"] = value
+                    elif key == "OLLAMA_API_KEY":
+                        config["ollama_api_key"] = value
                     elif key == "OLLAMA_CHAT_MODEL":
                         config["ollama_model"] = value
                     elif key == "DAILY_LOG_DIR":
@@ -84,6 +86,28 @@ def read_config():
         config["backend_name"] = "LM Studio"
     
     return config
+
+def _build_headers(config, url):
+    """Build HTTP headers for AI requests, including Authorization if API key is present.
+    
+    Args:
+        config: Configuration dictionary
+        url: Request URL (to check if it's an Ollama URL)
+    
+    Returns:
+        Dictionary of HTTP headers
+    """
+    headers = {'Content-Type': 'application/json'}
+    
+    # Check if this is an Ollama URL and if we have an API key
+    is_ollama = 'ollama' in url.lower() or ':11434' in url or ':31080' in url
+    if is_ollama:
+        # Try to get API key from config, then environment variable
+        api_key = config.get("ollama_api_key") or os.getenv("OLLAMA_API_KEY")
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+    
+    return headers
 
 def get_daily_goal(daily_log_content):
     """Extract daily goal from log content."""
@@ -187,7 +211,7 @@ I haven't clearly defined my goal for today yet. Can you ask me what I'd like to
     req = urllib.request.Request(
         config["url"],
         data=data,
-        headers={'Content-Type': 'application/json'}
+        headers=_build_headers(config, config["url"])
     )
     
     try:

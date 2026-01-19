@@ -432,12 +432,14 @@ Remember: Answer the user's question using tool calls to get current data. Use s
             # Use async mode (use_async=True) to support tool calls via Ollama Controller
             # Even though we wait for the result, async mode ensures requests go through
             # the Ollama Controller queue which properly handles tool calling
+            # Force tools=True to ensure advice worker always has access to GTD tools
             advice_output = call_deep_ai(
                 prompt=enhanced_prompt,
                 system_prompt=system_prompt,
                 max_tokens=max_tokens,
                 use_async=True,  # Use async mode to support tool calls
-                max_poll_time=advice_timeout  # Configurable timeout (default: 2 hours)
+                max_poll_time=advice_timeout,  # Configurable timeout (default: 2 hours)
+                force_tools=True  # Always include tools for advice worker
             )
             
             # If async mode returned a request_id, we need to poll for the result

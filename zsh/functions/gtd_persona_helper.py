@@ -26,6 +26,28 @@ except ImportError:
         # Fallback: not available
         return (None, "AI helpers not available")
 
+def _build_headers(config: Dict[str, Any], url: str) -> Dict[str, str]:
+    """Build HTTP headers for AI requests, including Authorization if API key is present.
+    
+    Args:
+        config: Configuration dictionary
+        url: Request URL (to check if it's an Ollama URL)
+    
+    Returns:
+        Dictionary of HTTP headers
+    """
+    headers = {'Content-Type': 'application/json'}
+    
+    # Check if this is an Ollama URL and if we have an API key
+    is_ollama = 'ollama' in url.lower() or ':11434' in url or ':31080' in url
+    if is_ollama:
+        # Try to get API key from config, then environment variable
+        api_key = config.get("ollama_api_key") or os.getenv("OLLAMA_API_KEY")
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+    
+    return headers
+
 # Persona definitions
 # Note: max_tokens is now controlled by config (MAX_TOKENS setting)
 # Personas can override if needed, but default to config value
@@ -473,6 +495,7 @@ def read_acronyms():
 def execute_web_search(query: str, use_enhanced_search: Optional[bool] = None, context: Optional[Dict[str, Any]] = None) -> str:
     """
     Execute a web search and return formatted results.
+    Supports both Ollama web search (if configured) and DuckDuckGo (fallback).
     Uses DuckDuckGo instant answer API first, then falls back to HTML scraping.
     
     Args:
@@ -486,13 +509,72 @@ def execute_web_search(query: str, use_enhanced_search: Optional[bool] = None, c
     import re
     from typing import Dict, Any, Optional
     
+    # Check if Ollama web search is enabled
+    config = read_config()
+    web_search_provider = os.getenv("GTD_WEB_SEARCH_PROVIDER", "").lower()
+    if not web_search_provider:
+        web_search_provider = config.get("web_search_provider", "duckduckgo").lower()
+    
+    # Try Ollama web search if configured
+    if web_search_provider == "ollama":
+        try:
+            from gtd_ollama_web_search import execute_ollama_web_search
+            # Check if API key is available
+            api_key = os.getenv("OLLAMA_API_KEY") or config.get("ollama_api_key")
+            if api_key:
+                result = execute_ollama_web_search(query, max_results=5)
+                if result and not result.startswith("Error"):
+                    return result
+                # If Ollama fails, fall through to DuckDuckGo
+            else:
+                # No API key, fall through to DuckDuckGo
+                pass
+        except ImportError:
+            # Module not found, fall through to DuckDuckGo
+            pass
+        except Exception as e:
+            # Ollama search failed, fall through to DuckDuckGo
+            if os.getenv("GTD_DEBUG"):
+                print(f"Ollama web search failed, falling back to DuckDuckGo: {e}", file=sys.stderr)
+            pass
+    
+    # Check if Ollama web search is enabled
+    web_search_provider = os.getenv("GTD_WEB_SEARCH_PROVIDER", "").lower()
+    if not web_search_provider:
+        web_search_provider = config.get("web_search_provider", "duckduckgo").lower()
+    
+    # Try Ollama web search if configured
+    if web_search_provider == "ollama":
+        try:
+            from gtd_ollama_web_search import execute_ollama_web_search
+            # Check if API key is available
+            api_key = os.getenv("OLLAMA_API_KEY") or config.get("ollama_api_key")
+            if api_key:
+                result = execute_ollama_web_search(query, max_results=5)
+                if result and not result.startswith("Error"):
+                    # If enhanced search is enabled, we can still enhance the Ollama results
+                    # But for now, return Ollama results directly
+                    return result
+                # If Ollama fails, fall through to DuckDuckGo
+            else:
+                # No API key, fall through to DuckDuckGo
+                if os.getenv("GTD_DEBUG"):
+                    print("Ollama web search configured but OLLAMA_API_KEY not found, using DuckDuckGo", file=sys.stderr)
+        except ImportError:
+            # Module not found, fall through to DuckDuckGo
+            if os.getenv("GTD_DEBUG"):
+                print("Ollama web search module not found, using DuckDuckGo", file=sys.stderr)
+        except Exception as e:
+            # Ollama search failed, fall through to DuckDuckGo
+            if os.getenv("GTD_DEBUG"):
+                print(f"Ollama web search failed, falling back to DuckDuckGo: {e}", file=sys.stderr)
+    
     # Auto-detect enhanced search setting if not specified
     if use_enhanced_search is None:
         # Check environment variable first
         use_enhanced_search = os.getenv("GTD_ENHANCED_SEARCH", "true").lower() in ("true", "1", "yes")
         # Check config file
         if use_enhanced_search:
-            config = read_config()
             use_enhanced_search = config.get("enhanced_search_enabled", True)
     
     # If enhanced search is enabled, use the enhanced search system
@@ -878,6 +960,10 @@ def read_config():
                             config["lmstudio_instruct_model"] = value
                         elif key == "OLLAMA_URL":
                             config["ollama_url"] = value
+                        elif key == "OLLAMA_API_KEY":
+                            config["ollama_api_key"] = value
+                        elif key == "GTD_WEB_SEARCH_PROVIDER" or key == "WEB_SEARCH_PROVIDER":
+                            config["web_search_provider"] = value.lower()
                         elif key == "OLLAMA_CHAT_MODEL":
                             config["ollama_model"] = value
                         elif key == "OLLAMA_INSTRUCT_MODEL":
@@ -1332,7 +1418,7 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
     req = urllib.request.Request(
         config["url"],
         data=data,
-        headers={'Content-Type': 'application/json'}
+        headers=_build_headers(config, config["url"])
     )
     
     # Get timeout from environment variable first (allows runtime override),
@@ -1606,7 +1692,7 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
                         followup_req = urllib.request.Request(
                             config["url"],
                             data=followup_data,
-                            headers={'Content-Type': 'application/json'}
+                            headers=_build_headers(config, config["url"])
                         )
                         
                         with urllib.request.urlopen(followup_req, timeout=timeout) as followup_response:
@@ -1636,7 +1722,7 @@ def call_persona(config, persona_key, content, context="", skip_gtd_context=Fals
                                 while time.time() - start_poll_time < max_poll_time:
                                     time.sleep(poll_interval)
                                     try:
-                                        followup_status_req = urllib.request.Request(followup_status_url)
+                                        followup_status_req = urllib.request.Request(followup_status_url, headers=_build_headers(config, followup_status_url))
                                         with urllib.request.urlopen(followup_status_req, timeout=5) as followup_status_response:
                                             followup_status_data = json.loads(followup_status_response.read().decode('utf-8'))
                                             
