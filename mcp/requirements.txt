@@ -33,3 +33,4 @@ bleak>=0.21.0
 # Standard library should cover the rest
 # (json, pathlib, datetime, etc. are built-in)
 
+python-toon

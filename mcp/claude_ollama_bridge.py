@@ -441,9 +441,15 @@ class SmartAIRouter:
                 # Mention personalization if available
                 if "gtd_get_personalization" in tool_names:
                     system_message += "\n\nIMPORTANT: You have access to personalization data via gtd_get_personalization. Use this to understand the user's relationships (e.g., who 'Louiza' is), goals, preferences, work patterns, and communication style. This helps you provide more personalized, context-aware assistance. Call gtd_get_personalization() early in conversations to understand the user better."
+                    system_message += "\n\nCRITICAL: When reading personalization data, ONLY use information that is actually in the file. DO NOT make up, infer, or assume details that aren't explicitly stored. If the personalization data doesn't contain specific information, say you don't have that information rather than guessing."
+                
+                # Mention Second Brain search if available
+                if "gtd_search_second_brain" in tool_names:
+                    system_message += "\n\nIMPORTANT: You have access to the user's Second Brain (personal knowledge base) via gtd_search_second_brain. This contains their notes, Pathfinder campaign sessions, and other personal information. When the user asks about topics that might be in their notes (like Pathfinder content, campaign details, characters, etc.), use gtd_search_second_brain to search for relevant information. The search is case-insensitive and searches both filenames and content."
                 
                 if "gtd_update_personalization" in tool_names:
                     system_message += "\n\nLEARNING: You can update personalization data via gtd_update_personalization when you discover new, reliable information about the user (e.g., learning their partner's name, discovering goals, noticing energy patterns). Only update when you have clear, explicit information - don't guess or assume. Use the 'personalization-learning' skill for guidance on when and how to update."
+                    system_message += "\n\nCRITICAL: When updating personalization, ONLY save information that was explicitly stated by the user. DO NOT make up, infer, or assume details. If you're uncertain, ask the user to confirm before updating. When reading personalization data, ONLY use information that is actually in the file - do not add details that aren't there."
                 
                 system_message += "\n\nWhen you call a tool, it will execute and return results. If a tool call succeeds, you'll receive the tool's output. If it fails, you'll receive an error message. Always use the tool results to inform your response."
                 system_message += "\n\nIMPORTANT WORKFLOW GUIDELINES:"

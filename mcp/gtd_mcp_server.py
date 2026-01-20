@@ -2381,6 +2381,25 @@ async def handle_list_tools() -> List[Tool]:
                 "required": ["url"]
             }
         ),
+        Tool(
+            name="search_second_brain",
+            description="Search the user's Second Brain (personal knowledge base) for notes containing a topic. This searches both filenames and content. Useful for finding Pathfinder campaign notes, session write-ups, character information, or any other personal notes. Returns note titles, paths, and content previews.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Topic or search term to find in Second Brain notes (e.g., 'rakshasa', 'Pathfinder', 'wondrous items', 'Session 10')"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return. Default: 10",
+                        "default": 10
+                    }
+                },
+                "required": ["topic"]
+            }
+        ),
     ] + (
         # Add skills-related tools if skills are available
         [
@@ -3505,13 +3524,28 @@ Only suggest tasks that are clearly actionable. If no tasks are found, return an
         field = arguments.get("field")
         value = arguments.get("value")
         operation = arguments.get("operation", "set")
-        personalization_file = Path.home() / ".gtd_personalization.json"
+        
+        # Import TOON helper
+        try:
+            sys.path.insert(0, str(Path(__file__).parent.parent / "zsh" / "functions"))
+            from gtd_toon_helper import load_toon_file, save_toon_file, get_personalization_file_path
+            personalization_file = get_personalization_file_path()
+            use_toon = True
+        except ImportError:
+            # Fallback to JSON
+            personalization_file = Path.home() / ".gtd_personalization.json"
+            use_toon = False
         
         try:
             # Load existing data or create new
-            if personalization_file.exists():
-                with open(personalization_file, 'r') as f:
-                    data = json.load(f)
+            if use_toon:
+                data = load_toon_file(personalization_file)
+            else:
+                if personalization_file.exists():
+                    with open(personalization_file, 'r') as f:
+                        data = json.load(f)
+                else:
+                    data = {}
             else:
                 # Initialize with basic structure
                 data = {
@@ -3544,7 +3578,28 @@ Only suggest tasks that are clearly actionable. If no tasks are found, return an
             if operation == "set":
                 # Set a field value
                 if isinstance(data[category], dict):
-                    data[category][field] = value
+                    # Special handling for relationships.partner to preserve object structure
+                    if category == "relationships" and field == "partner":
+                        # If value is a string, convert to object structure
+                        if isinstance(value, str):
+                            # Preserve existing structure if it exists, otherwise create new
+                            if field in data[category] and isinstance(data[category][field], dict):
+                                data[category][field]["name"] = value
+                                if "relationship_type" not in data[category][field]:
+                                    data[category][field]["relationship_type"] = "partner"
+                            else:
+                                data[category][field] = {
+                                    "name": value,
+                                    "relationship_type": "partner"
+                                }
+                        # If value is already an object/dict, use it directly
+                        elif isinstance(value, dict):
+                            data[category][field] = value
+                        else:
+                            data[category][field] = value
+                    else:
+                        # For other fields, set directly
+                        data[category][field] = value
                 elif isinstance(data[category], list):
                     # For list categories, append if not exists
                     if value not in data[category]:
@@ -3579,12 +3634,14 @@ Only suggest tasks that are clearly actionable. If no tasks are found, return an
                     if value in data[category]:
                         data[category].remove(value)
             
-            # Update timestamp
-            data["last_updated"] = datetime.now().isoformat()
-            
             # Save back to file
-            with open(personalization_file, 'w') as f:
-                json.dump(data, f, indent=2)
+            if use_toon:
+                save_toon_file(personalization_file, data)
+            else:
+                # Update timestamp
+                data["last_updated"] = datetime.now().isoformat()
+                with open(personalization_file, 'w') as f:
+                    json.dump(data, f, indent=2)
             
             return [TextContent(type="text", text=json.dumps({
                 "success": True,
@@ -3601,6 +3658,124 @@ Only suggest tasks that are clearly actionable. If no tasks are found, return an
             return [TextContent(type="text", text=json.dumps({
                 "error": f"Error updating personalization: {str(e)}",
                 "traceback": traceback.format_exc()
+            }))]
+    
+    elif name == "search_second_brain":
+        topic = arguments.get("topic", "")
+        max_results = arguments.get("max_results", 10)
+        
+        try:
+            from pathlib import Path
+            import os
+            
+            # Get Second Brain directory
+            second_brain_dir = Path.home() / "Documents" / "obsidian" / "Second Brain"
+            
+            # Check if directory exists
+            if not second_brain_dir.exists():
+                # Try to get from environment or config
+                second_brain_env = os.getenv("SECOND_BRAIN")
+                if second_brain_env:
+                    second_brain_dir = Path(second_brain_env)
+                if not second_brain_dir.exists():
+                    return [TextContent(type="text", text=json.dumps({
+                        "error": "Second Brain directory not found",
+                        "message": f"Second Brain directory does not exist: {second_brain_dir}",
+                        "topic": topic,
+                        "suggestion": "Check if your Second Brain is located elsewhere or set SECOND_BRAIN environment variable"
+                    }))]
+            
+            # Search for files matching the topic in filename
+            results = []
+            count = 0
+            
+            # First, search by filename (case-insensitive)
+            for note_file in second_brain_dir.rglob("*.md"):
+                # Skip MOCs and .obsidian directories
+                if "MOCs" in note_file.parts or ".obsidian" in note_file.parts:
+                    continue
+                
+                # Check if filename contains topic (case-insensitive)
+                if topic.lower() in note_file.name.lower():
+                    if count >= max_results:
+                        break
+                    
+                    try:
+                        note_title = note_file.stem
+                        note_path = str(note_file.relative_to(second_brain_dir))
+                        
+                        # Read preview (first 100 lines)
+                        with open(note_file, 'r', encoding='utf-8', errors='ignore') as f:
+                            preview_lines = [f.readline() for _ in range(100)]
+                            preview = ''.join(preview_lines).strip()
+                        
+                        results.append({
+                            "title": note_title,
+                            "path": note_path,
+                            "content": preview
+                        })
+                        count += 1
+                    except Exception:
+                        # Skip files that can't be read
+                        continue
+            
+            # If we haven't found enough, search in content
+            if count < max_results:
+                for note_file in second_brain_dir.rglob("*.md"):
+                    # Skip MOCs and .obsidian directories
+                    if "MOCs" in note_file.parts or ".obsidian" in note_file.parts:
+                        continue
+                    
+                    # Skip if already included
+                    if any(r["path"] == str(note_file.relative_to(second_brain_dir)) for r in results):
+                        continue
+                    
+                    if count >= max_results:
+                        break
+                    
+                    try:
+                        # Check if content contains topic (case-insensitive)
+                        with open(note_file, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                            if topic.lower() in content.lower():
+                                note_title = note_file.stem
+                                note_path = str(note_file.relative_to(second_brain_dir))
+                                
+                                # Get preview (first 100 lines)
+                                preview_lines = content.split('\n')[:100]
+                                preview = '\n'.join(preview_lines).strip()
+                                
+                                results.append({
+                                    "title": note_title,
+                                    "path": note_path,
+                                    "content": preview
+                                })
+                                count += 1
+                    except Exception:
+                        # Skip files that can't be read
+                        continue
+            
+            # Return results
+            if results:
+                return [TextContent(type="text", text=json.dumps({
+                    "results": results,
+                    "count": len(results),
+                    "topic": topic
+                }, indent=2))]
+            else:
+                return [TextContent(type="text", text=json.dumps({
+                    "results": [],
+                    "count": 0,
+                    "topic": topic,
+                    "message": f"No notes found containing '{topic}'"
+                }))]
+        
+        except Exception as e:
+            import traceback
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Error searching Second Brain: {str(e)}",
+                "traceback": traceback.format_exc(),
+                "topic": topic
             }))]
     
     elif name == "restructure_with_natural_language":

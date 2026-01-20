@@ -36,11 +36,11 @@ NOW=$(gtd_get_current_time)
 DATE_CMD=$(gtd_get_date_cmd)
 DAY_OF_WEEK=$($DATE_CMD +"%A")
 
-# Find persona helper for AI suggestions
+# Find persona helper for AI suggestions (use deep thinking version for cloud model)
 PERSONA_HELPER=""
 POSSIBLE_PATHS=(
-  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
+  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
 )
 
 for path in "${POSSIBLE_PATHS[@]}"; do
@@ -119,21 +119,34 @@ get_ai_suggestions() {
   # Use URGENT priority (40) for foreground/interactive requests like morning check-in
   # This ensures immediate processing through the Ollama controller
   export GTD_REQUEST_PRIORITY=40
-  # Use timeout if available to prevent hanging (increased to 30s for controller polling)
+  # Use timeout if available to prevent hanging
+  # Deep model uses async polling (up to 5 minutes), so we need longer timeout (360s = 6 min)
   local suggestion=""
   # Use printf %q to properly quote the prompt for command line
   local quoted_prompt=$(printf '%q' "$prompt")
   # Enable GTD tools so the AI can access tasks, projects, logs, etc. for better suggestions
   local flags="--enable-gtd-tools"
+  
+  # Capture stderr separately to avoid polluting output, but allow errors to be logged
+  local error_output=""
   if command -v gtimeout &>/dev/null; then
-    suggestion=$(eval "gtimeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
+    error_output=$(eval "gtimeout 360 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>&1)
+    suggestion=$(echo "$error_output" | grep -v "^Error:" | grep -v "^Usage:" || echo "")
   elif command -v timeout &>/dev/null; then
-    suggestion=$(eval "timeout 30 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
+    error_output=$(eval "timeout 360 $PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>&1)
+    suggestion=$(echo "$error_output" | grep -v "^Error:" | grep -v "^Usage:" || echo "")
   else
     # No timeout available, just try to get suggestion (may take a while)
-    suggestion=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>/dev/null || echo "")
+    # Deep persona helper has its own timeout handling for async responses (max 5 min polling)
+    error_output=$(eval "$PYTHON_CMD \"$PERSONA_HELPER\" \"$persona\" $quoted_prompt \"\" $flags" 2>&1)
+    suggestion=$(echo "$error_output" | grep -v "^Error:" | grep -v "^Usage:" || echo "")
   fi
   unset GTD_REQUEST_PRIORITY
+  
+  # If we got an error, log it but don't fail the check-in
+  if echo "$error_output" | grep -q "^Error:"; then
+    echo "Warning: AI suggestion generation failed: $(echo "$error_output" | grep "^Error:" | head -1)" >&2
+  fi
   
   # Clean up the suggestion (persona helper adds header, we want just the advice)
   if [[ -n "$suggestion" ]]; then
@@ -297,6 +310,9 @@ print(suggestion_type)
 
 # Morning check-in
 morning_checkin() {
+  # Set error handling - don't exit on errors, just continue
+  set +e
+  
   clear
   echo ""
   echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -324,8 +340,11 @@ morning_checkin() {
     show_thinking_timer "Generating AI suggestions" &
     local timer_pid=$!
     
-    # Generate suggestions on-demand
+    # Generate suggestions on-demand (don't fail if this errors)
+    set +e  # Don't exit on error
     ai_suggestions=$(get_ai_suggestions "morning" 3 2>/dev/null)
+    local ai_exit_code=$?
+    set -e  # Re-enable error handling
     
     # Stop the thinking timer
     stop_thinking_timer $timer_pid
@@ -334,6 +353,9 @@ morning_checkin() {
     if [[ -n "$ai_suggestions" && ${#ai_suggestions} -gt 20 ]]; then
       mkdir -p "$suggestions_dir"
       echo "$ai_suggestions" > "$morning_suggestions_file" 2>/dev/null || true
+    elif [[ $ai_exit_code -ne 0 ]]; then
+      # AI generation failed - that's okay, continue without suggestions
+      echo "⚠️  AI suggestions unavailable (continuing without them)" >&2
     fi
   fi
   
@@ -1171,10 +1193,18 @@ auto_detect_time() {
 # Main command handler
 case "${1:-}" in
   morning|am)
+    set +e  # Don't exit on errors - allow check-in to complete even if some parts fail
     morning_checkin
+    exit_code=$?
+    set -e
+    exit $exit_code
     ;;
   evening|pm|night)
+    set +e  # Don't exit on errors
     evening_checkin
+    exit_code=$?
+    set -e
+    exit $exit_code
     ;;
   help|--help|-h)
     show_usage
@@ -1183,7 +1213,11 @@ case "${1:-}" in
     # Auto-detect based on time
     time_of_day="$(auto_detect_time)"
     if [[ "$time_of_day" == "morning" ]]; then
+      set +e  # Don't exit on errors
       morning_checkin
+      exit_code=$?
+      set -e
+      exit $exit_code
     else
       echo ""
       echo "What type of check-in?"
@@ -1192,9 +1226,27 @@ case "${1:-}" in
       echo ""
       read -p "Choose (1-2): " choice
       case "$choice" in
-        1) morning_checkin ;;
-        2) evening_checkin ;;
-        *) morning_checkin ;;
+        1) 
+          set +e
+          morning_checkin
+          exit_code=$?
+          set -e
+          exit $exit_code
+          ;;
+        2) 
+          set +e
+          evening_checkin
+          exit_code=$?
+          set -e
+          exit $exit_code
+          ;;
+        *) 
+          set +e
+          morning_checkin
+          exit_code=$?
+          set -e
+          exit $exit_code
+          ;;
       esac
     fi
     ;;

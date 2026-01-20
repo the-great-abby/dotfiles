@@ -946,7 +946,9 @@ gtd_find_related_notes() {
     fi
     
     local note_title=$(basename "$note_file" .md)
-    local note_path="${note_file#$SECOND_BRAIN/}"
+    # Remove trailing slash from SECOND_BRAIN before substitution
+    local second_brain_clean="${SECOND_BRAIN%/}"
+    local note_path="${note_file#$second_brain_clean/}"
     
     # Get more lines for session notes (up to 100 lines for better context)
     local preview=$(head -100 "$note_file" 2>/dev/null)
@@ -999,11 +1001,13 @@ gtd_find_related_notes() {
         fi
       fi
       
-      if [[ "$topic_matches" == "true" ]]; then
-        local note_title=$(basename "$note_file" .md)
-        local note_path="${note_file#$SECOND_BRAIN/}"
-        # Get more content for session notes (up to 100 lines for better context)
-        local preview=$(head -100 "$note_file" 2>/dev/null)
+            if [[ "$topic_matches" == "true" ]]; then
+                local note_title=$(basename "$note_file" .md)
+                # Remove trailing slash from SECOND_BRAIN before substitution
+                local second_brain_clean="${SECOND_BRAIN%/}"
+                local note_path="${note_file#$second_brain_clean/}"
+                # Get more content for session notes (up to 100 lines for better context)
+                local preview=$(head -100 "$note_file" 2>/dev/null)
         
         results="${results}---\n"
         results="${results}Note: ${note_title}\n"

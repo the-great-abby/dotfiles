@@ -57,13 +57,21 @@ def get_persona_system_prompt_simple(persona_key: str, config: dict) -> str:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: gtd_persona_helper_deep.py <persona> <content> [context]")
+        print("Usage: gtd_persona_helper_deep.py <persona> <content> [context] [--enable-gtd-tools]")
         print(f"\nAvailable personas: {', '.join(PERSONAS.keys())}")
         sys.exit(1)
     
     persona_key = sys.argv[1].lower().strip()
     content = sys.argv[2]
-    context = sys.argv[3] if len(sys.argv) > 3 else ""
+    context = ""
+    enable_gtd_tools = False
+    
+    # Parse flags from arguments
+    for arg in sys.argv[3:]:
+        if arg == "--enable-gtd-tools":
+            enable_gtd_tools = True
+        elif arg and not arg.startswith("--"):
+            context = arg
     
     # Validate persona
     if persona_key not in PERSONAS:
@@ -85,12 +93,14 @@ def main():
     try:
         # Use async mode to support tool calls via Ollama Controller
         # Use reasonable max_tokens for reminders (2000 should be plenty)
+        # Pass force_tools=True if --enable-gtd-tools flag is set
         advice = call_deep_ai(
             prompt=user_prompt,
             system_prompt=system_prompt,
             max_tokens=2000,
             use_async=True,  # Use async mode for tool support
-            max_poll_time=300.0  # 5 minutes should be enough for reminders
+            max_poll_time=300.0,  # 5 minutes should be enough for reminders
+            force_tools=enable_gtd_tools  # Enable GTD tools if flag is set
         )
         
         # Check if we got a request_id (queued request)
@@ -118,7 +128,11 @@ def main():
                 sys.exit(1)
         
         # Check for errors
-        if advice.startswith("Error:"):
+        if not advice:
+            print("Error: No response received from AI model", file=sys.stderr)
+            sys.exit(1)
+        
+        if isinstance(advice, str) and advice.startswith("Error:"):
             print(advice, file=sys.stderr)
             sys.exit(1)
         

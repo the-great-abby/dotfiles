@@ -78,10 +78,13 @@ Use the `gtd_update_personalization` tool to save the information:
 
 ```python
 # Example: Learning partner's name
+# IMPORTANT: For relationships.partner, you can pass either:
+# - A string (just the name): value="Louiza" - handler will convert to object
+# - An object: value={"name": "Louiza", "relationship_type": "partner"}
 gtd_update_personalization(
     category="relationships",
     field="partner",
-    value={"name": "Louiza", "relationship_type": "partner"},
+    value="Louiza",  # String is fine - handler preserves object structure
     operation="set"
 )
 
@@ -161,16 +164,19 @@ After updating, briefly acknowledge what you learned:
 
 **Update:**
 ```python
+# You can pass just the name as a string - the handler will preserve object structure
 gtd_update_personalization(
     category="relationships",
     field="partner",
-    value={"name": "Louiza", "relationship_type": "partner"},
+    value="Louiza",  # String is fine - handler converts to object automatically
     operation="set"
 )
 ```
 
 **Response:**
 - "That's great! I'll remember that Louiza is your partner."
+
+**Note:** The handler automatically converts string values to the proper object structure `{"name": "Louiza", "relationship_type": "partner"}` to maintain consistency.
 
 ### Example 2: Discovering Goals
 

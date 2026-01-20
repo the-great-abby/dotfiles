@@ -1,177 +1,273 @@
 #!/bin/bash
 # GTD Wizard Personalization Functions
 # Interactive wizard to capture personalization information
+# Uses TOON (Token Output Object Notation) format for efficient storage
 
-PERSONALIZATION_FILE="$HOME/.gtd_personalization.json"
+PERSONALIZATION_FILE="$HOME/.gtd_personalization.toon"
+PERSONALIZATION_JSON_FILE="$HOME/.gtd_personalization.json"  # For migration
 
 # Initialize personalization file
 init_personalization_file() {
+  # Check if TOON file exists, or if JSON exists (for migration)
   if [[ ! -f "$PERSONALIZATION_FILE" ]]; then
-    python3 <<EOF
-import json
+    # Try to migrate from JSON if it exists
+    if [[ -f "$PERSONALIZATION_JSON_FILE" ]]; then
+      python3 <<EOF
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+try:
+    from gtd_toon_helper import migrate_json_to_toon, get_personalization_file_path
+    migrate_json_to_toon()
+except ImportError:
+    # Fallback: use JSON directly
+    import json
+    from datetime import datetime
+    json_path = Path("$PERSONALIZATION_JSON_FILE")
+    toon_path = Path("$PERSONALIZATION_FILE")
+    if json_path.exists():
+        with open(json_path) as f:
+            data = json.load(f)
+        # Save as JSON for now (TOON library not available)
+        with open(toon_path.with_suffix('.json'), 'w') as f:
+            json.dump(data, f, indent=2)
+EOF
+    fi
+    
+    # Initialize new file if still doesn't exist
+    if [[ ! -f "$PERSONALIZATION_FILE" ]]; then
+      python3 <<EOF
+import sys
+from pathlib import Path
 from datetime import datetime
 
-personalization = {
-    "created": datetime.now().isoformat(),
-    "last_updated": datetime.now().isoformat(),
-    "relationships": {
-        "partner": {},
-        "family": [],
-        "close_friends": [],
-        "professional": []
-    },
-    "life_situation": {
-        "living_arrangement": "",
-        "timezone": "",
-        "life_phase": ""
-    },
-    "goals": {
-        "career": [],
-        "personal": [],
-        "financial": [],
-        "learning": []
-    },
-    "values": [],
-    "current_focus": [],
-    "energy_patterns": {
-        "peak_hours": [],
-        "low_energy_hours": [],
-        "energy_drainers": [],
-        "energy_rechargers": []
-    },
-    "work_patterns": {
-        "typical_schedule": "",
-        "oncall_schedule": "",
-        "deep_work_preferred_times": [],
-        "focus_duration": ""
-    },
-    "health_routines": {
-        "medications": [],
-        "exercise_patterns": "",
-        "sleep_needs": "",
-        "meal_patterns": ""
-    },
-    "wellness_tracking": {
-        "tracked_metrics": [],
-        "patterns_noticed": []
-    },
-    "communication_style": {
-        "tone_preference": "",
-        "feedback_style": "",
-        "detail_level": "",
-        "reminder_style": ""
-    },
-    "ai_interaction": {
-        "proactivity_level": "",
-        "context_memory": "",
-        "suggestion_frequency": ""
-    },
-    "learning_style": {
-        "preferred_methods": [],
-        "explanation_depth": "",
-        "practice_style": ""
-    },
-    "knowledge_areas": {
-        "expertise": [],
-        "learning": [],
-        "tools": []
-    },
-    "decision_making": {
-        "style": "",
-        "information_needs": "",
-        "decision_speed": "",
-        "confidence_factors": []
-    },
-    "problem_solving": {
-        "approach": "",
-        "thinking_aids": [],
-        "stuck_indicators": [],
-        "unstuck_methods": []
-    },
-    "stress_indicators": {
-        "verbal_cues": [],
-        "situations": [],
-        "patterns": []
-    },
-    "coping_mechanisms": {
-        "effective": [],
-        "ineffective": []
-    },
-    "recovery": {
-        "typical_duration": "",
-        "helps": []
-    },
-    "interests": {
-        "hobbies": [],
-        "creative_pursuits": [],
-        "social_activities": []
-    },
-    "personal_projects": [],
-    "professional": {
-        "role": "",
-        "industry": "",
-        "career_stage": "",
-        "key_responsibilities": [],
-        "current_focus": []
-    },
-    "tools": {
-        "regular_use": [],
-        "learning": [],
-        "preferred_editors": []
-    },
-    "workflows": {
-        "organization_style": "",
-        "tracking_preferences": "",
-        "automation_level": ""
-    },
-    "lessons_learned": {
-        "what_works": [],
-        "what_doesnt_work": [],
-        "patterns": []
+# Try to use TOON helper
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+try:
+    from gtd_toon_helper import save_toon_file, get_personalization_file_path
+    
+    personalization = {
+        "created": datetime.now().isoformat(),
+        "last_updated": datetime.now().isoformat(),
+        "relationships": {
+            "partner": {},
+            "family": [],
+            "close_friends": [],
+            "professional": []
+        },
+        "life_situation": {
+            "living_arrangement": "",
+            "timezone": "",
+            "life_phase": ""
+        },
+        "goals": {
+            "career": [],
+            "personal": [],
+            "financial": [],
+            "learning": []
+        },
+        "values": [],
+        "current_focus": [],
+        "energy_patterns": {
+            "peak_hours": [],
+            "low_energy_hours": [],
+            "energy_drainers": [],
+            "energy_rechargers": []
+        },
+        "work_patterns": {
+            "typical_schedule": "",
+            "oncall_schedule": "",
+            "deep_work_preferred_times": [],
+            "focus_duration": ""
+        },
+        "health_routines": {
+            "medications": [],
+            "exercise_patterns": "",
+            "sleep_needs": "",
+            "meal_patterns": ""
+        },
+        "wellness_tracking": {
+            "tracked_metrics": [],
+            "patterns_noticed": []
+        },
+        "communication_style": {
+            "tone_preference": "",
+            "feedback_style": "",
+            "detail_level": "",
+            "reminder_style": ""
+        },
+        "ai_interaction": {
+            "proactivity_level": "",
+            "context_memory": "",
+            "suggestion_frequency": ""
+        },
+        "learning_style": {
+            "preferred_methods": [],
+            "explanation_depth": "",
+            "practice_style": ""
+        },
+        "knowledge_areas": {
+            "expertise": [],
+            "learning": [],
+            "tools": []
+        },
+        "decision_making": {
+            "style": "",
+            "information_needs": "",
+            "decision_speed": "",
+            "confidence_factors": []
+        },
+        "problem_solving": {
+            "approach": "",
+            "thinking_aids": [],
+            "stuck_indicators": [],
+            "unstuck_methods": []
+        },
+        "stress_indicators": {
+            "verbal_cues": [],
+            "situations": [],
+            "patterns": []
+        },
+        "coping_mechanisms": {
+            "effective": [],
+            "ineffective": []
+        },
+        "recovery": {
+            "typical_duration": "",
+            "helps": []
+        },
+        "interests": {
+            "hobbies": [],
+            "creative_pursuits": [],
+            "social_activities": []
+        },
+        "personal_projects": [],
+        "professional": {
+            "role": "",
+            "industry": "",
+            "career_stage": "",
+            "key_responsibilities": [],
+            "current_focus": []
+        },
+        "tools": {
+            "regular_use": [],
+            "learning": [],
+            "preferred_editors": []
+        },
+        "workflows": {
+            "organization_style": "",
+            "tracking_preferences": "",
+            "automation_level": ""
+        },
+        "lessons_learned": {
+            "what_works": [],
+            "what_doesnt_work": [],
+            "patterns": []
+        }
     }
-}
-
-with open("$PERSONALIZATION_FILE", 'w') as f:
-    json.dump(personalization, f, indent=2)
+    
+    file_path = get_personalization_file_path()
+    save_toon_file(file_path, personalization)
+except ImportError:
+    # Fallback to JSON if TOON helper not available
+    import json
+    personalization = {
+        "created": datetime.now().isoformat(),
+        "last_updated": datetime.now().isoformat(),
+        "relationships": {"partner": {}, "family": [], "close_friends": [], "professional": []},
+        "life_situation": {"living_arrangement": "", "timezone": "", "life_phase": ""},
+        "goals": {"career": [], "personal": [], "financial": [], "learning": []},
+        "values": [],
+        "current_focus": [],
+        "energy_patterns": {"peak_hours": [], "low_energy_hours": [], "energy_drainers": [], "energy_rechargers": []},
+        "work_patterns": {"typical_schedule": "", "oncall_schedule": "", "deep_work_preferred_times": [], "focus_duration": ""},
+        "health_routines": {"medications": [], "exercise_patterns": "", "sleep_needs": "", "meal_patterns": ""},
+        "wellness_tracking": {"tracked_metrics": [], "patterns_noticed": []},
+        "communication_style": {"tone_preference": "", "feedback_style": "", "detail_level": "", "reminder_style": ""},
+        "ai_interaction": {"proactivity_level": "", "context_memory": "", "suggestion_frequency": ""},
+        "learning_style": {"preferred_methods": [], "explanation_depth": "", "practice_style": ""},
+        "knowledge_areas": {"expertise": [], "learning": [], "tools": []},
+        "decision_making": {"style": "", "information_needs": "", "decision_speed": "", "confidence_factors": []},
+        "problem_solving": {"approach": "", "thinking_aids": [], "stuck_indicators": [], "unstuck_methods": []},
+        "stress_indicators": {"verbal_cues": [], "situations": [], "patterns": []},
+        "coping_mechanisms": {"effective": [], "ineffective": []},
+        "recovery": {"typical_duration": "", "helps": []},
+        "interests": {"hobbies": [], "creative_pursuits": [], "social_activities": []},
+        "personal_projects": [],
+        "professional": {"role": "", "industry": "", "career_stage": "", "key_responsibilities": [], "current_focus": []},
+        "tools": {"regular_use": [], "learning": [], "preferred_editors": []},
+        "workflows": {"organization_style": "", "tracking_preferences": "", "automation_level": ""},
+        "lessons_learned": {"what_works": [], "what_doesnt_work": [], "patterns": []}
+    }
+    with open("$PERSONALIZATION_JSON_FILE", 'w') as f:
+        json.dump(personalization, f, indent=2)
 EOF
-    echo "✓ Initialized personalization file: $PERSONALIZATION_FILE"
+      echo "✓ Initialized personalization file: $PERSONALIZATION_FILE"
+    fi
   fi
 }
 
 # Load personalization data
 load_personalization() {
-  if [[ -f "$PERSONALIZATION_FILE" ]]; then
-    python3 <<EOF
-import json
+  python3 <<EOF
+import sys
 from pathlib import Path
 
-prefs_file = Path("$PERSONALIZATION_FILE")
-if prefs_file.exists():
-    with open(prefs_file) as f:
-        data = json.load(f)
-        print(json.dumps(data))
+# Try to use TOON helper
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+try:
+    from gtd_toon_helper import load_toon_file, get_personalization_file_path
+    import json
+    
+    file_path = get_personalization_file_path()
+    data = load_toon_file(file_path)
+    print(json.dumps(data))
+except ImportError:
+    # Fallback to JSON
+    import json
+    prefs_file = Path("$PERSONALIZATION_FILE")
+    json_file = Path("$PERSONALIZATION_JSON_FILE")
+    if prefs_file.exists():
+        with open(prefs_file) as f:
+            data = json.load(f)
+            print(json.dumps(data))
+    elif json_file.exists():
+        with open(json_file) as f:
+            data = json.load(f)
+            print(json.dumps(data))
+    else:
+        print("{}")
 EOF
-  else
-    echo "{}"
-  fi
 }
 
 # Save personalization data
 save_personalization() {
   local json_data="$1"
   python3 <<EOF
-import json
-from datetime import datetime
+import sys
 from pathlib import Path
+import json
 
-prefs_file = Path("$PERSONALIZATION_FILE")
-data = json.loads('''$json_data''')
-
-# Update timestamp
-data["last_updated"] = datetime.now().isoformat()
-
-with open(prefs_file, 'w') as f:
-    json.dump(data, f, indent=2)
+# Try to use TOON helper
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+try:
+    from gtd_toon_helper import save_toon_file, get_personalization_file_path
+    
+    data = json.loads('''$json_data''')
+    file_path = get_personalization_file_path()
+    save_toon_file(file_path, data)
+except ImportError:
+    # Fallback to JSON
+    from datetime import datetime
+    prefs_file = Path("$PERSONALIZATION_FILE")
+    json_file = Path("$PERSONALIZATION_JSON_FILE")
+    
+    data = json.loads('''$json_data''')
+    data["last_updated"] = datetime.now().isoformat()
+    
+    # Save to JSON file
+    with open(json_file, 'w') as f:
+        json.dump(data, f, indent=2)
 EOF
 }
 
@@ -1070,7 +1166,8 @@ view_personalization() {
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
   
-  if [[ ! -f "$PERSONALIZATION_FILE" ]]; then
+  # Check both TOON and JSON files
+  if [[ ! -f "$PERSONALIZATION_FILE" && ! -f "$PERSONALIZATION_JSON_FILE" ]]; then
     echo "No personalization data found. Run the wizard to set it up."
     echo ""
     gtd_enter_to_continue
@@ -1078,13 +1175,30 @@ view_personalization() {
   fi
   
   python3 <<EOF
-import json
+import sys
 from pathlib import Path
+import json
 
-prefs_file = Path("$PERSONALIZATION_FILE")
-if prefs_file.exists():
-    with open(prefs_file) as f:
-        data = json.load(f)
+# Try to use TOON helper
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+try:
+    from gtd_toon_helper import load_toon_file, get_personalization_file_path
+    file_path = get_personalization_file_path()
+    data = load_toon_file(file_path)
+except ImportError:
+    # Fallback to JSON
+    prefs_file = Path("$PERSONALIZATION_FILE")
+    json_file = Path("$PERSONALIZATION_JSON_FILE")
+    if prefs_file.exists():
+        with open(prefs_file) as f:
+            data = json.load(f)
+    elif json_file.exists():
+        with open(json_file) as f:
+            data = json.load(f)
+    else:
+        data = {}
+
+if data:
     
     # Pretty print key sections
     print("👥 Relationships:")
@@ -1153,7 +1267,13 @@ reset_personalization() {
   if [[ "$confirm" == "yes" ]]; then
     if [[ -f "$PERSONALIZATION_FILE" ]]; then
       rm "$PERSONALIZATION_FILE"
-      echo "✓ Personalization reset"
+      echo "✓ Personalization reset (TOON file removed)"
+    fi
+    if [[ -f "$PERSONALIZATION_JSON_FILE" ]]; then
+      rm "$PERSONALIZATION_JSON_FILE"
+      echo "✓ Personalization reset (JSON file removed)"
+    fi
+    if [[ -f "$PERSONALIZATION_FILE" || -f "$PERSONALIZATION_JSON_FILE" ]]; then
       echo ""
       echo "Run the wizard again to set up personalization."
     else

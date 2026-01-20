@@ -31,11 +31,11 @@ DAILY_LOG_DIR="${DAILY_LOG_DIR:-$HOME/Documents/daily_logs}"
 SUGGESTIONS_DIR="${GTD_BASE_DIR:-$HOME/Documents/gtd}/checkin_suggestions"
 mkdir -p "$SUGGESTIONS_DIR"
 
-# Find persona helper
+# Find persona helper (use deep thinking version for cloud model)
 PERSONA_HELPER=""
 POSSIBLE_PATHS=(
-  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper.py"
-  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper.py"
+  "$HOME/code/personal/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
+  "$HOME/code/dotfiles/zsh/functions/gtd_persona_helper_deep.py"
 )
 
 for path in "${POSSIBLE_PATHS[@]}"; do
@@ -46,7 +46,7 @@ for path in "${POSSIBLE_PATHS[@]}"; do
 done
 
 if [[ -z "$PERSONA_HELPER" || ! -f "$PERSONA_HELPER" ]]; then
-  echo "Error: gtd_persona_helper.py not found" >&2
+  echo "Error: gtd_persona_helper_deep.py not found" >&2
   exit 1
 fi
 
