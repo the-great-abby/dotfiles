@@ -59,17 +59,41 @@ This workflow uses multiple MCP tools in sequence to provide a complete morning 
 
 ---
 
-### Step 3: Review Today's Tasks by Context
+### Step 3: Check Today's Calendar
 
-**Purpose:** See what tasks are available for your current context.
+**Purpose:** Review your scheduled meetings and events to plan your day accordingly.
+
+**Actions:**
+1. Call `gtd_get_calendar_overview(date="today")` to get today's calendar events
+2. Review the calendar overview:
+   - Note meeting times and durations
+   - Identify busy blocks and free time
+   - Check for any meetings requiring preparation
+   - Note any travel time needed between meetings
+3. If calendar is not authenticated or unavailable, note this but continue with the workflow
+
+**What to look for:**
+- Meetings that might block focus time
+- Gaps in your schedule for deep work
+- Any preparation needed for upcoming meetings
+- Conflicts with planned tasks
+
+**Integration:** Use calendar information to inform task prioritization in the next step.
+
+---
+
+### Step 4: Review Today's Tasks by Context
+
+**Purpose:** See what tasks are available for your current context, informed by your calendar.
 
 **Actions:**
 1. Determine your current context (typically "computer" in the morning)
 2. Call `get_context_tasks(context="computer")` or your current context
-3. Review tasks and note:
+3. Review tasks considering your calendar:
    - High-priority items that need attention today
-   - Tasks you can make progress on
-   - Tasks that might need updating or deferring
+   - Tasks that fit in your available time blocks
+   - Tasks you can make progress on between meetings
+   - Tasks that might need updating or deferring based on calendar
 
 **Tip:** Also check other contexts you might be in today:
 - `get_context_tasks(context="home")` if working from home
@@ -78,7 +102,7 @@ This workflow uses multiple MCP tools in sequence to provide a complete morning 
 
 ---
 
-### Step 4: Generate AI-Powered Suggestions
+### Step 5: Generate AI-Powered Suggestions
 
 **Purpose:** Get intelligent suggestions based on your recent activity.
 
@@ -97,25 +121,30 @@ This workflow uses multiple MCP tools in sequence to provide a complete morning 
 
 ---
 
-### Step 5: Set Daily Priorities
+### Step 6: Set Daily Priorities
 
-**Purpose:** Clarify what matters most today.
+**Purpose:** Clarify what matters most today, considering both tasks and calendar commitments.
 
 **Actions:**
-1. Based on the review above, identify 1-3 top priorities for today
-2. If these are tasks, ensure they're created and marked as high priority:
+1. Based on the review above (calendar + tasks), identify 1-3 top priorities for today
+2. Consider your calendar when setting priorities:
+   - What can realistically fit between meetings?
+   - What requires focused time (schedule during free blocks)?
+   - What can be done quickly (fit in small gaps)?
+3. If these are tasks, ensure they're created and marked as high priority:
    - Use `create_task(title="<task>", priority="urgent_important")` if needed
    - Or use `update_task(task_id="<id>", priority="urgent_important")` to update existing
-3. Write a brief daily focus statement (optional, but helpful)
+4. Write a brief daily focus statement (optional, but helpful)
 
 **Questions to ask yourself:**
 - What MUST get done today?
 - What would make today feel successful?
 - What's the most important thing for your projects/areas?
+- How do today's meetings affect what I can accomplish?
 
 ---
 
-### Step 6: Quick Morning Log Entry
+### Step 7: Quick Morning Log Entry
 
 **Purpose:** Document your morning intentions and state.
 
@@ -167,19 +196,22 @@ Morning Check-In Workflow
 │   ├─ If > 0 → Process using inbox-processing skill
 │   └─ If 0 → Continue
 │
-├─ 3. Review Today's Tasks (get_context_tasks)
+├─ 3. Check Today's Calendar (gtd_get_calendar_overview)
+│   └─ Review meetings and events for the day
+│
+├─ 4. Review Today's Tasks (get_context_tasks)
 │   └─ See what's available in current context
 │
-├─ 4. Generate Suggestions (suggest_tasks_from_text)
+├─ 5. Generate Suggestions (suggest_tasks_from_text)
 │   ├─ Summarize recent activity
 │   ├─ Get AI suggestions
 │   └─ Create high-priority tasks
 │
-├─ 5. Set Daily Priorities
-│   ├─ Identify 1-3 top priorities
+├─ 6. Set Daily Priorities
+│   ├─ Identify 1-3 top priorities (considering calendar)
 │   └─ Ensure tasks are created/updated
 │
-└─ 6. Morning Log Entry (read_daily_log, addInfoToDailyLog)
+└─ 7. Morning Log Entry (read_daily_log, addInfoToDailyLog)
     └─ Document intentions for the day
 ```
 
@@ -190,8 +222,9 @@ Morning Check-In Workflow
 ### Quick Morning Check-In (5 minutes)
 If short on time, focus on:
 1. Check inbox (`get_inbox_count`)
-2. Get today's focus (`get_context_tasks`)
-3. Create morning log entry
+2. Check today's calendar (`gtd_get_calendar_overview` with `brief=true`)
+3. Get today's focus (`get_context_tasks`)
+4. Create morning log entry
 
 ### Deep Morning Review (20-30 minutes)
 For more thorough planning, add:
@@ -241,9 +274,10 @@ This skill works well with:
 
 A successful morning check-in means:
 - ✓ Inbox is clear or you have a plan to process it
-- ✓ You know your 1-3 top priorities for today
+- ✓ You've reviewed today's calendar and know what meetings/events are scheduled
+- ✓ You know your 1-3 top priorities for today (considering your calendar)
 - ✓ You've reviewed recent activity and patterns
 - ✓ Tasks are created/updated based on insights
 - ✓ You've documented your morning intentions
 
-Remember: The goal isn't perfection, it's clarity and organization.
+Remember: The goal isn't perfection, it's clarity and organization. Knowing your calendar helps you plan your day realistically.

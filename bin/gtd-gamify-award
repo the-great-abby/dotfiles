@@ -108,6 +108,18 @@ get_xp_for_activity() {
     wizard_productive)
       echo "5"  # 5 XP for productive wizard actions (capture, task, etc.)
       ;;
+    claude_ask)
+      echo "3"  # 3 XP for asking Claude a single question
+      ;;
+    claude_ask_interactive)
+      echo "10"  # 10 XP for interactive Claude conversation (more engagement)
+      ;;
+    persona_advice)
+      echo "5"  # 5 XP for getting advice from a persona
+      ;;
+    persona_advice_interactive)
+      echo "8"  # 8 XP for interactive persona advice (conversational)
+      ;;
     *)
       echo "10"  # Default
       ;;
@@ -167,6 +179,10 @@ try:
         stats["exercise_sessions"] = stats.get("exercise_sessions", 0) + 1
     elif activity_type.startswith("wizard"):
         stats["wizard_uses"] = stats.get("wizard_uses", 0) + 1
+    elif activity_type == "claude_ask" or activity_type == "claude_ask_interactive":
+        stats["claude_asks"] = stats.get("claude_asks", 0) + 1
+    elif activity_type == "persona_advice" or activity_type == "persona_advice_interactive":
+        stats["persona_advice"] = stats.get("persona_advice", 0) + 1
     
     with open("$GAMIFICATION_FILE", "w") as f:
         json.dump(data, f, indent=2)

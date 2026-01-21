@@ -49,6 +49,7 @@ try:
     personalization = {
         "created": datetime.now().isoformat(),
         "last_updated": datetime.now().isoformat(),
+        "name": "",
         "relationships": {
             "partner": {},
             "family": [],
@@ -174,6 +175,7 @@ except ImportError:
     personalization = {
         "created": datetime.now().isoformat(),
         "last_updated": datetime.now().isoformat(),
+        "name": "",
         "relationships": {"partner": {}, "family": [], "close_friends": [], "professional": []},
         "life_situation": {"living_arrangement": "", "timezone": "", "life_phase": ""},
         "goals": {"career": [], "personal": [], "financial": [], "learning": []},
@@ -212,29 +214,57 @@ load_personalization() {
   python3 <<EOF
 import sys
 from pathlib import Path
+import json
 
 # Try to use TOON helper
 sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
 try:
     from gtd_toon_helper import load_toon_file, get_personalization_file_path
-    import json
     
-    file_path = get_personalization_file_path()
-    data = load_toon_file(file_path)
-    print(json.dumps(data))
+    try:
+        file_path = get_personalization_file_path()
+        data = load_toon_file(file_path)
+        if data is None:
+            data = {}
+        print(json.dumps(data))
+    except Exception as e:
+        # If TOON loading fails, try JSON fallback
+        prefs_file = Path("$PERSONALIZATION_FILE")
+        json_file = Path("$PERSONALIZATION_JSON_FILE")
+        if prefs_file.exists() and prefs_file.suffix == '.json':
+            try:
+                with open(prefs_file) as f:
+                    data = json.load(f)
+                    print(json.dumps(data))
+            except:
+                print("{}")
+        elif json_file.exists():
+            try:
+                with open(json_file) as f:
+                    data = json.load(f)
+                    print(json.dumps(data))
+            except:
+                print("{}")
+        else:
+            print("{}")
 except ImportError:
     # Fallback to JSON
-    import json
     prefs_file = Path("$PERSONALIZATION_FILE")
     json_file = Path("$PERSONALIZATION_JSON_FILE")
-    if prefs_file.exists():
-        with open(prefs_file) as f:
-            data = json.load(f)
-            print(json.dumps(data))
+    if prefs_file.exists() and prefs_file.suffix == '.json':
+        try:
+            with open(prefs_file) as f:
+                data = json.load(f)
+                print(json.dumps(data))
+        except:
+            print("{}")
     elif json_file.exists():
-        with open(json_file) as f:
-            data = json.load(f)
-            print(json.dumps(data))
+        try:
+            with open(json_file) as f:
+                data = json.load(f)
+                print(json.dumps(data))
+        except:
+            print("{}")
     else:
         print("{}")
 EOF
@@ -325,6 +355,7 @@ personalization_wizard() {
   echo ""
   echo "What would you like to configure?"
   echo ""
+  echo "  0) 👤 Basic Information (Name)"
   echo "  1) 👥 Relationships & Life Situation"
   echo "  2) 🎯 Goals, Values & Priorities"
   echo "  3) ⚡ Work Patterns & Energy Management"
@@ -340,12 +371,15 @@ personalization_wizard() {
   echo " 13) 📊 View Current Personalization"
   echo " 14) 🔄 Reset Personalization (start fresh)"
   echo ""
-  echo -e "${YELLOW}  0)${NC} Back to Main Menu"
+  echo -e "${YELLOW} 99)${NC} Back to Main Menu"
   echo ""
   echo -n "Choose: "
   read choice
   
   case "$choice" in
+    0)
+      basic_info_wizard
+      ;;
     1)
       relationships_wizard
       ;;
@@ -388,7 +422,7 @@ personalization_wizard() {
     14)
       reset_personalization
       ;;
-    0|"")
+    99|"")
       return 0
       ;;
     *)
@@ -396,6 +430,62 @@ personalization_wizard() {
       gtd_quick_pause
       ;;
   esac
+}
+
+# Basic Information (Name)
+basic_info_wizard() {
+  clear
+  init_personalization_file
+  
+  local data=$(load_personalization)
+  
+  # Ensure data is valid JSON (handle empty or None cases)
+  if [[ -z "$data" ]]; then
+    data="{}"
+  fi
+  
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}${CYAN}👤 Basic Information${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  
+  echo "What's your name?"
+  echo "(This helps the AI address you properly and avoid confusion)"
+  echo ""
+  
+  local name=$(collect_value "  Your name (or skip):" "")
+  
+  if [[ -n "$name" ]]; then
+    # Escape the data for safe passing to Python
+    data=$(python3 <<EOF
+import json
+
+# Safely parse the JSON data passed from bash
+data_str = '''$data'''
+if not data_str or data_str.strip() == "":
+    data = {}
+else:
+    try:
+        data = json.loads(data_str)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        data = {}
+
+# Update name
+data["name"] = "$name"
+print(json.dumps(data))
+EOF
+    )
+  fi
+  
+  save_personalization "$data"
+  echo ""
+  if [[ -n "$name" ]]; then
+    echo "✓ Name saved: $name"
+  else
+    echo "✓ Basic information updated (no name provided)"
+  fi
+  gtd_enter_to_continue
 }
 
 # Relationships & Life Situation
@@ -1201,6 +1291,10 @@ except ImportError:
 if data:
     
     # Pretty print key sections
+    if data.get("name"):
+        print(f"👤 Name: {data['name']}")
+        print()
+    
     print("👥 Relationships:")
     if data.get("relationships", {}).get("partner", {}).get("name"):
         print(f"  Partner: {data['relationships']['partner']['name']}")

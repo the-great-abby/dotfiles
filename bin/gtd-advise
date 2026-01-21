@@ -1112,16 +1112,40 @@ advise_single() {
     local persona_name=$(show_persona_info "$persona" | cut -d' ' -f1-2)
     # Print initial message before starting timer (so it shows even if command fails early)
     echo "💬 Getting advice from $persona_name..." >&2
+    local exit_code=0
     run_with_thinking_timer "Getting advice from $persona_name" \
-      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content" "" "$flags"
+      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content" "" "$flags" || exit_code=$?
+    
+    # Award XP for getting persona advice (only if successful)
+    if [[ $exit_code -eq 0 ]]; then
+      if command -v gtd-gamify-award &>/dev/null; then
+        gtd-gamify-award "persona_advice" "" "Got advice from $persona_name" >/dev/null 2>&1 || true
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify-award" "persona_advice" "" "Got advice from $persona_name" >/dev/null 2>&1 || true
+      fi
+    fi
+    
+    return $exit_code
   else
     # Use thinking timer for AI API calls (may take > 2 seconds)
     # Short label to avoid line wrapping issues
     local persona_name=$(show_persona_info "$persona" | cut -d' ' -f1-2)
     # Print initial message before starting timer (so it shows even if command fails early)
     echo "💬 Getting advice from $persona_name..." >&2
+    local exit_code=0
     run_with_thinking_timer "Getting advice from $persona_name" \
-      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content"
+      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content" || exit_code=$?
+    
+    # Award XP for getting persona advice (only if successful)
+    if [[ $exit_code -eq 0 ]]; then
+      if command -v gtd-gamify-award &>/dev/null; then
+        gtd-gamify-award "persona_advice" "" "Got advice from $persona_name" >/dev/null 2>&1 || true
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify-award" "persona_advice" "" "Got advice from $persona_name" >/dev/null 2>&1 || true
+      fi
+    fi
+    
+    return $exit_code
   fi
 }
 
@@ -1247,8 +1271,19 @@ advise_all() {
     # Use thinking timer for AI API calls (may take > 2 seconds)
     # Short label to avoid line wrapping issues
     local persona_name=$(show_persona_info "$persona" | cut -d' ' -f1-2)
+    local exit_code=0
     run_with_thinking_timer "Getting advice from $persona_name" \
-      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content"
+      "$PYTHON_CMD" "$PERSONA_HELPER" "$persona" "$content" || exit_code=$?
+    
+    # Award XP for getting persona advice (only if successful)
+    if [[ $exit_code -eq 0 ]]; then
+      if command -v gtd-gamify-award &>/dev/null; then
+        gtd-gamify-award "persona_advice" "" "Got advice from $persona_name (all personas)" >/dev/null 2>&1 || true
+      elif [[ -f "$HOME/code/dotfiles/bin/gtd-gamify-award" ]]; then
+        "$HOME/code/dotfiles/bin/gtd-gamify-award" "persona_advice" "" "Got advice from $persona_name (all personas)" >/dev/null 2>&1 || true
+      fi
+    fi
+    
     echo ""
   done
 }

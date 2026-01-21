@@ -1125,8 +1125,9 @@ def _gtd_update_personalization_handler(category: str, field: str, value: Any, o
                     data = json.load(f)
             else:
                 data = {}
-        else:
-            # Initialize with basic structure
+        
+        # Initialize with basic structure if data is empty or missing required fields
+        if not data or "created" not in data:
             data = {
                 "created": datetime.now().isoformat(),
                 "last_updated": datetime.now().isoformat(),
@@ -1697,6 +1698,95 @@ def _list_available_tools_handler(category: Optional[str] = None) -> str:
             "count": 0
         })
 
+
+def _gtd_get_calendar_overview_handler(date: Optional[str] = None, brief: bool = False) -> str:
+    """Handler for getting calendar overview."""
+    try:
+        import subprocess
+        import json
+        from pathlib import Path
+        
+        # Default to today if not specified
+        target_date = date or "today"
+        
+        # Find gtd-calendar-info script - check both possible locations
+        bin_dir1 = Path.home() / "code" / "dotfiles" / "bin"
+        bin_dir2 = Path.home() / "code" / "personal" / "dotfiles" / "bin"
+        
+        calendar_script = None
+        if (bin_dir1 / "gtd-calendar-info").exists():
+            calendar_script = bin_dir1 / "gtd-calendar-info"
+        elif (bin_dir2 / "gtd-calendar-info").exists():
+            calendar_script = bin_dir2 / "gtd-calendar-info"
+        
+        if not calendar_script or not calendar_script.exists():
+            return json.dumps({
+                "error": "gtd-calendar-info script not found",
+                "message": "Calendar functionality is not available. Make sure gtd-calendar-info is installed."
+            })
+        
+        # Build command - the script expects: overview <date> [brief]
+        # brief is passed as "true" or "false" string, not as a flag
+        cmd = ["bash", str(calendar_script), "overview", target_date, "true" if brief else "false"]
+        
+        # Get GTD base directory for cwd
+        gtd_base_dir = Path.home() / "Documents" / "gtd"
+        if not gtd_base_dir.exists():
+            gtd_base_dir = Path.home() / "code" / "dotfiles"
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(gtd_base_dir.parent)
+        )
+        
+        if result.returncode == 0:
+            return json.dumps({
+                "success": True,
+                "date": target_date,
+                "overview": result.stdout.strip()
+            })
+        else:
+            # If there's an error, check if it's just authentication
+            error_msg = result.stderr.strip()
+            if "not authenticated" in error_msg.lower() or "authentication" in error_msg.lower():
+                return json.dumps({
+                    "error": "Calendar not authenticated",
+                    "message": "Calendar authentication is required. Run 'gcalcli init' or use gtd-calendar menu to authenticate.",
+                    "overview": ""
+                })
+            return json.dumps({
+                "error": f"Failed to get calendar overview: {error_msg}",
+                "overview": result.stdout.strip()
+            })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            "error": f"Error getting calendar overview: {str(e)}",
+            "traceback": traceback.format_exc()
+        })
+
+
+register_tool(
+    name="gtd_get_calendar_overview",
+    description="Get today's calendar overview showing all upcoming events and meetings. This uses gcalcli/gtd-calendar to fetch calendar information. Useful for morning check-ins to see what's scheduled for the day. Returns formatted calendar information including event times, titles, locations, and descriptions.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "date": {
+                "type": "string",
+                "description": "Date to get calendar for. Use 'today' (default), 'tomorrow', or YYYY-MM-DD format (e.g., '2026-01-20')"
+            },
+            "brief": {
+                "type": "boolean",
+                "description": "If true, return a brief summary instead of full details. Default: false"
+            }
+        }
+    },
+    handler=_gtd_get_calendar_overview_handler,
+    category="gtd"
+)
 
 register_tool(
     name="list_available_tools",

@@ -34,6 +34,17 @@ except ImportError:
             return response, None
         return response, None
 
+# Import persona definitions for persona support
+try:
+    from zsh.functions.gtd_persona_helper import PERSONAS
+except ImportError:
+    # Try alternative path
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent / "zsh" / "functions"))
+        from gtd_persona_helper import PERSONAS
+    except ImportError:
+        PERSONAS = {}
+
 
 class AIMode:
     """Constants for AI mode"""
@@ -420,6 +431,12 @@ class SmartAIRouter:
                         "description": tool["function"]["description"],
                         "input_schema": tool["function"]["parameters"]
                     })
+                
+                # Verify skill tools are loaded (for debugging - only show if verbose)
+                skill_tool_names = [t["name"] for t in tools if "skill" in t["name"].lower()]
+                if skill_tool_names and context and context.get("verbose", False):
+                    # Log to stderr so it's visible but doesn't interfere with output
+                    print(f"  ✓ Loaded {len(skill_tool_names)} skill tools: {', '.join(skill_tool_names)}", file=sys.stderr)
             except Exception as e:
                 # If tool loading fails, continue without tools
                 # sys is already imported at module level
@@ -460,7 +477,21 @@ class SmartAIRouter:
                 system_message += "\n- If you hit rate limits or max iterations, summarize what you've accomplished and what remains"
                 
                 if skill_tools:
-                    system_message += "\n\nYou also have access to Agent Skills - reusable workflows that guide how to accomplish goals using GTD tools. Skills provide step-by-step instructions for complex workflows. To use skills: (1) Call list_agent_skills to discover available skills, (2) Call get_agent_skill to read a skill's instructions, (3) Follow the skill's step-by-step workflow using the appropriate GTD tools."
+                    system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n🎯 AGENT SKILLS - CRITICAL INSTRUCTIONS"
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\nYou have access to Agent Skills - reusable workflows that guide how to accomplish goals using GTD tools. Skills provide step-by-step instructions for complex workflows."
+                    system_message += "\n\n🚨 MANDATORY: When the user asks ANY of these questions, you MUST call list_agent_skills() FIRST before responding:"
+                    system_message += "\n   - 'what skills do you have'"
+                    system_message += "\n   - 'what skills are available'"
+                    system_message += "\n   - 'what can you do'"
+                    system_message += "\n   - 'what capabilities are available'"
+                    system_message += "\n   - 'what workflows can you help with'"
+                    system_message += "\n   - 'show me your skills'"
+                    system_message += "\n   - Any question about skills, capabilities, or workflows"
+                    system_message += "\n\nDO NOT guess, make up, or describe skills from memory. ALWAYS call list_agent_skills() to get the actual, current list of available skills."
+                    system_message += "\n\nTo use skills: (1) Call list_agent_skills() to discover available skills, (2) Call get_agent_skill(skill_name='...') to read a skill's full instructions, (3) Follow the skill's step-by-step workflow using the appropriate GTD tools."
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 
                 system_message += "\n\nIf you're unsure what tools are available, you can call list_available_tools to see all available tools and their descriptions."
 
@@ -721,39 +752,55 @@ class SmartAIRouter:
         context: Optional[Dict[str, Any]],
     ) -> Dict[str, str]:
         """Build system and user prompts based on request type"""
+        
+        # Get persona system prompt if persona is provided
+        persona_system_prompt = None
+        if persona and persona in PERSONAS:
+            persona_info = PERSONAS[persona]
+            persona_system_prompt = persona_info.get("system_prompt", "")
+            if not persona_system_prompt:
+                # Fallback to name if no system prompt
+                persona_name = persona_info.get("name", persona.capitalize())
+                persona_system_prompt = f"You are {persona_name}."
 
         prompts = {
             "persona_response": {
-                "system": f"You are {persona or 'a helpful assistant'}. Provide a brief, in-character response.",
+                "system": persona_system_prompt or f"You are {persona or 'a helpful assistant'}. Provide a brief, in-character response.",
+                "user": content,
+            },
+            "general_question": {
+                "system": persona_system_prompt or "You are a helpful assistant.",
                 "user": content,
             },
             "task_categorize": {
-                "system": "You are a GTD task categorization expert. Categorize tasks as either @computer, @phone, @errands, or @waiting-for.",
+                "system": persona_system_prompt or "You are a GTD task categorization expert. Categorize tasks as either @computer, @phone, @errands, or @waiting-for.",
                 "user": f"Categorize these tasks:\n{content}",
             },
             "task_suggest": {
-                "system": "You are a GTD task suggestion expert. Generate 3-5 actionable tasks from the given context.",
+                "system": persona_system_prompt or "You are a GTD task suggestion expert. Generate 3-5 actionable tasks from the given context.",
                 "user": f"Suggest tasks from:\n{content}",
             },
             "similarity_search": {
-                "system": "You are helping find similar items. Return just the most relevant item.",
+                "system": persona_system_prompt or "You are helping find similar items. Return just the most relevant item.",
                 "user": f"Find similar to:\n{content}",
             },
             "analyze_daily_log": {
-                "system": "You are a productivity coach analyzing daily logs. Provide insights and suggestions.",
+                "system": persona_system_prompt or "You are a productivity coach analyzing daily logs. Provide insights and suggestions.",
                 "user": f"Analyze this log:\n{content}",
             },
             "weekly_review": {
-                "system": "You are a strategic planning assistant. Analyze weekly patterns and provide insights.",
+                "system": persona_system_prompt or "You are a strategic planning assistant. Analyze weekly patterns and provide insights.",
                 "user": f"Review this week's data:\n{content}",
             },
             "strategy_planning": {
-                "system": "You are a strategic planning expert. Help plan an approach based on context.",
+                "system": persona_system_prompt or "You are a strategic planning expert. Help plan an approach based on context.",
                 "user": f"Help plan:\n{content}",
             },
         }
 
-        return prompts.get(request_type, {"system": "You are a helpful assistant.", "user": content})
+        # Default case - use persona if provided, otherwise default message
+        default_system = persona_system_prompt or "You are a helpful assistant."
+        return prompts.get(request_type, {"system": default_system, "user": content})
 
     def get_status(self) -> Dict[str, Any]:
         """Get current router status"""

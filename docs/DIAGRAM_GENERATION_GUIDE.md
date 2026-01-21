@@ -4,7 +4,7 @@
 
 Your GTD system can now generate Mermaid.js diagrams and mindmaps using AI! This is perfect for visualizing your GTD system, project structures, relationships, processes, and ideas.
 
-> **✨ New:** Diagram generation now uses the **deep analysis model** (GPT-OSS 20b) for better visual understanding and more accurate diagram syntax! See `DIAGRAM_DEEP_MODEL_INTEGRATION.md` for details.
+> **✨ New:** Diagram generation now uses the **Claude API** (preferred) for better visual understanding and more accurate diagram syntax! Falls back to deep analysis model if Claude API is not configured. See `DIAGRAM_DEEP_MODEL_INTEGRATION.md` for details.
 
 > **🎯 Enhanced:** The diagram tool automatically gathers GTD data (projects, tasks, areas, etc.) when you create diagrams about your GTD system, making diagrams based on your actual data! See `DIAGRAM_MCP_DATA_INTEGRATION.md` for details.
 

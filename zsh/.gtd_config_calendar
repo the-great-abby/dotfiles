@@ -47,6 +47,7 @@ GTD_CALENDARS=(
   # Default: use primary calendar if set
   # Add more calendars here as needed
   "rw:GTD:My GTD Calendar"
+  "rw:August Malson:My Calendar"
   "ro:Pink and brown bears:Pink and Brown bears - abby and louiza calendar"
   "ro:On-call feed for Abby Malson:SRE on call calendar"
   "ro:August Malson Calendar (Canvas):Work Calendar (sync from google)"

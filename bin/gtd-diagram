@@ -13,22 +13,38 @@ if [[ -f "$GTD_CONFIG_FILE" ]]; then
   source "$GTD_CONFIG_FILE"
 fi
 
-# Find deep model helper (for better diagram generation)
-DEEP_MODEL_HELPER=""
+# Find Claude diagram helper (preferred - uses Claude API)
+CLAUDE_DIAGRAM_HELPER=""
 POSSIBLE_PATHS=(
-  "$HOME/code/dotfiles/bin/gtd_deep_model_helper.py"
-  "$HOME/code/personal/dotfiles/bin/gtd_deep_model_helper.py"
+  "$HOME/code/dotfiles/bin/gtd_claude_diagram_helper.py"
+  "$HOME/code/personal/dotfiles/bin/gtd_claude_diagram_helper.py"
 )
 
 for path in "${POSSIBLE_PATHS[@]}"; do
   if [[ -f "$path" ]]; then
-    DEEP_MODEL_HELPER="$path"
+    CLAUDE_DIAGRAM_HELPER="$path"
     break
   fi
 done
 
-# Fallback to persona helper if deep model helper not found
-if [[ -z "$DEEP_MODEL_HELPER" ]]; then
+# Fallback to deep model helper if Claude helper not found
+if [[ -z "$CLAUDE_DIAGRAM_HELPER" ]]; then
+  DEEP_MODEL_HELPER=""
+  POSSIBLE_PATHS=(
+    "$HOME/code/dotfiles/bin/gtd_deep_model_helper.py"
+    "$HOME/code/personal/dotfiles/bin/gtd_deep_model_helper.py"
+  )
+
+  for path in "${POSSIBLE_PATHS[@]}"; do
+    if [[ -f "$path" ]]; then
+      DEEP_MODEL_HELPER="$path"
+      break
+    fi
+  done
+fi
+
+# Fallback to persona helper if neither Claude nor deep model helper found
+if [[ -z "$CLAUDE_DIAGRAM_HELPER" ]] && [[ -z "$DEEP_MODEL_HELPER" ]]; then
   # Find persona helper as fallback
   PERSONA_HELPER=""
   POSSIBLE_PATHS=(
@@ -619,15 +635,18 @@ generate_diagram() {
   local prompt
   prompt=$(generate_prompt "$output_format" "$diagram_type" "$description")
 
-  # Use deep model helper for better visual/diagram generation
-  # The deep model (GPT-OSS 20b) handles visual information better
+  # Use Claude API helper (preferred), then deep model, then persona helper
   local ai_response
-  if [[ -n "$DEEP_MODEL_HELPER" && -f "$DEEP_MODEL_HELPER" ]]; then
-    echo "🤖 Using deep analysis model for better diagram generation..." >&2
+  if [[ -n "$CLAUDE_DIAGRAM_HELPER" && -f "$CLAUDE_DIAGRAM_HELPER" ]]; then
+    echo "🤖 Using Claude API for diagram generation..." >&2
+    local system_prompt="You are an expert at creating visual diagrams and mindmaps. You understand diagram syntax perfectly and generate correct, well-structured diagrams. Pay special attention to proper syntax and structure. For DOT/Graphviz: use simple node IDs (alphanumeric only), define nodes first with [label=\"...\"], connect with simple edges (Node1 -- Node2). Never use colons, brackets, or text directly in edges."
+    ai_response=$("$PYTHON_CMD" "$CLAUDE_DIAGRAM_HELPER" "$prompt" "$system_prompt" 2>&1)
+  elif [[ -n "$DEEP_MODEL_HELPER" && -f "$DEEP_MODEL_HELPER" ]]; then
+    echo "🤖 Using deep analysis model for diagram generation..." >&2
     local system_prompt="You are an expert at creating visual diagrams and mindmaps. You understand diagram syntax perfectly and generate correct, well-structured diagrams. Pay special attention to proper syntax and structure. For DOT/Graphviz: use simple node IDs (alphanumeric only), define nodes first with [label=\"...\"], connect with simple edges (Node1 -- Node2). Never use colons, brackets, or text directly in edges."
     ai_response=$("$PYTHON_CMD" "$DEEP_MODEL_HELPER" "$prompt" "$system_prompt" 2>&1)
   elif [[ -n "$PERSONA_HELPER" && -f "$PERSONA_HELPER" ]]; then
-    echo "⚠️  Using persona helper (deep model helper not found)..." >&2
+    echo "⚠️  Using persona helper (Claude/deep model helpers not found)..." >&2
     ai_response=$("$PYTHON_CMD" "$PERSONA_HELPER" "tim" "$prompt" "diagram_generation" 2>&1)
   else
     echo "❌ No AI helper found. Cannot generate diagram." >&2

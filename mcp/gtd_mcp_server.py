@@ -3545,30 +3545,28 @@ Only suggest tasks that are clearly actionable. If no tasks are found, return an
                     with open(personalization_file, 'r') as f:
                         data = json.load(f)
                 else:
-                    data = {}
-            else:
-                # Initialize with basic structure
-                data = {
-                    "created": datetime.now().isoformat(),
-                    "last_updated": datetime.now().isoformat(),
-                    "relationships": {},
-                    "goals": {"career": [], "personal": [], "financial": [], "learning": []},
-                    "values": [],
-                    "energy_patterns": {},
-                    "work_patterns": {},
-                    "health_routines": {},
-                    "communication_style": {},
-                    "learning_style": {},
-                    "knowledge_areas": {},
-                    "decision_making": {},
-                    "problem_solving": {},
-                    "stress_indicators": {},
-                    "coping_mechanisms": {},
-                    "interests": {},
-                    "professional": {},
-                    "tools": {},
-                    "lessons_learned": {}
-                }
+                    # Initialize with basic structure
+                    data = {
+                        "created": datetime.now().isoformat(),
+                        "last_updated": datetime.now().isoformat(),
+                        "relationships": {},
+                        "goals": {"career": [], "personal": [], "financial": [], "learning": []},
+                        "values": [],
+                        "energy_patterns": {},
+                        "work_patterns": {},
+                        "health_routines": {},
+                        "communication_style": {},
+                        "learning_style": {},
+                        "knowledge_areas": {},
+                        "decision_making": {},
+                        "problem_solving": {},
+                        "stress_indicators": {},
+                        "coping_mechanisms": {},
+                        "interests": {},
+                        "professional": {},
+                        "tools": {},
+                        "lessons_learned": {}
+                    }
             
             # Ensure category exists
             if category not in data:

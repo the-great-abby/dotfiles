@@ -23,6 +23,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from claude_ollama_bridge import SmartAIRouter, AIMode
 
+# Import persona definitions
+try:
+    from zsh.functions.gtd_persona_helper import PERSONAS
+except ImportError:
+    # Try alternative path
+    sys.path.insert(0, str(Path(__file__).parent.parent / "zsh" / "functions"))
+    try:
+        from gtd_persona_helper import PERSONAS
+    except ImportError:
+        PERSONAS = {}
+
 
 class GTDClient:
     """Client for interacting with the hybrid AI system"""
@@ -277,6 +288,22 @@ class GTDClient:
         else:
             return self._handle_single_ask(question)
 
+    def _award_xp(self, activity_type: str, reason: str = ""):
+        """Award XP for an activity (silently, non-blocking)"""
+        try:
+            import subprocess
+            script_dir = Path(__file__).parent.parent
+            gamify_script = script_dir / "bin" / "gtd-gamify-award"
+            if gamify_script.exists():
+                # Run in background, don't wait for it
+                subprocess.Popen(
+                    [str(gamify_script), activity_type, "", reason],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+        except Exception:
+            pass  # Silently fail if gamification not available
+
     def _handle_single_ask(self, question: str) -> int:
         """Handle a single question (non-interactive)"""
         print(f"🧠 Asking Claude directly: {question[:50]}...")
@@ -297,11 +324,91 @@ class GTDClient:
         print(result.get("response", ""))
         print("─" * 60)
 
+        # Award XP for using Claude
+        self._award_xp("claude_ask", f"Asked Claude: {question[:50]}")
+
         return 0
+
+    def _select_persona_interactive(self) -> Optional[str]:
+        """Interactively select a persona from available personas"""
+        if not PERSONAS:
+            print("⚠️  Personas not available, continuing without persona", file=sys.stderr)
+            return None
+        
+        # Filter out special personas
+        available_personas = [k for k in PERSONAS.keys() if k not in ["random", "all"]]
+        
+        if not available_personas:
+            print("⚠️  No personas available, continuing without persona", file=sys.stderr)
+            return None
+        
+        print("\n🤖 Select a persona for this conversation:")
+        print("─" * 60)
+        
+        # Display personas with numbers
+        persona_list = []
+        for i, persona_key in enumerate(available_personas, 1):
+            persona_info = PERSONAS.get(persona_key, {})
+            persona_name = persona_info.get("name", persona_key.capitalize())
+            persona_list.append(persona_key)
+            print(f"  {i}) {persona_key} - {persona_name}")
+        
+        print("─" * 60)
+        print("💡 You can also type 'none' to chat without a persona")
+        print()
+        
+        while True:
+            user_input = input("Select persona (number or name, or 'none'): ").strip().lower()
+            
+            if not user_input or user_input == 'none':
+                return None
+            
+            # Check if it's a number
+            if user_input.isdigit():
+                index = int(user_input) - 1
+                if 0 <= index < len(persona_list):
+                    selected = persona_list[index]
+                    persona_info = PERSONAS.get(selected, {})
+                    persona_name = persona_info.get("name", selected.capitalize())
+                    print(f"✓ Selected: {persona_name}\n")
+                    return selected
+                else:
+                    print(f"❌ Invalid number. Please select 1-{len(persona_list)}")
+                    continue
+            
+            # Try partial name matching (case-insensitive)
+            matches = [p for p in persona_list if user_input in p.lower()]
+            
+            if len(matches) == 0:
+                print(f"❌ No personas found matching '{user_input}'")
+                print("   Try typing part of the persona name or use a number")
+                continue
+            elif len(matches) == 1:
+                selected = matches[0]
+                persona_info = PERSONAS.get(selected, {})
+                persona_name = persona_info.get("name", selected.capitalize())
+                print(f"✓ Selected: {persona_name}\n")
+                return selected
+            else:
+                print(f"❌ Multiple matches found: {', '.join(matches)}")
+                print("   Please be more specific or use a number")
+                continue
 
     def _handle_interactive_ask(self, initial_question: str) -> int:
         """Handle interactive conversation mode"""
         print(f"💬 Interactive Claude Conversation")
+        print("─" * 60)
+        
+        # Select persona at the start
+        selected_persona = self._select_persona_interactive()
+        
+        if selected_persona:
+            persona_info = PERSONAS.get(selected_persona, {})
+            persona_name = persona_info.get("name", selected_persona.capitalize())
+            print(f"🤖 Chatting as: {persona_name}")
+        else:
+            print("🤖 Chatting as: Claude (no persona)")
+        
         print("─" * 60)
         print(f"Initial question: {initial_question}")
         print("─" * 60)
@@ -310,6 +417,7 @@ class GTDClient:
 
         conversation_history = []
         current_question = initial_question
+        exchange_count = 0
 
         while True:
             # Ask Claude
@@ -318,7 +426,7 @@ class GTDClient:
             result, error = self.router._call_claude(
                 "general_question",
                 current_question,
-                persona=None,
+                persona=selected_persona,
                 context={"max_tokens": 2000, "conversation_history": conversation_history}
             )
 
@@ -339,6 +447,7 @@ class GTDClient:
             # Add to conversation history
             conversation_history.append({"role": "user", "content": current_question})
             conversation_history.append({"role": "assistant", "content": response_text})
+            exchange_count += 1
 
             # Ask for next input
             print("\n")
@@ -352,6 +461,11 @@ class GTDClient:
                 current_question = "Please continue with the next steps of what you were doing. If you were in the middle of a workflow, proceed with the next step."
             else:
                 current_question = next_input
+
+        # Award XP for interactive conversation (more exchanges = more engagement)
+        if exchange_count > 0:
+            reason = f"Interactive Claude conversation ({exchange_count} exchange{'s' if exchange_count > 1 else ''})"
+            self._award_xp("claude_ask_interactive", reason)
 
         return 0
 
@@ -381,9 +495,11 @@ COMMANDS:
         Analyze a daily log for insights (uses smart routing)
         Example: claude-gtd analyze ~/Documents/daily_logs/2026-01-19.md
 
-    ask <question>
+    ask <question> [--interactive]
         Ask Claude directly (ALWAYS uses Claude, bypasses router)
+        Use --interactive or -i for extended conversation with persona selection
         Example: claude-gtd ask "What's your thoughts on productivity?"
+        Example: claude-gtd ask "Help me plan my day" --interactive
 
     status
         Show current system status (mode, available backends)

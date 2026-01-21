@@ -1,0 +1,175 @@
+---
+project_name: SRE Terminal (Claude + AWS + Octopus + Kubernetes)
+version: 1.0.0
+status: design-phase
+created: 2026-01-20
+last_updated: 2026-01-20
+author: Abby
+organization: Filevine Inc.
+---
+
+PROJECT_OVERVIEW:
+  name: Interactive Claude Terminal for SRE
+  description: Multi-layer incident response tool that integrates Claude AI with AWS CloudWatch, Octopus Deploy, and Kubernetes for fast root cause analysis
+  purpose: Dramatically reduce incident diagnosis time, correlate deployment changes with infrastructure issues, provide intelligent recommendations
+  target_users: SRE team at Filevine
+  phase_1_goal: Read-only observability layer - Claude can view infrastructure state but cannot execute changes
+
+PROBLEM_STATEMENT:
+  current_workflow: Manual checks across multiple systems during incidents (AWS metrics, logs, Octopus deployments, K8s pod status)
+  pain_points[3]: Slow incident diagnosis (takes 10-15 mins manual investigation), Context switching between tools, Hard to correlate AWS changes with Octopus deployments with K8s pod failures
+  time_to_solve: 10-15 minutes per incident
+  frequency: ~4 incidents per month during on-call
+  estimated_annual_time_cost: 8-10 hours of manual investigation
+  cost_savings_potential: $150-200/month (SRE time saved) plus faster recovery
+
+SOLUTION_ARCHITECTURE:
+  core_concept: Claude API with read-only access to multiple AWS/infrastructure systems, runs in authenticated user's session
+  authentication_flow: User runs `aws-vault exec filevine-prod -- sre-terminal`, session inherits AWS credentials and K8s context, all actions audited to CloudTrail
+  data_sources[4]: AWS (CloudWatch, logs, EC2, RDS, Lambda), Octopus Deploy (deployments, releases, history), Kubernetes (pods, logs, events, resources), Ollama (local log parsing)
+  ai_model: Claude Opus 4.5 (main intelligence), Ollama mistral (local parsing)
+  key_feature: Multi-layer correlation - Claude sees infrastructure state, recent deployments, pod status simultaneously
+
+TECHNICAL_DESIGN:
+  language: Python 3.8+
+  dependencies[8]: anthropic, boto3, requests, kubernetes, subprocess, json, os, asyncio
+  entry_point: sre_terminal.py
+  main_classes[5]: FullStackSRETerminal, ReadOnlyAWSGate, OctopusGate, KubernetesGate, HybridProcessor
+  execution_model: Interactive REPL loop - user enters question, Claude queries systems, returns analysis
+  session_management: In-memory conversation history, background monitoring for active incidents
+  cost_model: Hybrid - Ollama for parsing (~$0), Claude for analysis (~$0.005-0.01 per incident)
+
+PHASE_1_CAPABILITIES:
+  name: Read-Only Observability Layer
+  aws_read_operations[12]: cloudwatch:GetMetricStatistics, logs:FilterLogEvents, ec2:DescribeInstances, dynamodb:Query, dynamodb:Scan, rds:DescribeDBInstances, lambda:GetFunction, ssm:GetAutomationExecution, ssm:DescribeAutomationExecutions, ssm:GetParameter, iam:GetUser, iam:GetRole
+  octopus_read_operations[6]: GET /api/deployments, GET /api/releases, GET /api/environments, GET /api/projects, GET /api/tasks, GET /api/deployments/{id}/progress
+  kubernetes_read_operations[9]: get pods, get deployments, get services, describe pod, logs, events, top pods, get nodes, rollout history
+  blocked_operations[15]: ssm:StartAutomationExecution, ec2:TerminateInstances, ec2:StartInstances, rds:ModifyDBInstance, dynamodb:PutItem, dynamodb:DeleteItem, s3:PutObject, lambda:InvokeFunction, kubectl scale, kubectl delete, kubectl apply, kubectl patch, rollout undo, POST /api/deployments, POST /api/releases
+
+PHASE_1_WORKFLOW:
+  step_1: User authenticates with AWS credentials via aws-vault
+  step_2: Terminal launches with Claude + read-only access to AWS, Octopus, K8s
+  step_3: User asks question about incident (natural language)
+  step_4: Claude determines what data to query
+  step_5: System fetches data from AWS/Octopus/K8s (read-only only)
+  step_6: Claude analyzes correlated data
+  step_7: Claude provides root cause analysis and recommendations
+  step_8: User executes remediation manually in respective UIs (optional later: automated with confirmation)
+
+FUTURE_PHASES:
+  phase_2_name: Automated Execution with Safety Gates
+  phase_2_features[4]: SSM automation execution with confirmation, Pod restart capability, Scaling actions, Rollback triggers
+  phase_3_name: Proactive Monitoring
+  phase_3_features[3]: Background incident detection, Alert correlation, Predictive recommendations
+
+DESIGN_DECISIONS:
+  decision_1: Read-only first, write later (safety)
+  decision_2: User session inheritance (security - all actions audited as user)
+  decision_3: Claude API vs local models (cost vs intelligence tradeoff)
+  decision_4: Ollama for parsing + Claude for analysis (cost optimization - ~50% token reduction)
+  decision_5: Multi-layer visibility (AWS + Octopus + K8s) vs single layer (better incident diagnosis)
+
+SECURITY_CONSIDERATIONS:
+  principle: Least privilege - Claude can only do what authenticated user can do
+  session_model: Credentials passed via environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)
+  audit_trail: All AWS calls logged to CloudTrail as user, Octopus calls in Octopus audit log
+  mfa: Inherited from aws-vault session (already required)
+  revocation: Session expires when user session expires (automatic)
+  dangerous_operations: Explicitly blocked in read-only mode, can be enabled in Phase 2 with confirmation gates
+  no_persistent_credentials: Bot has no persistent credentials, only user session
+
+CLAUDE_CAPABILITIES:
+  claude_tasks[7]: Correlate data across systems, Identify patterns in logs, Suggest root causes, Recommend actions, Format output, Explain findings, Ask clarifying questions
+  context_size: Full conversation history maintained (incidents tracked across multiple messages)
+  error_handling: Claude validates unsafe operations before attempting them, gracefully handles API errors, explains why operations are blocked
+
+INFRASTRUCTURE_INTEGRATION:
+  aws_auth: Uses existing aws-vault setup
+  octopus_auth: API key in environment variable (OCTOPUS_API_KEY)
+  kubernetes_auth: Uses existing kubectl config (from KUBECONFIG or ~/.kube/config)
+  logging: Session logs to ~/.sre-terminal/sessions/YYYY-MM-DD-HH-MM.log
+  monitoring: Background task for incident correlation (optional, Phase 2)
+
+EXAMPLE_WORKFLOWS:
+  workflow_1_title: Queue Backing Up
+  workflow_1_steps[6]: User asks "Queue on shard-f backed up", Claude queries AWS metrics, Claude queries Octopus recent deployments, Claude queries K8s pod status, Claude correlates: "Deploy v2.1.3 happened 30min ago, pod OOMKilled 25min ago, queue backed up 20min ago", Claude recommends rollback to v2.1.2
+  workflow_2_title: Service Slow
+  workflow_2_steps[5]: User asks "API service timeout rate 40%", Claude checks AWS RequestCount metric, Claude checks K8s pod resource usage, Claude finds pods out of memory, Claude checks pod logs "memory leak detected", Claude recommends scale up or rollback
+  workflow_3_title: Pod Crashing
+  workflow_3_steps[4]: User asks "Pod keep restarting", Claude queries K8s events (OOMKilled), Claude checks pod logs previous (shows memory leak), Claude checks Octopus (new deploy 1hr ago), Claude recommends investigate new version or scale up
+
+PHASE_1_IMPLEMENTATION_PLAN:
+  step_1: Create project structure and Git repo
+  step_2: Implement AWS gate (read-only CloudWatch + logs queries)
+  step_3: Implement basic Claude terminal loop
+  step_4: Test on real AWS data (shard-f metrics)
+  step_5: Implement Octopus gate
+  step_6: Test deployment correlation workflow
+  step_7: Implement Kubernetes gate
+  step_8: Test full-stack correlation
+  step_9: Document usage and setup
+  step_10: Create safety gates and validation
+
+DELIVERABLES_PHASE_1:
+  code: sre_terminal.py + gate modules + test suite
+  docs: README.md, DESIGN.md, SETUP.md, USAGE.md, TROUBLESHOOTING.md
+  tests: Unit tests for gates, integration tests with mock AWS/Octopus/K8s
+  examples: Example incident investigations, transcript logs
+
+ESTIMATED_EFFORT:
+  phase_1_hours: 12-16 hours (1-2 days focused work)
+  phase_1_breakdown: AWS gate (2hrs), Claude integration (2hrs), Octopus gate (2hrs), K8s gate (2hrs), Testing (2hrs), Documentation (2-4hrs)
+  dependencies_setup: 30 mins
+  total_time_to_first_working_version: 4-5 hours
+
+COST_ANALYSIS:
+  claude_api_costs_per_incident: $0.005-0.01 (with Ollama optimization)
+  claude_api_costs_per_month: $0.20-0.40 (4 incidents)
+  claude_api_costs_per_year: $2.40-4.80
+  roi_breakeven: Saves 15 minutes per incident × 4 incidents = 1 hour/month, At $150/hr SRE time = $150 saved, API cost $0.40/month = immediate positive ROI
+
+SUCCESS_METRICS_PHASE_1:
+  metric_1: Time to root cause (target: 2-3 minutes vs current 10-15 minutes)
+  metric_2: Accuracy of recommendations (target: 90% accuracy)
+  metric_3: False positives (target: <10%)
+  metric_4: User satisfaction (target: 8/10 ease of use)
+  metric_5: API cost vs time saved ratio
+
+RISKS_AND_MITIGATIONS:
+  risk_1: Claude hallucinates recommendations (mitigation: Always require user confirmation before executing, add validation layer)
+  risk_2: Credential exposure (mitigation: No persistent credentials, session-based only)
+  risk_3: AWS rate limiting (mitigation: Cache results, implement backoff, use batch queries)
+  risk_4: Kubernetes cluster access failures (mitigation: Graceful degradation, clear error messages)
+  risk_5: Claude model drift (mitigation: Pin Claude version, test regularly, document expected behavior)
+
+INTEGRATION_WITH_GTD:
+  daily_log_entry: Log incident usage like "03:18 - Used SRE terminal to debug shard-f queue issue, Claude identified memory leak from deployment, time to resolution 8 minutes"
+  rpg_character: Award XP for incident handling (50 XP base + 25 bonus for fast resolution + 10 for pattern identification)
+  evening_review: Evening check-in captures incident lessons learned
+  skills: Could become a GTD skill for faster access (optional enhancement)
+
+DOCUMENTATION_STRUCTURE:
+  readme: Project overview, quickstart, example usage
+  design: Full architecture, design decisions, data flow
+  setup: Environment setup, credentials configuration, dependencies installation
+  usage: How to run terminal, common commands, troubleshooting
+  implementation: Detailed build guide for developers
+
+REPOSITORY_LOCATION:
+  path: ~/code/dotfiles/projects/sre-terminal/
+  structure: README.md, DESIGN.md, IMPLEMENTATION.md, src/, tests/, docs/, requirements.txt, .env.example
+
+NEXT_STEPS:
+  immediate: Export this design to VERSION_CONTROL, create detailed implementation guide
+  week_1: Build Phase 1 PoC (AWS + Claude terminal)
+  week_2: Add Octopus integration and test correlation
+  week_3: Add Kubernetes integration and test full-stack
+  week_4: Documentation, testing, Phase 1 launch
+
+CONTEXT_FOR_NEXT_DEVELOPER:
+  notes: This project was designed after handling real incidents today (shard-f queue backing up, DLQ investigation). The motivation is to reduce incident diagnosis time from 10-15 minutes to 2-3 minutes by giving Claude full observability of infrastructure state simultaneously.
+  current_status: Design complete, ready for implementation
+  key_insight: The power is in multi-layer correlation - Claude seeing AWS + Octopus + K8s together can identify root causes much faster than manual checking
+  safety_first: Phase 1 is read-only deliberately - build confidence before adding execution capabilities
+  ideal_time_to_build: When on-call shift ends or during low-incident period
+  blockers: None - all infrastructure already exists (AWS, Octopus, K8s, Claude API access)

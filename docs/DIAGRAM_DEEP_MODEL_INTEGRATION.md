@@ -1,32 +1,52 @@
-# Diagram Generation with Deep Analysis Model
+# Diagram Generation with Claude API
 
 ## ✅ Integration Complete!
 
-Diagram and mindmap generation now uses the **deep analysis model** (GPT-OSS 20b) instead of the regular persona model. The deep model handles visual information better and generates more accurate diagrams.
+Diagram and mindmap generation now uses the **Claude API** (via `claude_ollama_bridge`) as the preferred method. Claude API provides better diagram generation with accurate syntax and structure.
+
+**Fallback options:**
+- If Claude API is not configured, falls back to deep analysis model (GPT-OSS 20b)
+- If deep model is not available, falls back to persona helper
 
 **NEW:** The diagram tool now automatically gathers GTD data (projects, tasks, areas, etc.) when you ask for diagrams about your GTD system, making diagrams based on your actual data! See `DIAGRAM_MCP_DATA_INTEGRATION.md` for details.
 
-## 🎯 Why Deep Model?
+## 🎯 Why Claude API?
 
-The deep analysis model (GPT-OSS 20b) is better at:
-- ✅ Understanding visual structures and relationships
-- ✅ Generating correct diagram syntax
-- ✅ Creating well-organized mindmaps
-- ✅ Handling complex diagram requirements
-- ✅ Producing syntactically valid output
+Claude API is the preferred method because it:
+- ✅ Provides excellent diagram generation with accurate syntax
+- ✅ Handles complex diagram requirements well
+- ✅ Produces syntactically valid output
+- ✅ Works reliably with all diagram formats (Mermaid, PlantUML, DOT, Text)
+- ✅ Automatically gathers GTD data when needed
+
+**Fallback:** If Claude API is not configured, the system falls back to the deep analysis model or persona helper.
 
 ## ⚙️ Configuration
 
-### Automatic Configuration
+### Claude API Configuration (Preferred)
 
-The diagram generator automatically:
-1. Loads deep model settings from config files
-2. Falls back to persona helper if deep model not available
-3. Uses environment variables if configured
+The diagram generator automatically uses Claude API if configured. Set your Anthropic API key:
 
-### Manual Configuration (Optional)
+**Option 1: Environment Variable**
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
 
-Add to your `.gtd_config` or `.gtd_config_ai`:
+**Option 2: Config File**
+Add to your `.gtd_config_ai`:
+```bash
+ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+**Option 3: API Key File**
+```bash
+echo 'sk-ant-...' > ~/code/dotfiles/zsh/ANTHROPIC_API_KEY
+chmod 600 ~/code/dotfiles/zsh/ANTHROPIC_API_KEY
+```
+
+### Fallback Configuration (Deep Model)
+
+If Claude API is not configured, the system falls back to the deep model. Add to your `.gtd_config` or `.gtd_config_ai`:
 
 ```bash
 # Deep model URL (defaults to LM Studio URL)
@@ -36,24 +56,18 @@ GTD_DEEP_MODEL_URL="http://localhost:1234/v1/chat/completions"
 GTD_DEEP_MODEL_NAME="gpt-oss-20b"
 ```
 
-Or use environment variables:
-```bash
-export GTD_DEEP_MODEL_URL="http://localhost:1234/v1/chat/completions"
-export GTD_DEEP_MODEL_NAME="gpt-oss-20b"
-```
-
 ## 🚀 How It Works
 
-### Before (Persona Helper)
-- Used Tim Ferriss persona with regular model
-- Sometimes generated incorrect syntax
-- Required post-processing to fix errors
+### Priority Order
+1. **Claude API** (preferred) - Uses `gtd_claude_diagram_helper.py` via `claude_ollama_bridge`
+2. **Deep Model** (fallback) - Uses `gtd_deep_model_helper.py` with GPT-OSS 20b
+3. **Persona Helper** (last resort) - Uses `gtd_persona_helper.py` with Tim Ferriss persona
 
-### After (Deep Model)
-- Uses deep analysis model directly
-- Better understanding of diagram structures
-- More accurate syntax generation
-- Still has fallback to persona helper if needed
+### Benefits of Claude API
+- More reliable diagram generation
+- Better syntax accuracy
+- Automatic GTD data gathering
+- Works with all diagram formats
 
 ## 📊 Usage
 

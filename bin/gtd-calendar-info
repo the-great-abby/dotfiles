@@ -157,7 +157,7 @@ try:
     
     if not events:
         print("  No events scheduled")
-        return
+        sys.exit(0)
     
     # Group by time of day
     morning_events = []
