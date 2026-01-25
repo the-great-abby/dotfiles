@@ -25,11 +25,11 @@ Instructions: "Call read_recent_logs(days=3), then call get_inbox_count(),
 
 **Example Flow:**
 ```
-User: "Do my morning check-in"
+User: "Do my morning review"
   ↓
-AI: Reads morning-checkin/SKILL.md
+AI: Reads interactive-morning-review-runbook/SKILL.md
   ↓
-AI: Understands "Step 1: Call read_recent_logs(days=3)"
+AI: Understands "Step 1: Ask about energy level and wait for response"
   ↓
 AI: Calls MCP tool: read_recent_logs(days=3)
   ↓
@@ -163,7 +163,7 @@ AI: [Completes workflow automatically]
 **When AI executes:**
 ```python
 # AI reads skill instructions
-skill = get_agent_skill("morning-checkin")
+skill = get_agent_skill("interactive-morning-review-runbook")
 instructions = skill.instructions
 
 # AI understands: "I need to do these steps"
@@ -210,10 +210,10 @@ When you use skills with an MCP-enabled AI agent (like in Cursor):
 "Do my morning check-in"
 
 # AI response:
-"I'll help with your morning check-in. Let me use the morning-checkin skill."
+"I'll help with your morning review. Let me use the interactive-morning-review-runbook."
 
 # AI executes:
-execute_agent_skill(skill_name="morning-checkin", method="instructions")
+get_agent_skill(skill_name="interactive-morning-review-runbook")
 
 # AI reads instructions and executes using MCP tools:
 read_recent_logs(days=3)  # → Gets logs

@@ -154,7 +154,7 @@ If no events found:
 ## Integration with Other Skills
 
 This skill works well with:
-- **`morning-checkin`**: Calendar check is already integrated (Step 3)
+- **`interactive-morning-review-runbook`**: Calendar check is already integrated (Step 3)
 - **`task-prioritization`**: Use calendar to inform task scheduling
 - **`daily-review`**: Review how calendar affected your day
 - **`energy-audit-planning`**: Schedule tasks based on energy levels and calendar

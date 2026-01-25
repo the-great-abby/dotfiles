@@ -382,7 +382,7 @@ This workflow uses habit tracking commands and daily logs to maintain habit cons
 ## Integration with Other Skills
 
 This skill works well with:
-- **`morning-checkin`**: Include habit check-in in morning routine
+- **`interactive-morning-review-runbook`**: Include habit check-in in morning routine
 - **`evening-checkin`**: Review habit completion in evening
 - **`daily-review`**: Include habits in daily review
 - **`weekly-review`**: Review habit patterns weekly

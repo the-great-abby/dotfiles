@@ -373,7 +373,7 @@ Not Important [Delegate]     [Eliminate]
 ## Integration with Other Skills
 
 This skill works well with:
-- **`morning-checkin`**: Set daily priorities in morning
+- **`interactive-morning-review-runbook`**: Set daily priorities in morning
 - **`evening-checkin`**: Review and adjust priorities
 - **`weekly-review`**: Set weekly priorities
 - **`energy-audit-planning`**: Match priorities to energy

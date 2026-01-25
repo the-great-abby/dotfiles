@@ -11,7 +11,7 @@ Agent Skills are folders containing:
   - `templates/`: Template files with variable substitution
   - `resources/`: Supporting files, data, etc.
 
-Skills are discovered automatically from the `mcp/skills/` directory and can be used via MCP tools.
+Skills are discovered automatically from the `mcp/skills/` directory and runbooks from `mcp/runbooks/` directory. Both can be used via MCP tools. Runbooks are interactive, step-by-step workflows that ask questions and wait for responses, while skills are automated workflows.
 
 ## Quick Start
 
@@ -77,8 +77,14 @@ list_agent_skills(query="productivity", tags=["automation"])
 # Get skill details
 get_agent_skill(skill_name="My Skill")
 
-# Execute a skill
-execute_agent_skill(
+# Search skills (includes runbooks by default)
+list_agent_skills(query="productivity", tags=["automation"])
+
+# List only runbooks (interactive workflows)
+list_agent_skills(runbooks_only=True)
+
+# List only skills (automated workflows)
+list_agent_skills(runbooks_only=False)
     skill_name="My Skill",
     method="instructions",  # or "script:run.sh" or "template:output.md"
     args={"param1": "value1"}

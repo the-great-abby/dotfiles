@@ -286,7 +286,7 @@ If a category is missing:
 
 ## Related Skills
 
-- **`morning-checkin`**: Uses personalization to set daily priorities aligned with goals
+- **`interactive-morning-review-runbook`**: Uses personalization to set daily priorities aligned with goals
 - **`daily-review`**: Uses personalization to provide personalized reflection
 - **`inbox-processing`**: Uses personalization to suggest contexts and priorities
 

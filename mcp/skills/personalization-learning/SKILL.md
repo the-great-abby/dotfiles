@@ -23,6 +23,12 @@ Use this skill when you discover new, reliable information about the user that w
 - **Partner/spouse name**: When the user mentions their partner's name (e.g., "Louiza")
 - **Family members**: When you learn about family relationships
 - **Important people**: When you discover key relationships in their life
+- **Relationship details**: When you learn specific details about important people:
+  - **Interests/hobbies**: "Louiza is a foodie", "She loves hiking
+  - **Birthdays/anniversaries**: "Her birthday is in February", "Our anniversary is in June"
+  - **Gift ideas**: "I should buy her a watch band", "She'd love tickets to that show"
+  - **Preferences**: Favorite foods, activities, communication style
+  - **Notes**: Any other relevant details that would help provide better assistance
 
 ### Goals & Values
 - **Career goals**: When the user mentions specific career objectives
@@ -77,7 +83,7 @@ Before updating, ensure the information is:
 Use the `gtd_update_personalization` tool to save the information:
 
 ```python
-# Example: Learning partner's name
+# Example 1: Learning partner's name
 # IMPORTANT: For relationships.partner, you can pass either:
 # - A string (just the name): value="Louiza" - handler will convert to object
 # - An object: value={"name": "Louiza", "relationship_type": "partner"}
@@ -88,7 +94,31 @@ gtd_update_personalization(
     operation="set"
 )
 
-# Example: Adding a goal
+# Example 2: Learning partner's interests (using dot notation)
+gtd_update_personalization(
+    category="relationships",
+    field="partner.interests",  # Dot notation for nested fields
+    value="foodie",  # Will be added to interests list
+    operation="append"
+)
+
+# Example 3: Learning partner's birthday
+gtd_update_personalization(
+    category="relationships",
+    field="partner.birthday",
+    value="February",  # Single value field
+    operation="set"
+)
+
+# Example 4: Learning gift ideas for partner
+gtd_update_personalization(
+    category="relationships",
+    field="partner.gift_ideas",
+    value="watch band",  # Will be added to gift_ideas list
+    operation="append"
+)
+
+# Example 5: Adding a goal
 gtd_update_personalization(
     category="goals",
     field="career",
@@ -96,7 +126,7 @@ gtd_update_personalization(
     operation="append"
 )
 
-# Example: Noting energy pattern
+# Example 6: Noting energy pattern
 gtd_update_personalization(
     category="energy_patterns",
     field="peak_hours",
@@ -139,6 +169,12 @@ After updating, briefly acknowledge what you learned:
 
 **Use appropriate categories:**
 - `relationships`: Partner, family, friends
+  - **Detailed relationship info**: Use dot notation for nested fields
+    - `partner.interests`: List of interests/hobbies (e.g., "foodie", "cooking")
+    - `partner.birthday`: Birthday month or date (e.g., "February")
+    - `partner.gift_ideas`: Gift suggestions (e.g., "watch band", "concert tickets")
+    - `partner.preferences`: Preferences (favorite foods, activities, etc.)
+    - `partner.notes`: Any other relevant details
 - `goals`: Career, personal, financial, learning goals
 - `values`: Core values and principles
 - `energy_patterns`: Peak hours, rechargers, drainers
@@ -177,6 +213,43 @@ gtd_update_personalization(
 - "That's great! I'll remember that Louiza is your partner."
 
 **Note:** The handler automatically converts string values to the proper object structure `{"name": "Louiza", "relationship_type": "partner"}` to maintain consistency.
+
+### Example 1b: Learning Partner's Interests and Details
+
+**Conversation:**
+- User: "Louiza is a foodie, and her birthday is in February. I should probably buy her a watch band for her birthday."
+
+**Updates:**
+```python
+# Store interests
+gtd_update_personalization(
+    category="relationships",
+    field="partner.interests",
+    value="foodie",
+    operation="append"
+)
+
+# Store birthday
+gtd_update_personalization(
+    category="relationships",
+    field="partner.birthday",
+    value="February",
+    operation="set"
+)
+
+# Store gift idea
+gtd_update_personalization(
+    category="relationships",
+    field="partner.gift_ideas",
+    value="watch band",
+    operation="append"
+)
+```
+
+**Response:**
+- "I'll remember that Louiza is a foodie, her birthday is in February, and that a watch band would be a good gift idea for her."
+
+**Result:** Future conversations, you can reference these details when suggesting activities, gifts, or planning.
 
 ### Example 2: Discovering Goals
 
@@ -239,7 +312,7 @@ gtd_update_personalization(
 
 This skill works well with:
 - **`personalization-info`**: Read existing personalization before updating
-- **`morning-checkin`**: Learn patterns during morning routines
+- **`interactive-morning-review-runbook`**: Learn patterns during morning routines
 - **`daily-review`**: Discover insights during reviews
 
 ## Success Criteria

@@ -201,7 +201,7 @@ This workflow uses MCP tools to filter and display tasks by context, helping you
 ## Integration with Other Skills
 
 This skill works well with:
-- **`morning-checkin`**: Use context task selection as part of morning routine
+- **`interactive-morning-review-runbook`**: Use context task selection as part of morning routine
 - **`daily-review`**: Review tasks by context during daily review
 - **`inbox-processing`**: When processing inbox, assign correct contexts to new tasks
 - **`task-prioritization`**: Combine with prioritization guidance for better task selection

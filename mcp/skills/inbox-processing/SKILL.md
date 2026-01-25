@@ -358,7 +358,7 @@ Is it actionable?
 ## Integration with Other Skills
 
 This skill is used by:
-- **`morning-checkin`**: Processes inbox as part of morning routine
+- **`interactive-morning-review-runbook`**: Processes inbox as part of morning routine
 - **`daily-review`**: Processes inbox as first step of review
 - **`evening-checkin`**: Processes inbox before wrapping up day
 

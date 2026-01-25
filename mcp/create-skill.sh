@@ -46,7 +46,7 @@ fi
 # Step 1: Get skill name
 echo -e "${BOLD}Skill Name:${NC}"
 echo -e "  This will be the folder name (lowercase, hyphens, no spaces)"
-echo -e "  Example: morning-checkin, inbox-processing, daily-review"
+echo -e "  Example: inbox-processing, daily-review, interactive-morning-review-runbook"
 echo -n "Enter skill name: "
 read skill_name
 

@@ -509,7 +509,7 @@ Based on analysis of your GTD system's full capabilities, here are additional sk
 
 ## Skills Already Implemented ✅
 
-- ✅ morning-checkin
+- ✅ interactive-morning-review-runbook (interactive runbook, replaces morning-checkin)
 - ✅ daily-review
 - ✅ inbox-processing
 - ✅ task-summary

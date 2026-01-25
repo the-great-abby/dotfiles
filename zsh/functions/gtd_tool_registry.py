@@ -844,8 +844,8 @@ register_tool(
 # Agent Skills Tools
 # ============================================================================
 
-def _list_agent_skills_handler(query: Optional[str] = None, tags: Optional[List[str]] = None) -> str:
-    """Handler for listing agent skills."""
+def _list_agent_skills_handler(query: Optional[str] = None, tags: Optional[List[str]] = None, runbooks_only: bool = False) -> str:
+    """Handler for listing agent skills and optionally runbooks."""
     try:
         from pathlib import Path
         import sys
@@ -864,9 +864,9 @@ def _list_agent_skills_handler(query: Optional[str] = None, tags: Optional[List[
             registry = skills_module.get_registry()
             
             if query or tags:
-                skills = registry.search_skills(query=query, tags=tags)
+                skills = registry.search_skills(query=query, tags=tags, runbooks_only=runbooks_only)
             else:
-                skills = registry.list_skills()
+                skills = registry.list_skills(runbooks_only=runbooks_only)
             
             return json.dumps({
                 "skills": skills,
@@ -981,7 +981,7 @@ def _execute_agent_skill_handler(
 # Register skill tools
 register_tool(
     name="list_agent_skills",
-    description="List all available Agent Skills. Skills are reusable workflows that guide how to use GTD tools to accomplish goals. Use this to discover what skills are available, then use get_agent_skill to read their instructions. Skills are particularly useful for complex workflows like morning check-ins, inbox processing, or daily reviews.",
+    description="List all available Agent Skills and Runbooks. Skills are reusable workflows that guide how to use GTD tools to accomplish goals. Runbooks are interactive, step-by-step guides that ask questions and wait for responses. Use this to discover what skills/runbooks are available, then use get_agent_skill to read their instructions. Set runbooks_only=true to list only runbooks (interactive workflows).",
     parameters={
         "type": "object",
         "properties": {
@@ -993,6 +993,10 @@ register_tool(
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Optional list of tags to filter skills (e.g., ['morning', 'routine', 'productivity'])"
+            },
+            "runbooks_only": {
+                "type": "boolean",
+                "description": "If true, only return runbooks (interactive workflows). If false or omitted, return both skills and runbooks."
             }
         }
     },
@@ -1194,10 +1198,52 @@ def _gtd_update_personalization_handler(category: str, field: str, value: Any, o
                                 "name": value,
                                 "relationship_type": "partner"
                             }
-                    # If value is already an object/dict, use it directly
+                    # If value is already an object/dict, merge with existing structure
                     elif isinstance(value, dict):
-                        data[category][field] = value
+                        # Initialize partner object if it doesn't exist
+                        if field not in data[category] or not isinstance(data[category][field], dict):
+                            data[category][field] = {"relationship_type": "partner"}
+                        # Merge new data into existing structure (preserve existing fields)
+                        data[category][field].update(value)
                     else:
+                        data[category][field] = value
+                
+                # Special handling for relationships fields to support detailed information
+                elif category == "relationships" and isinstance(data[category], dict):
+                    # If updating a sub-field of a relationship (e.g., partner.interests, partner.birthday)
+                    if "." in field:
+                        # Split field like "partner.interests" into "partner" and "interests"
+                        parts = field.split(".", 1)
+                        person_field = parts[0]
+                        detail_field = parts[1]
+                        
+                        # Initialize person object if it doesn't exist
+                        if person_field not in data[category]:
+                            data[category][person_field] = {}
+                        if not isinstance(data[category][person_field], dict):
+                            data[category][person_field] = {}
+                        
+                        # Handle list fields (interests, gift_ideas, notes) vs single values (birthday, etc.)
+                        if detail_field in ["interests", "gift_ideas", "notes", "preferences"]:
+                            # These are list fields - append or set as list
+                            if detail_field not in data[category][person_field]:
+                                data[category][person_field][detail_field] = []
+                            if not isinstance(data[category][person_field][detail_field], list):
+                                data[category][person_field][detail_field] = [data[category][person_field][detail_field]]
+                            
+                            # If value is a list, extend; if single value, append
+                            if isinstance(value, list):
+                                for item in value:
+                                    if item not in data[category][person_field][detail_field]:
+                                        data[category][person_field][detail_field].append(item)
+                            else:
+                                if value not in data[category][person_field][detail_field]:
+                                    data[category][person_field][detail_field].append(value)
+                        else:
+                            # Single value field (birthday, favorite_color, etc.)
+                            data[category][person_field][detail_field] = value
+                    else:
+                        # Regular field update
                         data[category][field] = value
                 else:
                     # For other fields, set directly
@@ -1516,6 +1562,229 @@ register_tool(
     },
     handler=_gtd_search_second_brain_handler,
     category="gtd"
+)
+
+
+# ============================================================================
+# Vector Database Tools
+# ============================================================================
+
+def _gtd_search_vector_database_handler(
+    query: str,
+    content_type: Optional[str] = None,
+    limit: int = 10,
+    threshold: float = 0.7,
+    max_chars_per_result: int = 500
+) -> str:
+    """Handler for searching the vector database."""
+    try:
+        import sys
+        from pathlib import Path
+        
+        # Import vectorization module
+        functions_dir = Path(__file__).parent
+        if str(functions_dir) not in sys.path:
+            sys.path.insert(0, str(functions_dir))
+        
+        try:
+            from gtd_vectorization import search_similar, read_database_config
+            VECTOR_DB_AVAILABLE = True
+        except ImportError:
+            return json.dumps({
+                "error": "Vector database not available",
+                "message": "Vector database modules not installed or configured",
+                "query": query
+            })
+        
+        if not query:
+            return json.dumps({
+                "error": "Query is required",
+                "message": "Please provide a search query"
+            })
+        
+        # Validate content_type
+        valid_content_types = ["daily_log", "task", "project", "note", "file", None, ""]
+        if content_type and content_type not in valid_content_types:
+            return json.dumps({
+                "error": f"Invalid content_type: {content_type}",
+                "message": f"Valid content types: {', '.join([ct for ct in valid_content_types if ct])}",
+                "query": query
+            })
+        
+        if content_type == "":
+            content_type = None
+        
+        # Cap limit at 50
+        limit = min(limit, 50)
+        
+        try:
+            results = search_similar(
+                query_text=query,
+                content_type=content_type,
+                limit=limit,
+                threshold=threshold
+            )
+            
+            # Format results
+            formatted_results = []
+            for result in results:
+                content_text = result.get("content_text", "")
+                if max_chars_per_result and len(content_text) > max_chars_per_result:
+                    content_text = content_text[:max_chars_per_result] + "..."
+                
+                formatted_results.append({
+                    "content_type": result.get("content_type", "unknown"),
+                    "content_id": result.get("content_id", ""),
+                    "content_text": content_text,
+                    "similarity": round(result.get("similarity", 0.0), 3),
+                    "metadata": result.get("metadata", {})
+                })
+            
+            return json.dumps({
+                "query": query,
+                "results": formatted_results,
+                "count": len(formatted_results),
+                "content_type_filter": content_type,
+                "threshold": threshold
+            }, indent=2)
+        except Exception as e:
+            import traceback
+            return json.dumps({
+                "error": f"Error searching vector database: {str(e)}",
+                "message": "Failed to search vector database. Check database connection and configuration.",
+                "query": query,
+                "traceback": traceback.format_exc()
+            })
+    
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            "error": f"Error in vector database search handler: {str(e)}",
+            "traceback": traceback.format_exc(),
+            "query": query
+        })
+
+
+def _gtd_get_vector_database_stats_handler() -> str:
+    """Handler for getting vector database statistics."""
+    try:
+        import sys
+        from pathlib import Path
+        
+        # Import vectorization module
+        functions_dir = Path(__file__).parent
+        if str(functions_dir) not in sys.path:
+            sys.path.insert(0, str(functions_dir))
+        
+        try:
+            from gtd_vectorization import read_database_config
+            from gtd_vector_db import VectorDatabase
+            VECTOR_DB_AVAILABLE = True
+        except ImportError:
+            return json.dumps({
+                "error": "Vector database not available",
+                "message": "Vector database modules not installed or configured"
+            })
+        
+        try:
+            db_config = read_database_config()
+            db = VectorDatabase(db_config)
+            
+            if not db.connect():
+                return json.dumps({
+                    "error": "Cannot connect to database",
+                    "message": "Failed to connect to vector database. Check database configuration."
+                })
+            
+            # Get stats
+            stats = {}
+            
+            # Count by content type
+            content_types = ["daily_log", "task", "project", "note", "file"]
+            counts_by_type = {}
+            total_count = 0
+            
+            for ct in content_types:
+                count = db.count_embeddings(ct)
+                counts_by_type[ct] = count
+                total_count += count
+            
+            stats["total_embeddings"] = total_count
+            stats["by_content_type"] = counts_by_type
+            
+            # Try to get system stats if available
+            try:
+                system_stats = db.get_system_stats()
+                if system_stats:
+                    stats["system_stats"] = system_stats
+            except:
+                pass  # get_system_stats might not be available
+            
+            db.disconnect()
+            
+            return json.dumps(stats, indent=2, default=str)
+        except Exception as e:
+            import traceback
+            return json.dumps({
+                "error": f"Error getting vector database stats: {str(e)}",
+                "message": "Failed to get vector database statistics.",
+                "traceback": traceback.format_exc()
+            })
+    
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            "error": f"Error in vector database stats handler: {str(e)}",
+            "traceback": traceback.format_exc()
+        })
+
+
+register_tool(
+    name="gtd_search_vector_database",
+    description="Search the vector database for semantically similar content. Use this to find relevant information from your notes, tasks, projects, daily logs, and other vectorized content. Returns content with similarity scores. This is more powerful than direct file access because it uses semantic search to find related content even if exact keywords don't match.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search query - what information you're looking for (e.g., 'energy patterns', 'Kubernetes learning', 'morning routine')"
+            },
+            "content_type": {
+                "type": "string",
+                "description": "Optional filter by content type: 'daily_log', 'task', 'project', 'note', 'file', or empty string for all types",
+                "enum": ["daily_log", "task", "project", "note", "file", ""]
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of results to return (default: 10, max: 50)",
+                "default": 10
+            },
+            "threshold": {
+                "type": "number",
+                "description": "Minimum similarity threshold (0.0-1.0, default: 0.7). Higher = more relevant results only.",
+                "default": 0.7
+            },
+            "max_chars_per_result": {
+                "type": "integer",
+                "description": "Maximum characters per result to return (default: 500). Use to limit response size.",
+                "default": 500
+            }
+        },
+        "required": ["query"]
+    },
+    handler=_gtd_search_vector_database_handler,
+    category="knowledge_organization"
+)
+
+register_tool(
+    name="gtd_get_vector_database_stats",
+    description="Get statistics about what's in the vector database - total items, breakdown by content type (daily_log, task, project, note, file), last update time, etc. Useful for understanding what content is available for semantic search.",
+    parameters={
+        "type": "object",
+        "properties": {}
+    },
+    handler=_gtd_get_vector_database_stats_handler,
+    category="knowledge_organization"
 )
 
 

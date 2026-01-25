@@ -553,7 +553,7 @@ Weekly Review Workflow
 
 This skill works well with:
 - **`inbox-processing`**: Process inbox items in Phase 1
-- **`morning-checkin`**: Weekly review sets up the week, morning check-in starts each day
+- **`interactive-morning-review-runbook`**: Weekly review sets up the week, morning review starts each day
 - **`evening-checkin`**: Evening check-in wraps up days, weekly review wraps up weeks
 - **`project-status-review`**: Deep dive into projects during Phase 2
 - **`task-prioritization`**: For guidance on setting priorities in Phase 4

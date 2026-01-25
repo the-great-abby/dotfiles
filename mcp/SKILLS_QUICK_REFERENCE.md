@@ -23,12 +23,12 @@ Skills Directory (mcp/skills/)
 ### Claude's Workflow
 
 1. **Discover**: `list_agent_skills(query="morning")`
-2. **Read**: `get_agent_skill(skill_name="morning-checkin")`
+2. **Read**: `get_agent_skill(skill_name="interactive-morning-review-runbook")`
 3. **Follow**: Claude reads instructions and executes using GTD tools
 
 ## Available Skills
 
-- **morning-checkin**: Complete morning routine workflow
+- **interactive-morning-review-runbook**: Complete morning routine workflow
 - **inbox-processing**: Process inbox items using GTD methodology
 - **daily-review**: Evening reflection and review workflow
 - **task-summary**: Generate task summaries
@@ -49,10 +49,10 @@ claude-ask "Help me do my morning check-in"
 list_agent_skills(query="morning")
 
 # Get skill details
-get_agent_skill(skill_name="morning-checkin")
+get_agent_skill(skill_name="interactive-morning-review-runbook")
 
 # Execute skill
-execute_agent_skill(skill_name="morning-checkin", method="instructions")
+execute_agent_skill(skill_name="interactive-morning-review-runbook", method="instructions")
 ```
 
 ## Creating New Skills
@@ -93,8 +93,8 @@ See `mcp/AGENT_SKILLS.md` for full guide.
 
 **Claude's Process:**
 1. Calls `list_agent_skills(query="morning")`
-2. Gets `morning-checkin` skill
-3. Calls `get_agent_skill("morning-checkin")`
+2. Gets `interactive-morning-review-runbook` skill
+3. Calls `get_agent_skill("interactive-morning-review-runbook")`
 4. Reads instructions:
    - Step 1: `gtd_read_daily_log(date="today")`
    - Step 2: `gtd_get_inbox_count()`

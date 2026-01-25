@@ -216,7 +216,7 @@ register_tool(
         "properties": {
             "skill_name": {
                 "type": "string",
-                "description": "Name of the skill to retrieve (e.g., 'morning-checkin', 'inbox-processing')"
+                "description": "Name of the skill to retrieve (e.g., 'interactive-morning-review-runbook', 'inbox-processing')"
             }
         },
         "required": ["skill_name"]
@@ -287,9 +287,9 @@ if tools:
 
 **Claude's Process:**
 1. **Discover skills**: Calls `list_agent_skills(query="morning")`
-   - Returns: `[{"id": "morning-checkin", "name": "Morning Check-In", ...}]`
+   - Returns: `[{"id": "interactive-morning-review-runbook", "name": "Morning Check-In", ...}]`
 
-2. **Get skill details**: Calls `get_agent_skill(skill_name="morning-checkin")`
+2. **Get skill details**: Calls `get_agent_skill(skill_name="interactive-morning-review-runbook")`
    - Returns: Full instructions from `SKILL.md`
 
 3. **Follow instructions**: Reads the skill's step-by-step workflow:
@@ -307,7 +307,7 @@ if tools:
 ✅ **Claude can read instructions** - Understands workflows without code changes  
 ✅ **Claude can execute workflows** - Follows skill instructions using available tools  
 ✅ **Skills remain portable** - Still file-based, easy to share and version  
-✅ **Composable** - Skills can reference other skills (e.g., morning-checkin → inbox-processing)
+✅ **Composable** - Skills can reference other skills (e.g., interactive-morning-review-runbook → inbox-processing)
 
 ## Best Practices
 
@@ -347,7 +347,7 @@ get_agent_skill(skill_name="daily-review")
 Skills can reference other skills:
 
 ```markdown
-# morning-checkin/SKILL.md
+# interactive-morning-review-runbook/SKILL.md
 
 ## Step 2: Process Inbox
 If inbox count > 0:
@@ -372,7 +372,7 @@ If `gtd_read_daily_log` returns an error:
 
 Your system has these skills available:
 
-- **morning-checkin**: Complete morning routine workflow
+- **interactive-morning-review-runbook**: Complete morning routine workflow
 - **inbox-processing**: Process inbox items using GTD methodology
 - **daily-review**: Evening reflection and review workflow
 - **task-summary**: Generate task summaries
@@ -393,7 +393,7 @@ After implementing:
 
 3. **Verify Claude follows instructions:**
    - Claude should call `list_agent_skills`
-   - Then `get_agent_skill("morning-checkin")`
+   - Then `get_agent_skill("interactive-morning-review-runbook")`
    - Then follow the instructions step-by-step
 
 ## Architecture Summary
@@ -428,7 +428,7 @@ After implementing:
 │    Skills Directory                 │
 │    (mcp/skills/)                    │
 │                                     │
-│  ✅ morning-checkin/SKILL.md       │
+│  ✅ interactive-morning-review-runbook/SKILL.md       │
 │  ✅ inbox-processing/SKILL.md      │
 │  ✅ daily-review/SKILL.md          │
 └─────────────────────────────────────┘

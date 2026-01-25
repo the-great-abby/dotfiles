@@ -338,7 +338,7 @@ If diagram generation fails or has syntax errors:
 This skill works well with:
 - **`task-summary`**: Generate diagrams from task summaries
 - **`project-status-review`**: Create diagrams of project structures
-- **`morning-checkin`**: Visualize daily workflows
+- **`interactive-morning-review-runbook`**: Visualize daily workflows
 - **`daily-review`**: Create diagrams of review processes
 
 ## Common Use Cases

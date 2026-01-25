@@ -57,6 +57,24 @@ class Message:
     timestamp: str
 
 
+class SendableTextArea(TextArea):
+    """TextArea that handles Ctrl+Enter to send messages"""
+    
+    async def on_key(self, event: events.Key) -> None:
+        """Handle Ctrl+Enter to trigger send action"""
+        if event.key == "ctrl+enter":
+            # Prevent default behavior (inserting newline)
+            event.prevent_default()
+            # Trigger the send action on the parent app
+            app = self.app
+            if app and hasattr(app, 'action_send_message'):
+                await app.action_send_message()
+            return
+        # For other keys, let TextArea handle them normally
+        # Don't call super().on_key() as TextArea doesn't expose it that way
+        # Just return and let the default TextArea behavior handle it
+
+
 class ClaudeAskTUI(App):
     """TUI for interactive Claude conversations"""
 
@@ -121,6 +139,7 @@ class ClaudeAskTUI(App):
         Binding("ctrl+l", "clear_conversation", "Clear Chat", priority=True),
         Binding("ctrl+/", "help", "Help", priority=True),
         Binding("ctrl+j", "send_message", "Send", priority=True),
+        Binding("ctrl+enter", "send_message", "Send", priority=True),
         Binding("ctrl+r", "reload_config", "Reload Config", priority=True),
     ]
 
@@ -133,6 +152,12 @@ class ClaudeAskTUI(App):
         self.client = client if client is not None else GTDClient()
         self.exchange_count = 0
         self.is_thinking = False
+        
+        # Runbook progress tracking
+        self.current_runbook: Optional[str] = None
+        self.current_step: int = 0
+        self.total_steps: int = 0
+        
         # Config file for external CSS customization
         self.config_file = Path(__file__).parent / "claude_ask_tui_config.css"
 
@@ -150,8 +175,8 @@ class ClaudeAskTUI(App):
             
             # Input area (minimal space)
             with Container(id="input-container"):
-                yield TextArea(
-                    placeholder="💬 Type your question here... (Ctrl+J to send, Esc to clear)",
+                yield SendableTextArea(
+                    placeholder="💬 Type your question here... (Ctrl+J or Ctrl+Enter to send, Esc to clear)",
                     id="input-area",
                     language="markdown"
                 )
@@ -168,13 +193,17 @@ class ClaudeAskTUI(App):
         # Focus input area
         self.query_one("#input-area", TextArea).focus()
         
-        # If we have an initial question, ask it
+        # If we have an initial question, ask it asynchronously (non-blocking)
+        # This allows the TUI to display immediately before the AI request starts
         if self.initial_question:
-            await self._ask_claude(self.initial_question)
+            # Use create_task to run the request in the background
+            # This allows the TUI to render first, then the request happens
+            import asyncio
+            asyncio.create_task(self._ask_claude(self.initial_question))
         else:
             # Show welcome message
             self._add_message("assistant", "Hello! I'm Claude. What would you like to talk about?")
-            self._update_status("Ready - Type your question and press Ctrl+Enter to send")
+            self._update_status("Ready - Type your question and press Ctrl+J or Ctrl+Enter to send")
 
     def _add_message(self, role: str, content: str):
         """Add a message to the conversation"""
@@ -217,6 +246,111 @@ class ClaudeAskTUI(App):
         """Update status bar"""
         status_widget = self.query_one("#status-bar", Static)
         status_widget.update(status)
+    
+    def _detect_and_update_runbook_progress(self, response_text: str):
+        """Detect if we're in a runbook and update progress tracking"""
+        import re
+        
+        response_lower = response_text.lower()
+        
+        # First, check if runbook is complete
+        completion_keywords = [
+            "runbook complete",
+            "runbook is complete",
+            "runbook finished",
+            "runbook is finished",
+            "morning review complete",
+            "morning review is complete",
+            "morning review finished",
+            "all done",
+            "that completes",
+            "we've completed",
+            "we have completed",
+            "review is complete",
+            "review complete",
+        ]
+        
+        is_complete = any(keyword in response_lower for keyword in completion_keywords)
+        
+        # Also check if we've reached the final step and there's no more runbook content
+        if self.current_runbook and self.current_step >= self.total_steps:
+            # Check if response doesn't mention continuing the runbook
+            continuing_keywords = ["next step", "proceed to", "step", "runbook"]
+            is_continuing = any(keyword in response_lower for keyword in continuing_keywords)
+            if not is_continuing:
+                is_complete = True
+        
+        # If runbook is complete, clear tracking
+        if is_complete and self.current_runbook:
+            print(f"  ℹ️  Runbook complete - clearing progress tracking", file=sys.stderr)
+            self.current_runbook = None
+            self.current_step = 0
+            self.total_steps = 0
+            return
+        
+        # Check for runbook mentions
+        runbook_keywords = [
+            "morning review runbook",
+            "interactive morning review",
+            "morning review",
+            "runbook",
+        ]
+        
+        # Detect if we're in a runbook
+        is_runbook = any(keyword in response_lower for keyword in runbook_keywords)
+        
+        if is_runbook:
+            # Set runbook name if not set
+            if not self.current_runbook:
+                if "morning review" in response_lower:
+                    self.current_runbook = "Morning Review"
+                    self.total_steps = 8  # Morning review has 8 steps
+                elif "runbook" in response_lower:
+                    self.current_runbook = "Runbook"
+                    self.total_steps = 8  # Default to 8, can be adjusted
+            
+            # Try to detect current step number from various patterns
+            step_patterns = [
+                r"Step (\d+):",  # "Step 1:"
+                r"step (\d+):",  # "step 1:"
+                r"Step (\d+) ",  # "Step 1 "
+                r"step (\d+) ",  # "step 1 "
+                r"proceed to Step (\d+)",  # "proceed to Step 2"
+                r"proceed to step (\d+)",  # "proceed to step 2"
+                r"Step (\d+)",  # "Step 1" (standalone)
+                r"step (\d+)",  # "step 1" (standalone)
+            ]
+            
+            # Check current response
+            for pattern in step_patterns:
+                matches = re.finditer(pattern, response_text, re.IGNORECASE)
+                for match in matches:
+                    step_num = int(match.group(1))
+                    if step_num > self.current_step:
+                        self.current_step = step_num
+                        break
+            
+            # Also check conversation history for step mentions
+            for msg in reversed(self.messages[-10:]):  # Check last 10 messages
+                if msg.role == "assistant":
+                    for pattern in step_patterns:
+                        matches = re.finditer(pattern, msg.content, re.IGNORECASE)
+                        for match in matches:
+                            step_num = int(match.group(1))
+                            if step_num > self.current_step:
+                                self.current_step = step_num
+                                break
+            
+            # If we detected a runbook but haven't found a step yet, assume we're on step 1
+            if self.current_step == 0 and self.current_runbook:
+                self.current_step = 1
+    
+    def _create_progress_bar(self, percentage: int, width: int = 20) -> str:
+        """Create a visual progress bar"""
+        filled = int((percentage / 100) * width)
+        empty = width - filled
+        bar = "█" * filled + "░" * empty
+        return f"[{bar}]"
 
     async def _ask_claude(self, question: str):
         """Ask Claude a question"""
@@ -233,16 +367,22 @@ class ClaudeAskTUI(App):
         input_area.disabled = True
         
         try:
-            # Call Claude
-            result, error = self.client.router._call_claude(
-                "general_question",
-                question,
-                persona=self.selected_persona,
-                context={
-                    "max_tokens": 2000,
-                    "conversation_history": self.conversation_history[:-1],  # Exclude the question we just added
-                    "interactive": True
-                }
+            # Call Claude (run in thread pool to avoid blocking event loop)
+            # This allows the TUI to remain responsive while waiting for the AI response
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result, error = await loop.run_in_executor(
+                None,  # Use default thread pool
+                lambda: self.client.router._call_claude(
+                    "general_question",
+                    question,
+                    persona=self.selected_persona,
+                    context={
+                        "max_tokens": 2000,
+                        "conversation_history": self.conversation_history[:-1],  # Exclude the question we just added
+                        "interactive": True
+                    }
+                )
             )
             
             if error:
@@ -250,9 +390,60 @@ class ClaudeAskTUI(App):
                 self._update_status(f"Error: {error}")
             else:
                 response_text = result.get("response", "")
-                self._add_message("assistant", response_text)
+                
+                # Display tool execution details if available (for transparency)
+                tool_details = result.get("tool_executions", []) or result.get("tool_execution_details", [])
+                if tool_details:
+                    tool_info_lines = []
+                    tool_info_lines.append("[bold cyan]🔧 Tools Used:[/bold cyan]")
+                    for tool_detail in tool_details:
+                        tool_name = tool_detail.get("tool_name", "unknown")
+                        tool_args = tool_detail.get("tool_args", {})
+                        tool_result = tool_detail.get("tool_result", "")
+                        is_error = tool_detail.get("is_error", False)
+                        
+                        # Format tool call
+                        args_str = ", ".join([f"{k}={v}" for k, v in tool_args.items()]) if tool_args else "no args"
+                        status_icon = "❌" if is_error else "✅"
+                        tool_info_lines.append(f"[cyan]  {status_icon} {tool_name}({args_str})[/cyan]")
+                        
+                        # Show result preview (truncate if too long, but show more for important tools)
+                        if tool_result:
+                            # For task/calendar tools, show more detail
+                            if any(keyword in tool_name.lower() for keyword in ["task", "calendar", "daily_log", "project"]):
+                                result_preview = tool_result[:1000] + "..." if len(tool_result) > 1000 else tool_result
+                            else:
+                                result_preview = tool_result[:500] + "..." if len(tool_result) > 500 else tool_result
+                            
+                            # Format as code block for readability
+                            tool_info_lines.append(f"[dim]   ┌─ Result ─────────────────────────────────────────[/dim]")
+                            # Split result into lines and indent each
+                            result_lines = result_preview.split('\n')
+                            for line in result_lines[:20]:  # Limit to 20 lines
+                                tool_info_lines.append(f"[dim]   │ {line}[/dim]")
+                            if len(result_lines) > 20:
+                                tool_info_lines.append(f"[dim]   │ ... ({len(result_lines) - 20} more lines)[/dim]")
+                            tool_info_lines.append(f"[dim]   └───────────────────────────────────────────────────[/dim]")
+                    
+                    # Add tool info before the response
+                    tool_info = "\n".join(tool_info_lines)
+                    self._add_message("assistant", f"{tool_info}\n\n{response_text}")
+                else:
+                    self._add_message("assistant", response_text)
+                
+                # Detect runbook context and track progress
+                self._detect_and_update_runbook_progress(response_text)
+                
                 self.exchange_count += 1
-                self._update_status(f"✓ Response received ({self.exchange_count} exchange{'s' if self.exchange_count != 1 else ''})")
+                
+                # Show progress bar if in runbook, otherwise show exchange count
+                if self.current_runbook and self.total_steps > 0:
+                    progress_pct = int((self.current_step / self.total_steps) * 100) if self.total_steps > 0 else 0
+                    progress_bar = self._create_progress_bar(progress_pct)
+                    status_text = f"📋 {self.current_runbook} - Step {self.current_step}/{self.total_steps} {progress_bar} ({progress_pct}%)"
+                    self._update_status(status_text)
+                else:
+                    self._update_status(f"✓ Response received ({self.exchange_count} exchange{'s' if self.exchange_count != 1 else ''})")
                 
         except Exception as e:
             self._add_message("assistant", f"❌ Error: {str(e)}")
@@ -266,12 +457,13 @@ class ClaudeAskTUI(App):
             input_area.text = ""
 
     async def action_send_message(self):
-        """Send message action (bound to Ctrl+J)"""
+        """Send message action (bound to Ctrl+J or Ctrl+Enter)"""
         if not self.is_thinking:
             input_area = self.query_one("#input-area", TextArea)
             question = input_area.text.strip()
             if question:
                 await self._ask_claude(question)
+    
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses"""
@@ -291,6 +483,10 @@ class ClaudeAskTUI(App):
             self.messages.clear()
             self.conversation_history.clear()
             self.exchange_count = 0
+            # Clear runbook tracking when conversation is cleared
+            self.current_runbook = None
+            self.current_step = 0
+            self.total_steps = 0
             self._update_conversation_display()
             self._update_status("Conversation cleared")
         
@@ -307,6 +503,10 @@ class ClaudeAskTUI(App):
         self.messages.clear()
         self.conversation_history.clear()
         self.exchange_count = 0
+        # Clear runbook tracking when conversation is cleared
+        self.current_runbook = None
+        self.current_step = 0
+        self.total_steps = 0
         self._update_conversation_display()
         self._update_status("Conversation cleared")
 

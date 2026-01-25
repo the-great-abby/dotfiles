@@ -287,7 +287,7 @@ Beyond just listing tasks, provide:
 ## Integration with Other Skills
 
 This skill works well with:
-- **`morning-checkin`**: Generate task summary for morning review
+- **`interactive-morning-review-runbook`**: Generate task summary for morning review
 - **`daily-review`**: Include task summary in daily review
 - **`project-status-review`**: Combine with project status information
 

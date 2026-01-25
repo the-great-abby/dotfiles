@@ -410,7 +410,7 @@ Evening (Varies):
 
 This skill works well with:
 - **`task-prioritization`**: Match priorities to energy
-- **`morning-checkin`**: Plan day based on energy
+- **`interactive-morning-review-runbook`**: Plan day based on energy
 - **`evening-checkin`**: Review energy patterns
 - **`weekly-review`**: Analyze energy patterns
 - **`context-task-selection`**: Match tasks to energy and context

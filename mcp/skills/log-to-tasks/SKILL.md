@@ -413,7 +413,7 @@ This skill works well with:
 - **`weekly-review`**: Process past week's logs
 - **`inbox-processing`**: Logs are another source of inputs
 - **`task-prioritization`**: Prioritize created tasks
-- **`morning-checkin`**: Review tasks created from logs
+- **`interactive-morning-review-runbook`**: Review tasks created from logs
 
 ---
 

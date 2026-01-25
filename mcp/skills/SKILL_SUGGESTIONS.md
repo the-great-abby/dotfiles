@@ -23,10 +23,10 @@ Based on analysis of your existing workflows, here are Agent Skills that could r
 
 ## High-Priority Skills (Replace Existing Workflows)
 
-### 1. Morning Check-In Workflow
+### 1. Morning Review Runbook
 **Replaces:** `gtd-morning`, `gtd-generate-checkin-suggestions` (morning)
 
-**Skill Name:** `morning-checkin`
+**Runbook Name:** `interactive-morning-review-runbook` ✅ (Already implemented)
 
 **What it does:**
 - Guides through morning routine using MCP tools
@@ -231,7 +231,7 @@ Based on analysis of your existing workflows, here are Agent Skills that could r
 ## Implementation Priority
 
 ### Phase 1: Core Workflows (Week 1)
-1. ✅ `morning-checkin` - Replace morning routine
+1. ✅ `interactive-morning-review-runbook` - Interactive morning review (already implemented)
 2. ✅ `evening-checkin` - Replace evening routine  
 3. ✅ `daily-review` - Replace daily review script
 

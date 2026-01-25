@@ -329,7 +329,7 @@ Adapt the workflow for personal time:
 ## Integration with Other Skills
 
 This skill works well with:
-- **`morning-checkin`**: Evening sets up morning, morning reviews evening
+- **`interactive-morning-review-runbook`**: Evening sets up morning, morning review reviews evening
 - **`daily-review`**: Evening check-in is part of daily review cycle
 - **`inbox-processing`**: Process inbox items discovered in Step 2
 - **`task-prioritization`**: For guidance on setting priorities (Step 6)

@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-Tests for Claude Ask TUI fixes
+Tests for Claude Ask TUI fixes and features
 
 Tests the fixes for:
 - TextArea.Submitted handler removal
 - Config reload functionality
 - Argument parsing for ollama-model and ollama-timeout
+
+Tests the new features:
+- Progress bar for interactive runbooks
+- Tool transparency (showing tool calls and results)
+- Runbook step tracking
+- Ctrl+Enter support
 """
 
 import unittest
@@ -240,6 +246,235 @@ class TestArgumentParsing(unittest.TestCase):
         self.assertEqual(args.ollama_timeout, 90)
         self.assertEqual(args.persona, 'questmaster')
         self.assertEqual(args.question, 'test question')
+
+
+class TestRunbookProgressTracking(unittest.TestCase):
+    """Test runbook progress tracking features"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.tui_file = Path(__file__).parent.parent / "personal" / "dotfiles" / "mcp" / "claude_ask_tui.py"
+        if not self.tui_file.exists():
+            self.tui_file = Path(__file__).parent.parent / "mcp" / "claude_ask_tui.py"
+    
+    def test_runbook_tracking_variables_exist(self):
+        """Test that runbook tracking variables are initialized"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        self.assertIn('current_runbook', code, "current_runbook variable should exist")
+        self.assertIn('current_step', code, "current_step variable should exist")
+        self.assertIn('total_steps', code, "total_steps variable should exist")
+    
+    def test_detect_runbook_progress_method_exists(self):
+        """Test that _detect_and_update_runbook_progress method exists"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        self.assertIn(
+            'def _detect_and_update_runbook_progress',
+            code,
+            "_detect_and_update_runbook_progress method should exist"
+        )
+    
+    def test_create_progress_bar_method_exists(self):
+        """Test that _create_progress_bar method exists"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        self.assertIn(
+            'def _create_progress_bar',
+            code,
+            "_create_progress_bar method should exist"
+        )
+    
+    def test_progress_bar_displayed_in_status(self):
+        """Test that progress bar is displayed when in runbook"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        # Check that status update includes progress bar logic
+        self.assertIn(
+            'Step {self.current_step}/{self.total_steps}',
+            code,
+            "Status should show step progress when in runbook"
+        )
+        self.assertIn(
+            'current_runbook and self.total_steps',
+            code,
+            "Should check for runbook context before showing progress"
+        )
+    
+    def test_morning_review_detection(self):
+        """Test that morning review runbook is detected"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        self.assertIn(
+            'morning review',
+            code.lower(),
+            "Should detect morning review runbook"
+        )
+        # Check that it sets total_steps to 8 for morning review
+        self.assertIn(
+            'self.total_steps = 8',
+            code,
+            "Morning review should have 8 total steps"
+        )
+    
+    def test_step_detection_patterns(self):
+        """Test that step detection patterns exist"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        # Check for common step patterns
+        self.assertIn(
+            'Step (\\d+)',
+            code,
+            "Should have regex pattern to detect step numbers"
+        )
+        self.assertIn(
+            'proceed to Step',
+            code,
+            "Should detect 'proceed to Step X' patterns"
+        )
+
+
+class TestToolTransparency(unittest.TestCase):
+    """Test tool transparency features"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.tui_file = Path(__file__).parent.parent / "personal" / "dotfiles" / "mcp" / "claude_ask_tui.py"
+        if not self.tui_file.exists():
+            self.tui_file = Path(__file__).parent.parent / "mcp" / "claude_ask_tui.py"
+    
+    def test_tool_executions_displayed(self):
+        """Test that tool executions are displayed"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        self.assertIn(
+            'tool_executions',
+            code,
+            "Should check for tool_executions in result"
+        )
+        self.assertIn(
+            'Tools Used',
+            code,
+            "Should display 'Tools Used' header"
+        )
+    
+    def test_tool_result_formatting(self):
+        """Test that tool results are formatted correctly"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        # Check for result formatting
+        self.assertIn(
+            'tool_result',
+            code,
+            "Should access tool_result from tool details"
+        )
+        self.assertIn(
+            'Result ─',
+            code,
+            "Should format tool results in a box"
+        )
+    
+    def test_tool_name_and_args_displayed(self):
+        """Test that tool name and arguments are displayed"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        self.assertIn(
+            'tool_name',
+            code,
+            "Should display tool name"
+        )
+        self.assertIn(
+            'tool_args',
+            code,
+            "Should display tool arguments"
+        )
+    
+    def test_task_calendar_tools_show_more_detail(self):
+        """Test that task/calendar tools show more detail"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        # Check for special handling of task/calendar tools
+        # The code uses a list: ["task", "calendar", "daily_log", "project"]
+        self.assertIn(
+            '"task"',
+            code,
+            "Should detect task tools for more detail"
+        )
+        self.assertIn(
+            '"calendar"',
+            code,
+            "Should detect calendar tools for more detail"
+        )
+        # Check for larger preview size
+        self.assertIn(
+            '[:1000]',
+            code,
+            "Task/calendar tools should show up to 1000 chars"
+        )
+
+
+class TestCtrlEnterSupport(unittest.TestCase):
+    """Test Ctrl+Enter support for sending messages"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.tui_file = Path(__file__).parent.parent / "personal" / "dotfiles" / "mcp" / "claude_ask_tui.py"
+        if not self.tui_file.exists():
+            self.tui_file = Path(__file__).parent.parent / "mcp" / "claude_ask_tui.py"
+    
+    def test_ctrl_enter_binding_exists(self):
+        """Test that Ctrl+Enter binding exists"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        self.assertIn(
+            'ctrl+enter',
+            code.lower(),
+            "Ctrl+Enter binding should exist"
+        )
+        self.assertIn(
+            'send_message',
+            code,
+            "Ctrl+Enter should trigger send_message action"
+        )
+    
+    def test_sendable_textarea_exists(self):
+        """Test that SendableTextArea class exists"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        self.assertIn(
+            'class SendableTextArea',
+            code,
+            "SendableTextArea class should exist"
+        )
+        self.assertIn(
+            'ctrl+enter',
+            code.lower(),
+            "SendableTextArea should handle ctrl+enter"
+        )
+    
+    def test_sendable_textarea_used_in_compose(self):
+        """Test that SendableTextArea is used in compose method"""
+        with open(self.tui_file, 'r') as f:
+            code = f.read()
+        
+        # Check that SendableTextArea is instantiated
+        self.assertIn(
+            'SendableTextArea(',
+            code,
+            "SendableTextArea should be used in compose"
+        )
 
 
 if __name__ == '__main__':

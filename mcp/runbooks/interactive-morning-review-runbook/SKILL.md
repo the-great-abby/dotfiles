@@ -18,6 +18,17 @@ author: GTD System
 
 An interactive, question-driven morning review process that guides you through planning your day. This runbook asks questions, waits for your responses, and builds a personalized daily plan.
 
+## 🚨 CRITICAL FOR AI AGENTS 🚨
+
+**THIS IS AN INTERACTIVE RUNBOOK - YOU MUST WAIT FOR REAL USER RESPONSES**
+
+- **Ask ONE question, then STOP and wait for the user to type their answer in the TUI**
+- **DO NOT answer your own questions**
+- **DO NOT use <result> tags to simulate user responses**
+- **DO NOT create fake user responses**
+- **The user is a REAL PERSON who will type their answer - you will see it in the next message**
+- **Pattern: Ask → STOP → Wait for REAL user input → Acknowledge → Next question**
+
 ## Purpose
 
 This runbook provides a conversational morning check-in experience:
@@ -181,7 +192,7 @@ This runbook provides a conversational morning check-in experience:
 - "How will you know at the end of the day if today was successful?"
 
 **Actions:**
-- Call `gtd_add_daily_log_entry()` to capture their morning intentions and plan
+- Note: The final summary will be saved to daily log at runbook completion (see Runbook Completion section)
 - Offer to set a reminder for a mid-day or evening check-in
 
 **What to do with the response:**
@@ -228,6 +239,31 @@ Have a great day! Remember your intention: [their intention]
 
 ## Runbook Completion
 
+**IMPORTANT: When the runbook is complete (after Step 8 and user confirms), save a summary to the daily log.**
+
+**Final Action When Completing the Runbook:**
+1. **ONLY do this AFTER Step 8 is complete and the user has confirmed they're done**
+2. Create a concise summary of the morning review that includes:
+   - Energy level and state
+   - Top 3 priorities for the day
+   - Daily intention
+   - Key constraints or context
+   - Any important insights or reflections
+
+3. **Call `gtd_add_daily_log_entry()` to save the summary:**
+   ```
+   gtd_add_daily_log_entry(
+       entry="🌅 Morning Review Summary: [Energy: X/10] Priorities: [1, 2, 3]. Intention: [their intention]. Context: [key constraints]. [Brief insights if any]"
+   )
+   ```
+
+4. **Format the entry clearly** so it's easy to reference later. Example format:
+   ```
+   🌅 Morning Review Summary: Energy 7/10, feeling focused. Priorities: 1) Complete project proposal, 2) Team meeting prep, 3) Call mom. Intention: Stay present and avoid distractions. Context: Limited time due to afternoon appointment. Insight: Need to batch similar tasks together.
+   ```
+
+**NOTE: Do NOT try to complete the runbook or save to daily log at the START. This is only for the END when all steps are done.**
+
 **Final Output Should Include:**
 1. ✅ Morning state and energy level captured
 2. ✅ Yesterday's reflection processed
@@ -237,6 +273,7 @@ Have a great day! Remember your intention: [their intention]
 6. ✅ Action items created in GTD system
 7. ✅ Daily intention set
 8. ✅ Summary provided for reference
+9. ✅ **Summary saved to daily log via `gtd_add_daily_log_entry()`**
 
 **Success Criteria:**
 - User feels clear about their day ahead
@@ -244,15 +281,37 @@ Have a great day! Remember your intention: [their intention]
 - Realistic daily plan created
 - Energy level and constraints considered
 - Intention set for mindful day
+- **Morning review summary saved to daily log for future reference**
 
 ## Key Principles for AI Implementation
 
-**CRITICAL: This is an INTERACTIVE runbook**
-- **Ask ONE question at a time**
-- **Wait for user response before proceeding**
-- **Don't rush through all questions at once**
-- **Adapt questions based on their responses**
-- **Show genuine interest in their answers**
+**🚨🚨🚨 CRITICAL: This is an INTERACTIVE runbook - YOU MUST WAIT FOR REAL USER RESPONSES 🚨🚨🚨**
+
+**ABSOLUTELY FORBIDDEN:**
+- ❌ **DO NOT answer your own questions** - If you ask "How are you feeling?", DO NOT provide an answer
+- ❌ **DO NOT use <result> tags** to simulate user responses
+- ❌ **DO NOT create fake user responses** or example answers
+- ❌ **DO NOT ask multiple questions** in one response
+- ❌ **DO NOT proceed to the next step** until the user has actually typed their response in the TUI
+
+**REQUIRED BEHAVIOR:**
+- ✅ **Ask ONE question at a time** (e.g., "Good morning! How are you feeling right now?")
+- ✅ **STOP immediately** after asking the question - end your response
+- ✅ **WAIT for the REAL user** to type their answer in the TUI and send it
+- ✅ **ONLY THEN** acknowledge their answer and ask the NEXT question
+- ✅ **Adapt questions** based on their ACTUAL responses (not simulated ones)
+- ✅ **Show genuine interest** in their answers
+
+**The Pattern:**
+1. Ask ONE question: "How are you feeling?"
+2. END YOUR RESPONSE - Do not continue
+3. Wait for user to type in TUI and send
+4. Receive their ACTUAL response
+5. Acknowledge what they said
+6. Ask the NEXT question based on their response
+7. Repeat
+
+**Remember:** The user is a REAL PERSON typing in the TUI. You will see their ACTUAL response in the next message. Do NOT simulate or create responses.
 
 **Conversational Style:**
 - Use a warm, supportive tone

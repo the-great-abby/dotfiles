@@ -299,7 +299,7 @@ Focus on:
 
 This skill works with:
 - **`inbox-processing`**: Called in Step 1
-- **`morning-checkin`**: Complements morning routine
+- **`interactive-morning-review-runbook`**: Complements morning routine
 - **`evening-checkin`**: Complements evening routine
 - **`weekly-review`**: Prepares for weekly review
 

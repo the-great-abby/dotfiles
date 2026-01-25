@@ -33,8 +33,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_SKILLS_DIR = Path(__file__).parent / "skills"
 SKILLS_DIR = Path(os.getenv("GTD_SKILLS_DIR", str(DEFAULT_SKILLS_DIR)))
 
-# Ensure skills directory exists
+# Default runbooks directory (separate from skills)
+DEFAULT_RUNBOOKS_DIR = Path(__file__).parent / "runbooks"
+RUNBOOKS_DIR = Path(os.getenv("GTD_RUNBOOKS_DIR", str(DEFAULT_RUNBOOKS_DIR)))
+
+# Ensure directories exist
 SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+RUNBOOKS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class AgentSkill:
@@ -233,17 +238,18 @@ class AgentSkill:
 
 
 class SkillsRegistry:
-    """Registry for discovering and managing Agent Skills."""
+    """Registry for discovering and managing Agent Skills and Runbooks."""
     
-    def __init__(self, skills_dir: Path = None):
+    def __init__(self, skills_dir: Path = None, runbooks_dir: Path = None):
         self.skills_dir = Path(skills_dir) if skills_dir else SKILLS_DIR
+        self.runbooks_dir = Path(runbooks_dir) if runbooks_dir else RUNBOOKS_DIR
         self.skills: Dict[str, AgentSkill] = {}
+        self.runbooks: Dict[str, AgentSkill] = {}
         self._discover_skills()
+        self._discover_runbooks()
     
     def _discover_skills(self):
         """Discover all skills in the skills directory."""
-        self.skills = {}
-        
         if not self.skills_dir.exists():
             logger.warning(f"Skills directory does not exist: {self.skills_dir}")
             return
@@ -259,16 +265,43 @@ class SkillsRegistry:
                     except Exception as e:
                         logger.error(f"Error loading skill from {item}: {e}")
     
-    def get_skill(self, skill_name: str) -> Optional[AgentSkill]:
-        """Get a skill by name or folder ID."""
-        # First try direct lookup by metadata name
+    def _discover_runbooks(self):
+        """Discover all runbooks in the runbooks directory."""
+        if not self.runbooks_dir.exists():
+            logger.warning(f"Runbooks directory does not exist: {self.runbooks_dir}")
+            return
+        
+        for item in self.runbooks_dir.iterdir():
+            if item.is_dir() and not item.name.startswith('.'):
+                skill_md = item / "SKILL.md"
+                if skill_md.exists():
+                    try:
+                        runbook = AgentSkill(item)
+                        self.runbooks[runbook.metadata["name"]] = runbook
+                        logger.info(f"Loaded runbook: {runbook.metadata['name']}")
+                    except Exception as e:
+                        logger.error(f"Error loading runbook from {item}: {e}")
+    
+    def get_skill(self, skill_name: str, include_runbooks: bool = True) -> Optional[AgentSkill]:
+        """Get a skill or runbook by name or folder ID."""
+        # First try direct lookup in skills
         if skill_name in self.skills:
             return self.skills[skill_name]
         
-        # Try lookup by folder name (ID)
+        # Then try runbooks if enabled
+        if include_runbooks and skill_name in self.runbooks:
+            return self.runbooks[skill_name]
+        
+        # Try lookup by folder name (ID) in skills
         for skill in self.skills.values():
             if skill.path.name == skill_name:
                 return skill
+        
+        # Try lookup by folder name (ID) in runbooks
+        if include_runbooks:
+            for runbook in self.runbooks.values():
+                if runbook.path.name == skill_name:
+                    return runbook
         
         # Try case-insensitive lookup by metadata name
         skill_name_lower = skill_name.lower()
@@ -276,22 +309,48 @@ class SkillsRegistry:
             if skill.metadata.get("name", "").lower() == skill_name_lower:
                 return skill
         
+        if include_runbooks:
+            for runbook in self.runbooks.values():
+                if runbook.metadata.get("name", "").lower() == skill_name_lower:
+                    return runbook
+        
         # Try partial match on folder name
         for skill in self.skills.values():
             if skill.path.name.lower() == skill_name_lower:
                 return skill
         
+        if include_runbooks:
+            for runbook in self.runbooks.values():
+                if runbook.path.name.lower() == skill_name_lower:
+                    return runbook
+        
         return None
     
-    def list_skills(self) -> List[Dict[str, Any]]:
-        """List all discovered skills."""
-        return [skill.to_dict() for skill in self.skills.values()]
+    def list_skills(self, include_runbooks: bool = True, runbooks_only: bool = False) -> List[Dict[str, Any]]:
+        """List all discovered skills and optionally runbooks."""
+        if runbooks_only:
+            return [runbook.to_dict() for runbook in self.runbooks.values()]
+        elif include_runbooks:
+            # Combine skills and runbooks
+            all_items = list(self.skills.values()) + list(self.runbooks.values())
+            return [item.to_dict() for item in all_items]
+        else:
+            return [skill.to_dict() for skill in self.skills.values()]
     
-    def search_skills(self, query: str = None, tags: List[str] = None) -> List[Dict[str, Any]]:
-        """Search skills by query string or tags."""
+    def search_skills(self, query: str = None, tags: List[str] = None, include_runbooks: bool = True, runbooks_only: bool = False) -> List[Dict[str, Any]]:
+        """Search skills and optionally runbooks by query string or tags."""
         results = []
         
-        for skill in self.skills.values():
+        # Determine which collections to search
+        items_to_search = []
+        if runbooks_only:
+            items_to_search = list(self.runbooks.values())
+        elif include_runbooks:
+            items_to_search = list(self.skills.values()) + list(self.runbooks.values())
+        else:
+            items_to_search = list(self.skills.values())
+        
+        for skill in items_to_search:
             match = True
             
             # Search by query string
@@ -314,8 +373,18 @@ class SkillsRegistry:
         return results
     
     def reload_skills(self):
-        """Reload all skills from disk."""
+        """Reload all skills and runbooks from disk."""
+        self.skills = {}
+        self.runbooks = {}
         self._discover_skills()
+        self._discover_runbooks()
+    
+    def reload_skills(self):
+        """Reload all skills and runbooks from disk."""
+        self.skills = {}
+        self.runbooks = {}
+        self._discover_skills()
+        self._discover_runbooks()
     
     def execute_skill(
         self,

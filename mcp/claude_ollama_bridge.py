@@ -705,7 +705,7 @@ class SmartAIRouter:
                     system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                     system_message += "\n\n⚠️ CRITICAL: The user asked to use a RUNBOOK. You MUST follow this exact workflow:"
                     system_message += "\n\n📋 STEP-BY-STEP MANDATORY WORKFLOW:"
-                    system_message += "\n  1. IMMEDIATELY call list_agent_skills(query='runbook') - NO TEXT, NO EXPLANATION, JUST THE TOOL CALL"
+                    system_message += "\n  1. IMMEDIATELY call list_agent_skills(query='runbook', runbooks_only=True) - NO TEXT, NO EXPLANATION, JUST THE TOOL CALL"
                     system_message += "\n  2. Wait for result, find 'Daily Log Review Runbook'"
                     system_message += "\n  3. IMMEDIATELY call get_agent_skill(skill_name='daily-log-review-runbook') - NO TEXT, JUST THE TOOL CALL"
                     system_message += "\n  4. Read the runbook instructions - it has 7 steps"
@@ -1226,10 +1226,72 @@ class SmartAIRouter:
                 # Mention Second Brain search if available
                 if "gtd_search_second_brain" in tool_names:
                     system_message += "\n\nIMPORTANT: You have access to the user's Second Brain (personal knowledge base) via gtd_search_second_brain. This contains their notes, Pathfinder campaign sessions, and other personal information. When the user asks about topics that might be in their notes (like Pathfinder content, campaign details, characters, etc.), use gtd_search_second_brain to search for relevant information. The search is case-insensitive and searches both filenames and content."
+                    system_message += "\n\n🚨🚨🚨 CRITICAL ANTI-HALLUCINATION RULES FOR SEARCH RESULTS 🚨🚨🚨"
+                    system_message += "\n\nWhen you get search results from gtd_search_second_brain or gtd_search_vector_database:"
+                    system_message += "\n  ✅ ONLY state information that is EXPLICITLY written in the search results"
+                    system_message += "\n  ✅ Quote directly from the 'content', 'content_preview', or 'content_text' fields when stating facts"
+                    system_message += "\n  ✅ If search results show a file path but no content, say 'I found a file but cannot see its contents'"
+                    system_message += "\n  ✅ If search results are empty or don't contain the information, say 'I don't have that information in the search results'"
+                    system_message += "\n  ❌ DO NOT infer, assume, or make up details that aren't in the search results"
+                    system_message += "\n  ❌ DO NOT add information that seems logical but isn't explicitly stated"
+                    system_message += "\n  ❌ DO NOT combine information from multiple sources unless explicitly stated in results"
+                    system_message += "\n  ❌ DO NOT make up professions, hobbies, interests, or details about people mentioned"
+                    system_message += "\n  ❌ DO NOT extrapolate or add context that isn't in the results"
+                    system_message += "\n\nExample of CORRECT behavior:"
+                    system_message += "\n  Search result: 'Louiza is my partner. She is a foodie.'"
+                    system_message += "\n  ✅ CORRECT: 'Based on your notes, Louiza is your partner and she is a foodie.'"
+                    system_message += "\n  ❌ WRONG: 'Louiza is your partner, a foodie, and works as a graphic designer' (graphic designer not in results)"
+                    system_message += "\n\nExample of CORRECT behavior when information is missing:"
+                    system_message += "\n  Search result: 'Louiza is my partner.'"
+                    system_message += "\n  ✅ CORRECT: 'I found that Louiza is your partner, but I don't have information about her profession, interests, or other details in the search results.'"
+                    system_message += "\n  ❌ WRONG: 'Louiza is your partner and works as a graphic designer' (making up profession)"
+                    system_message += "\n  ❌ WRONG: 'Louiza is your partner and enjoys cooking' (making up interests)"
+                    system_message += "\n\n🚨 IF YOU STATE ANY INFORMATION NOT EXPLICITLY IN THE SEARCH RESULTS, YOU ARE HALLUCINATING."
+                    system_message += "\n🚨 WHEN IN DOUBT, SAY YOU DON'T HAVE THAT INFORMATION - DO NOT GUESS OR MAKE IT UP."
                 
                 if "gtd_update_personalization" in tool_names:
-                    system_message += "\n\nLEARNING: You can update personalization data via gtd_update_personalization when you discover new, reliable information about the user (e.g., learning their partner's name, discovering goals, noticing energy patterns). Only update when you have clear, explicit information - don't guess or assume. Use the 'personalization-learning' skill for guidance on when and how to update."
-                    system_message += "\n\nCRITICAL: When updating personalization, ONLY save information that was explicitly stated by the user. DO NOT make up, infer, or assume details. If you're uncertain, ask the user to confirm before updating. When reading personalization data, ONLY use information that is actually in the file - do not add details that aren't there."
+                    system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n🧠 PERSONALIZATION LEARNING - AUTOMATIC UPDATES ENABLED 🧠"
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n\n✅ YOU CAN AUTOMATICALLY UPDATE PERSONALIZATION DATA"
+                    system_message += "\n\nWhen you discover new, reliable information about the user during conversations, you should update their personalization data using gtd_update_personalization. This helps the system learn about them and provide better assistance over time."
+                    system_message += "\n\n📝 Examples of what to learn and save:"
+                    system_message += "\n  - Relationships: Partner name (e.g., 'Louiza'), family members, important people"
+                    system_message += "\n    - Relationship details: Use dot notation to store detailed information about people"
+                    system_message += "\n    - Examples:"
+                    system_message += "\n      * 'partner.interests' for hobbies/interests (e.g., 'foodie', 'cooking') - use operation='append'"
+                    system_message += "\n      * 'partner.birthday' for birthdays (e.g., 'February') - use operation='set'"
+                    system_message += "\n      * 'partner.gift_ideas' for gift suggestions (e.g., 'watch band') - use operation='append'"
+                    system_message += "\n      * 'partner.preferences' for preferences (favorite foods, activities) - use operation='append'"
+                    system_message += "\n      * 'partner.notes' for any other relevant details - use operation='append'"
+                    system_message += "\n  - Goals: Career goals, personal goals, learning objectives (e.g., 'learning Kubernetes for CKA exam')"
+                    system_message += "\n  - Energy patterns: Peak productivity hours (e.g., '9-12 AM'), what recharges them, what drains them"
+                    system_message += "\n  - Communication style: Preferred tone, detail level, feedback style"
+                    system_message += "\n  - Work patterns: Typical schedule, focus duration, on-call patterns"
+                    system_message += "\n  - Lessons learned: What works for them, what doesn't work, effective strategies"
+                    system_message += "\n\n✅ WHEN TO UPDATE:"
+                    system_message += "\n  - User explicitly states information: 'My partner is Louiza'"
+                    system_message += "\n  - Pattern is clear: User consistently mentions morning productivity"
+                    system_message += "\n  - Goal is mentioned: 'I'm working toward my CKA exam'"
+                    system_message += "\n  - Preference is expressed: 'I prefer direct communication'"
+                    system_message += "\n\n❌ WHEN NOT TO UPDATE:"
+                    system_message += "\n  - Information is uncertain or inferred"
+                    system_message += "\n  - It's a one-time mention that might not be important"
+                    system_message += "\n  - You're guessing or assuming"
+                    system_message += "\n  - Information conflicts with existing data (verify first)"
+                    system_message += "\n\n🔧 HOW TO UPDATE:"
+                    system_message += "\n  - Use gtd_update_personalization(category='...', field='...', value='...', operation='set'|'append'|'remove')"
+                    system_message += "\n  - Use 'set' to set/replace a value"
+                    system_message += "\n  - Use 'append' to add to a list (e.g., goals, energy rechargers)"
+                    system_message += "\n  - Use 'remove' to remove from a list"
+                    system_message += "\n  - Use the 'personalization-learning' skill for detailed guidance on categories and fields"
+                    system_message += "\n\n💡 BEST PRACTICES:"
+                    system_message += "\n  - Update in the background when possible - don't interrupt conversation flow"
+                    system_message += "\n  - Acknowledge briefly if appropriate: 'I'll remember that [information] for future conversations'"
+                    system_message += "\n  - Be discreet - let the update happen naturally as part of the conversation"
+                    system_message += "\n  - If uncertain, ask for confirmation: 'Should I remember that [information] for future conversations?'"
+                    system_message += "\n\n🚨 CRITICAL: When updating personalization, ONLY save information that was explicitly stated by the user. DO NOT make up, infer, or assume details. If you're uncertain, ask the user to confirm before updating. When reading personalization data, ONLY use information that is actually in the file - do not add details that aren't there."
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 
                 system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 system_message += "\n🚨🚨🚨 MANDATORY: TOOL-FIRST RESPONSE RULE 🚨🚨🚨"
@@ -1284,16 +1346,16 @@ class SmartAIRouter:
                 # Check if user is asking for a runbook
                 is_runbook_request = False
                 is_interactive_runbook = False
-                runbook_keywords = ["runbook", "daily log review", "review daily log", "follow the runbook", "use the runbook", "weekly review", "weekly-review"]
+                runbook_keywords = ["runbook", "daily log review", "review daily log", "follow the runbook", "use the runbook", "weekly review", "weekly-review", "morning review", "morning-review"]
                 user_question_lower = content.lower() if content else ""
                 
                 # Check current message for runbook request
                 for keyword in runbook_keywords:
                     if keyword in user_question_lower:
                         is_runbook_request = True
-                        # Check if it's an interactive runbook (weekly review, interactive runbooks)
-                        # IMPORTANT: "weekly review" should ALWAYS use the interactive runbook, not the automated skill
-                        if "weekly" in user_question_lower or "interactive" in user_question_lower:
+                        # Check if it's an interactive runbook (weekly review, morning review, interactive runbooks)
+                        # IMPORTANT: "weekly review" and "morning review" should ALWAYS use the interactive runbook, not the automated skill
+                        if "weekly" in user_question_lower or "morning" in user_question_lower or "interactive" in user_question_lower:
                             is_interactive_runbook = True
                         break
                 
@@ -1305,22 +1367,28 @@ class SmartAIRouter:
                         if isinstance(msg.get("content"), str)
                     ]).lower()
                     
-                    # Check if previous messages mention weekly review or interactive runbook
-                    # IMPORTANT: If "weekly review" was mentioned, it should ALWAYS be interactive
+                    # Check if previous messages mention weekly review, morning review, or interactive runbook
+                    # IMPORTANT: If "weekly review" or "morning review" was mentioned, it should ALWAYS be interactive
                     if ("weekly review" in conversation_text or "weekly-review" in conversation_text or 
+                        "morning review" in conversation_text or "morning-review" in conversation_text or
                         ("interactive" in conversation_text and "runbook" in conversation_text)):
                         is_interactive_runbook = True
                         # If we're in an interactive runbook, treat this as a continuation
                         if not is_runbook_request:
                             is_runbook_request = True  # Continue runbook mode
                 
-                # CRITICAL: If user says "weekly review" without "runbook", they likely mean the interactive runbook
-                # The automated "weekly-review" skill should only be used if explicitly requested
+                # CRITICAL: If user says "weekly review" or "morning review" without "runbook", they likely mean the interactive runbook
+                # The automated skills should only be used if explicitly requested
                 if "weekly review" in user_question_lower and "runbook" not in user_question_lower:
                     # Default to interactive runbook for "weekly review" requests
                     is_interactive_runbook = True
                     is_runbook_request = True
                     print(f"  ℹ️  Detected 'weekly review' - defaulting to INTERACTIVE runbook (weekly-review-runbook)", file=sys.stderr)
+                elif "morning review" in user_question_lower:
+                    # Default to interactive runbook for "morning review" requests
+                    is_interactive_runbook = True
+                    is_runbook_request = True
+                    print(f"  ℹ️  Detected 'morning review' - defaulting to INTERACTIVE runbook (interactive-morning-review-runbook)", file=sys.stderr)
                 
                 if is_runbook_request:
                     system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1328,7 +1396,7 @@ class SmartAIRouter:
                     system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                     system_message += "\n\n⚠️ CRITICAL: The user asked to use a RUNBOOK. You MUST follow this exact workflow:"
                     system_message += "\n\n📋 STEP-BY-STEP MANDATORY WORKFLOW:"
-                    system_message += "\n  1. IMMEDIATELY call list_agent_skills(query='runbook') - NO TEXT, NO EXPLANATION, JUST THE TOOL CALL"
+                    system_message += "\n  1. IMMEDIATELY call list_agent_skills(query='runbook', runbooks_only=True) - NO TEXT, NO EXPLANATION, JUST THE TOOL CALL"
                     system_message += "\n  2. Wait for result, find 'Daily Log Review Runbook'"
                     system_message += "\n  3. IMMEDIATELY call get_agent_skill(skill_name='daily-log-review-runbook') - NO TEXT, JUST THE TOOL CALL"
                     system_message += "\n  4. Read the runbook instructions - it has 7 steps"
@@ -1360,36 +1428,53 @@ class SmartAIRouter:
                         system_message += "\n🎯🎯🎯 INTERACTIVE RUNBOOK - CRITICAL INTERACTION RULES 🎯🎯🎯"
                         system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                         system_message += "\n\n⚠️ THIS IS AN INTERACTIVE RUNBOOK - YOU MUST FOLLOW THESE RULES:"
-                        system_message += "\n\n🚨 **MANDATORY: Use the 'weekly-review-runbook' skill, NOT 'weekly-review' skill**"
-                        system_message += "\n  - Call: get_agent_skill(skill_name='weekly-review-runbook')"
-                        system_message += "\n  - Do NOT use: get_agent_skill(skill_name='weekly-review')"
+                        system_message += "\n\n🚨 **MANDATORY: Use the CORRECT interactive runbook skill**"
+                        system_message += "\n  - For 'weekly review': get_agent_skill(skill_name='weekly-review-runbook')"
+                        system_message += "\n  - For 'morning review': get_agent_skill(skill_name='interactive-morning-review-runbook')"
+                        system_message += "\n  - Do NOT use automated skills (weekly-review) - use the INTERACTIVE runbook versions"
                         system_message += "\n  - The 'weekly-review-runbook' is interactive and asks questions one at a time"
                         system_message += "\n  - The 'weekly-review' skill is automated and goes through all steps automatically"
                         system_message += "\n\n1. **ASK ONE QUESTION AT A TIME** - Do NOT ask multiple questions in one response"
-                        system_message += "\n2. **WAIT FOR USER RESPONSE** - After asking a question, STOP and wait for the user to respond"
+                        system_message += "\n2. **WAIT FOR USER RESPONSE** - After asking a question, STOP and wait for the user to respond. DO NOT proceed to the next question."
                         system_message += "\n3. **DO NOT PROCEED AUTOMATICALLY** - Do NOT answer your own questions or proceed to the next step without user input"
                         system_message += "\n4. **NO RUSHING** - Do NOT try to complete all steps in one response. This is a conversation, not a checklist"
                         system_message += "\n5. **ADAPT TO RESPONSES** - Listen to what the user says and adapt your follow-up questions based on their answers"
                         system_message += "\n6. **SHOW GENUINE INTEREST** - Acknowledge their insights, celebrate wins, ask follow-up questions that show you're listening"
                         system_message += "\n7. **CONTINUE THE CONVERSATION** - If the user just responded to your question, acknowledge their answer and ask the NEXT question. Do NOT restart the runbook or repeat previous questions."
-                        system_message += "\n8. **COMPLETE THE RUNBOOK PROPERLY** - When you reach Step 8 (Summary and Commitment), provide a complete summary, ask final questions, and then give a clear completion message like:"
-                        system_message += "\n   '🎉 Weekly Review Complete! You've reflected on your past week, organized your system, and set clear intentions for the week ahead. Great work! Is there anything else you'd like to discuss, or are we all set?'"
+                        system_message += "\n8. **USE THE CORRECT RUNBOOK** - If user asks for 'morning review', use 'interactive-morning-review-runbook'. If user asks for 'weekly review', use 'weekly-review-runbook'. Do NOT mix them up."
+                        system_message += "\n9. **COMPLETE THE RUNBOOK PROPERLY** - When you reach the final step (Summary), provide a complete summary, ask final questions, and then give a clear completion message."
                         system_message += "\n   After the user confirms completion, mark the runbook as finished. Do NOT restart or loop back to Step 1."
-                        system_message += "\n\n🚨 CRITICAL: DO NOT HAVE A CONVERSATION WITH YOURSELF"
-                        system_message += "\n  - If you ask a question, STOP and wait for the user to answer"
-                        system_message += "\n  - Do NOT answer your own question in the same response"
-                        system_message += "\n  - Do NOT ask 'What were your wins?' and then say 'Great, now what didn't go well?'"
-                        system_message += "\n  - Do NOT chain multiple questions together"
-                        system_message += "\n  - ONE question → WAIT → User responds → Acknowledge → NEXT question"
+                        system_message += "\n\n🚨🚨🚨 CRITICAL: DO NOT HAVE A CONVERSATION WITH YOURSELF 🚨🚨🚨"
+                        system_message += "\n\n❌ ABSOLUTELY FORBIDDEN - YOU WILL BE REJECTED IF YOU DO THIS:"
+                        system_message += "\n  - Asking a question and then providing an answer in <result> tags"
+                        system_message += "\n  - Asking 'How are you feeling?' and then saying '<result>I'm feeling good</result>'"
+                        system_message += "\n  - Asking multiple questions and answering them yourself"
+                        system_message += "\n  - Creating fake user responses or simulating conversations"
+                        system_message += "\n  - Using <result> tags to provide answers to your own questions"
+                        system_message += "\n\n✅ CORRECT BEHAVIOR:"
+                        system_message += "\n  - Ask ONE question: 'How are you feeling right now?'"
+                        system_message += "\n  - STOP. End your response. Wait for the ACTUAL user to type their answer"
+                        system_message += "\n  - Do NOT include any <result> tags"
+                        system_message += "\n  - Do NOT provide example answers"
+                        system_message += "\n  - Do NOT continue to the next question"
+                        system_message += "\n  - The user will respond in the TUI, then you'll see their actual response"
+                        system_message += "\n  - ONLY THEN do you acknowledge their answer and ask the NEXT question"
+                        system_message += "\n\n🔴 IF YOU SEE <result> TAGS IN YOUR RESPONSE, YOU ARE DOING IT WRONG"
+                        system_message += "\n🔴 IF YOU ANSWER YOUR OWN QUESTIONS, YOU ARE DOING IT WRONG"
+                        system_message += "\n🔴 IF YOU ASK MULTIPLE QUESTIONS IN ONE RESPONSE, YOU ARE DOING IT WRONG"
+                        system_message += "\n\nThe pattern is: ONE question → STOP → Wait for REAL user input → Acknowledge → NEXT question"
                         system_message += "\n\n🚨 CRITICAL: DO NOT LOOP OR RESTART THE RUNBOOK"
                         system_message += "\n  - After Step 8 is complete, mark the runbook as finished"
                         system_message += "\n  - Do NOT restart from Step 1 after completion"
                         system_message += "\n  - Do NOT skip steps or jump around"
                         system_message += "\n  - Progress sequentially: Step 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → Complete"
                         system_message += "\n\n❌ ABSOLUTELY FORBIDDEN IN INTERACTIVE RUNBOOKS:"
-                        system_message += "\n  - Using the 'weekly-review' skill (automated) instead of 'weekly-review-runbook' (interactive)"
+                        system_message += "\n  - Using automated skills (weekly-review) instead of interactive runbooks (weekly-review-runbook, interactive-morning-review-runbook)"
                         system_message += "\n  - Asking a question and then immediately answering it yourself"
+                        system_message += "\n  - Using <result> tags to provide answers to your own questions"
+                        system_message += "\n  - Creating fake user responses or simulating conversations"
                         system_message += "\n  - Asking multiple questions in sequence without waiting for responses"
+                        system_message += "\n  - Running the WRONG runbook (e.g., weekly review when user asked for morning review)"
                         system_message += "\n  - Proceeding to the next step without waiting for user response"
                         system_message += "\n  - Asking multiple questions at once"
                         system_message += "\n  - Rushing through all steps in one response"
@@ -1398,17 +1483,44 @@ class SmartAIRouter:
                         system_message += "\n  - Having a conversation with yourself (asking and answering your own questions)"
                         system_message += "\n  - RESTARTING the runbook when the user responds (continue from where you left off!)"
                         system_message += "\n  - Repeating questions you already asked"
-                        system_message += "\n\n✅ CORRECT BEHAVIOR:"
-                        system_message += "\n  - If you just asked a question and the user responded: Acknowledge their answer, then ask the NEXT question"
-                        system_message += "\n  - If starting fresh: Ask ONE question (e.g., 'How are you feeling as we start this review?')"
-                        system_message += "\n  - STOP and wait for their response"
-                        system_message += "\n  - After they respond, acknowledge what they said"
-                        system_message += "\n  - Then ask the NEXT question based on their response"
-                        system_message += "\n  - This creates a real conversation, not a one-way script"
-                        system_message += "\n  - Progress through the runbook steps sequentially based on their responses"
-                        system_message += "\n\n🚨 IF THE RUNBOOK SAYS 'Wait for Response', YOU MUST ACTUALLY WAIT."
-                        system_message += "\n🚨 DO NOT PROCEED TO THE NEXT STEP UNTIL THE USER HAS RESPONDED."
-                        system_message += "\n🚨 DO NOT RESTART THE RUNBOOK - CONTINUE FROM WHERE YOU LEFT OFF."
+                        system_message += "\n  - Providing example answers or placeholder responses"
+                        system_message += "\n\n✅ CORRECT BEHAVIOR - FOLLOW THIS EXACTLY:"
+                        system_message += "\n  - If starting fresh: Ask ONE question ONLY (e.g., 'Good morning! How are you feeling right now?')"
+                        system_message += "\n  - END YOUR RESPONSE IMMEDIATELY after asking the question"
+                        system_message += "\n  - Do NOT include any example answers, <result> tags, or follow-up questions"
+                        system_message += "\n  - The user will type their answer in the TUI and send it"
+                        system_message += "\n  - When you receive their ACTUAL response: Acknowledge what they said, then ask the NEXT question"
+                        system_message += "\n  - This creates a REAL conversation with a REAL human, not a simulated one"
+                        system_message += "\n  - Progress through the runbook steps sequentially based on their ACTUAL responses"
+                        system_message += "\n\n📝 EXAMPLE OF CORRECT BEHAVIOR:"
+                        system_message += "\n  You: 'Good morning! How are you feeling right now? What's your energy level like on a scale of 1-10?'"
+                        system_message += "\n  [END RESPONSE IMMEDIATELY - DO NOT ADD ANYTHING ELSE]"
+                        system_message += "\n  User types: 'I'm feeling pretty good, energy is about 7/10'"
+                        system_message += "\n  You: 'That's great! A 7/10 is solid energy. Let's make the most of it. What was the most important thing you accomplished yesterday?'"
+                        system_message += "\n  [END RESPONSE IMMEDIATELY - DO NOT ADD ANYTHING ELSE]"
+                        
+                        system_message += "\n\n🚨🚨🚨 CRITICAL: YOUR RESPONSE MUST END IMMEDIATELY AFTER THE QUESTION 🚨🚨🚨"
+                        system_message += "\n  - If you ask 'How are you feeling?', your response ENDS with the question mark"
+                        system_message += "\n  - DO NOT add: 'Ooh, interesting! Let's dive in...'"
+                        system_message += "\n  - DO NOT add: 'Share your thoughts, I'm listening!'"
+                        system_message += "\n  - DO NOT add: 'Wonderful! On to the next step!'"
+                        system_message += "\n  - DO NOT add follow-up questions in the same response"
+                        system_message += "\n  - DO NOT add explanations or elaborations"
+                        system_message += "\n  - JUST ASK THE QUESTION, THEN STOP"
+                        system_message += "\n\n❌ EXAMPLE OF WRONG BEHAVIOR (DO NOT DO THIS):"
+                        system_message += "\n  You: 'How are you feeling?'"
+                        system_message += "\n  <result>I'm feeling good, energy is 7/10</result>"
+                        system_message += "\n  'Great! Now what did you accomplish yesterday?'"
+                        system_message += "\n  [THIS IS WRONG - YOU ANSWERED YOUR OWN QUESTION]"
+                        system_message += "\n\n🚨🚨🚨 FINAL CRITICAL RULES 🚨🚨🚨"
+                        system_message += "\n1. IF THE RUNBOOK SAYS 'Wait for Response', YOU MUST ACTUALLY WAIT FOR THE REAL USER TO TYPE THEIR ANSWER"
+                        system_message += "\n2. DO NOT PROCEED TO THE NEXT STEP UNTIL THE USER HAS ACTUALLY RESPONDED"
+                        system_message += "\n3. DO NOT RESTART THE RUNBOOK - CONTINUE FROM WHERE YOU LEFT OFF"
+                        system_message += "\n4. DO NOT USE <result> TAGS - THESE ARE FOR TOOL RESULTS, NOT USER RESPONSES"
+                        system_message += "\n5. DO NOT CREATE FAKE USER RESPONSES - WAIT FOR THE REAL USER TO TYPE IN THE TUI"
+                        system_message += "\n6. IF YOU SEE YOURSELF ANSWERING YOUR OWN QUESTIONS, STOP IMMEDIATELY AND ASK ONLY ONE QUESTION"
+                        system_message += "\n7. REMEMBER: The user is a REAL PERSON typing in the TUI. You will see their ACTUAL response in the next message."
+                        system_message += "\n8. YOUR JOB: Ask ONE question, then STOP and wait for them to respond. That's it."
                         system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 else:
                     system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1439,12 +1551,36 @@ class SmartAIRouter:
                 system_message += "\n  2. Did I get actual tool results?"
                 system_message += "\n  3. Does my response mention ONLY things from the tool results?"
                 system_message += "\n  4. Am I NOT making up data (expenses, financial info, task names, project names)?"
-                system_message += "\n  5. If the user asked for a runbook, did I follow ALL runbook steps?"
+                system_message += "\n  5. Am I NOT inferring connections or meanings between user statements and tool results?"
+                system_message += "\n  6. Am I stating tool results as facts without adding interpretation or assumptions?"
+                system_message += "\n  7. If the user asked for a runbook, did I follow ALL runbook steps?"
                 system_message += "\n\n🚨 IF YOUR RESPONSE MENTIONS DATA NOT IN TOOL RESULTS, YOU ARE HALLUCINATING."
                 system_message += "\n🚨 IF TOOL RESULTS ARE EMPTY, SAY 'No data found' - DO NOT MAKE UP DATA."
+                system_message += "\n🚨 FOR ALL TOOL RESULTS (calendar, tasks, logs, search, personalization, etc.):"
+                system_message += "\n  - ONLY state information that is EXPLICITLY written in the tool results"
+                system_message += "\n  - VERIFY the tool result actually contains the information before stating it"
+                system_message += "\n  - If calendar tool shows 'No events' or empty, say 'No events scheduled' - DO NOT make up events"
+                system_message += "\n  - If calendar tool shows specific events, quote them exactly - DO NOT add events that aren't there"
+                system_message += "\n  - DO NOT infer connections, relationships, or meanings between different pieces of information"
+                system_message += "\n  - DO NOT say things 'align' or 'confirm' unless explicitly stated in the results"
+                system_message += "\n  - DO NOT add context, interpretation, or assumptions beyond what's in the results"
+                system_message += "\n  - If a calendar shows 'Wedding Planning Meeting', state that - DO NOT infer it means you're getting married"
+                system_message += "\n  - If user says something and tool shows related data, state both separately - DO NOT assume they're connected"
+                system_message += "\n  - Quote directly from tool results when stating facts"
+                system_message += "\n  - If information is missing, say so - DO NOT make it up or infer it"
+                system_message += "\n\n🚨 CRITICAL FOR CALENDAR TOOL:"
+                system_message += "\n  - If the tool result shows 'No events' or 'No upcoming events', state that exactly"
+                system_message += "\n  - If the tool result is empty or shows no events, DO NOT invent events"
+                system_message += "\n  - ONLY report events that are EXPLICITLY listed in the tool result"
+                system_message += "\n  - If you see 'Wedding Planning Meeting' in the result, it's real - if not, DO NOT make it up"
+                system_message += "\n\n🚨 FOR SEARCH RESULTS (gtd_search_second_brain, gtd_search_vector_database):"
+                system_message += "\n  - ONLY use information EXPLICITLY written in the search results"
+                system_message += "\n  - DO NOT infer, assume, or add details that aren't in the results"
+                system_message += "\n  - If information is missing, say so - DO NOT make it up"
+                system_message += "\n  - Quote directly from results when stating facts"
                 system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 system_message += "\n\nIMPORTANT WORKFLOW GUIDELINES:"
-                system_message += "\n- For structured processes, use RUNBOOKS: Call list_agent_skills(query='runbook') to find runbooks"
+                system_message += "\n- For structured processes, use RUNBOOKS: Call list_agent_skills(query='runbook', runbooks_only=True) to find runbooks"
                 system_message += "\n- Runbooks provide step-by-step procedures with validation - follow them exactly"
                 system_message += "\n- For long workflows (like morning check-ins, reviews), break them into steps"
                 system_message += "\n- After completing 2-3 tool calls, provide a progress update summarizing what you've done"
@@ -1759,6 +1895,10 @@ class SmartAIRouter:
                             if not final_response:
                                 final_response = response_text.strip()  # Fallback to current response
                             
+                            # CRITICAL: For interactive runbooks, validate that AI isn't answering its own questions
+                            if is_interactive_runbook and final_response:
+                                final_response = self._validate_interactive_runbook_response(final_response)
+                            
                             print(f"  ✅ Got final text response ({len(final_response)} chars)", file=sys.stderr)
                             break  # Exit tool call loop
 
@@ -1769,11 +1909,28 @@ class SmartAIRouter:
                         else:
                             return None, f"Max tool call iterations ({max_iterations}) reached without final response. Claude may be stuck in a tool-calling loop."
 
+                    # CRITICAL: For interactive runbooks, validate that AI isn't answering its own questions
+                    if is_interactive_runbook and final_response:
+                        final_response = self._validate_interactive_runbook_response(final_response)
+
                     # Collect all tool execution details for transparency
                     tool_execution_details = getattr(self, '_tool_execution_details', [])
+                    
+                    # CRITICAL: Validate that AI isn't hallucinating calendar events
+                    if final_response and tool_execution_details:
+                        final_response = self._validate_calendar_response(final_response, tool_execution_details)
+                    
                     # Clear for next request
                     if hasattr(self, '_tool_execution_details'):
                         delattr(self, '_tool_execution_details')
+                    
+                    # Include tool execution details in the response for transparency
+                    return {
+                        "source": "claude",
+                        "response": final_response,
+                        "request_type": request_type,
+                        "tool_execution_details": tool_execution_details  # Include tool details
+                    }, None
                     
                     # Validation: Check if tools should have been called but weren't
                     data_keywords = ["daily log", "review", "runbook", "tasks", "projects", "inbox", "log"]
@@ -1908,6 +2065,113 @@ class SmartAIRouter:
                 return response.status == 200
         except:
             return False
+    
+    def _validate_calendar_response(self, response: str, tool_execution_details: List[Dict[str, Any]]) -> str:
+        """
+        Validate that AI isn't hallucinating calendar events.
+        If calendar tool was called and shows no events, but response mentions events, truncate.
+        """
+        import re
+        
+        # Check if calendar tool was called
+        calendar_tool_called = False
+        calendar_result = None
+        
+        for tool_detail in tool_execution_details:
+            if "calendar" in tool_detail.get("tool_name", "").lower():
+                calendar_tool_called = True
+                calendar_result = tool_detail.get("tool_result", "")
+                break
+        
+        if not calendar_tool_called:
+            return response
+        
+        # Check if calendar result shows no events
+        if calendar_result:
+            calendar_lower = calendar_result.lower()
+            has_no_events = any(phrase in calendar_lower for phrase in [
+                "no events", "no upcoming events", "no events scheduled", 
+                "no events found", "empty", "no meetings"
+            ])
+            
+            # Check if response mentions specific calendar events
+            response_lower = response.lower()
+            # Look for patterns like "2:00 PM", "meeting", "event", etc. that suggest specific events
+            has_event_mentions = bool(re.search(r'\d{1,2}:\d{2}\s*(AM|PM)', response_lower)) or \
+                                bool(re.search(r'(meeting|event|appointment|scheduled)', response_lower))
+            
+            if has_no_events and has_event_mentions:
+                # Calendar shows no events but response mentions events - this is hallucination
+                print(f"  ⚠️  Detected calendar hallucination - calendar shows no events but response mentions events", file=sys.stderr)
+                print(f"  ⚠️  Calendar result: {calendar_result[:200]}...", file=sys.stderr)
+                # Return a safe response that doesn't mention specific events
+                return "Your calendar shows no events scheduled for today."
+        
+        return response
+    
+    def _validate_interactive_runbook_response(self, response: str) -> str:
+        """
+        Validate interactive runbook response - truncate if AI is answering its own questions.
+        
+        This prevents the AI from asking a question and then immediately providing
+        follow-up questions or answers in the same response.
+        """
+        import re
+        
+        if not response or not response.strip():
+            return response
+        
+        # Find the first question mark
+        first_question_idx = response.find('?')
+        if first_question_idx == -1:
+            # No question mark found - might be an acknowledgment, allow it
+            return response
+        
+        # Get text after the first question
+        after_question = response[first_question_idx + 1:].strip()
+        
+        # If there's no content after the question, it's fine
+        if not after_question:
+            return response
+        
+        # Check for patterns that indicate AI is answering its own question:
+        # - Multiple question marks (asking follow-up questions)
+        # - Phrases like "Ooh, interesting!", "Let's dive in", "Wonderful!", "On to the next step"
+        # - Starting with "If you're feeling..." (providing conditional answers)
+        # - Starting with "Share your thoughts" (follow-up prompts)
+        
+        problematic_patterns = [
+            r'[Oo]oh,?\s+interesting',
+            r"Let's\s+dive\s+in",
+            r'[Ww]onderful',
+            r'[Oo]n\s+to\s+the\s+next\s+step',
+            r"If\s+you'?re\s+feeling",
+            r'[Ss]hare\s+your\s+thoughts',
+            r'[Ww]hat\s+could\s+help',
+            r'[Hh]ow\s+can\s+we',
+            r'[Gg]reat!',
+            r'[Aa]lready\s+getting',
+            r'[Ss]ense\s+of',
+        ]
+        
+        # Check if after-question text contains problematic patterns
+        for pattern in problematic_patterns:
+            if re.search(pattern, after_question, re.IGNORECASE):
+                # AI is answering its own question - truncate to just the first question
+                truncated = response[:first_question_idx + 1].strip()
+                print(f"  ⚠️  Detected AI answering own question - truncating response to: '{truncated[:50]}...'", file=sys.stderr)
+                return truncated
+        
+        # Check for multiple questions in the same response (another sign of self-conversation)
+        question_count = response.count('?')
+        if question_count > 1:
+            # Multiple questions - truncate to first question only
+            truncated = response[:first_question_idx + 1].strip()
+            print(f"  ⚠️  Detected multiple questions in one response - truncating to first question only", file=sys.stderr)
+            return truncated
+        
+        # Response looks okay - return as-is
+        return response
 
     def switch_mode(self, new_mode: str) -> Tuple[bool, str]:
         """Switch between ollama-only and hybrid modes"""
