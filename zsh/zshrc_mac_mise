@@ -1521,3 +1521,5 @@ if [[ -f "$HOME/code/dotfiles/zsh/gtd-aliases.zsh" ]]; then
 elif [[ -f "$HOME/code/personal/dotfiles/zsh/gtd-aliases.zsh" ]]; then
   source "$HOME/code/personal/dotfiles/zsh/gtd-aliases.zsh"
 fi
+source /Users/abby/code/dotfiles/zsh/functions/_gtd_cli_complete.zsh
+source /Users/abby/code/dotfiles/zsh/functions/_gtd_cli_complete.zsh

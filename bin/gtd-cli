@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""
+GTD CLI - Direct command-line interface to GTD tools and scripts
+
+A fast, tab-completed CLI that bypasses the LLM for direct GTD system access.
+
+Usage:
+  gtd-cli <command> [args...]           # Execute command directly
+  gtd-cli --list                        # List all available commands
+  gtd-cli --help <command>              # Show help for specific command
+  gtd-cli --complete <partial>          # Tab completion support
+  gtd-cli --categories                  # List command categories
+
+Examples:
+  gtd-cli list-tasks --project work     # Direct tool call
+  gtd-cli wizard                        # Run existing script
+  gtd-cli --complete list-              # Returns: list-tasks, list-projects, etc.
+"""
+
+import sys
+import os
+import subprocess
+import json
+import argparse
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+
+# Add functions to Python path
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "zsh" / "functions"))
+
+class GTDCliInterface:
+    def __init__(self):
+        self.bin_path = Path.home() / "code" / "dotfiles" / "bin"
+        self.gtd_tools = self._load_gtd_tools()
+        self.bin_scripts = self._load_bin_scripts()
+        
+    def _load_gtd_tools(self) -> Dict[str, Any]:
+        """Load GTD tools from tool registry"""
+        try:
+            from gtd_tool_registry import TOOL_REGISTRY, execute_tool
+            return TOOL_REGISTRY
+        except ImportError as e:
+            print(f"Warning: Could not load GTD tools: {e}", file=sys.stderr)
+            return {}
+    
+    def _load_bin_scripts(self) -> List[str]:
+        """Load available scripts from bin directory"""
+        scripts = []
+        if self.bin_path.exists():
+            for script in self.bin_path.iterdir():
+                if script.is_file() and script.name.startswith('gtd-'):
+                    # Remove gtd- prefix for cleaner commands
+                    clean_name = script.name.replace('gtd-', '')
+                    scripts.append(clean_name)
+        return sorted(scripts)
+    
+    def list_all_commands(self) -> Dict[str, List[str]]:
+        """Get all available commands organized by category"""
+        commands = {
+            "GTD Tools": [],
+            "Scripts": self.bin_scripts,
+            "Special": ["--list", "--help", "--complete", "--categories"]
+        }
+        
+        # Organize GTD tools by category
+        categories = {}
+        for tool_name, tool_data in self.gtd_tools.items():
+            category = tool_data.get('category', 'other').title()
+            if category not in categories:
+                categories[category] = []
+            # Convert snake_case to kebab-case for consistency
+            clean_name = tool_name.replace('gtd_', '').replace('_', '-')
+            categories[category].append(clean_name)
+        
+        commands.update(categories)
+        return commands
+    
+    def show_help(self, command: str) -> bool:
+        """Show help for a specific command"""
+        # Check if it's a GTD tool
+        tool_key = None
+        for key in self.gtd_tools.keys():
+            if key.replace('gtd_', '').replace('_', '-') == command:
+                tool_key = key
+                break
+                
+        if tool_key:
+            tool_data = self.gtd_tools[tool_key]
+            print(f"📋 GTD Tool: {command}")
+            print(f"Description: {tool_data.get('description', 'No description')}")
+            print(f"Category: {tool_data.get('category', 'unknown')}")
+            
+            # Show parameters if available
+            params = tool_data.get('parameters', {}).get('properties', {})
+            if params:
+                print("\nParameters:")
+                for param_name, param_info in params.items():
+                    param_type = param_info.get('type', 'string')
+                    param_desc = param_info.get('description', 'No description')
+                    required = param_name in tool_data.get('parameters', {}).get('required', [])
+                    req_marker = " (required)" if required else " (optional)"
+                    print(f"  --{param_name} <{param_type}>{req_marker}: {param_desc}")
+            
+            print(f"\nExample: gtd-cli {command} --help")
+            return True
+        
+        # Check if it's a bin script
+        if command in self.bin_scripts:
+            script_path = self.bin_path / f"gtd-{command}"
+            print(f"📜 GTD Script: {command}")
+            print(f"Path: {script_path}")
+            
+            # Try to run with --help to get usage
+            try:
+                result = subprocess.run([str(script_path), "--help"], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.stdout:
+                    print("\nUsage:")
+                    print(result.stdout)
+                elif result.stderr:
+                    print("\nOutput:")
+                    print(result.stderr)
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                print("\nNo help available for this script.")
+            
+            print(f"\nExecute: gtd-cli {command}")
+            return True
+            
+        return False
+    
+    def complete_command(self, partial: str) -> List[str]:
+        """Return completions for partial command"""
+        all_commands = []
+        
+        # Add GTD tools (converted to kebab-case)
+        for tool_name in self.gtd_tools.keys():
+            clean_name = tool_name.replace('gtd_', '').replace('_', '-')
+            all_commands.append(clean_name)
+        
+        # Add bin scripts
+        all_commands.extend(self.bin_scripts)
+        
+        # Add special commands
+        all_commands.extend(['--list', '--help', '--complete', '--categories'])
+        
+        # Filter matches
+        matches = [cmd for cmd in all_commands if cmd.startswith(partial)]
+        return sorted(matches)
+    
+    def execute_tool(self, tool_name: str, args: List[str]) -> int:
+        """Execute a GTD tool directly"""
+        # Convert kebab-case back to tool registry format
+        possible_keys = [
+            f"gtd_{tool_name.replace('-', '_')}",
+            tool_name.replace('-', '_'),
+            tool_name
+        ]
+        
+        tool_key = None
+        for key in possible_keys:
+            if key in self.gtd_tools:
+                tool_key = key
+                break
+        
+        if not tool_key:
+            print(f"❌ Unknown GTD tool: {tool_name}", file=sys.stderr)
+            return 1
+        
+        # Parse arguments into tool parameters
+        tool_data = self.gtd_tools[tool_key]
+        params_schema = tool_data.get('parameters', {}).get('properties', {})
+        
+        # Simple argument parsing (--key value format)
+        tool_args = {}
+        i = 0
+        while i < len(args):
+            if args[i].startswith('--'):
+                key = args[i][2:]  # Remove --
+                if i + 1 < len(args) and not args[i + 1].startswith('--'):
+                    tool_args[key] = args[i + 1]
+                    i += 2
+                else:
+                    tool_args[key] = True
+                    i += 1
+            else:
+                # Positional argument - try to map to first parameter
+                if params_schema:
+                    first_param = next(iter(params_schema.keys()))
+                    tool_args[first_param] = args[i]
+                i += 1
+        
+        try:
+            # Import execute_tool function
+            from gtd_tool_registry import execute_tool
+            
+            print(f"🔧 Executing: {tool_name} with {tool_args}")
+            result = execute_tool(tool_key, tool_args)
+            
+            if result:
+                if isinstance(result, str):
+                    print(result)
+                elif isinstance(result, dict):
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(f"Result: {result}")
+            
+            return 0
+            
+        except Exception as e:
+            print(f"❌ Error executing tool: {e}", file=sys.stderr)
+            return 1
+    
+    def execute_script(self, script_name: str, args: List[str]) -> int:
+        """Execute a GTD bin script"""
+        script_path = self.bin_path / f"gtd-{script_name}"
+        
+        if not script_path.exists():
+            print(f"❌ Script not found: {script_name}", file=sys.stderr)
+            return 1
+        
+        try:
+            print(f"📜 Executing: {script_name} {' '.join(args)}")
+            result = subprocess.run([str(script_path)] + args)
+            return result.returncode
+        except Exception as e:
+            print(f"❌ Error executing script: {e}", file=sys.stderr)
+            return 1
+
+def main():
+    cli = GTDCliInterface()
+    
+    if len(sys.argv) < 2:
+        print(__doc__)
+        return 0
+    
+    command = sys.argv[1]
+    args = sys.argv[2:] if len(sys.argv) > 2 else []
+    
+    # Handle special commands
+    if command == "--list":
+        commands = cli.list_all_commands()
+        for category, cmd_list in commands.items():
+            if cmd_list:
+                print(f"\n📂 {category}:")
+                for cmd in cmd_list:
+                    print(f"  {cmd}")
+        return 0
+    
+    elif command == "--categories":
+        commands = cli.list_all_commands()
+        for category, cmd_list in commands.items():
+            if cmd_list:
+                print(f"{category}: {len(cmd_list)} commands")
+        return 0
+        
+    elif command == "--complete":
+        partial = args[0] if args else ""
+        matches = cli.complete_command(partial)
+        for match in matches:
+            print(match)
+        return 0
+    
+    elif command == "--help":
+        if not args:
+            print("Usage: gtd-cli --help <command>")
+            return 1
+        target = args[0]
+        if cli.show_help(target):
+            return 0
+        else:
+            print(f"❌ No help found for: {target}", file=sys.stderr)
+            return 1
+    
+    # Try to execute as GTD tool first
+    tool_name = command
+    if any(key.replace('gtd_', '').replace('_', '-') == tool_name for key in cli.gtd_tools.keys()):
+        return cli.execute_tool(tool_name, args)
+    
+    # Try to execute as bin script
+    elif command in cli.bin_scripts:
+        return cli.execute_script(command, args)
+    
+    else:
+        print(f"❌ Unknown command: {command}", file=sys.stderr)
+        print("Use 'gtd-cli --list' to see available commands")
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())

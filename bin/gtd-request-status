@@ -161,9 +161,45 @@ try:
             if queue_status.get('error'):
                 print(f"   Error: {queue_status['error']}")
             
-            print("")
-            print("💡 This request is currently being processed by Ollama Controller")
-            print("   The advice worker is waiting for the response...")
+            # If completed, try to fetch the actual response content
+            if queue_status['status'] == 'completed':
+                print("")
+                try:
+                    from gtd_ai_helpers import poll_async_response
+                    import os
+                    
+                    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:31080/v1/chat/completions")
+                    base_url = ollama_url.rsplit('/v1', 1)[0] if '/v1' in ollama_url else ollama_url
+                    
+                    # Poll for the completed response (should be instant since it's completed)
+                    result, error = poll_async_response(request_id, base_url, max_poll_time=5.0, poll_interval=0.1)
+                    
+                    if result and 'choices' in result and len(result.get('choices', [])) > 0:
+                        # Extract actual response content
+                        first_choice = result['choices'][0]
+                        message = first_choice.get('message', {})
+                        response_content = message.get('content', '')
+                        
+                        if response_content:
+                            print("✅ **Request Completed - Response:**")
+                            print("─" * 60)
+                            print(response_content)
+                            print("─" * 60)
+                            sys.exit(0)
+                        else:
+                            print("")
+                            print("⚠️  Status shows 'completed' but no response content found in the response structure.")
+                    else:
+                        print("")
+                        print("⚠️  Status shows 'completed' but could not retrieve response content.")
+                except Exception as e:
+                    print("")
+                    print(f"⚠️  Could not fetch response content: {e}")
+                    print("💡 Status shows 'completed' - response may be available but could not be retrieved")
+            else:
+                print("")
+                print("💡 This request is currently being processed by Ollama Controller")
+                print("   The advice worker is waiting for the response...")
             sys.exit(0)
     else:
         print("⚠️  Not using Ollama Controller - queue status not available")

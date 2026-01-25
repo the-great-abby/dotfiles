@@ -1,0 +1,374 @@
+#!/usr/bin/env python3
+"""
+Terminal Session Recorder for TUI Debugging
+
+Records terminal sessions for later analysis and debugging of TUI issues.
+"""
+
+import os
+import sys
+import time
+import json
+import threading
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+import argparse
+from datetime import datetime
+
+class TerminalRecorder:
+    """Records terminal sessions with timestamp and metadata"""
+    
+    def __init__(self, output_dir: str = "/tmp/tui_recordings"):
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(exist_ok=True)
+        self.recording = False
+        self.session_data = []
+        
+    def start_recording(self, session_name: Optional[str] = None) -> str:
+        """Start recording a terminal session"""
+        if not session_name:
+            session_name = f"tui_session_{int(time.time())}"
+        
+        self.session_file = self.output_dir / f"{session_name}.json"
+        self.recording = True
+        self.session_data = []
+        
+        # Record session metadata
+        self.session_data.append({
+            'type': 'metadata',
+            'timestamp': time.time(),
+            'session_name': session_name,
+            'start_time': datetime.now().isoformat(),
+            'terminal_size': self._get_terminal_size(),
+            'environment': {
+                'TERM': os.environ.get('TERM', ''),
+                'SHELL': os.environ.get('SHELL', ''),
+                'PWD': os.getcwd()
+            }
+        })
+        
+        print(f"📹 Recording started: {session_name}")
+        print(f"📁 Output: {self.session_file}")
+        print("🛑 Press Ctrl+C to stop recording")
+        
+        return str(self.session_file)
+    
+    def record_screen_capture(self) -> None:
+        """Capture current screen state"""
+        if not self.recording:
+            return
+            
+        try:
+            # Capture terminal content using script or similar
+            result = subprocess.run(['tput', 'cup', '0', '0'], capture_output=True, text=True)
+            
+            # Get screen content (this is simplified - would need more sophisticated capture)
+            screen_data = {
+                'type': 'screen_capture',
+                'timestamp': time.time(),
+                'content': self._capture_screen_content(),
+                'cursor_position': self._get_cursor_position()
+            }
+            
+            self.session_data.append(screen_data)
+            
+        except Exception as e:
+            print(f"⚠️ Screen capture error: {e}")
+    
+    def record_keypress(self, key: str) -> None:
+        """Record a keypress event"""
+        if not self.recording:
+            return
+            
+        keypress_data = {
+            'type': 'keypress',
+            'timestamp': time.time(),
+            'key': key,
+            'readable_key': self._make_key_readable(key)
+        }
+        
+        self.session_data.append(keypress_data)
+    
+    def record_command_execution(self, command: str, result: str) -> None:
+        """Record command execution and result"""
+        if not self.recording:
+            return
+            
+        command_data = {
+            'type': 'command',
+            'timestamp': time.time(),
+            'command': command,
+            'result': result,
+            'exit_code': self._get_last_exit_code()
+        }
+        
+        self.session_data.append(command_data)
+    
+    def record_tui_state_change(self, old_state: Dict, new_state: Dict) -> None:
+        """Record TUI state transitions"""
+        if not self.recording:
+            return
+            
+        state_change = {
+            'type': 'tui_state_change',
+            'timestamp': time.time(),
+            'old_state': old_state,
+            'new_state': new_state,
+            'changes': self._compute_state_diff(old_state, new_state)
+        }
+        
+        self.session_data.append(state_change)
+    
+    def stop_recording(self) -> str:
+        """Stop recording and save session"""
+        if not self.recording:
+            return ""
+        
+        self.recording = False
+        
+        # Add session end metadata
+        self.session_data.append({
+            'type': 'metadata',
+            'timestamp': time.time(),
+            'end_time': datetime.now().isoformat(),
+            'duration_seconds': time.time() - self.session_data[0]['timestamp'],
+            'total_events': len(self.session_data)
+        })
+        
+        # Save to file
+        with open(self.session_file, 'w') as f:
+            json.dump(self.session_data, f, indent=2, default=str)
+        
+        print(f"📹 Recording stopped")
+        print(f"📁 Session saved: {self.session_file}")
+        print(f"📊 Events recorded: {len(self.session_data)}")
+        
+        return str(self.session_file)
+    
+    def _get_terminal_size(self) -> Dict[str, int]:
+        """Get current terminal dimensions"""
+        try:
+            import shutil
+            size = shutil.get_terminal_size()
+            return {'width': size.columns, 'height': size.lines}
+        except:
+            return {'width': 80, 'height': 24}
+    
+    def _capture_screen_content(self) -> str:
+        """Capture current screen content"""
+        # This would be implemented with more sophisticated terminal capture
+        # For now, return placeholder
+        return "Screen content capture would go here"
+    
+    def _get_cursor_position(self) -> Dict[str, int]:
+        """Get current cursor position"""
+        # Simplified implementation
+        return {'row': 0, 'col': 0}
+    
+    def _make_key_readable(self, key: str) -> str:
+        """Convert key codes to readable format"""
+        key_map = {
+            '\x03': 'Ctrl+C',
+            '\x04': 'Ctrl+D',
+            '\x0a': 'Enter',
+            '\x0d': 'Return',
+            '\x1b': 'Escape',
+            '\t': 'Tab',
+            ' ': 'Space'
+        }
+        return key_map.get(key, key)
+    
+    def _get_last_exit_code(self) -> int:
+        """Get the exit code of the last command"""
+        return 0  # Simplified
+    
+    def _compute_state_diff(self, old_state: Dict, new_state: Dict) -> List[Dict]:
+        """Compute differences between TUI states"""
+        changes = []
+        
+        for key in set(old_state.keys()) | set(new_state.keys()):
+            old_val = old_state.get(key)
+            new_val = new_state.get(key)
+            
+            if old_val != new_val:
+                changes.append({
+                    'field': key,
+                    'old_value': old_val,
+                    'new_value': new_val
+                })
+        
+        return changes
+
+class TUISessionPlayer:
+    """Plays back recorded TUI sessions"""
+    
+    def __init__(self, session_file: str):
+        self.session_file = Path(session_file)
+        self.session_data = []
+        self._load_session()
+    
+    def _load_session(self) -> None:
+        """Load session data from file"""
+        try:
+            with open(self.session_file, 'r') as f:
+                self.session_data = json.load(f)
+        except Exception as e:
+            print(f"❌ Error loading session: {e}")
+    
+    def play_session(self, speed_multiplier: float = 1.0) -> None:
+        """Play back the recorded session"""
+        if not self.session_data:
+            print("❌ No session data loaded")
+            return
+        
+        print(f"▶️  Playing back session: {self.session_file.name}")
+        print(f"⚡ Speed: {speed_multiplier}x")
+        print("🛑 Press Ctrl+C to stop playback")
+        
+        start_time = None
+        
+        try:
+            for event in self.session_data:
+                if event['type'] == 'metadata':
+                    if 'start_time' in event:
+                        start_time = event['timestamp']
+                        print(f"📅 Session: {event.get('session_name', 'Unknown')}")
+                        print(f"🕐 Started: {event['start_time']}")
+                    continue
+                
+                # Wait for appropriate timing
+                if start_time:
+                    event_time = event['timestamp'] - start_time
+                    time.sleep(event_time / speed_multiplier)
+                
+                # Display event
+                self._display_event(event)
+                
+        except KeyboardInterrupt:
+            print("\n🛑 Playback stopped")
+    
+    def _display_event(self, event: Dict) -> None:
+        """Display a single event"""
+        event_type = event['type']
+        timestamp = event.get('timestamp', 0)
+        
+        if event_type == 'keypress':
+            print(f"⌨️  [{timestamp:.1f}] Key: {event['readable_key']}")
+        
+        elif event_type == 'command':
+            print(f"🔧 [{timestamp:.1f}] Command: {event['command']}")
+            if event.get('result'):
+                print(f"   Result: {event['result'][:100]}...")
+        
+        elif event_type == 'tui_state_change':
+            print(f"🔄 [{timestamp:.1f}] State change:")
+            for change in event.get('changes', []):
+                print(f"   {change['field']}: {change['old_value']} → {change['new_value']}")
+        
+        elif event_type == 'screen_capture':
+            print(f"📸 [{timestamp:.1f}] Screen capture")
+    
+    def analyze_session(self) -> Dict[str, Any]:
+        """Analyze the recorded session for issues"""
+        analysis = {
+            'total_events': len(self.session_data),
+            'duration_seconds': 0,
+            'keypresses': 0,
+            'commands': 0,
+            'state_changes': 0,
+            'potential_issues': []
+        }
+        
+        start_time = None
+        end_time = None
+        stuck_commands = []
+        
+        for event in self.session_data:
+            if event['type'] == 'metadata':
+                if 'start_time' in event:
+                    start_time = event['timestamp']
+                elif 'end_time' in event:
+                    end_time = event['timestamp']
+                    
+            elif event['type'] == 'keypress':
+                analysis['keypresses'] += 1
+                
+            elif event['type'] == 'command':
+                analysis['commands'] += 1
+                
+            elif event['type'] == 'tui_state_change':
+                analysis['state_changes'] += 1
+                
+                # Look for stuck states
+                new_state = event.get('new_state', {})
+                if ('waiting' in str(new_state).lower() and 
+                    'completed' in str(new_state).lower()):
+                    analysis['potential_issues'].append({
+                        'type': 'stuck_async_state',
+                        'timestamp': event['timestamp'],
+                        'description': 'TUI showing completed but still waiting'
+                    })
+        
+        if start_time and end_time:
+            analysis['duration_seconds'] = end_time - start_time
+        
+        return analysis
+
+def main():
+    parser = argparse.ArgumentParser(description='Terminal Session Recorder for TUI Debugging')
+    parser.add_argument('command', choices=['record', 'play', 'analyze'], 
+                       help='Command to execute')
+    parser.add_argument('--session', '-s', help='Session name or file')
+    parser.add_argument('--speed', type=float, default=1.0, 
+                       help='Playback speed multiplier')
+    parser.add_argument('--output-dir', default='/tmp/tui_recordings',
+                       help='Recording output directory')
+    
+    args = parser.parse_args()
+    
+    try:
+        if args.command == 'record':
+            recorder = TerminalRecorder(args.output_dir)
+            session_file = recorder.start_recording(args.session)
+            
+            # Simple recording loop
+            try:
+                while recorder.recording:
+                    recorder.record_screen_capture()
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                recorder.stop_recording()
+        
+        elif args.command == 'play':
+            if not args.session:
+                print("❌ Session file required for playback")
+                sys.exit(1)
+            
+            player = TUISessionPlayer(args.session)
+            player.play_session(args.speed)
+        
+        elif args.command == 'analyze':
+            if not args.session:
+                print("❌ Session file required for analysis")
+                sys.exit(1)
+            
+            player = TUISessionPlayer(args.session)
+            analysis = player.analyze_session()
+            
+            print("📊 SESSION ANALYSIS:")
+            print("=" * 40)
+            print(json.dumps(analysis, indent=2))
+            
+            if analysis['potential_issues']:
+                print("\n⚠️ POTENTIAL ISSUES DETECTED:")
+                for issue in analysis['potential_issues']:
+                    print(f"• {issue['type']}: {issue['description']} (t={issue['timestamp']:.1f})")
+    
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == '__main__':
+    main()

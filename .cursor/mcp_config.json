@@ -13,6 +13,15 @@
         "GTD_RABBITMQ_QUEUE": "gtd_deep_analysis",
         "PYTHONPATH": "${workspaceFolder}"
       }
+    },
+    "sequentialthinking": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "mcp/sequentialthinking"
+      ]
     }
   }
 }

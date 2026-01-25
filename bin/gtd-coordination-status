@@ -1,0 +1,209 @@
+#!/bin/bash
+"""
+GTD Coordination Status - Monitor and manage the GTD coordination system
+
+This script provides visibility into the coordination system that prevents
+conflicts between TUI and background workers.
+"""
+
+# Make this a bash script that calls Python
+cd "$(dirname "$0")/.."
+
+python3 - << 'EOF'
+#!/usr/bin/env python3
+
+import json
+import sys
+from pathlib import Path
+from datetime import datetime, timezone
+
+# Add coordination system to path
+sys.path.insert(0, str(Path.home() / "code" / "dotfiles" / "mcp"))
+from gtd_coordination import GTDCoordination
+
+def show_coordination_status():
+    """Show current status of the coordination system."""
+    gtd_base = Path.home() / "Documents" / "gtd"
+    coordination_dir = gtd_base / ".coordination"
+    locks_dir = coordination_dir / "locks"
+    processed_dir = coordination_dir / "processed"
+    
+    print("🛡️ **GTD Coordination System Status** 🛡️")
+    print()
+    
+    # Check directories
+    if not coordination_dir.exists():
+        print("❌ Coordination system not initialized")
+        print(f"   Run any GTD coordination tool to initialize")
+        return
+    
+    print(f"📁 **Coordination Directory:** {coordination_dir}")
+    print(f"   Created: {datetime.fromtimestamp(coordination_dir.stat().st_ctime).strftime('%Y-%m-%d %H:%M')}")
+    print()
+    
+    # Show active locks
+    print("🔒 **Active Locks:**")
+    if locks_dir.exists() and any(locks_dir.iterdir()):
+        for lock_file in locks_dir.glob("*.lock"):
+            try:
+                with open(lock_file) as f:
+                    lock_info = json.load(f)
+                
+                operation = lock_info.get("operation", "unknown")
+                resource = lock_info.get("resource", "unknown") 
+                source = lock_info.get("source", "unknown")
+                acquired_at = lock_info.get("acquired_at", "unknown")
+                pid = lock_info.get("pid", "unknown")
+                
+                # Check if lock is stale
+                if acquired_at != "unknown":
+                    try:
+                        lock_time = datetime.fromisoformat(acquired_at.replace('Z', '+00:00'))
+                        age_minutes = (datetime.now(timezone.utc) - lock_time).total_seconds() / 60
+                        age_str = f" (age: {age_minutes:.1f}m)"
+                        if age_minutes > 60:
+                            age_str += " ⚠️  STALE"
+                    except:
+                        age_str = ""
+                else:
+                    age_str = ""
+                
+                print(f"   • {operation} on {resource}")
+                print(f"     Source: {source}, PID: {pid}{age_str}")
+            except Exception as e:
+                print(f"   • {lock_file.name} - Error reading: {e}")
+    else:
+        print("   No active locks")
+    print()
+    
+    # Show recent processing
+    print("📝 **Recent Processing History:**")
+    if processed_dir.exists():
+        processed_files = sorted(processed_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        for i, proc_file in enumerate(processed_files[:10]):  # Show last 10
+            try:
+                with open(proc_file) as f:
+                    proc_info = json.load(f)
+                
+                operation = proc_info.get("operation", "unknown")
+                content_type = proc_info.get("content_type", "unknown")
+                source = proc_info.get("source", "unknown")
+                processed_at = proc_info.get("processed_at", "unknown")
+                content_preview = proc_info.get("content_preview", "")[:50] + "..."
+                
+                if processed_at != "unknown":
+                    try:
+                        proc_time = datetime.fromisoformat(processed_at.replace('Z', '+00:00'))
+                        age_str = f" ({(datetime.now(timezone.utc) - proc_time).total_seconds() / 60:.1f}m ago)"
+                    except:
+                        age_str = ""
+                else:
+                    age_str = ""
+                
+                print(f"   {i+1}. {operation} on {content_type}")
+                print(f"      Source: {source}{age_str}")
+                print(f"      Content: {content_preview}")
+            except Exception as e:
+                print(f"   • {proc_file.name} - Error reading: {e}")
+    else:
+        print("   No processing history")
+    print()
+    
+    # Show statistics
+    print("📊 **Statistics:**")
+    total_locks = len(list(locks_dir.glob("*.lock"))) if locks_dir.exists() else 0
+    total_processed = len(list(processed_dir.glob("*.json"))) if processed_dir.exists() else 0
+    
+    print(f"   • Active locks: {total_locks}")
+    print(f"   • Processing records: {total_processed}")
+    
+    if processed_dir.exists():
+        # Count by operation type
+        operations = {}
+        for proc_file in processed_dir.glob("*.json"):
+            try:
+                with open(proc_file) as f:
+                    proc_info = json.load(f)
+                operation = proc_info.get("operation", "unknown")
+                operations[operation] = operations.get(operation, 0) + 1
+            except:
+                pass
+        
+        if operations:
+            print("   • Operations breakdown:")
+            for op, count in sorted(operations.items()):
+                print(f"     - {op}: {count}")
+
+def clean_stale_locks():
+    """Clean up stale locks."""
+    print("🧹 **Cleaning Stale Locks...**")
+    
+    coord = GTDCoordination("cleanup")
+    locks_dir = Path.home() / "Documents" / "gtd" / ".coordination" / "locks"
+    
+    if not locks_dir.exists():
+        print("   No locks directory found")
+        return
+    
+    cleaned = 0
+    for lock_file in locks_dir.glob("*.lock"):
+        if coord._is_stale_lock(lock_file):
+            coord._remove_stale_lock(lock_file)
+            cleaned += 1
+    
+    print(f"   Cleaned {cleaned} stale locks")
+
+def clean_old_processing_records(days_old=7):
+    """Clean up old processing records."""
+    print(f"🧹 **Cleaning Processing Records Older Than {days_old} Days...**")
+    
+    processed_dir = Path.home() / "Documents" / "gtd" / ".coordination" / "processed"
+    
+    if not processed_dir.exists():
+        print("   No processed directory found")
+        return
+    
+    import time
+    cutoff_time = time.time() - (days_old * 24 * 3600)
+    cleaned = 0
+    
+    for proc_file in processed_dir.glob("*.json"):
+        if proc_file.stat().st_mtime < cutoff_time:
+            try:
+                proc_file.unlink()
+                cleaned += 1
+            except Exception as e:
+                print(f"   Error removing {proc_file}: {e}")
+    
+    print(f"   Cleaned {cleaned} old processing records")
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) > 1:
+        command = sys.argv[1]
+        
+        if command == "status":
+            show_coordination_status()
+        elif command == "clean":
+            clean_stale_locks()
+        elif command == "clean-old":
+            days = int(sys.argv[2]) if len(sys.argv) > 2 else 7
+            clean_old_processing_records(days)
+        elif command == "help":
+            print("GTD Coordination Status Tool")
+            print()
+            print("Usage:")
+            print("  gtd-coordination-status status      # Show current status")
+            print("  gtd-coordination-status clean       # Clean stale locks") 
+            print("  gtd-coordination-status clean-old [days]  # Clean old records")
+            print("  gtd-coordination-status help        # Show this help")
+        else:
+            print(f"Unknown command: {command}")
+            print("Use 'help' for usage information")
+    else:
+        # Default: show status
+        show_coordination_status()
+
+EOF

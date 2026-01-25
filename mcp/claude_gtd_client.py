@@ -12,6 +12,7 @@ Usage:
 """
 
 import sys
+import os
 import json
 import argparse
 from pathlib import Path
@@ -263,17 +264,43 @@ class GTDClient:
         """Ask Claude directly (bypass router, always use Claude) - supports interactive mode"""
 
         if not args:
-            print("❌ Usage: claude-gtd ask <question> [--interactive]", file=sys.stderr)
+            print("❌ Usage: claude-gtd ask <question> [--interactive] [--model MODEL_NAME] [--ollama-model MODEL_NAME] [--ollama-timeout SECONDS]", file=sys.stderr)
             return 1
 
         # Check for interactive flag
         interactive = False
-        if "--interactive" in args or "-i" in args:
-            interactive = True
-            args = [a for a in args if a not in ["--interactive", "-i"]]
+        model_override = None
+        ollama_model_override = None
+        ollama_timeout_override = None
+        
+        # Parse flags
+        filtered_args = []
+        i = 0
+        while i < len(args):
+            if args[i] in ["--interactive", "-i"]:
+                interactive = True
+                i += 1
+            elif args[i] == "--model" and i + 1 < len(args):
+                model_override = args[i + 1]
+                i += 2
+            elif args[i] == "--ollama-model" and i + 1 < len(args):
+                ollama_model_override = args[i + 1]
+                i += 2
+            elif args[i] == "--ollama-timeout" and i + 1 < len(args):
+                try:
+                    ollama_timeout_override = int(args[i + 1])
+                    i += 2
+                except ValueError:
+                    print(f"❌ Invalid timeout value: {args[i + 1]}", file=sys.stderr)
+                    return 1
+            else:
+                filtered_args.append(args[i])
+                i += 1
+        
+        args = filtered_args
 
         if not args:
-            print("❌ Usage: claude-gtd ask <question> [--interactive]", file=sys.stderr)
+            print("❌ Usage: claude-gtd ask <question> [--interactive] [--model MODEL_NAME] [--ollama-model MODEL_NAME] [--ollama-timeout SECONDS]", file=sys.stderr)
             return 1
 
         question = " ".join(args)
@@ -283,10 +310,17 @@ class GTDClient:
             print("   Set it with: export ANTHROPIC_API_KEY=sk-...", file=sys.stderr)
             return 1
 
+        # Override Ollama settings if specified
+        if ollama_model_override:
+            self.router.ollama_model = ollama_model_override
+        if ollama_timeout_override:
+            self.router.ollama_timeout = ollama_timeout_override
+            print(f"📌 Using Ollama timeout: {ollama_timeout_override}s")
+        
         if interactive:
-            return self._handle_interactive_ask(question)
+            return self._handle_interactive_ask(question, model_override=model_override, ollama_model_override=ollama_model_override, ollama_timeout_override=ollama_timeout_override)
         else:
-            return self._handle_single_ask(question)
+            return self._handle_single_ask(question, model_override=model_override, ollama_model_override=ollama_model_override, ollama_timeout_override=ollama_timeout_override)
 
     def _award_xp(self, activity_type: str, reason: str = ""):
         """Award XP for an activity (silently, non-blocking)"""
@@ -304,9 +338,20 @@ class GTDClient:
         except Exception:
             pass  # Silently fail if gamification not available
 
-    def _handle_single_ask(self, question: str) -> int:
+    def _handle_single_ask(self, question: str, model_override: Optional[str] = None, ollama_model_override: Optional[str] = None, ollama_timeout_override: Optional[int] = None) -> int:
         """Handle a single question (non-interactive)"""
         print(f"🧠 Asking Claude directly: {question[:50]}...")
+        
+        # Override models and timeout if specified
+        if model_override:
+            self.router.claude_model = model_override
+            print(f"📌 Using Claude model: {model_override}")
+        if ollama_model_override:
+            self.router.ollama_model = ollama_model_override
+            print(f"📌 Using Ollama model: {ollama_model_override}")
+        if ollama_timeout_override:
+            self.router.ollama_timeout = ollama_timeout_override
+            print(f"📌 Using Ollama timeout: {ollama_timeout_override}s")
 
         result, error = self.router._call_claude(
             "general_question",
@@ -394,8 +439,51 @@ class GTDClient:
                 print("   Please be more specific or use a number")
                 continue
 
-    def _handle_interactive_ask(self, initial_question: str) -> int:
-        """Handle interactive conversation mode"""
+    def _handle_interactive_ask(self, initial_question: str, model_override: Optional[str] = None, ollama_model_override: Optional[str] = None, ollama_timeout_override: Optional[int] = None) -> int:
+        """Handle interactive conversation mode - launches TUI"""
+        try:
+            # Import TUI module
+            tui_module_path = Path(__file__).parent / "claude_ask_tui.py"
+            if not tui_module_path.exists():
+                # Fallback to old interactive mode
+                return self._handle_interactive_ask_legacy(initial_question)
+            
+            # Select persona at the start
+            selected_persona = self._select_persona_interactive()
+            
+            # Launch TUI
+            import subprocess
+            import sys as sys_module
+            
+            # Build command
+            cmd = [
+                sys_module.executable,
+                str(tui_module_path),
+                initial_question
+            ]
+            
+            if selected_persona:
+                cmd.extend(["--persona", selected_persona])
+            
+            if model_override:
+                cmd.extend(["--model", model_override])
+            
+            if ollama_model_override:
+                cmd.extend(["--ollama-model", ollama_model_override])
+            
+            if ollama_timeout_override:
+                cmd.extend(["--ollama-timeout", str(ollama_timeout_override)])
+            
+            # Run TUI (replaces current process)
+            os.execv(sys_module.executable, cmd)
+            
+        except Exception as e:
+            # Fallback to legacy mode on error
+            print(f"⚠️  TUI not available, using legacy mode: {e}", file=sys.stderr)
+            return self._handle_interactive_ask_legacy(initial_question)
+    
+    def _handle_interactive_ask_legacy(self, initial_question: str) -> int:
+        """Legacy interactive conversation mode (fallback)"""
         print(f"💬 Interactive Claude Conversation")
         print("─" * 60)
         
@@ -427,7 +515,7 @@ class GTDClient:
                 "general_question",
                 current_question,
                 persona=selected_persona,
-                context={"max_tokens": 2000, "conversation_history": conversation_history}
+                context={"max_tokens": 2000, "conversation_history": conversation_history, "interactive": True}
             )
 
             if error:
@@ -495,11 +583,17 @@ COMMANDS:
         Analyze a daily log for insights (uses smart routing)
         Example: claude-gtd analyze ~/Documents/daily_logs/2026-01-19.md
 
-    ask <question> [--interactive]
+    ask <question> [--interactive] [--model MODEL_NAME] [--ollama-model MODEL_NAME] [--ollama-timeout SECONDS]
         Ask Claude directly (ALWAYS uses Claude, bypasses router)
         Use --interactive or -i for extended conversation with persona selection
+        Use --model to specify Claude model (e.g., claude-3-5-sonnet-20241022, claude-sonnet-4-5)
+        Use --ollama-model to specify Ollama model (e.g., gemma3:1b, llama3.2:3b, qwen2.5:7b)
+        Use --ollama-timeout to specify timeout in seconds (default: 120, increase for larger/slower models)
         Example: claude-gtd ask "What's your thoughts on productivity?"
         Example: claude-gtd ask "Help me plan my day" --interactive
+        Example: claude-gtd ask "Review my log" --interactive --model claude-sonnet-4-5
+        Example: claude-gtd ask "Simple question" --interactive --ollama-model llama3.2:3b
+        Example: claude-gtd ask "Complex task" --interactive --ollama-model ministral-3:3b --ollama-timeout 300
 
     status
         Show current system status (mode, available backends)

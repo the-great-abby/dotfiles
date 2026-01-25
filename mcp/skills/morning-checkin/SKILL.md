@@ -1,6 +1,6 @@
 ---
-name: Morning Check-In
-description: Complete morning routine workflow using GTD methodology and MCP tools. Guides through reviewing recent activity, processing inbox, and setting daily priorities.
+name: Morning Check-In Workflow
+description: Automated morning routine workflow using GTD methodology and MCP tools. AI-driven process that reviews recent activity, processes inbox, and sets daily priorities without user interaction.
 version: 1.0.0
 tags:
   - routine
@@ -8,21 +8,26 @@ tags:
   - checkin
   - daily
   - productivity
+  - automated
+  - workflow
 author: GTD System
 ---
 
-# Morning Check-In Workflow
+# Morning Check-In Workflow (Automated)
 
-A comprehensive morning routine that helps you start your day organized and focused using GTD principles and system capabilities.
+An AI-driven morning routine that automatically reviews your systems and provides daily insights using GTD principles and system capabilities.
+
+**Note:** This is an automated workflow where the AI performs the check-in steps. For an interactive version with questions, use the "Interactive Morning Review Runbook" instead.
 
 ## When to Use
 
-Use this skill at the beginning of each day (typically morning, but adapt to your schedule) to:
-- Review what happened recently
-- Process any items in your inbox
-- Set priorities for the day
-- Generate AI-powered suggestions based on your activity
-- Get clarity on what to focus on
+Use this automated workflow at the beginning of each day when you want:
+- Quick automated review of your systems
+- AI-generated insights without interaction
+- Rapid daily planning based on system data
+- Overview of priorities without detailed questioning
+
+**Alternative:** For interactive morning planning with questions, use "Interactive Morning Review Runbook"
 
 ## How It Works
 

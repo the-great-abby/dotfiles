@@ -1,0 +1,15 @@
+#!/bin/bash
+# Claude Ask TUI - Text User Interface for Claude conversations
+
+# Find the script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+DOTFILES_DIR="$( dirname "$SCRIPT_DIR" )"
+
+# Find Python
+PYTHON_CMD="python3"
+if ! command -v "$PYTHON_CMD" &> /dev/null; then
+  PYTHON_CMD="python"
+fi
+
+# Run the TUI
+cd "$DOTFILES_DIR/mcp" && source venv/bin/activate && venv/bin/python "$DOTFILES_DIR/mcp/claude_ask_tui.py" "$@"

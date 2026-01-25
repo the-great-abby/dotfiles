@@ -30,6 +30,13 @@ Add this configuration:
         "GTD_RABBITMQ_URL": "amqp://localhost:5672",
         "GTD_RABBITMQ_QUEUE": "gtd_deep_analysis"
       }
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
     }
   }
 }
@@ -47,9 +54,26 @@ echo "$(cd ~/code/dotfiles && pwd)/mcp/gtd_mcp_server.py"
 ### 3. Verify Setup
 
 1. Restart Cursor
-2. Check that MCP server is connected (should see in status)
+2. Check that MCP servers are connected (should see in status)
 3. Try asking: "What pending task suggestions do I have?"
 4. The AI should be able to use the MCP tools
+
+### 4. Sequential Thinking MCP (Optional)
+
+The Sequential Thinking MCP server provides structured problem-solving capabilities. It's automatically configured in the example above using `npx`. 
+
+**Features:**
+- Breaks complex problems into numbered steps
+- Allows revision and refinement of thoughts
+- Supports branching into alternative reasoning paths
+- Helps with hypothesis testing and verification
+
+**Verification:**
+After restarting Cursor, you should see sequential-thinking tools available:
+- `create_thoughts` - Start a thinking process
+- `revise_thought` - Revise a previous thought
+- `branch_thought` - Create alternative reasoning paths
+- `summarize_thoughts` - Get a summary of the thinking process
 
 ## Environment Variables
 

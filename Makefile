@@ -1,5 +1,6 @@
 GLIBC_VER=2.31-r0
-QUESTION ?= "Help review my daily log."
+QUESTION ?= "Help review my daily log using daily log review runbook."
+GTD_REVIEW_CMD ?= "gtd read-daily-log today"
 
 # GTD System Commands
 .PHONY: gtd-wizard gtd-wizard-2col gtd-wizard-fuzzy gtd-wizard-full gtd-capture gtd-process gtd-review gtd-sync gtd-advise gtd-learn gtd-status gtd-diagram
@@ -1033,9 +1034,97 @@ vector-db-init-schema: ## Initialize vector database schema (after extension is 
 # Advice Worker Management
 .PHONY: advice-worker-start advice-worker-stop advice-worker-status
 
-claude-ask-interactive:
-	@echo "Asking Claude interactively..."
-	cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && claude-gtd ask $(QUESTION) --interactive
+
+claude-ask-interactive-force-ollama: ## Ask Claude interactively with Ollama ONLY mode (forces all requests to Ollama)
+	@echo "Asking Claude interactively (TUI) - Ollama ONLY mode..."
+		cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && claude-gtd mode ollama-only && claude-gtd ask "$(GTD_REVIEW_CMD)" --interactive --ollama-model llama3.1:8b-instruct-q6_K --ollama-timeout 90
+
+claude-ask-interactive-force-ollama-8b: ## Ask Claude interactively with Ollama ONLY mode (8b model, better for tools)
+	@echo "Asking Claude interactively (TUI) - Ollama ONLY with 8b model..."
+	cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && claude-gtd mode ollama-only && claude-gtd ask "$(GTD_REVIEW_CMD)" --interactive --ollama-model ministral-3:8b-cloud --ollama-timeout 90
+
+claude-ask-interactive-force-ollama-3b: ## Ask Claude interactively with Ollama ONLY mode (3b model, limited tool support)
+	@echo "Asking Claude interactively (TUI) - Ollama ONLY with 3b model (may struggle with tools)..."
+	cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && claude-gtd mode ollama-only && claude-gtd ask "$(GTD_REVIEW_CMD)" --interactive --ollama-model ministral-3:3b --ollama-timeout 90
+claude-ask-interactive: ## Ask Claude interactively (hybrid mode, tool calls hidden)
+	@echo "Asking Claude interactively (TUI) - Hybrid mode..."
+	cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && claude-gtd mode hybrid && claude-gtd ask "$(QUESTION)" --interactive --ollama-model ministral-3:3b --ollama-timeout 90
+
+claude-ask-interactive-debug: ## Ask Claude interactively with Debug mode (shows tool calls)
+	@echo "Asking Claude interactively (TUI) - Debug mode..."
+	cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && claude-gtd mode hybrid && claude-gtd ask "$(QUESTION)" --interactive --debug --ollama-model ministral-3:3b --ollama-timeout 90
+
+claude-ask-tui:
+	@echo "Starting Claude Ask TUI..."
+	cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && venv/bin/python $(HOME)/code/dotfiles/mcp/claude_ask_tui.py "$(GTD_REVIEW_CMD)"
+
+# GTD CLI - Direct command execution (no LLM)
+gtd-cli: ## Run GTD CLI (bypasses LLM, direct tool execution)
+	@$(HOME)/code/dotfiles/bin/gtd-cli $(CMD)
+
+gtd-cli-help: ## Show GTD CLI help and available commands
+	@echo "🚀 GTD CLI - Direct command execution (no LLM needed!)"
+	@echo ""
+	@$(HOME)/code/dotfiles/bin/gtd-cli --list
+	@echo ""
+	@echo "Usage examples:"
+	@echo "  make gtd-cli CMD=\"list-tasks --project work\""
+	@echo "  make gtd-cli CMD=\"read-daily-log today\""
+	@echo "  make gtd-cli CMD=\"wizard\""
+	@echo "  make gtd-cli CMD=\"--help list-tasks\""
+	@echo ""
+	@echo "💡 Tip: Add 'alias gtd=gtd-cli' to your shell for even faster access!"
+
+gtd-setup-completion: ## Setup tab completion for GTD CLI
+	@echo "Setting up GTD CLI tab completion..."
+	@echo "source $(HOME)/code/dotfiles/zsh/functions/_gtd_cli_complete.zsh" >> ~/.zshrc
+	@echo "✅ Added to ~/.zshrc - restart your shell or run:"
+	@echo "   source ~/.zshrc"
+
+gtd-test-tui-bypass: ## Test GTD CLI bypass in TUI (interactive demo)
+	@$(HOME)/code/dotfiles/bin/test-gtd-tui
+
+gtd-check-ollama: ## Check Ollama process health and connections
+	@echo "🔍 Checking Ollama Process Health:"
+	@echo ""
+	@echo "📋 Running Processes:"
+	@ps aux | grep -E "(ollama|claude)" | grep -v grep || echo "  No processes found"
+	@echo ""
+	@echo "🌐 Network Connections:"
+	@echo "  Port 11434 (Standard Ollama):"
+	@netstat -an | grep 11434 | head -3 || echo "    Not listening"
+	@echo "  Port 31080 (Proxy/Custom):"
+	@netstat -an | grep 31080 | head -3 || echo "    Not listening"
+	@echo ""
+	@echo "🧪 API Health Check:"
+	@curl -s http://127.0.0.1:11434/api/tags | jq -r '.models | length // 0 | "  Standard API: " + (. | tostring) + " models"' 2>/dev/null || echo "  Standard API: Not responding"
+	@echo ""
+	@echo "⚙️  Current AI Mode:"
+	@cd $(HOME)/code/dotfiles/mcp && python3 claude_gtd_client.py mode || echo "  Could not check mode"
+	@echo ""
+	@echo "🚀 Ollama Endpoints:"
+	@cd $(HOME)/code/dotfiles/mcp && python3 -c "from claude_ollama_bridge import SmartAIRouter; r=SmartAIRouter(); print(f'  🔄 OpenAI Compatible: {r.ollama_url}'); print(f'  ⚡ Direct/Instant: {r.ollama_direct_url}')"
+
+gtd-test-priority: ## Test priority queue system (Priority 5 vs 10)
+	@echo "🧪 Testing Priority Queue System:"
+	@echo ""
+	@echo "📊 Priority 5 (High - TUI requests):"
+	@curl -s http://127.0.0.1:31080/v1/chat/completions -X POST -H "Content-Type: application/json" -d '{"model":"ministral-3:3b","messages":[{"role":"user","content":"priority 5 test"}],"priority":5}' | jq -r '{"request_id":.request_id,"priority":.priority,"queue_position":.queue_position}' 2>/dev/null || echo "  API not responding"
+	@echo ""
+	@echo "📊 Priority 10 (Default - background requests):"
+	@curl -s http://127.0.0.1:31080/v1/chat/completions -X POST -H "Content-Type: application/json" -d '{"model":"ministral-3:3b","messages":[{"role":"user","content":"priority 10 test"}],"priority":10}' | jq -r '{"request_id":.request_id,"priority":.priority,"queue_position":.queue_position}' 2>/dev/null || echo "  API not responding"
+	@echo ""
+	@echo "💡 Lower priority numbers = Higher priority in queue"
+
+gtd-ollama-status: ## Check status of Ollama async requests  
+	@$(HOME)/code/dotfiles/bin/gtd-ollama-async-status $(ID)
+
+gtd-ollama-list: ## List all active Ollama requests
+	@$(HOME)/code/dotfiles/bin/gtd-ollama-async-status --list
+
+gtd-tui:
+	@echo "Starting GTD TUI..."
+	cd $(HOME)/code/dotfiles/mcp && source venv/bin/activate && venv/bin/python ~/code/dotfiles/bin/gtd-wizard-tui.py
 
 advice-worker-start: ## Start advice worker daemon (set GTD_ADVICE_WORKER_COUNT=N for multiple workers)
 	@echo "Starting advice worker(s)..."

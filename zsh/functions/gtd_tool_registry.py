@@ -1053,18 +1053,39 @@ def _gtd_get_personalization_handler(category: Optional[str] = None) -> str:
     try:
         from pathlib import Path
         import json
+        import sys
         
-        personalization_file = Path.home() / ".gtd_personalization.json"
+        # Import TOON helper (same approach as update handler)
+        sys.path.insert(0, str(Path(__file__).parent))
+        try:
+            from gtd_toon_helper import load_toon_file, get_personalization_file_path
+            personalization_file = get_personalization_file_path()
+            use_toon = True
+        except ImportError:
+            # Fallback to JSON
+            personalization_file = Path.home() / ".gtd_personalization.json"
+            use_toon = False
         
+        # Check if file exists (try TOON first, then JSON fallback)
         if not personalization_file.exists():
-            return json.dumps({
-                "error": "Personalization file not found",
-                "message": "User has not set up personalization yet. Suggest running: gtd-wizard → option 67",
-                "file_path": str(personalization_file)
-            })
+            # If TOON doesn't exist, try JSON fallback
+            json_file = Path.home() / ".gtd_personalization.json"
+            if json_file.exists():
+                personalization_file = json_file
+                use_toon = False
+            else:
+                return json.dumps({
+                    "error": "Personalization file not found",
+                    "message": "User has not set up personalization yet. Suggest running: gtd-wizard → option 67",
+                    "file_path": str(personalization_file)
+                })
         
-        with open(personalization_file, 'r') as f:
-            data = json.load(f)
+        # Load data using appropriate format
+        if use_toon:
+            data = load_toon_file(personalization_file)
+        else:
+            with open(personalization_file, 'r') as f:
+                data = json.load(f)
         
         # If category specified, return only that category
         if category:
@@ -1077,7 +1098,8 @@ def _gtd_get_personalization_handler(category: Optional[str] = None) -> str:
             else:
                 return json.dumps({
                     "error": f"Category '{category}' not found",
-                    "available_categories": list(data.keys())
+                    "available_categories": list(data.keys()),
+                    "message": f"The personalization file exists but doesn't contain a '{category}' category. Available categories: {', '.join(list(data.keys()))}"
                 })
         
         # Return full data
@@ -1087,7 +1109,7 @@ def _gtd_get_personalization_handler(category: Optional[str] = None) -> str:
         return json.dumps({
             "error": "Invalid JSON in personalization file",
             "message": str(e),
-            "file_path": str(personalization_file)
+            "file_path": str(personalization_file) if 'personalization_file' in locals() else "unknown"
         })
     except Exception as e:
         return json.dumps({
@@ -1819,6 +1841,417 @@ def get_available_tools_by_category() -> Dict[str, List[str]]:
 def list_all_tools() -> List[str]:
     """Get list of all registered tool names."""
     return list(TOOL_REGISTRY.keys())
+
+
+# Sequential Thinking MCP Tools
+# These wrap the Sequential Thinking MCP server to make it available in Claude API calls
+def _sequential_thinking_handler(tool_name: str, **kwargs) -> str:
+    """Handler for Sequential Thinking MCP tools via subprocess."""
+    try:
+        import subprocess
+        import json as json_module
+        import os
+        
+        # Try to use MCP Python SDK if available
+        try:
+            from mcp import ClientSession, StdioServerParameters
+            from mcp.client.stdio import stdio_client
+            import asyncio
+            
+            # Try Docker first
+            server_params = StdioServerParameters(
+                command="docker",
+                args=["run", "--rm", "-i", "mcp/sequentialthinking"]
+            )
+            
+            async def call_mcp_tool():
+                async with stdio_client(server_params) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        result = await session.call_tool(tool_name, kwargs)
+                        return result
+            
+            result = asyncio.run(call_mcp_tool())
+            if result:
+                return json_module.dumps(result, default=str)
+        except ImportError:
+            # MCP SDK not available, fall back to subprocess
+            pass
+        except Exception as e:
+            # Docker/npx might not be available, try subprocess fallback
+            pass
+        
+        # Fallback: Use subprocess with proper MCP protocol
+        # Try Docker first
+        docker_cmd = ["docker", "run", "--rm", "-i", "mcp/sequentialthinking"]
+        
+        # Build MCP JSON-RPC request
+        mcp_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": kwargs
+            }
+        }
+        
+        try:
+            # Try Docker
+            result = subprocess.run(
+                docker_cmd,
+                input=json_module.dumps(mcp_request) + "\n",
+                text=True,
+                capture_output=True,
+                timeout=30,
+                check=False
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                # Parse MCP response
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip():
+                        try:
+                            response = json_module.loads(line)
+                            if "result" in response:
+                                return json_module.dumps(response["result"], default=str)
+                            elif "error" in response:
+                                return json_module.dumps({"error": response["error"]}, default=str)
+                        except json_module.JSONDecodeError:
+                            continue
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        
+        # Fallback to npx
+        try:
+            npx_cmd = ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"]
+            result = subprocess.run(
+                npx_cmd,
+                input=json_module.dumps(mcp_request) + "\n",
+                text=True,
+                capture_output=True,
+                timeout=30,
+                check=False
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip():
+                        try:
+                            response = json_module.loads(line)
+                            if "result" in response:
+                                return json_module.dumps(response["result"], default=str)
+                            elif "error" in response:
+                                return json_module.dumps({"error": response["error"]}, default=str)
+                        except json_module.JSONDecodeError:
+                            continue
+        except Exception:
+            pass
+        
+        # If all else fails, return helpful error
+        return json_module.dumps({
+            "error": "Sequential Thinking MCP server not available",
+            "tool": tool_name,
+            "solutions": [
+                "Install Docker image: docker pull mcp/sequentialthinking",
+                "Or ensure npx is available: which npx",
+                "Or install MCP Python SDK: pip install mcp",
+                "Note: Sequential Thinking tools work best when configured in Cursor IDE MCP settings"
+            ],
+            "hint": "These tools are also available in Cursor IDE when Sequential Thinking MCP is configured"
+        })
+        
+    except Exception as e:
+        import traceback
+        return json_module.dumps({
+            "error": f"Error calling Sequential Thinking tool: {str(e)}",
+            "tool": tool_name,
+            "traceback": traceback.format_exc()
+        })
+
+
+def _create_thoughts_handler(thought: str, nextThoughtNeeded: bool = True, thoughtNumber: int = 1, totalThoughts: int = 5) -> str:
+    """Create thoughts in Sequential Thinking process."""
+    return _sequential_thinking_handler("create_thoughts", thought=thought, nextThoughtNeeded=nextThoughtNeeded, thoughtNumber=thoughtNumber, totalThoughts=totalThoughts)
+
+
+def _revise_thought_handler(thought: str, revisesThought: int, thoughtNumber: int, totalThoughts: int, nextThoughtNeeded: bool = True) -> str:
+    """Revise a previous thought."""
+    return _sequential_thinking_handler("revise_thought", thought=thought, revisesThought=revisesThought, thoughtNumber=thoughtNumber, totalThoughts=totalThoughts, nextThoughtNeeded=nextThoughtNeeded)
+
+
+def _branch_thought_handler(thought: str, branchFromThought: int, branchId: str, thoughtNumber: int, totalThoughts: int, nextThoughtNeeded: bool = True) -> str:
+    """Create a branch from a previous thought."""
+    return _sequential_thinking_handler("branch_thought", thought=thought, branchFromThought=branchFromThought, branchId=branchId, thoughtNumber=thoughtNumber, totalThoughts=totalThoughts, nextThoughtNeeded=nextThoughtNeeded)
+
+
+def _summarize_thoughts_handler() -> str:
+    """Summarize all thoughts in the thinking process."""
+    return _sequential_thinking_handler("summarize_thoughts")
+
+
+# Register Sequential Thinking tools
+register_tool(
+    name="create_thoughts",
+    description="Start a structured thinking process with initial thoughts. Use this for complex problems that need step-by-step analysis. Helps break down problems into manageable steps and reduces hallucination.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "thought": {
+                "type": "string",
+                "description": "The current thinking step or initial thought"
+            },
+            "nextThoughtNeeded": {
+                "type": "boolean",
+                "description": "Whether another thought step is needed. Default: true",
+                "default": True
+            },
+            "thoughtNumber": {
+                "type": "integer",
+                "description": "Current thought number (1-based). Default: 1",
+                "default": 1
+            },
+            "totalThoughts": {
+                "type": "integer",
+                "description": "Total number of thoughts planned. Can be adjusted dynamically. Default: 5",
+                "default": 5
+            }
+        },
+        "required": ["thought"]
+    },
+    handler=_create_thoughts_handler,
+    category="sequential_thinking"
+)
+
+register_tool(
+    name="revise_thought",
+    description="Revise a previous thought and update subsequent thoughts. Use this when you realize a previous step needs correction or refinement.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "thought": {
+                "type": "string",
+                "description": "The revised thought"
+            },
+            "revisesThought": {
+                "type": "integer",
+                "description": "The thought number being revised (1-based)"
+            },
+            "thoughtNumber": {
+                "type": "integer",
+                "description": "Current thought number"
+            },
+            "totalThoughts": {
+                "type": "integer",
+                "description": "Total number of thoughts (may be adjusted)"
+            },
+            "nextThoughtNeeded": {
+                "type": "boolean",
+                "description": "Whether another thought is needed. Default: true",
+                "default": True
+            }
+        },
+        "required": ["thought", "revisesThought", "thoughtNumber", "totalThoughts"]
+    },
+    handler=_revise_thought_handler,
+    category="sequential_thinking"
+)
+
+register_tool(
+    name="branch_thought",
+    description="Create an alternative reasoning path from a previous thought. Use this to explore different approaches or solutions.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "thought": {
+                "type": "string",
+                "description": "The thought for this branch"
+            },
+            "branchFromThought": {
+                "type": "integer",
+                "description": "The thought number to branch from (1-based)"
+            },
+            "branchId": {
+                "type": "string",
+                "description": "Unique identifier for this branch (e.g., 'branch-1', 'alternative-approach')"
+            },
+            "thoughtNumber": {
+                "type": "integer",
+                "description": "Current thought number in this branch"
+            },
+            "totalThoughts": {
+                "type": "integer",
+                "description": "Total thoughts in this branch"
+            },
+            "nextThoughtNeeded": {
+                "type": "boolean",
+                "description": "Whether another thought is needed. Default: true",
+                "default": True
+            }
+        },
+        "required": ["thought", "branchFromThought", "branchId", "thoughtNumber", "totalThoughts"]
+    },
+    handler=_branch_thought_handler,
+    category="sequential_thinking"
+)
+
+register_tool(
+    name="summarize_thoughts",
+    description="Get a summary of all thoughts in the thinking process. Use this at the end of a thinking process to get a concise summary.",
+    parameters={
+        "type": "object",
+        "properties": {}
+    },
+    handler=_summarize_thoughts_handler,
+    category="sequential_thinking"
+)
+
+
+# Knowledge Organization Tools
+# These wrap the Knowledge Organization system to make it available in Claude API calls
+
+def _knowledge_org_handler(tool_name: str, **kwargs) -> str:
+    """Handler for Knowledge Organization tools."""
+    try:
+        import json
+        
+        mcp_dir = Path(__file__).parent.parent.parent / "mcp"
+        sys.path.insert(0, str(mcp_dir))
+        
+        if tool_name == "queue_knowledge_organization":
+            from gtd_mcp_server import _queue_knowledge_organization_impl
+            scan_type = kwargs.get("scan_type", "full")
+            
+            result = _queue_knowledge_organization_impl(scan_type)
+            return json.dumps({
+                "status": result,
+                "scan_type": scan_type,
+                "message": f"Knowledge organization scan ({scan_type}) has been queued for background processing.",
+                "tool": tool_name
+            })
+        
+        elif tool_name == "implement_knowledge_suggestions":
+            from knowledge_org_implement import implement_suggestions
+            
+            result_file = kwargs.get("result_file")
+            indices = kwargs.get("indices", None)
+            
+            if result_file:
+                result_file_path = Path(result_file)
+                stats = implement_suggestions(result_file_path, indices)
+                return json.dumps({
+                    "implemented": stats,
+                    "message": f"Implemented {sum(stats.values())} suggestions",
+                    "tool": tool_name
+                })
+            else:
+                return json.dumps({
+                    "error": "result_file parameter is required",
+                    "tool": tool_name
+                })
+        
+        elif tool_name == "knowledge_org_stats":
+            from knowledge_org_learning import get_stats_summary
+            
+            stats = get_stats_summary()
+            return json.dumps({
+                "stats": stats,
+                "tool": tool_name
+            })
+            
+        else:
+            return json.dumps({
+                "error": f"Unknown knowledge organization tool: {tool_name}",
+                "available_tools": [
+                    "queue_knowledge_organization",
+                    "implement_knowledge_suggestions", 
+                    "knowledge_org_stats"
+                ]
+            })
+            
+    except ImportError as e:
+        return json.dumps({
+            "error": "Knowledge Organization system not available",
+            "details": str(e),
+            "setup_instructions": [
+                "Ensure knowledge organization modules are in mcp/ directory",
+                "Check that GTD MCP server is properly configured"
+            ],
+            "tool": tool_name
+        })
+    except Exception as e:
+        return json.dumps({
+            "error": f"Error calling Knowledge Organization tool: {str(e)}",
+            "tool": tool_name
+        })
+
+
+def _queue_knowledge_org_handler(**kwargs) -> str:
+    """Handler wrapper for queue_knowledge_organization."""
+    return _knowledge_org_handler("queue_knowledge_organization", **kwargs)
+
+
+def _implement_knowledge_suggestions_handler(**kwargs) -> str:
+    """Handler wrapper for implement_knowledge_suggestions."""
+    return _knowledge_org_handler("implement_knowledge_suggestions", **kwargs)
+
+
+def _knowledge_org_stats_handler(**kwargs) -> str:
+    """Handler wrapper for knowledge_org_stats."""
+    return _knowledge_org_handler("knowledge_org_stats", **kwargs)
+
+
+# Register Knowledge Organization tools
+register_tool(
+    name="queue_knowledge_organization",
+    description="Queue a knowledge organization scan for background processing. Analyzes your GTD system and suggests MoCs (Maps of Content), Areas of Responsibility, and organizational improvements.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "scan_type": {
+                "type": "string",
+                "description": "Type of scan to perform",
+                "enum": ["full", "areas", "mocs", "themes"],
+                "default": "full"
+            }
+        }
+    },
+    handler=_queue_knowledge_org_handler,
+    category="knowledge_organization"
+)
+
+register_tool(
+    name="implement_knowledge_suggestions",
+    description="Implement knowledge organization suggestions from a result file. Creates areas, assigns projects, and sets up organizational structure.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "result_file": {
+                "type": "string",
+                "description": "Path to the results file from knowledge organization scan"
+            },
+            "indices": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "Specific suggestion indices to implement (optional, default: all)"
+            }
+        },
+        "required": ["result_file"]
+    },
+    handler=_implement_knowledge_suggestions_handler,
+    category="knowledge_organization"
+)
+
+register_tool(
+    name="knowledge_org_stats",
+    description="Get knowledge organization learning statistics and patterns. Shows acceptance rates, learning patterns, and system insights.",
+    parameters={
+        "type": "object",
+        "properties": {}
+    },
+    handler=_knowledge_org_stats_handler,
+    category="knowledge_organization"
+)
 
 
 # Export for use in other modules

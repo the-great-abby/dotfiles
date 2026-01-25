@@ -1,0 +1,159 @@
+#!/bin/bash
+# GTD Ollama Async Status - Check status of async Ollama requests
+
+# Source common GTD helpers
+GTD_COMMON="$HOME/code/dotfiles/bin/gtd-common.sh"
+if [[ ! -f "$GTD_COMMON" && -f "$HOME/code/personal/dotfiles/bin/gtd-common.sh" ]]; then
+  GTD_COMMON="$HOME/code/personal/dotfiles/bin/gtd-common.sh"
+fi
+if [[ -f "$GTD_COMMON" ]]; then
+  source "$GTD_COMMON"
+else
+  echo "Warning: gtd-common.sh not found. Some features may not work." >&2
+fi
+
+usage() {
+  echo "Usage: gtd-ollama-async-status [request_id]"
+  echo ""
+  echo "Check status of Ollama async requests."
+  echo ""
+  echo "Options:"
+  echo "  request_id    Check specific request ID"
+  echo "  --list        List all active requests"
+  echo "  --health      Check Ollama Controller health"
+  echo ""
+  echo "Examples:"
+  echo "  gtd-ollama-async-status 12345"
+  echo "  gtd-ollama-async-status --list"
+  echo "  gtd-ollama-async-status --health"
+}
+
+check_ollama_health() {
+  echo "🔍 **Ollama Controller Health Check:**"
+  echo ""
+  
+  # Check if Ollama Controller is running (port 31080)
+  if nc -z localhost 31080 >/dev/null 2>&1; then
+    echo "✅ Ollama Controller (port 31080): Running"
+  else
+    echo "❌ Ollama Controller (port 31080): Not responding"
+  fi
+  
+  # Check if native Ollama is running (port 11434)
+  if nc -z localhost 11434 >/dev/null 2>&1; then
+    echo "✅ Native Ollama (port 11434): Running"
+  else
+    echo "❌ Native Ollama (port 11434): Not responding"
+  fi
+  
+  # Try to get queue status
+  echo ""
+  echo "📊 **Queue Status:**"
+  
+  if command -v curl >/dev/null 2>&1; then
+    queue_status=$(curl -s "http://127.0.0.1:31080/queue/status" 2>/dev/null || echo "error")
+    if [[ "$queue_status" != "error" ]]; then
+      echo "$queue_status" | python3 -m json.tool 2>/dev/null || echo "Raw: $queue_status"
+    else
+      echo "❌ Could not fetch queue status"
+    fi
+  else
+    echo "⚠️  curl not available - cannot check queue status"
+  fi
+}
+
+check_request_status() {
+  local request_id="$1"
+  
+  if [[ -z "$request_id" ]]; then
+    echo "❌ Error: Request ID required"
+    echo ""
+    usage
+    exit 1
+  fi
+  
+  echo "🔍 **Checking Request Status:** $request_id"
+  echo ""
+  
+  if command -v curl >/dev/null 2>&1; then
+    status_url="http://127.0.0.1:31080/v1/chat/completions/$request_id"
+    
+    echo "📡 Fetching: $status_url"
+    status_response=$(curl -s "$status_url" 2>/dev/null)
+    
+    if [[ -n "$status_response" ]]; then
+      echo ""
+      echo "📋 **Response:**"
+      echo "$status_response" | python3 -m json.tool 2>/dev/null || echo "$status_response"
+      
+      # Check if completed
+      if echo "$status_response" | grep -q '"choices"'; then
+        echo ""
+        echo "✅ **Status: COMPLETED** - Request has finished processing"
+      elif echo "$status_response" | grep -q '"error"'; then
+        echo ""
+        echo "❌ **Status: ERROR** - Request failed"
+      elif echo "$status_response" | grep -q '"status".*"queued"'; then
+        echo ""
+        echo "⏳ **Status: QUEUED** - Still waiting in queue"
+      elif echo "$status_response" | grep -q '"status".*"processing"'; then
+        echo ""
+        echo "🔄 **Status: PROCESSING** - Currently being processed"
+      else
+        echo ""
+        echo "❓ **Status: UNKNOWN** - Cannot determine status from response"
+      fi
+    else
+      echo "❌ No response from server - request may not exist or server is down"
+    fi
+  else
+    echo "❌ curl not available - cannot check request status"
+    exit 1
+  fi
+}
+
+list_active_requests() {
+  echo "📋 **Active Ollama Requests:**"
+  echo ""
+  
+  if command -v curl >/dev/null 2>&1; then
+    queue_url="http://127.0.0.1:31080/queue/list"
+    
+    echo "📡 Fetching: $queue_url"
+    queue_response=$(curl -s "$queue_url" 2>/dev/null)
+    
+    if [[ -n "$queue_response" ]]; then
+      echo ""
+      echo "📋 **Queue:**"
+      echo "$queue_response" | python3 -m json.tool 2>/dev/null || echo "$queue_response"
+    else
+      echo "❌ No response from queue endpoint"
+    fi
+  else
+    echo "❌ curl not available - cannot list requests"
+    exit 1
+  fi
+}
+
+# Main script logic
+case "${1:-}" in
+  --help|-h)
+    usage
+    exit 0
+    ;;
+  --health)
+    check_ollama_health
+    ;;
+  --list)
+    list_active_requests
+    ;;
+  "")
+    echo "❌ Error: Missing argument"
+    echo ""
+    usage
+    exit 1
+    ;;
+  *)
+    check_request_status "$1"
+    ;;
+esac

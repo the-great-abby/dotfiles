@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""
+GTD Runbook Resume Tool
+
+Manage and resume interrupted interactive runbooks with full session persistence.
+"""
+
+import sys
+import json
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+import argparse
+
+# Add the mcp directory to Python path
+mcp_path = str(Path(__file__).parent.parent / "mcp")
+sys.path.insert(0, mcp_path)
+
+# Add the skills directory to Python path  
+skills_path = str(Path(__file__).parent.parent / "mcp" / "skills")
+sys.path.insert(0, skills_path)
+
+try:
+    from session_persistence.scripts.runbook_sessions import RunbookSession
+except ImportError as e:
+    # Try alternative import
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent / "mcp" / "skills" / "session-persistence" / "scripts"))
+        from runbook_sessions import RunbookSession
+    except ImportError:
+        print("❌ Error: Could not import session persistence module")
+        print(f"Import error: {e}")
+        print("Available paths:")
+        for path in sys.path[:5]:
+            print(f"  {path}")
+        print("Make sure the session persistence system is installed")
+        sys.exit(1)
+
+class RunbookResumeManager:
+    """Manages resuming interrupted runbooks"""
+    
+    def __init__(self):
+        self.session_manager = RunbookSession()
+    
+    def list_resumable_sessions(self) -> None:
+        """List all sessions that can be resumed"""
+        sessions = self.session_manager.list_active_sessions()
+        
+        if not sessions:
+            print("🎯 No resumable sessions found")
+            print("\n💡 Start a new interactive runbook with:")
+            print("   gtd-runbook interactive-<runbook-name>")
+            return
+        
+        print(f"📋 **{len(sessions)} Resumable Sessions:**")
+        print("=" * 60)
+        
+        for session in sessions:
+            progress = session.get('progress', 0)
+            current_step = session.get('current_step', 0)
+            resume_point = session.get('resume_point', 'Unknown')
+            
+            print(f"🔸 **{session['session_id']}** - {session['runbook_name']}")
+            print(f"   Progress: {progress:.1f}% | Step {current_step} | {resume_point}")
+            print(f"   Last Active: {session['last_active']}")
+            print()
+        
+        print("💡 **To Resume:** gtd-runbook-resume <session_id>")
+        print("💡 **For Details:** gtd-runbook-resume info <session_id>")
+    
+    def show_session_info(self, session_id: str) -> None:
+        """Show detailed information about a session"""
+        summary = self.session_manager.get_session_summary(session_id)
+        print(summary)
+        
+        # Show resume command
+        resume_info = self.session_manager.get_resume_info(session_id)
+        if resume_info:
+            print(f"\n🚀 **To Resume:**")
+            print(f"   gtd-runbook-resume {session_id}")
+            
+            if resume_info.get('persona'):
+                print(f"   (Will resume with {resume_info['persona']} persona)")
+    
+    def resume_session(self, session_id: str) -> None:
+        """Resume an interrupted session"""
+        resume_info = self.session_manager.get_resume_info(session_id)
+        
+        if not resume_info:
+            print(f"❌ Session {session_id} not found or cannot be resumed")
+            return
+        
+        print(f"🚀 **Resuming Session {session_id}**")
+        print("=" * 50)
+        print(f"📋 Runbook: {resume_info['runbook_name']}")
+        if resume_info.get('persona'):
+            print(f"🎭 Persona: {resume_info['persona']}")
+        print(f"📊 Progress: {resume_info['progress_percentage']:.1f}%")
+        print(f"📍 Resume Point: {resume_info.get('resume_point', 'Beginning')}")
+        print(f"✅ Completed Steps: {len(resume_info['completed_steps'])}")
+        print()
+        
+        # Show previous inputs if available
+        if resume_info['user_inputs']:
+            print("📝 **Previous Inputs:**")
+            for step_num, inputs in resume_info['user_inputs'].items():
+                print(f"   Step {step_num}: {json.dumps(inputs, indent=4)}")
+            print()
+        
+        # Generate resume command
+        runbook_name = resume_info['runbook_name']
+        persona = resume_info.get('persona', '')
+        
+        # Construct resume command
+        if persona:
+            resume_cmd = f"gtd-advise {persona} 'Resume {runbook_name} from session {session_id}'"
+        else:
+            resume_cmd = f"gtd-runbook {runbook_name} --resume {session_id}"
+        
+        print("🎯 **Resuming with AI guidance...**")
+        print(f"Command: {resume_cmd}")
+        print()
+        
+        # Execute the resume
+        import subprocess
+        try:
+            # For now, show the user what to do
+            # In the future, this could directly execute the resume
+            print("💡 **Manual Resume Instructions:**")
+            print("1. Run the command above to continue with AI guidance")
+            print("2. The AI will load your previous progress and continue from where you left off")
+            print("3. Your session data is automatically preserved")
+            print()
+            print("🔄 **Alternative - Direct Runbook Resume:**")
+            print(f"   gtd-runbook {runbook_name}")
+            print("   (Then mention you want to resume session {session_id})")
+            
+        except Exception as e:
+            print(f"⚠️ Could not auto-resume: {e}")
+            print(f"💡 Please run manually: {resume_cmd}")
+    
+    def create_new_session(self, runbook_name: str, persona: str = None) -> str:
+        """Create a new session for a runbook"""
+        session_id = self.session_manager.create_session(runbook_name, persona)
+        print(f"✅ Created new session: {session_id}")
+        print(f"🚀 Start your runbook and reference this session ID")
+        return session_id
+    
+    def complete_session(self, session_id: str) -> None:
+        """Mark a session as completed"""
+        self.session_manager.complete_session(session_id)
+        print(f"🎉 Session {session_id} marked as completed!")
+    
+    def abandon_session(self, session_id: str) -> None:
+        """Abandon a session"""
+        self.session_manager.abandon_session(session_id)
+        print(f"🗑️ Session {session_id} abandoned")
+    
+    def cleanup_old_sessions(self, days: int = 30) -> None:
+        """Clean up old sessions"""
+        cleaned = self.session_manager.cleanup_old_sessions(days)
+        print(f"🧹 Cleaned up {cleaned} old sessions (older than {days} days)")
+
+def main():
+    parser = argparse.ArgumentParser(description='Manage and resume GTD runbook sessions')
+    parser.add_argument('command', nargs='?', choices=[
+        'list', 'info', 'resume', 'create', 'complete', 'abandon', 'cleanup'
+    ], default='list', help='Command to execute')
+    parser.add_argument('session_id', nargs='?', help='Session ID to operate on')
+    parser.add_argument('--runbook', help='Runbook name for create command')
+    parser.add_argument('--persona', help='Persona for create command')
+    parser.add_argument('--days', type=int, default=30, help='Days for cleanup command')
+    
+    args = parser.parse_args()
+    
+    manager = RunbookResumeManager()
+    
+    try:
+        if args.command == 'list':
+            manager.list_resumable_sessions()
+        
+        elif args.command == 'info':
+            if not args.session_id:
+                print("❌ Error: Session ID required for info command")
+                print("Usage: gtd-runbook-resume info <session_id>")
+                sys.exit(1)
+            manager.show_session_info(args.session_id)
+        
+        elif args.command == 'resume':
+            if not args.session_id:
+                print("❌ Error: Session ID required for resume command")
+                print("Usage: gtd-runbook-resume resume <session_id>")
+                sys.exit(1)
+            manager.resume_session(args.session_id)
+        
+        elif args.command == 'create':
+            if not args.runbook:
+                print("❌ Error: Runbook name required for create command")
+                print("Usage: gtd-runbook-resume create --runbook <name> [--persona <persona>]")
+                sys.exit(1)
+            manager.create_new_session(args.runbook, args.persona)
+        
+        elif args.command == 'complete':
+            if not args.session_id:
+                print("❌ Error: Session ID required for complete command")
+                sys.exit(1)
+            manager.complete_session(args.session_id)
+        
+        elif args.command == 'abandon':
+            if not args.session_id:
+                print("❌ Error: Session ID required for abandon command")
+                sys.exit(1)
+            manager.abandon_session(args.session_id)
+        
+        elif args.command == 'cleanup':
+            manager.cleanup_old_sessions(args.days)
+    
+    except KeyboardInterrupt:
+        print("\n👋 Interrupted")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()

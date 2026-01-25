@@ -1,0 +1,3 @@
+#!/bin/bash
+# GTD CLI Shortcut - Direct access to gtd-cli
+exec "$(dirname "$0")/gtd-cli" "$@"

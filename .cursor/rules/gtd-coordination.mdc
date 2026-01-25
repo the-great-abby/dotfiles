@@ -1,0 +1,290 @@
+# GTD Coordination Rule - Prevent Duplicate Operations
+
+**CRITICAL**: All GTD operations that could create duplicates between TUI and background workers MUST use the coordination system. This prevents conflicts, duplicate tasks, and race conditions.
+
+## When This Rule Applies
+
+This rule applies to ANY code that:
+- Creates GTD tasks (`gtd_create_task`, task creation)
+- Processes daily logs for task extraction 
+- Processes meeting notes for follow-up tasks
+- Breaks down projects into tasks
+- Performs bulk GTD operations
+- Runs in background workers OR interactive TUI
+- Could be executed simultaneously by multiple processes
+
+## Coordination Requirements
+
+### 🛡️ **MANDATORY: Use Enhanced Tools**
+
+**❌ NEVER use direct tools for operations that could conflict:**
+```python
+# BAD - No conflict prevention
+from gtd_tool_registry import _gtd_create_task_handler
+_gtd_create_task_handler("My task", project="Work")
+```
+
+**✅ ALWAYS use enhanced tools with coordination:**
+```python
+# GOOD - Built-in conflict prevention
+from enhanced_gtd_tools import gtd_create_task_enhanced
+gtd_create_task_enhanced("My task", project="Work", source="worker")
+```
+
+### 🏷️ **MANDATORY: Source Identification**
+
+Every enhanced tool call MUST include a source identifier:
+
+- **`source="tui"`** - Interactive TUI operations
+- **`source="worker"`** - Background worker operations  
+- **`source="advice"`** - Advice worker operations
+- **`source="manual"`** - Manual script execution
+- **`source="test"`** - Test operations
+
+**❌ BAD:**
+```python
+gtd_create_task_enhanced("Task", project="Work")  # Missing source!
+```
+
+**✅ GOOD:**
+```python
+gtd_create_task_enhanced("Task", project="Work", source="worker")
+```
+
+## Specific Use Cases
+
+### 📝 **Daily Log Processing**
+
+**❌ BAD - Direct processing without coordination:**
+```python
+def process_daily_log(content, date):
+    # Extract tasks and create them directly
+    for task in extract_tasks(content):
+        gtd_create_task(task["title"])  # CONFLICT RISK!
+```
+
+**✅ GOOD - Use enhanced processing:**
+```python
+def process_daily_log(content, date):
+    from enhanced_gtd_tools import EnhancedGTDTools
+    tools = EnhancedGTDTools(source="worker")
+    result = tools.process_daily_log_safe(content, date)
+    return result
+```
+
+### 🏢 **Meeting Notes Processing**
+
+**❌ BAD:**
+```python
+def process_meeting(notes, meeting_id):
+    # Direct task creation - no duplicate prevention
+    create_followup_tasks(notes)  # CONFLICT RISK!
+```
+
+**✅ GOOD:**
+```python
+def process_meeting(notes, meeting_id):
+    from enhanced_gtd_tools import EnhancedGTDTools
+    tools = EnhancedGTDTools(source="tui")
+    result = tools.process_meeting_notes_safe(notes, meeting_id)
+    return result
+```
+
+### 🎯 **Task Creation in Skills/Runbooks**
+
+**❌ BAD - Skills without coordination:**
+```markdown
+Use gtd_create_task() to create the following tasks:
+- Call client about project
+- Review quarterly goals
+```
+
+**✅ GOOD - Use safe runbooks:**
+```markdown
+Use the safe-auto-task-creation-from-log skill which includes built-in coordination:
+Execute safe-auto-task-creation-from-log skill
+```
+
+## Background Worker Integration
+
+### 📋 **Worker Script Pattern**
+
+All background workers MUST use this pattern:
+
+```python
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+# Import coordination system
+sys.path.insert(0, str(Path(__file__).parent))
+from enhanced_gtd_tools import EnhancedGTDTools
+
+class MyWorker:
+    def __init__(self):
+        # MANDATORY: Specify source for coordination
+        self.gtd_tools = EnhancedGTDTools(source="my_worker")
+    
+    def process_request(self, data):
+        # Use enhanced tools instead of direct ones
+        result = self.gtd_tools.create_task_safe(
+            title=data["title"],
+            project=data.get("project"),
+            source_reference=f"worker_request_{data['id']}"
+        )
+        return result
+```
+
+### 🔄 **MCP Server Integration**
+
+MCP servers that create tasks MUST use coordination:
+
+```python
+# In MCP server handlers
+from enhanced_gtd_tools import gtd_create_task_enhanced
+
+async def handle_create_task(title: str, project: str = None):
+    # MANDATORY: Include source identification
+    result = gtd_create_task_enhanced(
+        title=title, 
+        project=project, 
+        source="mcp_server"
+    )
+    return result
+```
+
+## TUI Integration
+
+### 📱 **Interactive Interface Pattern**
+
+TUI operations MUST use enhanced tools:
+
+```python
+# In claude_ask_tui.py or similar
+from enhanced_gtd_tools import gtd_create_task_enhanced
+
+async def handle_task_creation(self, title, project=None):
+    # MANDATORY: Use enhanced tools with TUI source
+    result = gtd_create_task_enhanced(
+        title=title,
+        project=project, 
+        context=self.get_current_context(),
+        source="tui"
+    )
+    
+    if result.startswith("Task creation duplicate_detected"):
+        self.show_message("Task already exists - skipping duplicate")
+    else:
+        self.show_message("Task created successfully")
+```
+
+## Monitoring and Debugging
+
+### 🔍 **MANDATORY: Check Coordination Status**
+
+Before diagnosing "duplicate task" issues, ALWAYS check coordination status:
+
+```bash
+# Check for active locks and processing history
+gtd-coordination-status status
+
+# Clean stale locks if needed
+gtd-coordination-status clean
+```
+
+### 📊 **Debugging Conflicts**
+
+When investigating duplicate operations:
+
+1. **Check coordination logs**: `gtd-coordination-status status`
+2. **Verify source identification**: Ensure all operations have proper `source=` parameter
+3. **Check processing history**: Look for recent processing of same content
+4. **Verify lock cleanup**: Clean stale locks if processes crashed
+
+## Error Handling Patterns
+
+### ⏰ **Lock Timeout Handling**
+
+```python
+result = tools.create_task_safe(title, project, context)
+
+if result["status"] == "lock_timeout":
+    # GOOD - Graceful handling
+    logger.warning(f"Lock timeout for task creation: {result['message']}")
+    return {"status": "deferred", "message": "Will retry later"}
+elif result["status"] == "duplicate_detected":
+    # GOOD - Skip duplicates gracefully  
+    logger.info(f"Skipping duplicate task: {title}")
+    return {"status": "skipped", "message": "Task already exists"}
+```
+
+### 🔄 **Already Processed Content**
+
+```python
+result = tools.process_daily_log_safe(log_content, date)
+
+if result["status"] == "already_processed":
+    # GOOD - Don't treat as error
+    logger.info(f"Log already processed: {result['message']}")
+    return result
+```
+
+## Testing Requirements
+
+### 🧪 **Coordination Testing**
+
+All new GTD operations MUST include coordination tests:
+
+```python
+def test_duplicate_prevention():
+    tools = EnhancedGTDTools(source="test")
+    
+    # Create task
+    result1 = tools.create_task_safe("Test task")
+    assert result1["created"] == True
+    
+    # Try to create same task - should detect duplicate
+    result2 = tools.create_task_safe("Test task") 
+    assert result2["status"] == "duplicate_detected"
+```
+
+## Performance Considerations
+
+### ⚡ **Coordination Overhead**
+
+The coordination system adds minimal overhead:
+- **Duplicate check**: < 100ms
+- **Lock acquisition**: < 50ms  
+- **Content fingerprinting**: < 10ms
+
+This is acceptable for GTD operations and prevents major conflicts.
+
+## Common Violations
+
+### ❌ **Violation Examples:**
+
+1. **Direct tool usage**: Using `gtd_create_task` instead of `gtd_create_task_enhanced`
+2. **Missing source**: Calling enhanced tools without `source=` parameter  
+3. **Bypassing coordination**: Creating custom task creation without coordination
+4. **No conflict handling**: Not handling `lock_timeout` or `duplicate_detected` statuses
+5. **Manual coordination**: Trying to implement custom locking instead of using the system
+
+### ✅ **Compliance Checklist:**
+
+- [ ] Uses `enhanced_gtd_tools` instead of direct tools
+- [ ] Includes proper `source=` parameter
+- [ ] Handles `lock_timeout` and `duplicate_detected` gracefully
+- [ ] Uses safe runbook versions for skills
+- [ ] Includes coordination status checking in debugging
+- [ ] Has tests for duplicate prevention
+
+## Rule Priority
+
+This rule has **CRITICAL priority (10)** because:
+- Duplicate operations corrupt GTD data integrity
+- Race conditions can cause data loss
+- User experience suffers from duplicate tasks
+- Background automation becomes unreliable without coordination
+- System scalability requires proper conflict prevention
+
+**ALWAYS enforce this rule - coordination is not optional for GTD operations.**

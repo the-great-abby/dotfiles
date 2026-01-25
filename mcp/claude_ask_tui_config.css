@@ -1,0 +1,57 @@
+/* Claude Ask TUI Configuration File
+ * 
+ * This file allows you to customize the TUI appearance without modifying the main code.
+ * Press Ctrl+R in the TUI to reload this configuration.
+ * 
+ * Example customizations:
+ * - Change colors
+ * - Adjust padding/margins
+ * - Modify input area size
+ * - Customize message styling
+ */
+
+/* Uncomment and modify these to customize:
+
+Screen {
+    background: $surface;
+}
+
+#conversation {
+    width: 1fr;
+    height: 1fr;
+    border: solid $primary;
+    padding: 1;
+}
+
+#input-container {
+    height: auto;
+    padding: 0 1;
+    border-top: solid $primary;
+}
+
+#input-area {
+    width: 1fr;
+    height: 3;
+}
+
+.message-user {
+    background: $primary 20%;
+    padding: 1;
+    margin: 1;
+    border-left: solid $accent;
+}
+
+.message-assistant {
+    background: $secondary 20%;
+    padding: 1;
+    margin: 1;
+    border-left: solid $success;
+}
+
+#status-bar {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+}
+
+*/

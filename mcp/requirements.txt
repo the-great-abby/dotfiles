@@ -34,3 +34,9 @@ bleak>=0.21.0
 # (json, pathlib, datetime, etc. are built-in)
 
 python-toon
+
+# TUI library for gtd-wizard-tui
+textual>=0.40.0
+pexpect>=4.9.0
+pytest>=7.0.0
+requests>=2.31.0

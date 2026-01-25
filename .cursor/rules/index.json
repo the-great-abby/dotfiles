@@ -191,6 +191,36 @@
       "alwaysApply": false,
       "priority": 8,
       "categories": ["python", "quality", "maintainability", "api"]
+    },
+    {
+      "id": "gtd-coordination",
+      "file": "gtd-coordination.mdc",
+      "description": "Prevent duplicate GTD operations between TUI and background workers using coordination system",
+      "filePatterns": [
+        "**/*.py",
+        "**/mcp/**",
+        "**/zsh/functions/**",
+        "**/bin/gtd-*",
+        "**/skills/**/*.md",
+        "**/workers/**"
+      ],
+      "matchStrings": [
+        "gtd_create_task",
+        "create_task",
+        "process_daily_log",
+        "meeting_notes",
+        "auto-task-creation",
+        "task creation",
+        "background worker",
+        "EnhancedGTDTools",
+        "gtd_coordination",
+        "duplicate",
+        "coordination",
+        "conflict prevention"
+      ],
+      "alwaysApply": false,
+      "priority": 10,
+      "categories": ["gtd", "coordination", "workers", "quality"]
     }
   ],
   "categories": {
@@ -203,7 +233,10 @@
     "compatibility": "Rules related to cross-platform and version compatibility",
     "maintainability": "Rules related to code maintainability and DRY principles",
     "documentation": "Rules related to maintaining documentation",
-    "architecture": "Rules related to system architecture and design decisions"
+    "architecture": "Rules related to system architecture and design decisions",
+    "gtd": "Rules specific to GTD system operations",
+    "coordination": "Rules related to preventing conflicts between system components",
+    "workers": "Rules specific to background worker implementations"
   },
   "matchLogic": {
     "description": "Rules are matched when ANY filePattern OR matchString matches",

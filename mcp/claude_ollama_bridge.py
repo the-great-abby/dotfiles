@@ -67,12 +67,22 @@ class SmartAIRouter:
         self.config = self._load_config()
         self.mode = self.config.get("mode", AIMode.HYBRID)
         self.ollama_url = self.config.get("ollama_url", "http://127.0.0.1:31080/v1/chat/completions")
-        self.ollama_timeout = int(self.config.get("ollama_timeout", 30))
+        # Default timeout increased to 120 seconds for local Ollama calls (larger models can take longer)
+        self.ollama_timeout = int(self.config.get("ollama_timeout", 120))
+        # Direct Ollama URL (bypasses async/polling - for faster responses)
+        self.ollama_direct_url = self.config.get("ollama_direct_url", None)
+        # If not set, try to derive from ollama_url (remove /v1/chat/completions and use /api/generate)
+        if not self.ollama_direct_url:
+            base_url = self.ollama_url.rsplit('/v1', 1)[0]
+            # Try direct Ollama API endpoint (synchronous, no polling)
+            self.ollama_direct_url = f"{base_url}/api/generate"
         self.anthropic_api_key = self.config.get("anthropic_api_key", "")
         self.use_claude = self.mode == AIMode.HYBRID and self.anthropic_api_key
         # Claude model name - try older models first (more widely available)
         # Then newer models. See: https://platform.claude.com/docs/en/about-claude/models/overview
         self.claude_model = self.config.get("claude_model", "claude-3-haiku-20240307")
+        # Ollama model name - default to gemma3:1b (fast, small model)
+        self.ollama_model = self.config.get("ollama_model", "gemma3:1b")
         self.claude_model_fallbacks = [
             # Start with oldest/most basic models (most likely to work)
             "claude-3-haiku-20240307",        # Oldest Haiku (most widely available)
@@ -124,6 +134,11 @@ class SmartAIRouter:
                             raw_value = line.split('=', 1)[1]
                             value = self._parse_bash_value(raw_value)
                             config["ollama_url"] = value or "http://127.0.0.1:31080/v1/chat/completions"
+                        elif line.startswith('OLLAMA_DIRECT_URL='):
+                            raw_value = line.split('=', 1)[1]
+                            value = self._parse_bash_value(raw_value)
+                            if value:
+                                config["ollama_direct_url"] = value
                         elif line.startswith('ANTHROPIC_API_KEY='):
                             raw_value = line.split('=', 1)[1]
                             value = self._parse_bash_value(raw_value)
@@ -134,6 +149,19 @@ class SmartAIRouter:
                             value = self._parse_bash_value(raw_value)
                             if value:
                                 config["claude_model"] = value
+                        elif line.startswith('OLLAMA_TIMEOUT='):
+                            raw_value = line.split('=', 1)[1]
+                            value = self._parse_bash_value(raw_value)
+                            if value:
+                                try:
+                                    config["ollama_timeout"] = int(value)
+                                except ValueError:
+                                    pass  # Invalid timeout value, skip
+                        elif line.startswith('OLLAMA_MODEL='):
+                            raw_value = line.split('=', 1)[1]
+                            value = self._parse_bash_value(raw_value)
+                            if value:
+                                config["ollama_model"] = value
 
         # Set defaults if not found
         if "mode" not in config:
@@ -222,11 +250,31 @@ class SmartAIRouter:
         if complexity is None:
             complexity = self._estimate_complexity(request_type, content, persona)
 
+        # Check if request requires tools and model capabilities
+        data_keywords = ["daily log", "review", "runbook", "tasks", "projects", "inbox", "log"]
+        # Sequential thinking keywords that are especially demanding
+        sequential_thinking_keywords = ["sequential thinking", "thinking", "thought", "step-by-step", "analyze", "break down"]
+        content_lower = content.lower() if content else ""
+        requires_tools = any(keyword in content_lower for keyword in data_keywords)
+        requires_sequential_thinking = any(keyword in content_lower for keyword in sequential_thinking_keywords)
+        model_lower = self.ollama_model.lower() if self.ollama_model else ""
+        is_small_model = any(size in model_lower for size in ["1b", "3b", "2b", "4b"])
+
         # Determine target based on mode
         if self.mode == AIMode.OLLAMA_ONLY:
             target = "ollama"
+            # Warn user if they're using a small model for complex requests
+            if (requires_tools or requires_sequential_thinking) and is_small_model:
+                print(f"  ⚠️  Using small model ({self.ollama_model}) for complex request in OLLAMA_ONLY mode", file=sys.stderr)
+                print(f"  💡 Consider using a larger model (8b+): --ollama-model llama3.1:8b-instruct-q6_K", file=sys.stderr)
+            if requires_sequential_thinking and is_small_model:
+                print(f"  🧠 Sequential thinking with small models may cause instability", file=sys.stderr)
         elif self.mode == AIMode.HYBRID:
-            target = self._choose_target(request_type, complexity)
+            target = self._choose_target(request_type, complexity, content)
+            # Force sequential thinking to Claude for reliability
+            if requires_sequential_thinking and target == "ollama" and is_small_model:
+                print(f"  🧠 Routing sequential thinking to Claude for reliability", file=sys.stderr)
+                target = "claude"
         else:
             return {}, f"Unknown mode: {self.mode}"
 
@@ -262,6 +310,7 @@ class SmartAIRouter:
             "task_suggest": 0.3,          # Template-based
             "similarity_search": 0.1,     # Embedding-based
             "quick_advice": 0.3,          # Relatively simple
+            "general_question": 0.3,      # General questions - start simple, adjust based on content
             "analyze_daily_log": 0.6,     # More complex analysis
             "weekly_review": 0.8,         # Deep analysis
             "strategy_planning": 0.9,     # Very complex reasoning
@@ -281,11 +330,43 @@ class SmartAIRouter:
         has_complexity_markers = any(kw in content.lower() for kw in complexity_keywords)
         complexity_boost = 0.2 if has_complexity_markers else 0
 
-        final_complexity = min(1.0, base_complexity + content_length_score + complexity_boost)
+        # Check for simple question indicators (math, facts, definitions)
+        simple_indicators = [
+            "what's", "what is", "how much", "how many", 
+            "when did", "who is", "where is", "what time",
+            "calculate", "compute", "add", "subtract", "multiply", "divide",
+            "define", "meaning of", "spell", "translate",
+        ]
+        has_simple_markers = any(indicator in content.lower() for indicator in simple_indicators)
+        # Simple questions get a complexity reduction
+        simplicity_reduction = 0.2 if has_simple_markers and len(content) < 100 else 0
+
+        # Very short questions (< 50 chars) are likely simple
+        if len(content) < 50 and not has_complexity_markers:
+            simplicity_reduction = max(simplicity_reduction, 0.15)
+
+        final_complexity = min(1.0, max(0.0, base_complexity + content_length_score + complexity_boost - simplicity_reduction))
         return final_complexity
 
-    def _choose_target(self, request_type: str, complexity: float) -> str:
+    def _choose_target(self, request_type: str, complexity: float, content: str = "") -> str:
         """Choose between Ollama and Claude based on complexity"""
+        
+        # CRITICAL: If request requires tools and we're using a model that may not support tool calling well,
+        # force to Claude for reliability. Some Ollama models (especially smaller ones) don't handle
+        # tool calling reliably even if they technically support it.
+        data_keywords = ["daily log", "review", "runbook", "tasks", "projects", "inbox", "log"]
+        content_lower = content.lower() if content else ""
+        requires_tools = any(keyword in content_lower for keyword in data_keywords)
+        
+        # Check if we're using a model that might not handle tool calling well
+        # Smaller models (1b, 3b) often struggle with tool calling even if they support it
+        model_lower = self.ollama_model.lower() if self.ollama_model else ""
+        is_small_model = any(size in model_lower for size in ["1b", "3b", "2b", "4b"])
+        
+        # For tool-requiring requests with small models, prefer Claude for reliability
+        if requires_tools and is_small_model and self.use_claude:
+            print(f"  ℹ️  Request requires tools and using small model ({self.ollama_model}) - routing to Claude for reliability", file=sys.stderr)
+            return "claude"
 
         # These always go to Ollama (too simple for Claude)
         always_ollama = {
@@ -309,12 +390,15 @@ class SmartAIRouter:
             return "claude"
 
         # For moderate tasks, use complexity score
+        # Use strict < comparison so 0.5 goes to Ollama (not Claude)
         if complexity < RouteComplexity.MODERATE:
             return "ollama"
-        elif complexity >= RouteComplexity.MODERATE and self.use_claude:
+        elif complexity > RouteComplexity.MODERATE and self.use_claude:
             return "claude"
         else:
-            return "ollama"  # Fallback to Ollama if Claude not available
+            # At exactly MODERATE (0.5), prefer Ollama for cost savings
+            # Only use Claude if complexity is clearly above moderate
+            return "ollama"  # Default to Ollama for cost savings
 
     def _call_ollama(
         self,
@@ -323,7 +407,10 @@ class SmartAIRouter:
         persona: Optional[str],
         context: Optional[Dict[str, Any]],
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        """Call Ollama for a request"""
+        """Call Ollama for a request with tool support - uses OpenAI-compatible endpoint for tool calling"""
+        
+        # Initialize tool execution details tracking for this request
+        self._tool_execution_details = []
 
         try:
             self.last_ollama_call = datetime.now()
@@ -331,16 +418,140 @@ class SmartAIRouter:
             # Build the prompt based on request type
             prompt = self._build_prompt(request_type, content, persona, context)
 
-            # Prepare request
+            # For tool calling, we MUST use OpenAI-compatible endpoint
+            # Direct /api/generate doesn't support tools
+            return self._call_ollama_openai_compatible(prompt, context, request_type, content, persona)
+
+        except Exception as e:
+            return None, f"Ollama error: {e}"
+
+    def _call_ollama_direct(
+        self,
+        prompt: Dict[str, str],
+        context: Optional[Dict[str, Any]],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Call Ollama using direct /api/generate endpoint (synchronous, fast)"""
+        
+        if not self.ollama_direct_url:
+            return None, "Direct Ollama URL not configured"
+
+        try:
+            # Combine system and user prompts for direct API
+            full_prompt = f"{prompt.get('system', '')}\n\n{prompt.get('user', '')}".strip()
+            
+            # Direct Ollama API format
+            # Use model from context if provided, otherwise use configured ollama_model
+            model_name = context.get("model") if context else None
+            if not model_name:
+                model_name = self.ollama_model
+            
             body = json.dumps({
-                "model": context.get("model", "gemma3:1b") if context else "gemma3:1b",
-                "messages": [
-                    {"role": "system", "content": prompt.get("system", "You are a helpful assistant.")},
-                    {"role": "user", "content": prompt.get("user", content)},
-                ],
-                "temperature": context.get("temperature", 0.7) if context else 0.7,
-                "max_tokens": context.get("max_tokens", 500) if context else 500,
+                "model": model_name,
+                "prompt": full_prompt,
+                "stream": False,  # Get complete response
+                "options": {
+                    "temperature": context.get("temperature", 0.7) if context else 0.7,
+                    "num_predict": context.get("max_tokens", 500) if context else 500,
+                }
             }).encode("utf-8")
+
+            req = urllib.request.Request(
+                self.ollama_direct_url,
+                data=body,
+                headers={"Content-Type": "application/json"},
+            )
+
+            with urllib.request.urlopen(req, timeout=self.ollama_timeout) as response:
+                result = json.loads(response.read().decode("utf-8"))
+
+            # Extract response from direct API format
+            if "response" in result:
+                response_text = result["response"]
+                return {
+                    "source": "ollama",
+                    "response": response_text,
+                    "request_type": "general_question",
+                    "timestamp": datetime.now().isoformat(),
+                }, None
+            else:
+                return None, "No response in Ollama direct API result"
+
+        except urllib.error.URLError:
+            # Connection failed, fall back to OpenAI-compatible endpoint
+            return None, None  # Return None, None to signal fallback
+        except Exception:
+            # Any other error, fall back
+            return None, None
+
+    def _call_ollama_openai_compatible(
+        self,
+        prompt: Dict[str, str],
+        context: Optional[Dict[str, Any]],
+        request_type: str = "general_question",
+        content: str = "",
+        persona: Optional[str] = None,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Call Ollama using OpenAI-compatible endpoint with tool support (may require polling)"""
+
+        try:
+            # Prepare request for OpenAI-compatible endpoint
+            # Use model from context if provided, otherwise use configured ollama_model
+            model_name = context.get("model") if context else None
+            if not model_name:
+                model_name = self.ollama_model
+            
+            # Get GTD tools for Ollama (same as Claude)
+            tools = []
+            try:
+                functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+                if not functions_dir.exists():
+                    functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+                
+                if functions_dir.exists() and str(functions_dir) not in sys.path:
+                    sys.path.insert(0, str(functions_dir))
+                
+                from gtd_tool_registry import get_tool_definitions
+                # Include GTD tools, skills, and knowledge organization (exclude sequential_thinking - only available in Cursor IDE)
+                gtd_tools = get_tool_definitions(categories=["gtd", "skills", "knowledge_organization"])
+                
+                # Convert to OpenAI format (Ollama uses OpenAI-compatible format)
+                for tool in gtd_tools:
+                    tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": tool["function"]["name"],
+                            "description": tool["function"]["description"],
+                            "parameters": tool["function"]["parameters"]
+                        }
+                    })
+                
+                if tools and (context is None or context.get("verbose", False)):
+                    print(f"  ✓ Loaded {len(tools)} tools for Ollama", file=sys.stderr)
+            except Exception as e:
+                # If tool loading fails, continue without tools
+                print(f"⚠️  Could not load GTD tools for Ollama: {e}", file=sys.stderr)
+                tools = []
+            
+            # Build initial messages (system message will be added later with tool instructions)
+            messages = [
+                {"role": "user", "content": prompt.get("user", "")},
+            ]
+            
+            # Build request body
+            body_dict = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": context.get("temperature", 0.7) if context else 0.7,
+                "max_tokens": context.get("max_tokens", 2000) if context else 2000,
+                "priority": context.get("priority", 10) if context else 10,  # Lower = higher priority
+            }
+            
+            # Add tools if available
+            if tools:
+                body_dict["tools"] = tools
+                body_dict["tool_choice"] = "auto"  # Let model decide when to use tools
+            
+            body = json.dumps(body_dict).encode("utf-8")
 
             # Make request
             req = urllib.request.Request(
@@ -352,26 +563,566 @@ class SmartAIRouter:
             with urllib.request.urlopen(req, timeout=self.ollama_timeout) as response:
                 result = json.loads(response.read().decode("utf-8"))
 
-            # Handle async responses
+            # Handle async responses with enhanced timeout management
             if result.get("status") == "queued":
                 base_url = self.ollama_url.rsplit('/v1', 1)[0]
+                request_id = result.get("request_id")
+                
+                print(f"  🔄 Ollama request queued (ID: {request_id})", file=sys.stderr)
+                print(f"  ⏳ Will wait up to {self.ollama_timeout}s, with status updates...", file=sys.stderr)
+                
                 polled_result, poll_error = handle_ai_response(result, base_url, max_poll_time=self.ollama_timeout)
+                
                 if polled_result:
                     result = polled_result
-                if poll_error:
-                    return None, f"Ollama polling error: {poll_error}"
+                    print(f"  ℹ️  Polled result keys: {list(result.keys())}", file=sys.stderr)
+                    # If result has status "completed" but choices might be in detail, extract them
+                    if result.get("status") == "completed":
+                        print(f"  ℹ️  Status is 'completed', extracting response...", file=sys.stderr)
+                        # Check if choices are in detail
+                        if isinstance(result.get("detail"), dict) and "choices" in result.get("detail", {}):
+                            result = result["detail"]
+                            print(f"  ✅ Extracted choices from detail", file=sys.stderr)
+                        # If result has message field (status response format), try to get actual response
+                        elif "message" in result and "choices" not in result:
+                            # This is a status response, not the actual response - need to extract
+                            print(f"  ⚠️  Got status response instead of actual response, attempting to extract...", file=sys.stderr)
+                            # The actual response should be in the detail or we need to check the structure
+                            if isinstance(result.get("detail"), dict):
+                                if "choices" in result["detail"]:
+                                    result = result["detail"]
+                                    print(f"  ✅ Found choices in detail", file=sys.stderr)
+                                elif "response" in result["detail"]:
+                                    # Some formats might have response directly
+                                    response_text = result["detail"]["response"]
+                                    print(f"  ✅ Found response in detail ({len(response_text)} chars)", file=sys.stderr)
+                                    return {
+                                        "source": "ollama",
+                                        "response": response_text,
+                                        "request_type": request_type,
+                                        "timestamp": datetime.now().isoformat(),
+                                    }, None
+                                else:
+                                    print(f"  ⚠️  Detail exists but no choices or response. Detail keys: {list(result['detail'].keys())}", file=sys.stderr)
+                            else:
+                                print(f"  ⚠️  No detail field or detail is not a dict", file=sys.stderr)
+                    else:
+                        print(f"  ℹ️  Status is '{result.get('status', 'unknown')}', not 'completed'", file=sys.stderr)
+                elif poll_error:
+                    # Enhanced timeout handling
+                    if "timed out" in poll_error:
+                        # Process is still running in background
+                        timeout_msg = f"""Ollama request timed out after {self.ollama_timeout}s, but the process is still running in background.
 
-            # Extract response
-            if "choices" in result and result["choices"]:
-                response_text = result["choices"][0]["message"]["content"]
-                return {
-                    "source": "ollama",
-                    "response": response_text,
-                    "request_type": request_type,
-                    "timestamp": datetime.now().isoformat(),
-                }, None
-            else:
-                return None, "No response from Ollama"
+🔄 **Background Process Status:**
+  • Request ID: {request_id}
+  • Status: Still processing in Ollama queue
+  • Estimated completion: May take several more minutes
+
+💡 **What you can do:**
+  • Check status: gtd request-status {request_id}
+  • Try a simpler request while this completes
+  • Use direct CLI: gtd read-daily-log today (bypasses LLM)
+  • Force Claude: Press Ctrl+F to use Claude instead of Ollama
+
+⚠️  **The background process will continue running.**
+    Results may be available later via status check."""
+                        return None, timeout_msg
+                    else:
+                        return None, f"Ollama polling error: {poll_error}"
+
+            # Handle tool calling loop (similar to Claude)
+            max_iterations = 15
+            iteration = 0
+            final_response = None
+            accumulated_text = ""
+            
+            # Build system message with tool instructions (same as Claude)
+            system_message = prompt.get("system", "You are a helpful assistant.")
+            
+            # Add tool-first instructions if tools are available (same as Claude)
+            if tools:
+                # Get tool names for instructions
+                tool_names = [t["function"]["name"] for t in tools]
+                gtd_tools = [t for t in tool_names if t.startswith("gtd_")]
+                skill_tools = [t for t in tool_names if "skill" in t.lower()]
+                
+                # Add the same tool-first instructions that Claude gets
+                system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                system_message += "\n🚨🚨🚨 MANDATORY: TOOL-FIRST RESPONSE RULE 🚨🚨🚨"
+                system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                system_message += "\n\n⚠️ CRITICAL: If the user asks about ANY data (tasks, projects, logs, inbox, notes, personalization, skills, runbooks), you MUST call the appropriate tool FIRST before generating ANY response text."
+                system_message += "\n\n🚨 CRITICAL: YOU MUST USE THE FUNCTION CALLING API - NOT DESCRIBE IT IN TEXT"
+                system_message += "\n  - DO NOT write text like 'Tool Call: gtd_list_tasks()' or 'I will call gtd_read_daily_log()'"
+                system_message += "\n  - DO NOT describe what tools you would call"
+                system_message += "\n  - DO NOT output JSON like {\"method\":\"instructions\",\"skill_name\":\"daily-review\"} in the content field"
+                system_message += "\n  - DO NOT write JSON objects describing tool calls - this is WRONG"
+                system_message += "\n  - YOU MUST actually use the function calling API by including tool_calls in your response message"
+                system_message += "\n  - When you need data, your response message should have a 'tool_calls' field with tool call objects"
+                system_message += "\n  - The tool_calls field is separate from the content field - do NOT put tool descriptions in content"
+                system_message += "\n  - CORRECT: Include tool_calls array in your response message"
+                system_message += "\n  - WRONG: Writing {\"method\":\"instructions\"} or any JSON in the content field"
+                system_message += "\n\n❌ ABSOLUTELY FORBIDDEN:"
+                system_message += "\n  - Writing text that describes tool calls (e.g., 'Tool Call: gtd_list_tasks()')"
+                system_message += "\n  - Saying 'I will call...' or 'Let me check...' - JUST CALL THE TOOLS"
+                system_message += "\n  - Responding with text before calling tools for data queries"
+                system_message += "\n  - Making up, inventing, or guessing any data"
+                system_message += "\n  - Mentioning specific task/project/log names without tool calls"
+                system_message += "\n  - Describing what you would do instead of doing it"
+                system_message += "\n  - Creative/fictional responses when user asks for data"
+                system_message += "\n  - Any response that doesn't use actual tool results"
+                system_message += "\n\n✅ MANDATORY FLOW FOR DATA QUERIES:"
+                system_message += "\n  1. User asks about data (e.g., 'review my daily log', 'what tasks do I have', 'use the runbook')"
+                system_message += "\n  2. YOU: IMMEDIATELY make tool call(s) - NO TEXT RESPONSE YET"
+                system_message += "\n  3. Wait for tool result(s)"
+                system_message += "\n  4. THEN and ONLY THEN generate response using ACTUAL tool results"
+                system_message += "\n\n✅ REQUIRED TOOL CALLS:"
+                system_message += "\n  - 'review daily log' / 'daily log' → MUST CALL gtd_read_daily_log(date='today') FIRST"
+                system_message += "\n  - 'use runbook' / 'follow runbook' → MUST CALL list_agent_skills(query='runbook') THEN get_agent_skill() FIRST"
+                system_message += "\n  - 'tasks' / 'my tasks' → MUST CALL gtd_list_tasks() FIRST"
+                system_message += "\n  - 'projects' / 'my projects' → MUST CALL gtd_list_projects() FIRST"
+                system_message += "\n  - 'inbox' → MUST CALL gtd_get_inbox_count() or gtd_list_inbox_items() FIRST"
+                system_message += "\n  - 'personalization' / 'about me' → MUST CALL gtd_get_personalization() FIRST"
+                system_message += "\n  - 'search notes' / 'second brain' → MUST CALL gtd_search_second_brain() FIRST"
+                system_message += "\n  - 'skills' / 'workflows' / 'what can you do' → MUST CALL list_agent_skills() FIRST"
+                system_message += "\n\n🚨 IF YOU DON'T HAVE TOOL RESULTS, YOU DON'T HAVE DATA. DO NOT MAKE UP DATA."
+                system_message += "\n🚨 IF USER ASKS FOR DATA, YOU MUST CALL TOOLS FIRST. NO EXCEPTIONS."
+                system_message += "\n🚨 IF TOOLS RETURN EMPTY/NOTHING, SAY SO. DO NOT INVENT DATA TO FILL THE VOID."
+                system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                
+                # Check if user is asking for a runbook
+                is_runbook_request = False
+                runbook_keywords = ["runbook", "daily log review", "review daily log", "follow the runbook", "use the runbook"]
+                content_lower = content.lower() if content else ""
+                for keyword in runbook_keywords:
+                    if keyword in content_lower:
+                        is_runbook_request = True
+                        break
+                
+                if is_runbook_request:
+                    system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n🚨🚨🚨 RUNBOOK REQUEST DETECTED - MANDATORY WORKFLOW 🚨🚨🚨"
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n\n⚠️ CRITICAL: The user asked to use a RUNBOOK. You MUST follow this exact workflow:"
+                    system_message += "\n\n📋 STEP-BY-STEP MANDATORY WORKFLOW:"
+                    system_message += "\n  1. IMMEDIATELY call list_agent_skills(query='runbook') - NO TEXT, NO EXPLANATION, JUST THE TOOL CALL"
+                    system_message += "\n  2. Wait for result, find 'Daily Log Review Runbook'"
+                    system_message += "\n  3. IMMEDIATELY call get_agent_skill(skill_name='daily-log-review-runbook') - NO TEXT, JUST THE TOOL CALL"
+                    system_message += "\n  4. Read the runbook instructions - it has 7 steps"
+                    system_message += "\n  5. Follow Step 1: IMMEDIATELY call gtd_read_daily_log(date='today') - NO TEXT, JUST THE TOOL CALL"
+                    system_message += "\n  6. Wait for tool result - this is the ACTUAL daily log data"
+                    system_message += "\n  7. Use ONLY the actual log data returned - do NOT make up expenses, financial data, or any other information"
+                    system_message += "\n  8. Continue with runbook Step 2: Analyze the ACTUAL log structure"
+                    system_message += "\n  9. Continue with runbook Step 3: Cross-reference with GTD system (call gtd_list_tasks(), gtd_list_projects())"
+                    system_message += "\n  10. Continue with remaining runbook steps using ACTUAL data only"
+                    system_message += "\n  11. ONLY generate final text response AFTER completing all runbook steps with tool calls"
+                    system_message += "\n\n❌ ABSOLUTELY FORBIDDEN WHEN RUNBOOK IS REQUESTED:"
+                    system_message += "\n  - Making up financial data, expenses, or any data not in tool results"
+                    system_message += "\n  - Responding with text before calling list_agent_skills()"
+                    system_message += "\n  - Describing what you would do instead of doing it"
+                    system_message += "\n  - Skipping tool calls"
+                    system_message += "\n  - Creative/fictional responses (expenses, financial stability quests, etc.)"
+                    system_message += "\n  - Any response that doesn't match the actual daily log content"
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # Start with initial messages (include system message)
+            conversation_messages = [
+                {"role": "system", "content": system_message},
+                *messages
+            ]
+            
+            while iteration < max_iterations:
+                # Make request
+                request_body = {
+                    "model": model_name,
+                    "messages": conversation_messages,
+                    "temperature": context.get("temperature", 0.7) if context else 0.7,
+                    "max_tokens": context.get("max_tokens", 2000) if context else 2000,
+                    "priority": context.get("priority", 10) if context else 10,  # Lower = higher priority
+                }
+                
+                if tools:
+                    request_body["tools"] = tools
+                    request_body["tool_choice"] = "auto"
+                
+                body = json.dumps(request_body).encode("utf-8")
+                
+                req = urllib.request.Request(
+                    self.ollama_url,
+                    data=body,
+                    headers={"Content-Type": "application/json"},
+                )
+                
+                with urllib.request.urlopen(req, timeout=self.ollama_timeout) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+                
+                # Handle async responses with enhanced timeout management
+                if result.get("status") == "queued":
+                    base_url = self.ollama_url.rsplit('/v1', 1)[0]
+                    request_id = result.get("request_id")
+                    
+                    print(f"  🔄 Ollama tool call queued (ID: {request_id})", file=sys.stderr)
+                    print(f"  ⏳ Waiting up to {self.ollama_timeout}s...", file=sys.stderr)
+                    
+                    polled_result, poll_error = handle_ai_response(result, base_url, max_poll_time=self.ollama_timeout)
+                    
+                    if polled_result:
+                        result = polled_result
+                        # If result has status "completed" but choices might be in detail, extract them
+                        if result.get("status") == "completed":
+                            # Check if choices are in detail
+                            if isinstance(result.get("detail"), dict) and "choices" in result.get("detail", {}):
+                                result = result["detail"]
+                            # If result has message field (status response format), try to get actual response
+                            elif "message" in result and "choices" not in result:
+                                # This is a status response, not the actual response - need to extract
+                                if isinstance(result.get("detail"), dict):
+                                    if "choices" in result["detail"]:
+                                        result = result["detail"]
+                                    elif "response" in result["detail"]:
+                                        # Some formats might have response directly
+                                        response_text = result["detail"]["response"]
+                                        # Return a simple response structure for tool calling
+                                        return {
+                                            "source": "ollama",
+                                            "response": response_text,
+                                            "request_type": request_type,
+                                            "timestamp": datetime.now().isoformat(),
+                                        }, None
+                    elif poll_error:
+                        # Enhanced timeout handling for tool calls
+                        if "timed out" in poll_error:
+                            timeout_msg = f"""Tool call timed out after {self.ollama_timeout}s, but process still running.
+
+🔄 **Background Process:**
+  • Request ID: {request_id}  
+  • Status: Processing in Ollama queue
+  • Check: gtd request-status {request_id}
+
+💡 **Alternatives:**
+  • Use GTD CLI: gtd [command] (direct, no LLM)
+  • Force Claude: Press Ctrl+F in TUI"""
+                            return None, timeout_msg
+                        else:
+                            return None, f"Ollama tool call error: {poll_error}"
+                
+                # Extract choices - might be in result directly or in detail
+                choices = None
+                if "choices" in result and result["choices"]:
+                    choices = result["choices"]
+                    print(f"  ✅ Found choices in result directly ({len(choices)} choice(s))", file=sys.stderr)
+                elif isinstance(result.get("detail"), dict) and "choices" in result.get("detail", {}):
+                    choices = result["detail"]["choices"]
+                    result = result["detail"]  # Use detail as the main result
+                    print(f"  ✅ Found choices in result.detail ({len(choices)} choice(s))", file=sys.stderr)
+                
+                if not choices:
+                    # Check if there's a direct response field (some formats)
+                    response_text = None
+                    if "response" in result:
+                        response_text = result["response"]
+                        print(f"  ✅ Found response field directly ({len(response_text)} chars)", file=sys.stderr)
+                    elif isinstance(result.get("detail"), dict) and "response" in result.get("detail", {}):
+                        response_text = result["detail"]["response"]
+                        print(f"  ✅ Found response in result.detail ({len(response_text)} chars)", file=sys.stderr)
+                    elif "message" in result and isinstance(result["message"], str):
+                        # Some formats might have message as a string
+                        response_text = result["message"]
+                        print(f"  ✅ Found message field as string ({len(response_text)} chars)", file=sys.stderr)
+                    elif isinstance(result.get("detail"), dict) and "message" in result.get("detail", {}):
+                        detail_msg = result["detail"]["message"]
+                        if isinstance(detail_msg, str):
+                            response_text = detail_msg
+                            print(f"  ✅ Found message in result.detail ({len(response_text)} chars)", file=sys.stderr)
+                    
+                    if response_text:
+                        return {
+                            "source": "ollama",
+                            "response": response_text,
+                            "request_type": request_type,
+                            "timestamp": datetime.now().isoformat(),
+                        }, None
+                    
+                    # Debug: log what we got
+                    print(f"  ⚠️  No choices or response found in result. Keys: {list(result.keys())}", file=sys.stderr)
+                    if "detail" in result:
+                        print(f"  ⚠️  Detail keys: {list(result['detail'].keys()) if isinstance(result.get('detail'), dict) else 'not a dict'}", file=sys.stderr)
+                    if "status" in result:
+                        print(f"  ⚠️  Status: {result.get('status')}, Message: {result.get('message', 'N/A')}", file=sys.stderr)
+                    return None, "No response from Ollama (no choices or response field found)"
+                
+                choice = choices[0]
+                message = choice.get("message", {})
+                
+                # Check for tool calls
+                tool_calls = message.get("tool_calls", [])
+                response_text = message.get("content", "")
+                
+                # CRITICAL: Detect if AI is describing tool calls in text instead of using tool_calls
+                # Common patterns: JSON objects, "method":"instructions", skill_name, etc.
+                is_describing_tools = False
+                if response_text:
+                    response_lower = response_text.lower()
+                    # Check for JSON-like tool descriptions
+                    if ("method" in response_lower and "skill" in response_lower) or \
+                       ("tool" in response_lower and "call" in response_lower) or \
+                       ("gtd_" in response_lower and ("()" in response_text or "(" in response_text)) or \
+                       (response_text.strip().startswith("{") and ("skill" in response_lower or "method" in response_lower)):
+                        is_describing_tools = True
+                        print(f"  🚨 DETECTED: AI is describing tools in text instead of using tool_calls!", file=sys.stderr)
+                        print(f"  🚨 Response contains: {response_text[:200]}...", file=sys.stderr)
+                
+                # CRITICAL: If this is a data request and first iteration with no tool calls, force tool usage
+                data_keywords = ["daily log", "review", "runbook", "tasks", "projects", "inbox", "log"]
+                content_lower = content.lower() if content else ""
+                is_data_request = any(keyword in content_lower for keyword in data_keywords)
+                
+                if is_data_request and iteration == 0 and (not tool_calls or is_describing_tools) and response_text:
+                    # AI responded with text but no tools for a data request - this is wrong
+                    # Force it to call tools by adding an enforcement message
+                    print(f"  🚨 FORCING TOOL USAGE: Ollama responded with text but no tools for data request!", file=sys.stderr)
+                    print(f"  🚨 Adding enforcement message to force tool calls...", file=sys.stderr)
+                    
+                    # Add the assistant's text response to messages (so it knows we saw it)
+                    assistant_msg = {"role": "assistant", "content": response_text}
+                    conversation_messages.append(assistant_msg)
+                    
+                    # Add enforcement message forcing tool usage
+                    if is_describing_tools:
+                        # Special message for when AI describes tools instead of calling them
+                        enforcement_msg = "🚨 CRITICAL ERROR: You described tool calls in your text response (like {\"method\":\"instructions\"} or mentioning tool names), but you did NOT actually use the tool_calls field. This is WRONG. You MUST use the function calling API by including tool_calls in your response message, NOT by writing JSON or describing tools in the content field. Your response was ignored. Please make the actual tool calls NOW using the tool_calls field - DO NOT write text describing tools."
+                    elif "runbook" in content_lower:
+                        enforcement_msg = "🚨 ERROR: You responded with text but did NOT call any tools. For runbook requests, you MUST call list_agent_skills(query='runbook') FIRST, then get_agent_skill(), then follow the runbook steps. Your text response was ignored. Please call the required tools NOW - DO NOT generate text, ONLY make tool calls."
+                    elif "daily log" in content_lower or "log" in content_lower:
+                        enforcement_msg = "🚨 ERROR: You responded with text but did NOT call any tools. For daily log requests, you MUST call gtd_read_daily_log(date='today') FIRST. Your text response was ignored. Please call the required tool NOW - DO NOT generate text, ONLY make tool calls."
+                    else:
+                        enforcement_msg = "🚨 ERROR: You responded with text but did NOT call any tools. For data requests, you MUST call tools FIRST (e.g., gtd_read_daily_log, gtd_list_tasks, list_agent_skills). Your text response was ignored. Please call the required tools NOW - DO NOT generate text, ONLY make tool calls."
+                    
+                    conversation_messages.append({
+                        "role": "user",
+                        "content": enforcement_msg
+                    })
+                    iteration += 1
+                    continue  # Retry with enforcement message - don't accumulate this text response
+                
+                # Add assistant message to conversation
+                # IMPORTANT: Always add assistant message if we have tool calls OR content
+                # This is needed for the conversation flow
+                if tool_calls:
+                    # Has tool calls - add message with tool_calls
+                    assistant_msg = {"role": "assistant", "tool_calls": tool_calls}
+                    if response_text and response_text.strip():
+                        assistant_msg["content"] = response_text
+                    else:
+                        # Tool calls but no content - that's fine, content can be null/empty
+                        assistant_msg["content"] = None
+                    conversation_messages.append(assistant_msg)
+                elif response_text and response_text.strip():
+                    # Has content but no tool calls - add message with content
+                    conversation_messages.append({
+                        "role": "assistant",
+                        "content": response_text
+                    })
+                # If neither tool_calls nor content, don't add message (skip)
+                
+                # Accumulate text responses (even short ones if we don't have much)
+                if response_text and response_text.strip():
+                    # Accumulate any text response, not just long ones
+                    # This ensures we capture responses even if they're brief
+                    if accumulated_text:
+                        accumulated_text += response_text + "\n"
+                    else:
+                        accumulated_text = response_text + "\n"
+                
+                if tool_calls:
+                    # Execute tools
+                    print(f"🔧 Ollama Iteration {iteration + 1}/{max_iterations}: Executing {len(tool_calls)} tool call(s)", file=sys.stderr)
+                    tool_results = []
+                    
+                    for tool_call in tool_calls:
+                        tool_id = tool_call.get("id", "")
+                        function_info = tool_call.get("function", {})
+                        tool_name = function_info.get("name", "")
+                        tool_args_str = function_info.get("arguments", "{}")
+                        
+                        try:
+                            tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
+                        except json.JSONDecodeError:
+                            tool_args = {}
+                        
+                        print(f"  → Calling {tool_name} with args: {str(tool_args)[:100]}...", file=sys.stderr)
+                        
+                        # Execute tool
+                        try:
+                            functions_dir = Path.home() / "code" / "dotfiles" / "zsh" / "functions"
+                            if not functions_dir.exists():
+                                functions_dir = Path.home() / "code" / "personal" / "dotfiles" / "zsh" / "functions"
+                            
+                            if functions_dir.exists() and str(functions_dir) not in sys.path:
+                                sys.path.insert(0, str(functions_dir))
+                            
+                            from gtd_tool_registry import execute_tool
+                            tool_result = execute_tool(tool_name, tool_args)
+                            
+                            # Store tool execution details
+                            if not hasattr(self, '_tool_execution_details'):
+                                self._tool_execution_details = []
+                            self._tool_execution_details.append({
+                                "tool_name": tool_name,
+                                "tool_args": tool_args,
+                                "tool_result": tool_result,
+                                "is_error": False
+                            })
+                            
+                            tool_results.append({
+                                "tool_call_id": tool_id,
+                                "role": "tool",
+                                "name": tool_name,
+                                "content": str(tool_result)
+                            })
+                        except Exception as e:
+                            error_msg = f"Error executing {tool_name}: {str(e)}"
+                            print(f"  ❌ {error_msg}", file=sys.stderr)
+                            
+                            # Store error
+                            if not hasattr(self, '_tool_execution_details'):
+                                self._tool_execution_details = []
+                            self._tool_execution_details.append({
+                                "tool_name": tool_name,
+                                "tool_args": tool_args,
+                                "tool_result": error_msg,
+                                "is_error": True
+                            })
+                            
+                            tool_results.append({
+                                "tool_call_id": tool_id,
+                                "role": "tool",
+                                "name": tool_name,
+                                "content": error_msg
+                            })
+                    
+                    # Add tool results to conversation
+                    conversation_messages.extend(tool_results)
+                    
+                    # After adding tool results, we need to continue the loop
+                    # to get a text response from Ollama based on the tool results
+                    print(f"  ℹ️  Tool results added ({len(tool_results)} result(s)), continuing to get text response...", file=sys.stderr)
+                    iteration += 1
+                    # Continue loop to get text response after tool execution
+                    continue
+                else:
+                    # No more tool calls in this iteration - check if we have a text response
+                    # CRITICAL: After tool execution, we MUST get a text response
+                    
+                    # Check if tools were executed in previous iterations
+                    current_tool_executions = getattr(self, '_tool_execution_details', [])
+                    
+                    if response_text and response_text.strip():
+                        # We have a text response - use it
+                        if accumulated_text and accumulated_text.strip():
+                            # Merge accumulated and current
+                            final_response = (accumulated_text.strip() + "\n\n" + response_text.strip()).strip()
+                        else:
+                            final_response = response_text.strip()
+                        print(f"  ✅ Got final text response after tool execution ({len(final_response)} chars)", file=sys.stderr)
+                        break
+                    elif accumulated_text and accumulated_text.strip():
+                        # We have accumulated text but no current response
+                        final_response = accumulated_text.strip()
+                        print(f"  ✅ Using accumulated text response ({len(final_response)} chars)", file=sys.stderr)
+                        break
+                    else:
+                        # No text response yet - need to continue to get one
+                        # This happens when tools were executed but AI hasn't generated text yet
+                        # Check if we have tool execution details (meaning tools were executed)
+                        current_tool_executions = getattr(self, '_tool_execution_details', [])
+                        if current_tool_executions:
+                            # Tools were executed, but no text response - continue to get one
+                            print(f"  ℹ️  Tools executed ({len(current_tool_executions)} tool(s)) but no text response yet - continuing to get final response...", file=sys.stderr)
+                            
+                            # Check if we already added the assistant message with tool calls
+                            # If not, add it now (should have been added above, but double-check)
+                            last_msg = conversation_messages[-1] if conversation_messages else None
+                            if not last_msg or last_msg.get("role") != "assistant" or "tool_calls" not in last_msg:
+                                # Assistant message with tool calls wasn't added - add it now
+                                if tool_calls:
+                                    conversation_messages.append({
+                                        "role": "assistant",
+                                        "tool_calls": tool_calls,
+                                        "content": None
+                                    })
+                                elif response_text:
+                                    conversation_messages.append({
+                                        "role": "assistant",
+                                        "content": response_text
+                                    })
+                            
+                            # Add a prompt to encourage text response after tool execution
+                            # Only add if we haven't already added a similar prompt
+                            last_user_msg = None
+                            for msg in reversed(conversation_messages):
+                                if msg.get("role") == "user":
+                                    last_user_msg = msg.get("content", "")
+                                    break
+                            
+                            if "provide a text response" not in (last_user_msg or "").lower():
+                                conversation_messages.append({
+                                    "role": "user",
+                                    "content": "Based on the tool results above, please provide a text response summarizing what you found and your analysis. Do not make additional tool calls - just provide your response in text."
+                                })
+                            
+                            iteration += 1
+                            if iteration >= max_iterations:
+                                # Hit max iterations - use accumulated text or error
+                                if accumulated_text and accumulated_text.strip():
+                                    final_response = accumulated_text.strip()
+                                    print(f"  ⚠️  Max iterations reached, using accumulated text", file=sys.stderr)
+                                    break
+                                else:
+                                    # No response at all
+                                    error_msg = f"Max iterations ({max_iterations}) reached. Tools were executed but AI didn't generate a final text response."
+                                    print(f"  ❌ ERROR: {error_msg}", file=sys.stderr)
+                                    return None, error_msg
+                            continue
+                        else:
+                            # No tools and no text - this shouldn't happen, but handle it
+                            final_response = response_text.strip() if response_text else ""
+                            if not final_response:
+                                print(f"  ⚠️  No tools executed and no text response", file=sys.stderr)
+                            break
+            
+            if final_response is None:
+                if accumulated_text:
+                    final_response = accumulated_text.strip()
+                else:
+                    # No response at all - this is an error
+                    error_msg = "No final response from Ollama after tool calls"
+                    print(f"  ❌ ERROR: {error_msg}", file=sys.stderr)
+                    if tool_execution_details:
+                        print(f"  ℹ️  Note: {len(tool_execution_details)} tool(s) were executed but no text response was generated", file=sys.stderr)
+                    return None, error_msg
+            
+            # Ensure we have a non-empty response
+            if not final_response or not final_response.strip():
+                # Empty response - use a fallback message
+                if tool_execution_details:
+                    final_response = "⚠️ AI generated an empty response, but tools were executed. Check tool execution details above."
+                else:
+                    final_response = "⚠️ AI generated an empty response. This may indicate an error."
+                print(f"  ⚠️  WARNING: Empty response from Ollama, using fallback message", file=sys.stderr)
+            
+            # Collect tool execution details
+            tool_execution_details = getattr(self, '_tool_execution_details', [])
+            if hasattr(self, '_tool_execution_details'):
+                delattr(self, '_tool_execution_details')
+            
+            return {
+                "source": "ollama",
+                "response": final_response,
+                "request_type": request_type,
+                "timestamp": datetime.now().isoformat(),
+                "tool_executions": tool_execution_details,
+            }, None
 
         except urllib.error.URLError as e:
             return None, f"Ollama connection error: {e}"
@@ -387,6 +1138,8 @@ class SmartAIRouter:
         persona: Optional[str],
         context: Optional[Dict[str, Any]],
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        # Initialize tool execution details tracking for this request
+        self._tool_execution_details = []
         """Call Claude API for a request with GTD tool support"""
 
         if not self.anthropic_api_key:
@@ -421,8 +1174,8 @@ class SmartAIRouter:
                     sys.path.insert(0, str(functions_dir))
                 
                 from gtd_tool_registry import get_tool_definitions
-                # Include both GTD tools and skills
-                gtd_tools = get_tool_definitions(categories=["gtd", "skills"])
+                # Include GTD tools, skills, and knowledge organization (exclude sequential_thinking - only available in Cursor IDE)
+                gtd_tools = get_tool_definitions(categories=["gtd", "skills", "knowledge_organization"])
                 
                 # Convert OpenAI format to Anthropic format
                 for tool in gtd_tools:
@@ -432,15 +1185,25 @@ class SmartAIRouter:
                         "input_schema": tool["function"]["parameters"]
                     })
                 
-                # Verify skill tools are loaded (for debugging - only show if verbose)
+                # Verify skill tools are loaded (for debugging - always show in interactive mode)
                 skill_tool_names = [t["name"] for t in tools if "skill" in t["name"].lower()]
-                if skill_tool_names and context and context.get("verbose", False):
+                gtd_tool_names = [t["name"] for t in tools if t["name"].startswith("gtd_")]
+                
+                # In interactive mode, always show tool loading status
+                if context and context.get("interactive", False):
+                    print(f"  ✓ Loaded {len(tools)} total tools ({len(gtd_tool_names)} GTD tools, {len(skill_tool_names)} skill tools)", file=sys.stderr)
+                    if skill_tool_names:
+                        print(f"  ✓ Skill tools: {', '.join(skill_tool_names)}", file=sys.stderr)
+                elif skill_tool_names and context and context.get("verbose", False):
                     # Log to stderr so it's visible but doesn't interfere with output
                     print(f"  ✓ Loaded {len(skill_tool_names)} skill tools: {', '.join(skill_tool_names)}", file=sys.stderr)
             except Exception as e:
                 # If tool loading fails, continue without tools
                 # sys is already imported at module level
+                import traceback
                 print(f"⚠️  Could not load GTD tools: {e}", file=sys.stderr)
+                if context and context.get("verbose", False):
+                    traceback.print_exc(file=sys.stderr)
 
             # Build system message
             system_message = prompt.get('system', 'You are a helpful assistant.')
@@ -468,8 +1231,221 @@ class SmartAIRouter:
                     system_message += "\n\nLEARNING: You can update personalization data via gtd_update_personalization when you discover new, reliable information about the user (e.g., learning their partner's name, discovering goals, noticing energy patterns). Only update when you have clear, explicit information - don't guess or assume. Use the 'personalization-learning' skill for guidance on when and how to update."
                     system_message += "\n\nCRITICAL: When updating personalization, ONLY save information that was explicitly stated by the user. DO NOT make up, infer, or assume details. If you're uncertain, ask the user to confirm before updating. When reading personalization data, ONLY use information that is actually in the file - do not add details that aren't there."
                 
-                system_message += "\n\nWhen you call a tool, it will execute and return results. If a tool call succeeds, you'll receive the tool's output. If it fails, you'll receive an error message. Always use the tool results to inform your response."
+                system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                system_message += "\n🚨🚨🚨 MANDATORY: TOOL-FIRST RESPONSE RULE 🚨🚨🚨"
+                system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                system_message += "\n\n⚠️ CRITICAL: If the user asks about ANY data (tasks, projects, logs, inbox, notes, personalization, skills, runbooks), you MUST call the appropriate tool FIRST before generating ANY response text."
+                system_message += "\n\n🚨 CRITICAL: YOU MUST USE THE FUNCTION CALLING API - NOT DESCRIBE IT IN TEXT"
+                system_message += "\n  - DO NOT write text like 'Tool Call: gtd_list_tasks()' or 'I will call gtd_read_daily_log()'"
+                system_message += "\n  - DO NOT describe what tools you would call"
+                system_message += "\n  - YOU MUST actually use the function calling API by including tool_use blocks in your response"
+                system_message += "\n  - When you need data, your response should have tool_use blocks, NOT text describing tools"
+                system_message += "\n\n❌ ABSOLUTELY FORBIDDEN:"
+                system_message += "\n  - Writing text that describes tool calls (e.g., 'Tool Call: gtd_list_tasks()')"
+                system_message += "\n  - Saying 'I will call...' or 'Let me check...' - JUST CALL THE TOOLS"
+                system_message += "\n  - Responding with text before calling tools for data queries"
+                system_message += "\n  - Making up, inventing, or guessing any data"
+                system_message += "\n  - Mentioning specific task/project/log names without tool calls"
+                system_message += "\n  - Describing what you would do instead of doing it"
+                system_message += "\n  - Creative/fictional responses when user asks for data"
+                system_message += "\n  - Any response that doesn't use actual tool results"
+                system_message += "\n\n✅ MANDATORY FLOW FOR DATA QUERIES:"
+                system_message += "\n  1. User asks about data (e.g., 'review my daily log', 'what tasks do I have', 'use the runbook')"
+                system_message += "\n  2. YOU: IMMEDIATELY make tool call(s) - NO TEXT RESPONSE YET"
+                system_message += "\n  3. Wait for tool result(s)"
+                system_message += "\n  4. THEN and ONLY THEN generate response using ACTUAL tool results"
+                system_message += "\n\n✅ REQUIRED TOOL CALLS:"
+                system_message += "\n  - 'review daily log' / 'daily log' → MUST CALL gtd_read_daily_log(date='today') FIRST"
+                system_message += "\n  - 'use runbook' / 'follow runbook' → MUST CALL list_agent_skills(query='runbook') THEN get_agent_skill() FIRST"
+                system_message += "\n  - 'tasks' / 'my tasks' → MUST CALL gtd_list_tasks() FIRST"
+                system_message += "\n  - 'projects' / 'my projects' → MUST CALL gtd_list_projects() FIRST"
+                system_message += "\n  - 'inbox' → MUST CALL gtd_get_inbox_count() or gtd_list_inbox_items() FIRST"
+                system_message += "\n  - 'personalization' / 'about me' → MUST CALL gtd_get_personalization() FIRST"
+                system_message += "\n  - 'search notes' / 'second brain' → MUST CALL gtd_search_second_brain() FIRST"
+                system_message += "\n  - 'skills' / 'workflows' / 'what can you do' → MUST CALL list_agent_skills() FIRST"
+                system_message += "\n\n❌ WRONG EXAMPLES (DO NOT DO THIS):"
+                system_message += "\n  User: 'Review my daily log'"
+                system_message += "\n  ❌ WRONG: 'I'd be happy to review your daily log! Let me check...' [then responds with made-up content]"
+                system_message += "\n  ❌ WRONG: Any creative/fictional response about pickles, squirrels, or unrelated topics"
+                system_message += "\n  ❌ WRONG: 'Your log shows Project Alpha and Task: Report Generation' [without calling tools]"
+                system_message += "\n\n✅ CORRECT EXAMPLES (DO THIS):"
+                system_message += "\n  User: 'Review my daily log'"
+                system_message += "\n  ✅ CORRECT: [IMMEDIATELY call gtd_read_daily_log(date='today') with content=null]"
+                system_message += "\n  ✅ CORRECT: Wait for result, then respond with ACTUAL log content"
+                system_message += "\n\n  User: 'Use the runbook to review my daily log'"
+                system_message += "\n  ✅ CORRECT: [IMMEDIATELY call list_agent_skills(query='runbook')]"
+                system_message += "\n  ✅ CORRECT: [Then call get_agent_skill(skill_name='daily-log-review-runbook')]"
+                system_message += "\n  ✅ CORRECT: [Then follow runbook steps, calling gtd_read_daily_log(date='today') FIRST]"
+                system_message += "\n\n🚨 IF YOU DON'T HAVE TOOL RESULTS, YOU DON'T HAVE DATA. DO NOT MAKE UP DATA."
+                system_message += "\n🚨 IF USER ASKS FOR DATA, YOU MUST CALL TOOLS FIRST. NO EXCEPTIONS."
+                system_message += "\n🚨 IF TOOLS RETURN EMPTY/NOTHING, SAY SO. DO NOT INVENT DATA TO FILL THE VOID."
+                system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                
+                # Check if user is asking for a runbook
+                is_runbook_request = False
+                is_interactive_runbook = False
+                runbook_keywords = ["runbook", "daily log review", "review daily log", "follow the runbook", "use the runbook", "weekly review", "weekly-review"]
+                user_question_lower = content.lower() if content else ""
+                
+                # Check current message for runbook request
+                for keyword in runbook_keywords:
+                    if keyword in user_question_lower:
+                        is_runbook_request = True
+                        # Check if it's an interactive runbook (weekly review, interactive runbooks)
+                        # IMPORTANT: "weekly review" should ALWAYS use the interactive runbook, not the automated skill
+                        if "weekly" in user_question_lower or "interactive" in user_question_lower:
+                            is_interactive_runbook = True
+                        break
+                
+                # ALSO check conversation history to see if we're already in an interactive runbook
+                # This prevents restarting the runbook on follow-up messages
+                if context and context.get("conversation_history"):
+                    conversation_text = " ".join([
+                        msg.get("content", "") for msg in context.get("conversation_history", [])
+                        if isinstance(msg.get("content"), str)
+                    ]).lower()
+                    
+                    # Check if previous messages mention weekly review or interactive runbook
+                    # IMPORTANT: If "weekly review" was mentioned, it should ALWAYS be interactive
+                    if ("weekly review" in conversation_text or "weekly-review" in conversation_text or 
+                        ("interactive" in conversation_text and "runbook" in conversation_text)):
+                        is_interactive_runbook = True
+                        # If we're in an interactive runbook, treat this as a continuation
+                        if not is_runbook_request:
+                            is_runbook_request = True  # Continue runbook mode
+                
+                # CRITICAL: If user says "weekly review" without "runbook", they likely mean the interactive runbook
+                # The automated "weekly-review" skill should only be used if explicitly requested
+                if "weekly review" in user_question_lower and "runbook" not in user_question_lower:
+                    # Default to interactive runbook for "weekly review" requests
+                    is_interactive_runbook = True
+                    is_runbook_request = True
+                    print(f"  ℹ️  Detected 'weekly review' - defaulting to INTERACTIVE runbook (weekly-review-runbook)", file=sys.stderr)
+                
+                if is_runbook_request:
+                    system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n🚨🚨🚨 RUNBOOK REQUEST DETECTED - MANDATORY WORKFLOW 🚨🚨🚨"
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n\n⚠️ CRITICAL: The user asked to use a RUNBOOK. You MUST follow this exact workflow:"
+                    system_message += "\n\n📋 STEP-BY-STEP MANDATORY WORKFLOW:"
+                    system_message += "\n  1. IMMEDIATELY call list_agent_skills(query='runbook') - NO TEXT, NO EXPLANATION, JUST THE TOOL CALL"
+                    system_message += "\n  2. Wait for result, find 'Daily Log Review Runbook'"
+                    system_message += "\n  3. IMMEDIATELY call get_agent_skill(skill_name='daily-log-review-runbook') - NO TEXT, JUST THE TOOL CALL"
+                    system_message += "\n  4. Read the runbook instructions - it has 7 steps"
+                    system_message += "\n  5. Follow Step 1: IMMEDIATELY call gtd_read_daily_log(date='today') - NO TEXT, JUST THE TOOL CALL"
+                    system_message += "\n  6. Wait for tool result - this is the ACTUAL daily log data"
+                    system_message += "\n  7. Use ONLY the actual log data returned - do NOT make up expenses, financial data, or any other information"
+                    system_message += "\n  8. Continue with runbook Step 2: Analyze the ACTUAL log structure"
+                    system_message += "\n  9. Continue with runbook Step 3: Cross-reference with GTD system (call gtd_list_tasks(), gtd_list_projects())"
+                    system_message += "\n  10. Continue with remaining runbook steps using ACTUAL data only"
+                    system_message += "\n  11. ONLY generate final text response AFTER completing all runbook steps with tool calls"
+                    system_message += "\n\n❌ ABSOLUTELY FORBIDDEN WHEN RUNBOOK IS REQUESTED:"
+                    system_message += "\n  - Making up financial data, expenses, or any data not in tool results"
+                    system_message += "\n  - Responding with text before calling list_agent_skills()"
+                    system_message += "\n  - Describing what you would do instead of doing it"
+                    system_message += "\n  - Skipping tool calls"
+                    system_message += "\n  - Creative/fictional responses (expenses, financial stability quests, etc.)"
+                    system_message += "\n  - Any response that doesn't match the actual daily log content"
+                    system_message += "\n\n✅ VALIDATION CHECK: Before generating your final response, verify:"
+                    system_message += "\n  - Did I call gtd_read_daily_log()? ✓"
+                    system_message += "\n  - Did I get the actual log content? ✓"
+                    system_message += "\n  - Does my response mention ONLY things from the actual log? ✓"
+                    system_message += "\n  - Am I NOT making up expenses, financial data, or unrelated information? ✓"
+                    system_message += "\n\n🚨 IF YOU MENTION EXPENSES, FINANCIAL DATA, OR ANYTHING NOT IN THE ACTUAL LOG, YOU ARE HALLUCINATING."
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    
+                    # Special handling for INTERACTIVE runbooks (weekly review, etc.)
+                    if is_interactive_runbook:
+                        system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        system_message += "\n🎯🎯🎯 INTERACTIVE RUNBOOK - CRITICAL INTERACTION RULES 🎯🎯🎯"
+                        system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        system_message += "\n\n⚠️ THIS IS AN INTERACTIVE RUNBOOK - YOU MUST FOLLOW THESE RULES:"
+                        system_message += "\n\n🚨 **MANDATORY: Use the 'weekly-review-runbook' skill, NOT 'weekly-review' skill**"
+                        system_message += "\n  - Call: get_agent_skill(skill_name='weekly-review-runbook')"
+                        system_message += "\n  - Do NOT use: get_agent_skill(skill_name='weekly-review')"
+                        system_message += "\n  - The 'weekly-review-runbook' is interactive and asks questions one at a time"
+                        system_message += "\n  - The 'weekly-review' skill is automated and goes through all steps automatically"
+                        system_message += "\n\n1. **ASK ONE QUESTION AT A TIME** - Do NOT ask multiple questions in one response"
+                        system_message += "\n2. **WAIT FOR USER RESPONSE** - After asking a question, STOP and wait for the user to respond"
+                        system_message += "\n3. **DO NOT PROCEED AUTOMATICALLY** - Do NOT answer your own questions or proceed to the next step without user input"
+                        system_message += "\n4. **NO RUSHING** - Do NOT try to complete all steps in one response. This is a conversation, not a checklist"
+                        system_message += "\n5. **ADAPT TO RESPONSES** - Listen to what the user says and adapt your follow-up questions based on their answers"
+                        system_message += "\n6. **SHOW GENUINE INTEREST** - Acknowledge their insights, celebrate wins, ask follow-up questions that show you're listening"
+                        system_message += "\n7. **CONTINUE THE CONVERSATION** - If the user just responded to your question, acknowledge their answer and ask the NEXT question. Do NOT restart the runbook or repeat previous questions."
+                        system_message += "\n8. **COMPLETE THE RUNBOOK PROPERLY** - When you reach Step 8 (Summary and Commitment), provide a complete summary, ask final questions, and then give a clear completion message like:"
+                        system_message += "\n   '🎉 Weekly Review Complete! You've reflected on your past week, organized your system, and set clear intentions for the week ahead. Great work! Is there anything else you'd like to discuss, or are we all set?'"
+                        system_message += "\n   After the user confirms completion, mark the runbook as finished. Do NOT restart or loop back to Step 1."
+                        system_message += "\n\n🚨 CRITICAL: DO NOT HAVE A CONVERSATION WITH YOURSELF"
+                        system_message += "\n  - If you ask a question, STOP and wait for the user to answer"
+                        system_message += "\n  - Do NOT answer your own question in the same response"
+                        system_message += "\n  - Do NOT ask 'What were your wins?' and then say 'Great, now what didn't go well?'"
+                        system_message += "\n  - Do NOT chain multiple questions together"
+                        system_message += "\n  - ONE question → WAIT → User responds → Acknowledge → NEXT question"
+                        system_message += "\n\n🚨 CRITICAL: DO NOT LOOP OR RESTART THE RUNBOOK"
+                        system_message += "\n  - After Step 8 is complete, mark the runbook as finished"
+                        system_message += "\n  - Do NOT restart from Step 1 after completion"
+                        system_message += "\n  - Do NOT skip steps or jump around"
+                        system_message += "\n  - Progress sequentially: Step 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → Complete"
+                        system_message += "\n\n❌ ABSOLUTELY FORBIDDEN IN INTERACTIVE RUNBOOKS:"
+                        system_message += "\n  - Using the 'weekly-review' skill (automated) instead of 'weekly-review-runbook' (interactive)"
+                        system_message += "\n  - Asking a question and then immediately answering it yourself"
+                        system_message += "\n  - Asking multiple questions in sequence without waiting for responses"
+                        system_message += "\n  - Proceeding to the next step without waiting for user response"
+                        system_message += "\n  - Asking multiple questions at once"
+                        system_message += "\n  - Rushing through all steps in one response"
+                        system_message += "\n  - Ignoring what the user says and just following a script"
+                        system_message += "\n  - Completing all 8 steps in a single response"
+                        system_message += "\n  - Having a conversation with yourself (asking and answering your own questions)"
+                        system_message += "\n  - RESTARTING the runbook when the user responds (continue from where you left off!)"
+                        system_message += "\n  - Repeating questions you already asked"
+                        system_message += "\n\n✅ CORRECT BEHAVIOR:"
+                        system_message += "\n  - If you just asked a question and the user responded: Acknowledge their answer, then ask the NEXT question"
+                        system_message += "\n  - If starting fresh: Ask ONE question (e.g., 'How are you feeling as we start this review?')"
+                        system_message += "\n  - STOP and wait for their response"
+                        system_message += "\n  - After they respond, acknowledge what they said"
+                        system_message += "\n  - Then ask the NEXT question based on their response"
+                        system_message += "\n  - This creates a real conversation, not a one-way script"
+                        system_message += "\n  - Progress through the runbook steps sequentially based on their responses"
+                        system_message += "\n\n🚨 IF THE RUNBOOK SAYS 'Wait for Response', YOU MUST ACTUALLY WAIT."
+                        system_message += "\n🚨 DO NOT PROCEED TO THE NEXT STEP UNTIL THE USER HAS RESPONDED."
+                        system_message += "\n🚨 DO NOT RESTART THE RUNBOOK - CONTINUE FROM WHERE YOU LEFT OFF."
+                        system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                else:
+                    system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n📋 RUNBOOKS - MANDATORY FOR STRUCTURED PROCESSES"
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    system_message += "\n\nWhen user asks to 'review daily log', 'use the runbook', 'follow the runbook', or mentions 'daily log review runbook':"
+                    system_message += "\n\n🚨 MANDATORY STEPS (DO NOT SKIP):"
+                    system_message += "\n  1. IMMEDIATELY call list_agent_skills(query='runbook') - NO TEXT RESPONSE FIRST"
+                    system_message += "\n  2. Find the 'Daily Log Review Runbook' in results"
+                    system_message += "\n  3. IMMEDIATELY call get_agent_skill(skill_name='daily-log-review-runbook') - NO TEXT RESPONSE"
+                    system_message += "\n  4. Read the runbook instructions carefully"
+                    system_message += "\n  5. Follow Step 1: Call gtd_read_daily_log(date='today') - NO TEXT RESPONSE"
+                    system_message += "\n  6. Wait for tool result"
+                    system_message += "\n  7. Continue following ALL runbook steps in sequence"
+                    system_message += "\n  8. ONLY generate text responses AFTER you have tool results"
+                    system_message += "\n\n❌ FORBIDDEN:"
+                    system_message += "\n  - Responding with text before calling list_agent_skills()"
+                    system_message += "\n  - Describing what the runbook would do instead of following it"
+                    system_message += "\n  - Skipping tool calls and making up responses"
+                    system_message += "\n  - Creative/fictional responses instead of following the runbook"
+                    system_message += "\n\n✅ CORRECT: Follow runbook steps exactly, call tools first, use actual results only."
+                    system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                system_message += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                system_message += "\n✅ RESPONSE VALIDATION - BEFORE YOU RESPOND"
+                system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                system_message += "\n\nBefore generating your final text response, ask yourself:"
+                system_message += "\n  1. Did I call the required tools? (gtd_read_daily_log, gtd_list_tasks, etc.)"
+                system_message += "\n  2. Did I get actual tool results?"
+                system_message += "\n  3. Does my response mention ONLY things from the tool results?"
+                system_message += "\n  4. Am I NOT making up data (expenses, financial info, task names, project names)?"
+                system_message += "\n  5. If the user asked for a runbook, did I follow ALL runbook steps?"
+                system_message += "\n\n🚨 IF YOUR RESPONSE MENTIONS DATA NOT IN TOOL RESULTS, YOU ARE HALLUCINATING."
+                system_message += "\n🚨 IF TOOL RESULTS ARE EMPTY, SAY 'No data found' - DO NOT MAKE UP DATA."
+                system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 system_message += "\n\nIMPORTANT WORKFLOW GUIDELINES:"
+                system_message += "\n- For structured processes, use RUNBOOKS: Call list_agent_skills(query='runbook') to find runbooks"
+                system_message += "\n- Runbooks provide step-by-step procedures with validation - follow them exactly"
                 system_message += "\n- For long workflows (like morning check-ins, reviews), break them into steps"
                 system_message += "\n- After completing 2-3 tool calls, provide a progress update summarizing what you've done"
                 system_message += "\n- Then ask if the user wants to continue or if they have questions"
@@ -488,9 +1464,26 @@ class SmartAIRouter:
                     system_message += "\n   - 'what capabilities are available'"
                     system_message += "\n   - 'what workflows can you help with'"
                     system_message += "\n   - 'show me your skills'"
+                    system_message += "\n   - 'help me with [workflow name]' (e.g., 'help me with morning review')"
+                    system_message += "\n   - 'can you help me [do something]' (e.g., 'can you help me process my inbox')"
                     system_message += "\n   - Any question about skills, capabilities, or workflows"
                     system_message += "\n\nDO NOT guess, make up, or describe skills from memory. ALWAYS call list_agent_skills() to get the actual, current list of available skills."
                     system_message += "\n\nTo use skills: (1) Call list_agent_skills() to discover available skills, (2) Call get_agent_skill(skill_name='...') to read a skill's full instructions, (3) Follow the skill's step-by-step workflow using the appropriate GTD tools."
+                    system_message += "\n\nWhen a user asks for help with a workflow (like 'help me with my morning review' or 'can you help me process my inbox'), you MUST:"
+                    system_message += "\n  1. First call list_agent_skills() with a query matching their request"
+                    system_message += "\n  2. Then call get_agent_skill() to get the full workflow instructions"
+                    system_message += "\n  3. Then follow the skill's instructions step-by-step, calling the appropriate GTD tools"
+                    system_message += "\n\nDO NOT describe what you would do - actually execute the workflow by calling tools."
+                    system_message += "\n\nEXAMPLES OF CORRECT BEHAVIOR:"
+                    system_message += "\n  User: 'what skills do you have?'"
+                    system_message += "\n  ✅ CORRECT: Call list_agent_skills() immediately, then list the results"
+                    system_message += "\n  ❌ WRONG: Say 'I have skills like morning check-in, inbox processing...' without calling tools"
+                    system_message += "\n\n  User: 'help me with my morning review'"
+                    system_message += "\n  ✅ CORRECT: Call list_agent_skills(query='morning'), then get_agent_skill(), then follow the workflow"
+                    system_message += "\n  ❌ WRONG: Describe what a morning review would involve without calling tools"
+                    system_message += "\n\n  User: 'can you help me populate my second brain?'"
+                    system_message += "\n  ✅ CORRECT: Call list_agent_skills(query='second brain'), then get_agent_skill(), then follow instructions"
+                    system_message += "\n  ❌ WRONG: Describe how you would help without actually calling tools to see what's available"
                     system_message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 
                 system_message += "\n\nIf you're unsure what tools are available, you can call list_available_tools to see all available tools and their descriptions."
@@ -582,6 +1575,38 @@ class SmartAIRouter:
                                     "text": content_block.text
                                 })
 
+                        # CRITICAL: If this is a data request and first iteration with no tool calls, force tool usage
+                        data_keywords = ["daily log", "review", "runbook", "tasks", "projects", "inbox", "log"]
+                        user_question_lower = content.lower() if content else ""
+                        is_data_request = any(keyword in user_question_lower for keyword in data_keywords)
+                        
+                        if is_data_request and iteration == 0 and not tool_calls and text_blocks:
+                            # AI responded with text but no tools for a data request - this is wrong
+                            # Force it to call tools by adding an enforcement message
+                            print(f"  🚨 FORCING TOOL USAGE: AI responded with text but no tools for data request!", file=sys.stderr)
+                            print(f"  🚨 Adding enforcement message to force tool calls...", file=sys.stderr)
+                            
+                            # Add the assistant's text response to messages (so it knows we saw it)
+                            messages.append({
+                                "role": "assistant",
+                                "content": assistant_content
+                            })
+                            
+                            # Add enforcement message forcing tool usage
+                            if "runbook" in user_question_lower:
+                                enforcement_msg = "🚨 ERROR: You responded with text but did NOT call any tools. For runbook requests, you MUST call list_agent_skills(query='runbook') FIRST, then get_agent_skill(), then follow the runbook steps. Your text response was ignored. Please call the required tools NOW - DO NOT generate text, ONLY make tool calls."
+                            elif "daily log" in user_question_lower or "log" in user_question_lower:
+                                enforcement_msg = "🚨 ERROR: You responded with text but did NOT call any tools. For daily log requests, you MUST call gtd_read_daily_log(date='today') FIRST. Your text response was ignored. Please call the required tool NOW - DO NOT generate text, ONLY make tool calls."
+                            else:
+                                enforcement_msg = "🚨 ERROR: You responded with text but did NOT call any tools. For data requests, you MUST call tools FIRST (e.g., gtd_read_daily_log, gtd_list_tasks, list_agent_skills). Your text response was ignored. Please call the required tools NOW - DO NOT generate text, ONLY make tool calls."
+                            
+                            messages.append({
+                                "role": "user",
+                                "content": enforcement_msg
+                            })
+                            iteration += 1
+                            continue  # Retry with enforcement message - don't accumulate this text response
+                        
                         # Accumulate any text responses (but don't use them until Claude is done)
                         if text_blocks:
                             new_text = "\n".join(text_blocks)
@@ -592,6 +1617,9 @@ class SmartAIRouter:
                         if tool_calls:
                             # Execute tools and add results to messages
                             print(f"🔧 Iteration {iteration + 1}/{max_iterations}: Executing {len(tool_calls)} tool call(s)", file=sys.stderr)
+                            print(f"  ✅ Tools are being called - this is correct!", file=sys.stderr)
+                            for tc in tool_calls:
+                                print(f"  → Tool: {tc.name} with args: {str(tc.input)[:100]}...", file=sys.stderr)
                             tool_results = []
                             for tool_call in tool_calls:
                                 tool_name = tool_call.name
@@ -625,6 +1653,9 @@ class SmartAIRouter:
                                         except:
                                             pass
                                     
+                                    # Store full result for transparency (before truncation)
+                                    full_tool_result = tool_result
+                                    
                                     # Limit tool result size to prevent token bloat
                                     if len(tool_result) > 8000:
                                         tool_result = tool_result[:8000] + "\n... (truncated)"
@@ -633,6 +1664,16 @@ class SmartAIRouter:
                                         print(f"  ❌ {tool_name} returned error ({len(tool_result)} chars)", file=sys.stderr)
                                     else:
                                         print(f"  ✅ {tool_name} completed successfully ({len(tool_result)} chars)", file=sys.stderr)
+                                    
+                                    # Store tool execution details for transparency
+                                    if not hasattr(self, '_tool_execution_details'):
+                                        self._tool_execution_details = []
+                                    self._tool_execution_details.append({
+                                        "tool_name": tool_name,
+                                        "tool_args": tool_args,
+                                        "tool_result": full_tool_result,  # Store full result, not truncated
+                                        "is_error": is_error
+                                    })
                                     
                                     tool_results.append({
                                         "type": "tool_result",
@@ -643,6 +1684,17 @@ class SmartAIRouter:
                                     import traceback
                                     error_msg = f"Error executing tool '{tool_name}': {str(e)}"
                                     print(f"  ❌ {error_msg}", file=sys.stderr)
+                                    
+                                    # Store error details for transparency
+                                    if not hasattr(self, '_tool_execution_details'):
+                                        self._tool_execution_details = []
+                                    self._tool_execution_details.append({
+                                        "tool_name": tool_name,
+                                        "tool_args": tool_args,
+                                        "tool_result": error_msg,
+                                        "is_error": True
+                                    })
+                                    
                                     tool_results.append({
                                         "type": "tool_result",
                                         "tool_use_id": tool_id,
@@ -675,6 +1727,17 @@ class SmartAIRouter:
                             continue  # Loop to get final response
                         else:
                             # No tool calls - extract text response
+                            # Check if we should have called tools
+                            data_keywords = ["daily log", "review", "runbook", "tasks", "projects", "inbox"]
+                            user_question_lower = content.lower() if content else ""
+                            should_have_called_tools = any(keyword in user_question_lower for keyword in data_keywords)
+                            
+                            if should_have_called_tools and iteration == 0:
+                                # First iteration and no tool calls for a data request - this is wrong
+                                print(f"  ⚠️  WARNING: User asked about data but no tools were called in first response!", file=sys.stderr)
+                                print(f"  ⚠️  This may result in hallucinated data!", file=sys.stderr)
+                                print(f"  ⚠️  AI is responding with text instead of calling tools - this is INCORRECT behavior!", file=sys.stderr)
+                            
                             response_text = ""
                             for content_block in message.content:
                                 if content_block.type == "text":
@@ -706,6 +1769,25 @@ class SmartAIRouter:
                         else:
                             return None, f"Max tool call iterations ({max_iterations}) reached without final response. Claude may be stuck in a tool-calling loop."
 
+                    # Collect all tool execution details for transparency
+                    tool_execution_details = getattr(self, '_tool_execution_details', [])
+                    # Clear for next request
+                    if hasattr(self, '_tool_execution_details'):
+                        delattr(self, '_tool_execution_details')
+                    
+                    # Validation: Check if tools should have been called but weren't
+                    data_keywords = ["daily log", "review", "runbook", "tasks", "projects", "inbox", "log"]
+                    user_question_lower = content.lower() if content else ""
+                    should_have_called_tools = any(keyword in user_question_lower for keyword in data_keywords)
+                    
+                    if should_have_called_tools and not tool_execution_details:
+                        # AI responded without calling tools when it should have
+                        warning = "\n\n⚠️ WARNING: You were asked about data but didn't call any tools. "
+                        warning += "This response may contain hallucinated information. "
+                        warning += "You should have called tools first (e.g., gtd_read_daily_log, gtd_list_tasks).\n\n"
+                        final_response = warning + final_response
+                        print(f"  ⚠️  WARNING: No tools called for data request!", file=sys.stderr)
+                    
                     # If we used a fallback model, update the configured model for next time
                     if model_name != self.claude_model:
                         self.claude_model = model_name
@@ -716,6 +1798,8 @@ class SmartAIRouter:
                         "request_type": request_type,
                         "timestamp": datetime.now().isoformat(),
                         "model": model_name,
+                        "tool_executions": tool_execution_details,  # Include tool execution details
+                        "_warnings": ["No tools called for data request"] if (should_have_called_tools and not tool_execution_details) else [],
                     }, None
 
                 except Exception as e:

@@ -1,0 +1,23 @@
+#!/bin/bash
+# Test script to demonstrate GTD CLI bypass in TUI
+
+echo "🧪 Testing GTD CLI LLM Bypass in TUI"
+echo ""
+echo "This will start the TUI and show you how to test:"
+echo ""
+echo "1. Type: gtd read-daily-log today"
+echo "   → Should show raw JSON instantly (no LLM)"
+echo ""
+echo "2. Type: gtd list-tasks"
+echo "   → Should show task list directly (no LLM)" 
+echo ""
+echo "3. Type: What should I work on today?"
+echo "   → Should go through LLM with AI advice"
+echo ""
+echo "4. Use Tab completion: gtd list-<TAB>"
+echo "   → Should show completion options"
+echo ""
+echo "Press Enter to start the TUI test..."
+read
+
+cd "$(dirname "$0")/.." && make claude-ask-interactive QUESTION=""

@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""
+TUI Debug Tool
+
+Provides comprehensive debugging and health monitoring for the claude-ask-interactive TUI.
+"""
+
+import sys
+import os
+import json
+import time
+import subprocess
+import signal
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+import argparse
+
+# Add the tests directory to the path
+sys.path.insert(0, str(Path(__file__).parent.parent / "tests"))
+
+try:
+    from test_tui_integration import TUITester, TUIState
+except ImportError:
+    print("❌ Error: Could not import TUITester. Install pexpect: pip install pexpect pytest")
+    sys.exit(1)
+
+class TUIDebugger:
+    """Advanced TUI debugging and monitoring"""
+    
+    def __init__(self):
+        self.tester = TUITester()
+        self.tester.debug_mode = True
+    
+    def health_check(self) -> Dict[str, Any]:
+        """Comprehensive TUI health check"""
+        print("🏥 Running TUI Health Check...")
+        
+        # Check running processes
+        processes = self._get_tui_processes()
+        
+        # Test TUI startup
+        startup_ok = self.tester.start_tui()
+        health_report = self.tester.validate_tui_health() if startup_ok else {}
+        
+        self.tester.stop_tui()
+        
+        full_report = {
+            'timestamp': time.time(),
+            'startup_successful': startup_ok,
+            'running_processes': processes,
+            'health_report': health_report,
+            'recommendations': self._generate_recommendations(startup_ok, processes, health_report)
+        }
+        
+        return full_report
+    
+    def interactive_debug(self):
+        """Interactive debugging session"""
+        print("🔍 Starting Interactive TUI Debug Session...")
+        print("Commands: health, start, stop, send <message>, state, export, quit")
+        
+        while True:
+            try:
+                command = input("\n🐛 debug> ").strip().lower()
+                
+                if command == 'quit' or command == 'q':
+                    break
+                elif command == 'health':
+                    health = self.tester.validate_tui_health()
+                    print(json.dumps(health, indent=2))
+                elif command == 'start':
+                    if self.tester.start_tui():
+                        print("✅ TUI started")
+                    else:
+                        print("❌ Failed to start TUI")
+                elif command == 'stop':
+                    self.tester.stop_tui()
+                    print("🛑 TUI stopped")
+                elif command == 'state':
+                    state = self.tester._capture_state()
+                    print(f"📊 Current state:")
+                    print(f"  Location: {state.location}")
+                    print(f"  Status: {state.status}")
+                    print(f"  Message: {state.message}")
+                    print(f"  Active Command: {state.active_command}")
+                    print(f"  Errors: {state.error_messages}")
+                elif command.startswith('send '):
+                    message = command[5:]
+                    if self.tester.send_message(message):
+                        print(f"✅ Sent: {message}")
+                        if self.tester.wait_for_response():
+                            print("✅ Got response")
+                        else:
+                            print("⚠️  Response timeout or stuck")
+                    else:
+                        print("❌ Failed to send message")
+                elif command == 'export':
+                    filepath = f"/tmp/tui_debug_{int(time.time())}.json"
+                    self.tester.export_debug_info(filepath)
+                    print(f"📁 Debug info exported to: {filepath}")
+                else:
+                    print("❓ Unknown command")
+                    
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+        
+        print("👋 Debug session ended")
+        self.tester.stop_tui()
+    
+    def monitor_tui(self, duration: int = 60):
+        """Monitor TUI health over time"""
+        print(f"📊 Monitoring TUI for {duration} seconds...")
+        
+        if not self.tester.start_tui():
+            print("❌ Could not start TUI for monitoring")
+            return
+        
+        start_time = time.time()
+        reports = []
+        
+        try:
+            while time.time() - start_time < duration:
+                health = self.tester.validate_tui_health()
+                health['timestamp'] = time.time()
+                reports.append(health)
+                
+                print(f"⏱️  {int(time.time() - start_time)}s: "
+                      f"Responsive: {health.get('tui_responsive', False)}, "
+                      f"Async OK: {health.get('async_handling_ok', False)}")
+                
+                time.sleep(5)
+                
+        except KeyboardInterrupt:
+            print("\n🛑 Monitoring stopped by user")
+        
+        # Export monitoring report
+        filepath = f"/tmp/tui_monitoring_{int(time.time())}.json"
+        with open(filepath, 'w') as f:
+            json.dump(reports, f, indent=2)
+        
+        print(f"📁 Monitoring report saved to: {filepath}")
+        self.tester.stop_tui()
+    
+    def _get_tui_processes(self) -> List[Dict[str, str]]:
+        """Get running TUI-related processes"""
+        try:
+            result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
+            processes = []
+            
+            for line in result.stdout.split('\n'):
+                if any(keyword in line.lower() for keyword in ['claude', 'gtd', 'tui', 'ollama']):
+                    parts = line.split()
+                    if len(parts) >= 11:
+                        processes.append({
+                            'user': parts[0],
+                            'pid': parts[1],
+                            'cpu': parts[2],
+                            'mem': parts[3],
+                            'command': ' '.join(parts[10:])
+                        })
+            
+            return processes
+        except Exception:
+            return []
+    
+    def _generate_recommendations(self, startup_ok: bool, processes: List[Dict], health: Dict) -> List[str]:
+        """Generate debugging recommendations"""
+        recommendations = []
+        
+        if not startup_ok:
+            recommendations.append("TUI failed to start - check Ollama is running: ollama list")
+            recommendations.append("Try restarting with: make claude-ask-interactive")
+        
+        # Check for multiple TUI processes
+        tui_processes = [p for p in processes if 'claude_ask_tui' in p.get('command', '')]
+        if len(tui_processes) > 1:
+            recommendations.append(f"Multiple TUI processes detected ({len(tui_processes)}) - kill extras")
+        
+        # Check for stuck processes
+        if health.get('stuck_processes'):
+            recommendations.append("Stuck processes detected - restart TUI")
+        
+        # Async handling issues
+        if not health.get('async_handling_ok', True):
+            recommendations.append("Async response handling issue - check Ollama Controller")
+        
+        return recommendations
+
+def main():
+    parser = argparse.ArgumentParser(description='TUI Debug Tool')
+    parser.add_argument('command', choices=['health', 'interactive', 'monitor'], 
+                       help='Debug command to run')
+    parser.add_argument('--duration', type=int, default=60,
+                       help='Duration for monitoring (seconds)')
+    
+    args = parser.parse_args()
+    
+    debugger = TUIDebugger()
+    
+    try:
+        if args.command == 'health':
+            report = debugger.health_check()
+            print("\n🏥 TUI HEALTH REPORT:")
+            print("=" * 50)
+            print(json.dumps(report, indent=2))
+            
+            if report['recommendations']:
+                print("\n💡 RECOMMENDATIONS:")
+                for i, rec in enumerate(report['recommendations'], 1):
+                    print(f"{i}. {rec}")
+        
+        elif args.command == 'interactive':
+            debugger.interactive_debug()
+        
+        elif args.command == 'monitor':
+            debugger.monitor_tui(args.duration)
+    
+    except KeyboardInterrupt:
+        print("\n👋 Debug tool interrupted")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == '__main__':
+    main()

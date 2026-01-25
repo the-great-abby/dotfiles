@@ -1320,8 +1320,31 @@ def queue_project_suggestions(task_ids: List[str]) -> str:
         return f"queue_failed: {e}"
 
 
-def queue_knowledge_organization(scan_type: str = "full") -> str:
+@server.call_tool()
+async def queue_knowledge_organization(scan_type: str = "full") -> List[TextContent]:
     """Queue a knowledge organization scan for background processing.
+    
+    Analyzes projects, notes, and daily logs to suggest MoCs and Areas.
+    
+    Args:
+        scan_type: Type of scan - "full", "areas", "mocs", or "themes"
+    """
+    try:
+        result = _queue_knowledge_organization_impl(scan_type)
+        return [TextContent(type="text", text=json.dumps({
+            "status": result,
+            "scan_type": scan_type,
+            "message": f"Knowledge organization scan ({scan_type}) has been queued for background processing."
+        }))]
+    except Exception as e:
+        return [TextContent(type="text", text=json.dumps({
+            "error": f"Failed to queue knowledge organization scan: {str(e)}",
+            "scan_type": scan_type
+        }))]
+
+
+def _queue_knowledge_organization_impl(scan_type: str = "full") -> str:
+    """Implementation for queuing knowledge organization scan.
     
     Analyzes projects, notes, and daily logs to suggest MoCs and Areas.
     

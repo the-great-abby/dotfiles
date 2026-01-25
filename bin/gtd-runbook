@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""
+GTD Runbook - Direct Interactive Runbook Launcher
+
+Launch interactive GTD runbooks directly without going through the AI first.
+Provides tab completion, runbook browsing, and direct execution.
+
+Usage:
+    gtd-runbook                           # List all available runbooks
+    gtd-runbook list                      # List all runbooks with descriptions
+    gtd-runbook interactive-energy-audit  # Execute specific runbook
+    gtd-runbook search energy             # Search runbooks by keyword
+    gtd-runbook info interactive-goal-setting-session  # Show runbook details
+"""
+
+import sys
+import os
+import subprocess
+import json
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple
+
+def get_skills_directory() -> Path:
+    """Get the skills directory path."""
+    return Path.home() / "code" / "dotfiles" / "mcp" / "skills"
+
+def get_available_runbooks() -> List[Tuple[str, str, str]]:
+    """Get list of available runbooks with descriptions.
+    
+    Returns:
+        List of (skill_name, description, tags) tuples
+    """
+    skills_dir = get_skills_directory()
+    runbooks = []
+    
+    if not skills_dir.exists():
+        return []
+    
+    for skill_dir in skills_dir.iterdir():
+        if skill_dir.is_dir():
+            skill_file = skill_dir / "SKILL.md"
+            if skill_file.exists():
+                try:
+                    with open(skill_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Extract metadata from YAML frontmatter
+                    description = "No description available"
+                    tags = ""
+                    
+                    if content.startswith('---\n'):
+                        end_index = content.find('\n---\n', 4)
+                        if end_index != -1:
+                            frontmatter = content[4:end_index]
+                            for line in frontmatter.split('\n'):
+                                if line.strip().startswith('description:'):
+                                    description = line.split('description:', 1)[1].strip()
+                                elif line.strip().startswith('tags:'):
+                                    # Extract tags list
+                                    tags_start = frontmatter.find('tags:', frontmatter.find(line))
+                                    if tags_start != -1:
+                                        tags_section = frontmatter[tags_start:]
+                                        tag_lines = []
+                                        for tag_line in tags_section.split('\n')[1:]:
+                                            if tag_line.strip().startswith('- '):
+                                                tag_lines.append(tag_line.strip()[2:])
+                                            elif tag_line.strip() and not tag_line.startswith(' '):
+                                                break
+                                        tags = ", ".join(tag_lines)
+                    
+                    runbooks.append((skill_dir.name, description, tags))
+                    
+                except Exception as e:
+                    runbooks.append((skill_dir.name, f"Error reading description: {e}", ""))
+    
+    return sorted(runbooks)
+
+def list_runbooks(show_descriptions: bool = True, search_term: Optional[str] = None) -> None:
+    """List all available runbooks."""
+    runbooks = get_available_runbooks()
+    
+    if search_term:
+        search_lower = search_term.lower()
+        runbooks = [
+            (name, desc, tags) for name, desc, tags in runbooks
+            if search_lower in name.lower() or search_lower in desc.lower() or search_lower in tags.lower()
+        ]
+    
+    if not runbooks:
+        if search_term:
+            print(f"❌ No runbooks found matching '{search_term}'")
+        else:
+            print("❌ No runbooks found")
+        return
+    
+    if search_term:
+        print(f"🔍 **Runbooks matching '{search_term}':** ({len(runbooks)} found)")
+    else:
+        print(f"📋 **Available Interactive Runbooks:** ({len(runbooks)} total)")
+    
+    print()
+    
+    # Group by type
+    interactive_runbooks = []
+    automated_runbooks = []
+    other_runbooks = []
+    
+    for name, desc, tags in runbooks:
+        if 'interactive' in name or 'interactive' in tags:
+            interactive_runbooks.append((name, desc, tags))
+        elif any(tag in tags.lower() for tag in ['automatic', 'proactive', 'background']):
+            automated_runbooks.append((name, desc, tags))
+        else:
+            other_runbooks.append((name, desc, tags))
+    
+    # Display interactive runbooks first (most likely what user wants)
+    if interactive_runbooks:
+        print("🎯 **Interactive Runbooks:**")
+        for name, desc, tags in interactive_runbooks:
+            if show_descriptions:
+                print(f"   • {name}")
+                print(f"     {desc}")
+                if tags:
+                    print(f"     Tags: {tags}")
+            else:
+                print(f"   • {name}")
+        print()
+    
+    if automated_runbooks:
+        print("🤖 **Automated/Background Runbooks:**")
+        for name, desc, tags in automated_runbooks:
+            if show_descriptions:
+                print(f"   • {name}")
+                print(f"     {desc}")
+            else:
+                print(f"   • {name}")
+        print()
+    
+    if other_runbooks:
+        print("📋 **Other Runbooks:**")
+        for name, desc, tags in other_runbooks:
+            if show_descriptions:
+                print(f"   • {name}")
+                print(f"     {desc}")
+            else:
+                print(f"   • {name}")
+        print()
+
+def show_runbook_info(runbook_name: str) -> None:
+    """Show detailed information about a specific runbook."""
+    skills_dir = get_skills_directory()
+    skill_dir = skills_dir / runbook_name
+    skill_file = skill_dir / "SKILL.md"
+    
+    if not skill_file.exists():
+        print(f"❌ Runbook '{runbook_name}' not found")
+        print()
+        print("💡 Available runbooks:")
+        list_runbooks(show_descriptions=False)
+        return
+    
+    try:
+        with open(skill_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        print(f"📋 **Runbook: {runbook_name}**")
+        print()
+        
+        # Extract and show metadata
+        if content.startswith('---\n'):
+            end_index = content.find('\n---\n', 4)
+            if end_index != -1:
+                frontmatter = content[4:end_index]
+                
+                for line in frontmatter.split('\n'):
+                    line = line.strip()
+                    if ':' in line and not line.startswith(' '):
+                        key, value = line.split(':', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        
+                        if key in ['name', 'description', 'version', 'type', 'author']:
+                            print(f"**{key.title()}:** {value}")
+                        elif key == 'tags':
+                            print(f"**Tags:** [Processing tags...]")
+                
+                # Extract tags separately (they're in array format)
+                tags_start = frontmatter.find('tags:')
+                if tags_start != -1:
+                    tags_section = frontmatter[tags_start:]
+                    tag_lines = []
+                    for tag_line in tags_section.split('\n')[1:]:
+                        if tag_line.strip().startswith('- '):
+                            tag_lines.append(tag_line.strip()[2:])
+                        elif tag_line.strip() and not tag_line.startswith(' '):
+                            break
+                    if tag_lines:
+                        print(f"**Tags:** {', '.join(tag_lines)}")
+        
+        print()
+        
+        # Extract and show purpose section
+        purpose_start = content.find('## Purpose')
+        if purpose_start != -1:
+            purpose_end = content.find('\n##', purpose_start + 1)
+            if purpose_end == -1:
+                purpose_end = content.find('\n---', purpose_start + 1)
+            if purpose_end == -1:
+                purpose_section = content[purpose_start:]
+            else:
+                purpose_section = content[purpose_start:purpose_end]
+            
+            print("🎯 **Purpose:**")
+            lines = purpose_section.split('\n')[2:]  # Skip the ## Purpose line and empty line
+            for line in lines[:10]:  # Show first 10 lines of purpose
+                if line.strip():
+                    print(f"   {line}")
+            print()
+        
+        # Show file location
+        print(f"📁 **File:** {skill_file}")
+        print()
+        print(f"🚀 **To execute:** gtd-runbook {runbook_name}")
+        
+    except Exception as e:
+        print(f"❌ Error reading runbook info: {e}")
+
+def execute_runbook(runbook_name: str) -> None:
+    """Execute a runbook through the GTD advice system."""
+    skills_dir = get_skills_directory()
+    skill_dir = skills_dir / runbook_name
+    skill_file = skill_dir / "SKILL.md"
+    
+    if not skill_file.exists():
+        print(f"❌ Runbook '{runbook_name}' not found")
+        print()
+        print("💡 Available runbooks:")
+        list_runbooks(show_descriptions=False)
+        return
+    
+    print(f"🚀 **Launching Interactive Runbook: {runbook_name}**")
+    print()
+    print("⏳ Starting AI-guided interactive session...")
+    print("   (This will open your questmaster persona with the selected runbook)")
+    print()
+    
+    # Execute through GTD advice system
+    try:
+        # Use the same pattern as other GTD tools - execute through the advice system
+        advice_command = [
+            "gtd-advise", 
+            "questmaster", 
+            f"Execute {runbook_name} skill"
+        ]
+        
+        # Execute the command
+        result = subprocess.run(advice_command, check=False, capture_output=False)
+        
+        if result.returncode != 0:
+            print(f"⚠️  Runbook execution may have encountered issues")
+            print("💡 Try checking:")
+            print("   • Is the GTD advice worker running?")
+            print("   • Is the questmaster persona available?")
+            print("   • Does the runbook name match exactly?")
+        
+    except FileNotFoundError:
+        print("❌ Could not execute runbook - gtd-advise command not found")
+        print("💡 Make sure the GTD advice system is set up and accessible")
+    except Exception as e:
+        print(f"❌ Error executing runbook: {e}")
+
+def show_tab_completion_setup() -> None:
+    """Show how to set up tab completion for gtd-runbook."""
+    print("🎯 **Tab Completion Setup for gtd-runbook:**")
+    print()
+    print("Add this to your ~/.zshrc or shell config:")
+    print()
+    print("```bash")
+    print("# GTD Runbook tab completion")
+    print("_gtd_runbook_completion() {")
+    print('    local runbooks=($(gtd-runbook list-names 2>/dev/null))')
+    print('    _arguments "*:runbook:($runbooks)"')
+    print("}")
+    print()
+    print("compdef _gtd_runbook_completion gtd-runbook")
+    print("```")
+    print()
+    print("Then run: `source ~/.zshrc` or restart your terminal")
+    print()
+    print("🧪 **Test tab completion:**")
+    print("   gtd-runbook interactive-<TAB>")
+
+def list_runbook_names_only() -> None:
+    """List just the runbook names for tab completion."""
+    runbooks = get_available_runbooks()
+    for name, _, _ in runbooks:
+        print(name)
+
+def show_help() -> None:
+    """Show help information."""
+    print("🎯 **GTD Runbook - Direct Interactive Runbook Launcher**")
+    print()
+    print("**Usage:**")
+    print("   gtd-runbook                              # List all runbooks")
+    print("   gtd-runbook list                         # List with descriptions")
+    print("   gtd-runbook [runbook-name]               # Execute specific runbook")
+    print("   gtd-runbook search [keyword]             # Search runbooks")
+    print("   gtd-runbook info [runbook-name]          # Show runbook details")
+    print("   gtd-runbook completion                   # Show tab completion setup")
+    print("   gtd-runbook help                         # Show this help")
+    print()
+    print("**Examples:**")
+    print("   gtd-runbook interactive-energy-audit")
+    print("   gtd-runbook interactive-project-planning")
+    print("   gtd-runbook search goal")
+    print("   gtd-runbook info interactive-context-review")
+    print()
+    print("**Interactive Runbooks:**")
+    interactive_runbooks = [(name, desc, tags) for name, desc, tags in get_available_runbooks() 
+                           if 'interactive' in name or 'interactive' in tags]
+    
+    for name, desc, tags in interactive_runbooks[:8]:  # Show first 8
+        print(f"   • {name}")
+    
+    if len(interactive_runbooks) > 8:
+        print(f"   ... and {len(interactive_runbooks) - 8} more")
+    
+    print()
+    print("🎯 **Tab Completion:** Run `gtd-runbook completion` for setup instructions")
+
+def main():
+    """Main entry point."""
+    if len(sys.argv) == 1:
+        # No arguments - list runbooks
+        list_runbooks()
+        return
+    
+    command = sys.argv[1].lower()
+    
+    if command == 'help' or command == '--help' or command == '-h':
+        show_help()
+    elif command == 'list':
+        list_runbooks(show_descriptions=True)
+    elif command == 'list-names':
+        # For tab completion
+        list_runbook_names_only()
+    elif command == 'search':
+        if len(sys.argv) < 3:
+            print("❌ Search requires a keyword")
+            print("Usage: gtd-runbook search [keyword]")
+            return
+        search_term = sys.argv[2]
+        list_runbooks(show_descriptions=True, search_term=search_term)
+    elif command == 'info':
+        if len(sys.argv) < 3:
+            print("❌ Info requires a runbook name")
+            print("Usage: gtd-runbook info [runbook-name]")
+            return
+        runbook_name = sys.argv[2]
+        show_runbook_info(runbook_name)
+    elif command == 'completion':
+        show_tab_completion_setup()
+    else:
+        # Assume it's a runbook name to execute
+        runbook_name = command
+        execute_runbook(runbook_name)
+
+if __name__ == "__main__":
+    main()
