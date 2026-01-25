@@ -45,7 +45,7 @@ log_error() {
 create_structure() {
     log_info "Creating export directory structure..."
     
-    mkdir -p "$EXPORT_ROOT"/{bin,zsh/functions,zsh/quizzes,mcp/skills,docs/architecture,docs/mcp_notes,tests,launchd,web,scripts}
+    mkdir -p "$EXPORT_ROOT"/{bin,zsh/functions,zsh/quizzes,mcp/skills,mcp/runbooks,docs/architecture,docs/mcp_notes,tests,launchd,web/{backend,frontend,nginx,systemd,launchd},scripts,tmux}
     
     log_success "Directory structure created"
 }
@@ -93,6 +93,31 @@ export_bin_scripts() {
         local basename_file=$(basename "$file")
         copy_file "$file" "$export_bin/$basename_file"
     done < <(find "$bin_dir" -maxdepth 1 -name "gtd_*" -type f -print0 2>/dev/null)
+    
+    # Copy standalone gtd command (if exists)
+    if [[ -f "$bin_dir/gtd" ]]; then
+        copy_file "$bin_dir/gtd" "$export_bin/gtd"
+    fi
+    
+    # Copy gtd-cli (if exists)
+    if [[ -f "$bin_dir/gtd-cli" ]]; then
+        copy_file "$bin_dir/gtd-cli" "$export_bin/gtd-cli"
+    fi
+    
+    # Copy gtd-runbook (if exists)
+    if [[ -f "$bin_dir/gtd-runbook" ]]; then
+        copy_file "$bin_dir/gtd-runbook" "$export_bin/gtd-runbook"
+    fi
+    
+    # Copy gtd-runbook-resume (if exists)
+    if [[ -f "$bin_dir/gtd-runbook-resume" ]]; then
+        copy_file "$bin_dir/gtd-runbook-resume" "$export_bin/gtd-runbook-resume"
+    fi
+    
+    # Copy gtd-wizard-tui.py (if exists)
+    if [[ -f "$bin_dir/gtd-wizard-tui.py" ]]; then
+        copy_file "$bin_dir/gtd-wizard-tui.py" "$export_bin/gtd-wizard-tui.py"
+    fi
     
     # Copy gtd-common.sh (shared utility)
     if [[ -f "$bin_dir/gtd-common.sh" ]]; then
@@ -184,6 +209,16 @@ export_mcp() {
         copy_file "$file" "$export_mcp/$basename_file"
     done < <(find "$mcp_dir" -maxdepth 1 -name "gtd_*.py" -type f -print0 2>/dev/null)
     
+    # Copy enhanced_gtd_tools.py
+    if [[ -f "$mcp_dir/enhanced_gtd_tools.py" ]]; then
+        copy_file "$mcp_dir/enhanced_gtd_tools.py" "$export_mcp/enhanced_gtd_tools.py"
+    fi
+    
+    # Copy gtd_coordination.py
+    if [[ -f "$mcp_dir/gtd_coordination.py" ]]; then
+        copy_file "$mcp_dir/gtd_coordination.py" "$export_mcp/gtd_coordination.py"
+    fi
+    
     # Copy claude_gtd_client.py
     if [[ -f "$mcp_dir/claude_gtd_client.py" ]]; then
         copy_file "$mcp_dir/claude_gtd_client.py" "$export_mcp/claude_gtd_client.py"
@@ -192,6 +227,11 @@ export_mcp() {
     # Copy claude_ollama_bridge.py
     if [[ -f "$mcp_dir/claude_ollama_bridge.py" ]]; then
         copy_file "$mcp_dir/claude_ollama_bridge.py" "$export_mcp/claude_ollama_bridge.py"
+    fi
+    
+    # Copy claude_ask_tui.py
+    if [[ -f "$mcp_dir/claude_ask_tui.py" ]]; then
+        copy_file "$mcp_dir/claude_ask_tui.py" "$export_mcp/claude_ask_tui.py"
     fi
     
     # Copy requirements.txt
@@ -205,7 +245,7 @@ export_mcp() {
     fi
     
     # Copy setup.sh and deploy.sh
-    for script in setup.sh deploy.sh check_mcp_cursor.sh check_worker.sh; do
+    for script in setup.sh deploy.sh check_mcp_cursor.sh check_worker.sh gtd_mcp_status.sh; do
         if [[ -f "$mcp_dir/$script" ]]; then
             copy_file "$mcp_dir/$script" "$export_mcp/$script"
         fi
@@ -221,6 +261,13 @@ export_mcp() {
         log_info "Copying skills directory..."
         cp -r "$mcp_dir/skills" "$export_mcp/"
         log_success "Skills directory copied"
+    fi
+    
+    # Copy runbooks directory if exists
+    if [[ -d "$mcp_dir/runbooks" ]]; then
+        log_info "Copying runbooks directory..."
+        cp -r "$mcp_dir/runbooks" "$export_mcp/"
+        log_success "Runbooks directory copied"
     fi
     
     # Copy kubernetes directory if exists
@@ -309,6 +356,82 @@ export_launchd() {
     log_success "Launchd plists exported"
 }
 
+# Export web interface
+export_web() {
+    log_info "Exporting web interface..."
+    
+    local web_dir="$DOTFILES_ROOT/web"
+    local export_web="$EXPORT_ROOT/web"
+    
+    # Copy backend
+    if [[ -d "$web_dir/backend" ]]; then
+        log_info "Copying backend..."
+        cp -r "$web_dir/backend" "$export_web/"
+        log_success "Backend copied"
+    fi
+    
+    # Copy frontend
+    if [[ -d "$web_dir/frontend" ]]; then
+        log_info "Copying frontend..."
+        cp -r "$web_dir/frontend" "$export_web/"
+        log_success "Frontend copied"
+    fi
+    
+    # Copy nginx config
+    if [[ -d "$web_dir/nginx" ]]; then
+        while IFS= read -r -d '' file; do
+            local basename_file=$(basename "$file")
+            copy_file "$file" "$export_web/nginx/$basename_file"
+        done < <(find "$web_dir/nginx" -name "*.conf" -type f -print0 2>/dev/null)
+    fi
+    
+    # Copy systemd service
+    if [[ -d "$web_dir/systemd" ]]; then
+        while IFS= read -r -d '' file; do
+            local basename_file=$(basename "$file")
+            copy_file "$file" "$export_web/systemd/$basename_file"
+        done < <(find "$web_dir/systemd" -name "*.service" -type f -print0 2>/dev/null)
+    fi
+    
+    # Copy launchd plists
+    if [[ -d "$web_dir/launchd" ]]; then
+        while IFS= read -r -d '' file; do
+            local basename_file=$(basename "$file")
+            copy_file "$file" "$export_web/launchd/$basename_file"
+        done < <(find "$web_dir/launchd" -name "*.plist" -type f -print0 2>/dev/null)
+    fi
+    
+    # Copy deployment scripts
+    for script in deploy-systemd.sh deploy-launchd.sh configure-tailscale.sh setup-tailscale-https.sh start.sh; do
+        if [[ -f "$web_dir/$script" ]]; then
+            copy_file "$web_dir/$script" "$export_web/$script"
+        fi
+    done
+    
+    # Copy README files
+    for readme in README.md README-DEPLOYMENT.md ACCESS_GUIDE.md TAILSCALE_MOBILE_ACCESS.md; do
+        if [[ -f "$web_dir/$readme" ]]; then
+            copy_file "$web_dir/$readme" "$export_web/$readme"
+        fi
+    done
+    
+    log_success "Web interface exported"
+}
+
+# Export tmux config
+export_tmux() {
+    log_info "Exporting tmux configuration..."
+    
+    local tmux_dir="$DOTFILES_ROOT/tmux"
+    
+    # Copy tmux.conf.gtd
+    if [[ -f "$tmux_dir/tmux.conf.gtd" ]]; then
+        copy_file "$tmux_dir/tmux.conf.gtd" "$EXPORT_ROOT/tmux/tmux.conf.gtd"
+    fi
+    
+    log_success "Tmux configuration exported"
+}
+
 # Main export function
 main() {
     log_info "Starting GTD system export..."
@@ -331,6 +454,20 @@ main() {
     export_docs
     export_tests
     export_launchd
+    export_web
+    export_tmux
+    
+    # Export Makefile targets
+    log_info "Extracting Makefile targets..."
+    if [[ -f "$SCRIPT_DIR/extract-makefile-targets.py" ]]; then
+        if python3 "$SCRIPT_DIR/extract-makefile-targets.py"; then
+            log_success "Makefile targets extracted"
+        else
+            log_warning "Makefile extraction failed (non-critical)"
+        fi
+    else
+        log_warning "Makefile extraction script not found (non-critical)"
+    fi
     
     # Summary
     echo ""
@@ -343,7 +480,7 @@ main() {
         log_success "Export completed successfully!"
         log_info "Next steps:"
         echo "  1. Review exported files in: $EXPORT_ROOT"
-        echo "  2. Update paths in all files"
+        echo "  2. Update paths in all files (run update-paths.sh)"
         echo "  3. Test the exported system"
         echo "  4. Create README.md and installation guide"
     else
